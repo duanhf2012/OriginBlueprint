@@ -1,19 +1,17 @@
-# README
+# OriginBlueprint
 
-## About
+A cross-platform blueprint editor built with Go, Wails v2, Vue 3, TypeScript, and Rete.js v2.
 
-This is the official Wails Vue-TS template.
+## Architecture
 
-You can configure the project by editing `wails.json`. More information about the project settings can be found
-here: https://wails.io/docs/reference/project-config
+Go owns domain rules, persistence, validation, migration, compilation, and platform services. Vue/TypeScript owns Rete.js rendering and high-frequency canvas interaction.
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) before adding or moving application logic.
 
 ## Live Development
 
-To run in live development mode, run `wails dev` in the project directory. This will run a Vite development
-server that will provide very fast hot reload of your frontend changes. If you want to develop in a browser
-and have access to your Go methods, there is also a dev server that runs on http://localhost:34115. Connect
-to this in your browser, and you can call your Go code from devtools.
+Run `wails dev` in this directory for desktop development with frontend hot reload.
 
 ## Building
 
-To build a redistributable, production mode package, use `wails build`.
+Run `wails build` to build the Windows executable. Double-click `run.bat` to start an existing build or build it automatically when needed.

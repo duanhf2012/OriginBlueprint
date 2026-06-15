@@ -20,5 +20,5 @@ const socketClass = computed(() => `socket-${props.data.name.replace(/[^a-z0-9_-
 .blueprint-socket.exec { width: 14px; height: 16px; border: 0; border-radius: 0; background: transparent; }
 .blueprint-socket.exec svg { display: block; width: 14px; height: 16px; overflow: visible; }
 .blueprint-socket.exec path { fill: none; stroke: #f0f0f0; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
-.socket-integer, .socket-number { border-color: #20bd3d; }.socket-float { border-color: #4fc4a5; }.socket-boolean { border-color: #f12b38; }.socket-string { border-color: #e725b8; }.socket-array { border-color: #d6ac19; }.socket-any { border-color: #3a91db; }
+.socket-integer, .socket-number { border-color: #20bd3d; }.socket-float { border-color: #4fc4a5; }.socket-boolean { border-color: #f12b38; }.socket-string { border-color: #e725b8; }.socket-array { border-color: #d6ac19; }.socket-file { border-color: #84b6e0; }.socket-table { border-color: #47c99d; }.socket-dictionary { border-color: #d98945; }.socket-any { border-color: #3a91db; }
 </style>

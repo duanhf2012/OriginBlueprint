@@ -6,15 +6,19 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 type App struct {
-	ctx context.Context
+	ctx       context.Context
+	sessions  map[string]context.CancelFunc
+	sessionMu sync.Mutex
 }
 
 type FileResult struct {
@@ -28,7 +32,7 @@ type WorkspaceEntry struct {
 	IsDir bool   `json:"isDir"`
 }
 
-func NewApp() *App { return &App{} }
+func NewApp() *App { return &App{sessions: make(map[string]context.CancelFunc)} }
 
 func (a *App) startup(ctx context.Context) { a.ctx = ctx }
 
@@ -79,6 +83,37 @@ func (a *App) SaveGraph(path, content string) (string, error) {
 
 func (a *App) ChooseWorkspace() (string, error) {
 	return runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{Title: "Select Workspace"})
+}
+
+func (a *App) ChooseDataFile(mode string) (string, error) {
+	filters := []runtime.FileFilter{
+		{DisplayName: "CSV and text files", Pattern: "*.csv;*.tsv;*.txt;*.json"},
+		{DisplayName: "All files", Pattern: "*.*"},
+	}
+	if mode == "save" {
+		return runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{Title: "Select Output File", Filters: filters})
+	}
+	return runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{Title: "Select Input File", Filters: filters})
+}
+
+func (a *App) NewWindow() error {
+	executable, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	return exec.Command(executable).Start()
+}
+
+func (a *App) ClearRecentFiles() error {
+	err := os.Remove(configPath())
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
+}
+
+func (a *App) Quit() {
+	runtime.Quit(a.ctx)
 }
 
 func (a *App) ListWorkspace(root string) ([]WorkspaceEntry, error) {

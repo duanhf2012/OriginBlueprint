@@ -1,0 +1,450 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+)
+
+const GraphSchemaVersion = 1
+
+type GraphDocument struct {
+	SchemaVersion  int                  `json:"schemaVersion"`
+	GraphName      string               `json:"graphName"`
+	Nodes          []GraphNode          `json:"nodes"`
+	Connections    []GraphConnection    `json:"connections"`
+	Groups         []GraphGroup         `json:"groups"`
+	Variables      []GraphVariable      `json:"variables"`
+	VariableGroups []GraphVariableGroup `json:"variableGroups"`
+	View           GraphView            `json:"view"`
+}
+
+type GraphNode struct {
+	ID         string                 `json:"id"`
+	TypeID     string                 `json:"typeId"`
+	Position   GraphPosition          `json:"position"`
+	Values     map[string]interface{} `json:"values"`
+	Properties GraphNodeProperties    `json:"properties,omitempty"`
+}
+
+type GraphNodeProperties struct {
+	Label              string            `json:"label,omitempty"`
+	VariableID         string            `json:"variableId,omitempty"`
+	VariableAccess     string            `json:"variableAccess,omitempty"`
+	DynamicOutputCount int               `json:"dynamicOutputCount,omitempty"`
+	LegacyClass        string            `json:"legacyClass,omitempty"`
+	LegacyModule       string            `json:"legacyModule,omitempty"`
+	LegacyInputs       []GraphLegacyPort `json:"legacyInputs,omitempty"`
+	LegacyOutputs      []GraphLegacyPort `json:"legacyOutputs,omitempty"`
+}
+
+type GraphLegacyPort struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+	Type  string `json:"type"`
+}
+
+type GraphPosition struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+}
+
+type GraphConnection struct {
+	Source       string `json:"source"`
+	SourceOutput string `json:"sourceOutput"`
+	Target       string `json:"target"`
+	TargetInput  string `json:"targetInput"`
+}
+
+type GraphGroup struct {
+	ID      string   `json:"id"`
+	Title   string   `json:"title"`
+	X       float64  `json:"x"`
+	Y       float64  `json:"y"`
+	Width   float64  `json:"width"`
+	Height  float64  `json:"height"`
+	NodeIDs []string `json:"nodeIds"`
+}
+
+type GraphVariable struct {
+	ID           string      `json:"id"`
+	Name         string      `json:"name"`
+	Type         string      `json:"type"`
+	DefaultValue interface{} `json:"defaultValue"`
+	GroupID      string      `json:"groupId"`
+	Description  string      `json:"description,omitempty"`
+}
+
+type GraphVariableGroup struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Collapsed bool   `json:"collapsed,omitempty"`
+}
+
+type GraphView struct {
+	X    float64 `json:"x"`
+	Y    float64 `json:"y"`
+	Zoom float64 `json:"zoom"`
+}
+
+type ValidationIssue struct {
+	Severity string `json:"severity"`
+	Code     string `json:"code"`
+	Message  string `json:"message"`
+	NodeID   string `json:"nodeId,omitempty"`
+}
+
+type portDefinition struct {
+	Inputs  map[string]string
+	Outputs map[string]string
+}
+
+var graphNodePorts = map[string]portDefinition{
+	"origin.event.begin": {
+		Outputs: map[string]string{"exec": "exec"},
+	},
+	"origin.flow.for-loop": {
+		Inputs:  map[string]string{"exec": "exec", "start": "integer", "end": "integer"},
+		Outputs: map[string]string{"body": "exec", "index": "integer", "completed": "exec"},
+	},
+	"origin.flow.branch": {
+		Inputs:  map[string]string{"exec": "exec", "condition": "boolean"},
+		Outputs: map[string]string{"true": "exec", "false": "exec"},
+	},
+	"origin.cast.integer-string": {
+		Inputs:  map[string]string{"value": "integer"},
+		Outputs: map[string]string{"result": "string"},
+	},
+	"origin.cast.float-string": {
+		Inputs: map[string]string{"value": "float"}, Outputs: map[string]string{"result": "string"},
+	},
+	"origin.action.print": {
+		Inputs:  map[string]string{"exec": "exec", "value": "string"},
+		Outputs: map[string]string{"exec": "exec"},
+	},
+	"origin.math.add-integer": {
+		Inputs: map[string]string{"a": "integer", "b": "integer"}, Outputs: map[string]string{"result": "integer"},
+	},
+	"origin.math.subtract-integer": {
+		Inputs: map[string]string{"a": "integer", "b": "integer", "absolute": "boolean"}, Outputs: map[string]string{"result": "integer"},
+	},
+	"origin.math.multiply-integer": {
+		Inputs: map[string]string{"a": "integer", "b": "integer"}, Outputs: map[string]string{"result": "integer"},
+	},
+	"origin.math.divide-integer": {
+		Inputs: map[string]string{"a": "integer", "b": "integer", "round": "boolean"}, Outputs: map[string]string{"result": "integer"},
+	},
+	"origin.math.modulo-integer": {
+		Inputs: map[string]string{"a": "integer", "b": "integer"}, Outputs: map[string]string{"result": "integer"},
+	},
+	"origin.math.random-integer": {
+		Inputs: map[string]string{"seed": "integer", "min": "integer", "max": "integer"}, Outputs: map[string]string{"result": "integer"},
+	},
+	"origin.flow.sequence": {
+		Inputs: map[string]string{"exec": "exec"}, Outputs: map[string]string{"then0": "exec", "then1": "exec", "then2": "exec"},
+	},
+	"origin.flow.greater-integer": {
+		Inputs: map[string]string{"exec": "exec", "orEqual": "boolean", "a": "integer", "b": "integer"}, Outputs: map[string]string{"false": "exec", "true": "exec"},
+	},
+	"origin.flow.less-integer": {
+		Inputs: map[string]string{"exec": "exec", "orEqual": "boolean", "a": "integer", "b": "integer"}, Outputs: map[string]string{"false": "exec", "true": "exec"},
+	},
+	"origin.flow.equal-integer": {
+		Inputs: map[string]string{"exec": "exec", "a": "integer", "b": "integer"}, Outputs: map[string]string{"false": "exec", "true": "exec"},
+	},
+	"origin.array.get-integer": {
+		Inputs: map[string]string{"array": "array", "index": "integer"}, Outputs: map[string]string{"value": "integer"},
+	},
+	"origin.array.get-string": {
+		Inputs: map[string]string{"array": "array", "index": "integer"}, Outputs: map[string]string{"value": "string"},
+	},
+	"origin.array.length": {
+		Inputs: map[string]string{"array": "array"}, Outputs: map[string]string{"length": "integer"},
+	},
+	"origin.array.create-integer": {
+		Inputs: map[string]string{"items": "array"}, Outputs: map[string]string{"array": "array"},
+	},
+	"origin.array.create-string": {
+		Inputs: map[string]string{"items": "array"}, Outputs: map[string]string{"array": "array"},
+	},
+	"origin.array.append-string": {
+		Inputs: map[string]string{"array": "array", "value": "string"}, Outputs: map[string]string{"array": "array"},
+	},
+	"origin.array.append-integer": {
+		Inputs: map[string]string{"array": "array", "value": "integer"}, Outputs: map[string]string{"array": "array"},
+	},
+	"origin.result.append-integer": {
+		Inputs: map[string]string{"exec": "exec", "value": "integer"}, Outputs: map[string]string{"exec": "exec"},
+	},
+	"origin.result.append-string": {
+		Inputs: map[string]string{"exec": "exec", "value": "string"}, Outputs: map[string]string{"exec": "exec"},
+	},
+	"origin.event.entry-array": {
+		Outputs: map[string]string{"exec": "exec", "objectId": "integer", "params": "array"},
+	},
+	"origin.event.entry-two-integers": {
+		Outputs: map[string]string{"exec": "exec", "objectId": "integer", "param1": "integer", "param2": "integer"},
+	},
+	"origin.event.timer": {
+		Outputs: map[string]string{"exec": "exec", "timerId": "integer", "params": "array"},
+	},
+	"origin.timer.create": {
+		Inputs: map[string]string{"exec": "exec", "milliseconds": "integer", "params": "array"}, Outputs: map[string]string{"exec": "exec", "timerId": "integer"},
+	},
+	"origin.timer.close": {
+		Inputs: map[string]string{"exec": "exec", "timerId": "integer"}, Outputs: map[string]string{"exec": "exec"},
+	},
+	"origin.flow.foreach-integer-array": {
+		Inputs: map[string]string{"exec": "exec", "array": "array"}, Outputs: map[string]string{"body": "exec", "completed": "exec", "index": "integer", "value": "integer"},
+	},
+	"origin.flow.probability": {
+		Inputs: map[string]string{"exec": "exec", "probability": "integer"}, Outputs: map[string]string{"miss": "exec", "hit": "exec"},
+	},
+	"origin.flow.range-compare": {
+		Inputs: map[string]string{"exec": "exec", "value": "integer", "ranges": "array"}, Outputs: map[string]string{"otherwise": "exec", "case0": "exec", "case1": "exec", "case2": "exec", "case3": "exec", "case4": "exec"},
+	},
+	"origin.flow.equal-switch": {
+		Inputs: map[string]string{"exec": "exec", "value": "integer", "cases": "array"}, Outputs: map[string]string{"otherwise": "exec", "case0": "exec", "case1": "exec", "case2": "exec", "case3": "exec", "case4": "exec"},
+	},
+	"origin.debug.output": {
+		Inputs: map[string]string{"exec": "exec", "integer": "integer", "string": "string", "array": "array"}, Outputs: map[string]string{"exec": "exec"},
+	},
+	"origin.io.file-path": {
+		Inputs: map[string]string{"path": "string"}, Outputs: map[string]string{"file": "file"},
+	},
+	"origin.io.save-file-path": {
+		Inputs: map[string]string{"path": "string"}, Outputs: map[string]string{"file": "file"},
+	},
+	"origin.literal.string": {
+		Inputs: map[string]string{"value": "string"}, Outputs: map[string]string{"value": "string"},
+	},
+	"origin.math.add-float": {
+		Inputs: map[string]string{"a": "float", "b": "float"}, Outputs: map[string]string{"result": "float"},
+	},
+	"origin.math.subtract-float": {
+		Inputs: map[string]string{"a": "float", "b": "float"}, Outputs: map[string]string{"result": "float"},
+	},
+	"origin.math.multiply-float": {
+		Inputs: map[string]string{"a": "float", "b": "float"}, Outputs: map[string]string{"result": "float"},
+	},
+	"origin.math.divide-float": {
+		Inputs: map[string]string{"a": "float", "b": "float"}, Outputs: map[string]string{"result": "float"},
+	},
+	"origin.compare.greater-integer": {
+		Inputs: map[string]string{"a": "integer", "b": "integer"}, Outputs: map[string]string{"result": "boolean", "a": "integer", "b": "integer"},
+	},
+	"origin.flow.while": {
+		Inputs: map[string]string{"exec": "exec", "condition": "boolean"}, Outputs: map[string]string{"body": "exec", "completed": "exec"},
+	},
+	"origin.flow.for-loop-break": {
+		Inputs: map[string]string{"exec": "exec", "start": "integer", "end": "integer", "break": "exec"}, Outputs: map[string]string{"body": "exec", "index": "integer", "completed": "exec"},
+	},
+	"origin.io.read-text": {
+		Inputs: map[string]string{"exec": "exec", "file": "file"}, Outputs: map[string]string{"exec": "exec", "text": "string", "error": "exec"},
+	},
+	"origin.io.save-text": {
+		Inputs: map[string]string{"exec": "exec", "file": "file", "text": "string"}, Outputs: map[string]string{"exec": "exec"},
+	},
+	"origin.table.read-csv": {
+		Inputs: map[string]string{"exec": "exec", "file": "file", "delimiter": "string", "header": "boolean"}, Outputs: map[string]string{"exec": "exec", "table": "table", "error": "exec"},
+	},
+	"origin.table.save-csv": {
+		Inputs: map[string]string{"exec": "exec", "table": "table", "file": "file"}, Outputs: map[string]string{"exec": "exec", "table": "table"},
+	},
+	"origin.table.row-count": {
+		Inputs: map[string]string{"exec": "exec", "table": "table"}, Outputs: map[string]string{"exec": "exec", "count": "integer"},
+	},
+	"origin.table.headers": {
+		Inputs: map[string]string{"exec": "exec", "table": "table"}, Outputs: map[string]string{"exec": "exec", "headers": "array"},
+	},
+	"origin.table.merge": {
+		Inputs: map[string]string{"exec": "exec", "left": "table", "right": "table", "key": "string"}, Outputs: map[string]string{"exec": "exec", "table": "table"},
+	},
+	"origin.table.select-columns": {
+		Inputs: map[string]string{"exec": "exec", "table": "table", "columns": "array"}, Outputs: map[string]string{"exec": "exec", "table": "table"},
+	},
+	"origin.table.print": {
+		Inputs: map[string]string{"exec": "exec", "table": "table"}, Outputs: map[string]string{"exec": "exec", "table": "table"},
+	},
+	"origin.table.sort": {
+		Inputs: map[string]string{"exec": "exec", "table": "table", "column": "string", "ascending": "boolean"}, Outputs: map[string]string{"exec": "exec", "table": "table"},
+	},
+	"origin.table.filter-equal": {
+		Inputs: map[string]string{"exec": "exec", "table": "table", "column": "string", "value": "any"}, Outputs: map[string]string{"exec": "exec", "table": "table"},
+	},
+	"origin.table.rename-column": {
+		Inputs: map[string]string{"exec": "exec", "table": "table", "from": "string", "to": "string"}, Outputs: map[string]string{"exec": "exec", "table": "table"},
+	},
+	"origin.table.drop-columns": {
+		Inputs: map[string]string{"exec": "exec", "table": "table", "columns": "array"}, Outputs: map[string]string{"exec": "exec", "table": "table"},
+	},
+	"origin.table.fill-empty": {
+		Inputs: map[string]string{"exec": "exec", "table": "table", "value": "any"}, Outputs: map[string]string{"exec": "exec", "table": "table"},
+	},
+	"origin.table.get-column": {
+		Inputs: map[string]string{"table": "table", "column": "string"}, Outputs: map[string]string{"values": "array"},
+	},
+	"origin.flow.foreach-array": {
+		Inputs: map[string]string{"exec": "exec", "array": "array"}, Outputs: map[string]string{"body": "exec", "completed": "exec", "value": "any", "index": "integer"},
+	},
+	"origin.flow.foreach-table-row": {
+		Inputs: map[string]string{"exec": "exec", "table": "table"}, Outputs: map[string]string{"body": "exec", "completed": "exec", "row": "dictionary", "index": "integer"},
+	},
+	"origin.table.preview": {
+		Inputs: map[string]string{"table": "table"},
+	},
+	"origin.string.split": {
+		Inputs: map[string]string{"exec": "exec", "text": "string", "delimiter": "string"}, Outputs: map[string]string{"exec": "exec", "array": "array"},
+	},
+	"origin.array.get-any": {
+		Inputs: map[string]string{"array": "array", "index": "integer"}, Outputs: map[string]string{"value": "any"},
+	},
+	"origin.cast.any-string": {
+		Inputs: map[string]string{"exec": "exec", "value": "any"}, Outputs: map[string]string{"exec": "exec", "valid": "boolean", "result": "string"},
+	},
+	"origin.dictionary.set": {
+		Inputs: map[string]string{"exec": "exec", "dictionary": "dictionary", "key": "string", "value": "any"}, Outputs: map[string]string{"exec": "exec", "dictionary": "dictionary"},
+	},
+	"origin.dictionary.size": {
+		Inputs: map[string]string{"dictionary": "dictionary"}, Outputs: map[string]string{"size": "integer"},
+	},
+	"origin.dictionary.keys": {
+		Inputs: map[string]string{"dictionary": "dictionary"}, Outputs: map[string]string{"keys": "array"},
+	},
+}
+
+func (a *App) ValidateGraph(content string) ([]ValidationIssue, error) {
+	var document GraphDocument
+	if err := json.Unmarshal([]byte(content), &document); err != nil {
+		return nil, fmt.Errorf("decode graph document: %w", err)
+	}
+	return validateGraph(document), nil
+}
+
+func validateGraph(document GraphDocument) []ValidationIssue {
+	issues := make([]ValidationIssue, 0)
+	if document.SchemaVersion != GraphSchemaVersion {
+		issues = append(issues, ValidationIssue{Severity: "error", Code: "schema.unsupported", Message: fmt.Sprintf("Unsupported schema version %d", document.SchemaVersion)})
+	}
+
+	variables := make(map[string]GraphVariable, len(document.Variables))
+	variableNames := make(map[string]bool, len(document.Variables))
+	variableTypes := map[string]bool{"boolean": true, "integer": true, "float": true, "string": true, "array": true, "file": true, "table": true, "dictionary": true}
+	variableGroups := map[string]bool{"default": true}
+	variableGroupNames := map[string]bool{"Default": true}
+	for _, group := range document.VariableGroups {
+		if group.ID == "" || group.Name == "" {
+			issues = append(issues, ValidationIssue{Severity: "error", Code: "variable-group.invalid", Message: "Variable group ID and name are required"})
+			continue
+		}
+		if variableGroups[group.ID] && group.ID != "default" {
+			issues = append(issues, ValidationIssue{Severity: "error", Code: "variable-group.duplicate-id", Message: "Duplicate variable group ID: " + group.ID})
+		}
+		if variableGroupNames[group.Name] && !(group.ID == "default" && group.Name == "Default") {
+			issues = append(issues, ValidationIssue{Severity: "error", Code: "variable-group.duplicate-name", Message: "Duplicate variable group name: " + group.Name})
+		}
+		variableGroups[group.ID] = true
+		variableGroupNames[group.Name] = true
+	}
+	for _, variable := range document.Variables {
+		if variable.ID == "" || variable.Name == "" {
+			issues = append(issues, ValidationIssue{Severity: "error", Code: "variable.invalid", Message: "Variable ID and name are required"})
+			continue
+		}
+		if _, exists := variables[variable.ID]; exists {
+			issues = append(issues, ValidationIssue{Severity: "error", Code: "variable.duplicate-id", Message: "Duplicate variable ID: " + variable.ID})
+		}
+		if variableNames[variable.Name] {
+			issues = append(issues, ValidationIssue{Severity: "error", Code: "variable.duplicate-name", Message: "Duplicate variable name: " + variable.Name})
+		}
+		if !variableTypes[variable.Type] {
+			issues = append(issues, ValidationIssue{Severity: "error", Code: "variable.unknown-type", Message: "Unknown variable type: " + variable.Type})
+		}
+		groupID := variable.GroupID
+		if groupID == "" {
+			groupID = "default"
+		}
+		if !variableGroups[groupID] {
+			issues = append(issues, ValidationIssue{Severity: "error", Code: "variable.missing-group", Message: "Variable references a missing group: " + groupID})
+		}
+		variables[variable.ID] = variable
+		variableNames[variable.Name] = true
+	}
+
+	nodes := make(map[string]GraphNode, len(document.Nodes))
+	ports := make(map[string]portDefinition, len(document.Nodes))
+	for _, node := range document.Nodes {
+		if node.ID == "" {
+			issues = append(issues, ValidationIssue{Severity: "error", Code: "node.missing-id", Message: "A node has no ID"})
+			continue
+		}
+		if _, exists := nodes[node.ID]; exists {
+			issues = append(issues, ValidationIssue{Severity: "error", Code: "node.duplicate-id", Message: "Duplicate node ID: " + node.ID, NodeID: node.ID})
+			continue
+		}
+		nodes[node.ID] = node
+		definition, known := graphNodePorts[node.TypeID]
+		if node.TypeID == "origin.flow.sequence" {
+			count := node.Properties.DynamicOutputCount
+			if count == 0 {
+				count = 3
+			}
+			outputs := make(map[string]string, count)
+			for index := 0; index < count; index++ {
+				outputs[fmt.Sprintf("then%d", index)] = "exec"
+			}
+			definition = portDefinition{Inputs: map[string]string{"exec": "exec"}, Outputs: outputs}
+			known = true
+		}
+		if node.TypeID == "origin.variable.get" || node.TypeID == "origin.variable.set" {
+			variable, exists := variables[node.Properties.VariableID]
+			if !exists {
+				issues = append(issues, ValidationIssue{Severity: "error", Code: "variable.missing", Message: "Variable node references a missing variable", NodeID: node.ID})
+				continue
+			}
+			if node.TypeID == "origin.variable.get" {
+				definition = portDefinition{Outputs: map[string]string{"value": variable.Type}}
+			} else {
+				definition = portDefinition{Inputs: map[string]string{"exec": "exec", "value": variable.Type}, Outputs: map[string]string{"exec": "exec", "value": variable.Type}}
+			}
+			known = true
+		}
+		if node.TypeID == "origin.legacy.placeholder" {
+			inputs := make(map[string]string, len(node.Properties.LegacyInputs))
+			outputs := make(map[string]string, len(node.Properties.LegacyOutputs))
+			for _, port := range node.Properties.LegacyInputs {
+				inputs[port.Key] = port.Type
+			}
+			for _, port := range node.Properties.LegacyOutputs {
+				outputs[port.Key] = port.Type
+			}
+			definition = portDefinition{Inputs: inputs, Outputs: outputs}
+			known = true
+			issues = append(issues, ValidationIssue{Severity: "warning", Code: "node.legacy-placeholder", Message: "Legacy node is preserved but not executable: " + node.Properties.LegacyClass, NodeID: node.ID})
+		}
+		if !known {
+			issues = append(issues, ValidationIssue{Severity: "error", Code: "node.unknown-type", Message: "Unknown node type: " + node.TypeID, NodeID: node.ID})
+			continue
+		}
+		ports[node.ID] = definition
+	}
+
+	for _, connection := range document.Connections {
+		source, sourceExists := nodes[connection.Source]
+		target, targetExists := nodes[connection.Target]
+		if !sourceExists || !targetExists {
+			issues = append(issues, ValidationIssue{Severity: "error", Code: "connection.dangling", Message: "Connection references a missing node"})
+			continue
+		}
+		sourceType, sourcePortExists := ports[source.ID].Outputs[connection.SourceOutput]
+		targetType, targetPortExists := ports[target.ID].Inputs[connection.TargetInput]
+		if !sourcePortExists || !targetPortExists {
+			issues = append(issues, ValidationIssue{Severity: "error", Code: "connection.missing-port", Message: "Connection references a missing port", NodeID: target.ID})
+			continue
+		}
+		if sourceType != targetType && sourceType != "any" && targetType != "any" {
+			issues = append(issues, ValidationIssue{Severity: "error", Code: "connection.type-mismatch", Message: fmt.Sprintf("Cannot connect %s to %s", sourceType, targetType), NodeID: target.ID})
+		}
+	}
+
+	return issues
+}

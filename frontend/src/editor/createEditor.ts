@@ -3,50 +3,17 @@ import { AreaExtensions, AreaPlugin, Drag } from 'rete-area-plugin'
 import { ConnectionPlugin, Presets as ConnectionPresets } from 'rete-connection-plugin'
 import { Presets as VuePresets, VuePlugin } from 'rete-vue-plugin'
 import BlueprintControl from './BlueprintControl.vue'
+import BlueprintConnectionComponent from './BlueprintConnection.vue'
 import BlueprintNodeComponent from './BlueprintNode.vue'
 import BlueprintSocket from './BlueprintSocket.vue'
-import { createNode } from './nodeRegistry'
+import { createLegacyNode, createNode, createVariableNode } from './nodeRegistry'
 import { BlueprintNode, type Schemes } from './types'
+import type { ConnectionSnapshot, GraphDocument, GraphSnapshot, GraphVariable, GraphVariableGroup, GroupSnapshot, NodeSnapshot } from './document'
+
+export type { GraphDocument, GraphVariable, GraphVariableGroup, ValidationIssue, VariableType } from './document'
 
 type AreaExtra = import('rete-vue-plugin').VueArea2D<Schemes>
 type Position = { x: number; y: number }
-
-export interface NodeSnapshot {
-  id: string
-  typeId: string
-  position: Position
-  values: Record<string, unknown>
-}
-
-export interface ConnectionSnapshot {
-  source: string
-  sourceOutput: string
-  target: string
-  targetInput: string
-}
-
-export interface GroupSnapshot {
-  id: string
-  title: string
-  x: number
-  y: number
-  width: number
-  height: number
-  nodeIds: string[]
-}
-
-interface GraphSnapshot {
-  nodes: NodeSnapshot[]
-  connections: ConnectionSnapshot[]
-  groups: GroupSnapshot[]
-}
-
-export interface GraphDocument extends GraphSnapshot {
-  schemaVersion: 1
-  graphName: string
-  variables: unknown[]
-  view: { x: number; y: number; zoom: number }
-}
 
 interface ClipboardGraph {
   nodes: Omit<NodeSnapshot, 'id'>[]
@@ -58,10 +25,19 @@ export interface EditorMetrics {
   connections: number
 }
 
+export interface SelectedNodeInfo {
+  id: string
+  typeId: string
+  label: string
+  values: Record<string, unknown>
+  variableId?: string
+}
+
 export interface BlueprintEditorHandle {
   destroy(): void
   resetView(): void
   addNode(typeId: string, clientPosition?: Position): Promise<void>
+  addVariableNode(variable: GraphVariable, access: 'get' | 'set', clientPosition?: Position): Promise<void>
   deleteSelected(): Promise<void>
   selectAll(): Promise<void>
   deselectAll(): Promise<void>
@@ -70,13 +46,18 @@ export interface BlueprintEditorHandle {
   paste(): Promise<void>
   undo(): Promise<void>
   redo(): Promise<void>
-  getDocument(graphName?: string): GraphDocument
+  getDocument(graphName?: string, variables?: GraphVariable[], variableGroups?: GraphVariableGroup[]): GraphDocument
   loadDocument(document: GraphDocument): Promise<void>
   newDocument(): Promise<void>
   align(mode: 'horizontal-center' | 'vertical-center' | 'left' | 'right' | 'top' | 'bottom' | 'horizontal-distribute' | 'vertical-distribute' | 'straighten'): Promise<void>
   groupSelected(): Promise<void>
   ungroupSelected(): Promise<void>
   fitSelected(): Promise<void>
+  setVariables(variables: GraphVariable[], variableGroups?: GraphVariableGroup[], refreshNodes?: boolean): Promise<void>
+  updateSelectedNode(label: string, values: Record<string, unknown>): Promise<void>
+  focusNode(id: string): Promise<void>
+  setExecutionStates(states: Array<{ nodeId: string; state: 'idle' | 'running' | 'completed' | 'error' }>): Promise<void>
+  clearExecutionStates(): Promise<void>
 }
 
 interface Callbacks {
@@ -84,6 +65,9 @@ interface Callbacks {
   onStatus(value: string): void
   onMetrics(metrics: EditorMetrics): void
   onDirty(): void
+  onVariables(variables: GraphVariable[]): void
+  onVariableGroups(groups: GraphVariableGroup[]): void
+  onSelection(node: SelectedNodeInfo | null): void
 }
 
 function controlValues(node: BlueprintNode) {
@@ -113,14 +97,22 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   const redoStack: GraphSnapshot[] = []
   const groups: GroupSnapshot[] = []
   const groupElements = new Map<string, HTMLElement>()
+  const selectedConnectionIds = new Set<string>()
   let selectedGroupId: string | null = null
   let dragSnapshot: GraphSnapshot | null = null
   let clipboard: ClipboardGraph | null = null
   let restoring = false
+  let transactionActive = false
+  let initializing = true
+  let pendingConnectionSnapshot: GraphSnapshot | null = null
+  let currentVariables: GraphVariable[] = []
+  let currentVariableGroups: GraphVariableGroup[] = []
+  let insertionOffset = 0
 
   render.addPreset(VuePresets.classic.setup({
     customize: {
       node: () => BlueprintNodeComponent,
+      connection: () => BlueprintConnectionComponent,
       socket: () => BlueprintSocket,
       control: () => BlueprintControl
     }
@@ -141,10 +133,34 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     callbacks.onMetrics({ nodes: editor.getNodes().length, connections: editor.getConnections().length })
   }
 
+  async function clearConnectionSelection(exceptId?: string) {
+    for (const id of [...selectedConnectionIds]) {
+      if (id === exceptId) continue
+      selectedConnectionIds.delete(id)
+      const item = editor.getConnection(id)
+      if (item) { item.selected = false; await area.update('connection', id) }
+    }
+  }
+
+  async function selectConnection(id: string, additive: boolean) {
+    const item = editor.getConnection(id)
+    if (!item) return
+    if (!additive) await clearConnectionSelection(id)
+    const selected = additive ? !selectedConnectionIds.has(id) : true
+    item.selected = selected
+    if (selected) selectedConnectionIds.add(id); else selectedConnectionIds.delete(id)
+    await area.update('connection', id)
+    await selector.unselectAll()
+    selectedGroupId = null; renderGroups(); callbacks.onSelection(null)
+    callbacks.onStatus(selected ? 'Connection selected' : 'Connection deselected')
+  }
+
   function graphPosition(clientPosition?: Position): Position {
     if (!clientPosition) {
       const rect = container.getBoundingClientRect()
-      clientPosition = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
+      const offset = insertionOffset % 8 * 24
+      insertionOffset++
+      clientPosition = { x: rect.left + rect.width / 2 + offset, y: rect.top + rect.height / 2 + offset }
     }
     const rect = container.getBoundingClientRect()
     const transform = area.area.transform
@@ -160,7 +176,17 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
         id: node.id,
         typeId: node.typeId ?? '',
         position: { ...(area.nodeViews.get(node.id)?.position ?? { x: 0, y: 0 }) },
-        values: controlValues(node)
+        values: controlValues(node),
+        properties: {
+          label: node.label,
+          variableId: node.variableId,
+          variableAccess: node.variableAccess,
+          dynamicOutputCount: node.dynamicOutputCount,
+          legacyClass: node.legacyClass,
+          legacyModule: node.legacyModule,
+          legacyInputs: node.legacyInputs,
+          legacyOutputs: node.legacyOutputs
+        }
       })),
       connections: editor.getConnections().map(item => ({
         source: item.source,
@@ -186,6 +212,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
       groupElements.set(group.id, element)
 
       element.addEventListener('pointerdown', event => {
+        void clearConnectionSelection()
         selectedGroupId = group.id
         renderGroups()
         event.stopPropagation()
@@ -228,13 +255,22 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
 
   async function restore(data: GraphSnapshot) {
     restoring = true
+    selectedConnectionIds.clear()
     await selector.unselectAll()
     await editor.clear()
     groups.splice(0, groups.length, ...(data.groups ?? []).map(item => ({ ...item, nodeIds: [...item.nodeIds] })))
     const nodes = new Map<string, BlueprintNode>()
     for (const item of data.nodes) {
-      const node = createNode(item.typeId)
+      const variableAccess = item.properties?.variableAccess ?? (item.typeId === 'origin.variable.set' ? 'set' : 'get')
+      const variable = currentVariables.find(entry => entry.id === item.properties?.variableId)
+      const node = item.typeId.startsWith('origin.variable.')
+        ? createVariableNode(variable ?? { id: item.properties?.variableId ?? '', name: 'Missing Variable', type: 'string', defaultValue: '', groupId: 'default' }, variableAccess)
+        : item.typeId === 'origin.legacy.placeholder'
+          ? createLegacyNode(item.properties ?? {})
+        : createNode(item.typeId)
+      if (node.dynamicOutputs) setDynamicOutputCount(node, item.properties?.dynamicOutputCount ?? 3)
       node.id = item.id
+      if (item.properties?.label && !item.typeId.startsWith('origin.variable.')) node.label = item.properties.label
       setControlValues(node, item.values)
       await editor.addNode(node)
       await area.translate(node.id, item.position)
@@ -250,16 +286,64 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     restoring = false
     renderGroups()
     updateMetrics()
+    callbacks.onSelection(null)
   }
 
   async function mutate(label: string, operation: () => Promise<void>) {
     if (!restoring) undoStack.push(snapshot())
     redoStack.length = 0
-    await operation()
+    transactionActive = true
+    try { await operation() } finally { transactionActive = false }
     updateMetrics()
     callbacks.onStatus(label)
     callbacks.onDirty()
   }
+
+  function connectionTypes(item: { source: string; sourceOutput: string; target: string; targetInput: string }) {
+    const source = editor.getNode(item.source)
+    const target = editor.getNode(item.target)
+    return {
+      source: source?.outputs[item.sourceOutput]?.socket.name,
+      target: target?.inputs[item.targetInput]?.socket.name
+    }
+  }
+
+  function automaticConverter(source?: string, target?: string) {
+    if (source === 'integer' && target === 'string') return 'origin.cast.integer-string'
+    if (source === 'float' && target === 'string') return 'origin.cast.float-string'
+    return ''
+  }
+
+  async function insertAutomaticConverter(item: { source: string; sourceOutput: string; target: string; targetInput: string }, typeId: string) {
+    const source = editor.getNode(item.source), target = editor.getNode(item.target)
+    if (!source || !target) return
+    await mutate('Automatic converter inserted', async () => {
+      const sourcePosition = area.nodeViews.get(source.id)?.position ?? { x: 0, y: 0 }
+      const targetPosition = area.nodeViews.get(target.id)?.position ?? { x: sourcePosition.x + 360, y: sourcePosition.y }
+      const converter = createNode(typeId)
+      await editor.addNode(converter)
+      await area.translate(converter.id, { x: (sourcePosition.x + targetPosition.x) / 2, y: (sourcePosition.y + targetPosition.y) / 2 })
+      await editor.addConnection(new ClassicPreset.Connection(source, item.sourceOutput, converter, 'value'))
+      await editor.addConnection(new ClassicPreset.Connection(converter, 'result', target, item.targetInput))
+    })
+  }
+
+  editor.addPipe(context => {
+    if (context.type !== 'connectioncreate' || restoring) return context
+    const types = connectionTypes(context.data)
+    if (types.source && types.target && types.source !== types.target && types.source !== 'any' && types.target !== 'any') {
+      const converter = automaticConverter(types.source, types.target)
+      if (converter) {
+        const item = { ...context.data, sourceOutput: String(context.data.sourceOutput), targetInput: String(context.data.targetInput) }
+        queueMicrotask(() => void insertAutomaticConverter(item, converter))
+        callbacks.onStatus(`Inserting converter: ${types.source} to ${types.target}`)
+        return
+      }
+      callbacks.onStatus(`Connection rejected: ${types.source ?? 'unknown'} cannot connect to ${types.target ?? 'unknown'}`)
+      return
+    }
+    return context
+  })
 
   function selectedNodes() {
     return editor.getNodes().filter(node => node.selected)
@@ -267,23 +351,41 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
 
   async function addNode(typeId: string, clientPosition?: Position) {
     await mutate('Node created', async () => {
+      await clearConnectionSelection()
       const node = createNode(typeId)
       await editor.addNode(node)
       await area.translate(node.id, graphPosition(clientPosition))
       await selector.unselectAll()
       await selectable.select(node.id, false)
+      callbacks.onSelection(selectedNodeInfo(node))
+    })
+  }
+
+  async function addVariableNode(variable: GraphVariable, access: 'get' | 'set', clientPosition?: Position) {
+    await mutate(`${access === 'get' ? 'Get' : 'Set'} variable node created`, async () => {
+      await clearConnectionSelection()
+      const node = createVariableNode(variable, access)
+      await editor.addNode(node)
+      await area.translate(node.id, graphPosition(clientPosition))
+      await selector.unselectAll()
+      await selectable.select(node.id, false)
+      callbacks.onSelection(selectedNodeInfo(node))
     })
   }
 
   async function deleteSelected() {
     const selected = selectedNodes()
-    if (!selected.length) return
-    await mutate(`Deleted ${selected.length} node(s)`, async () => {
+    const selectedConnections = new Set(selectedConnectionIds)
+    if (!selected.length && !selectedConnections.size) return
+    const parts = [selected.length ? `${selected.length} node(s)` : '', selectedConnections.size ? `${selectedConnections.size} connection(s)` : ''].filter(Boolean)
+    await mutate(`Deleted ${parts.join(' and ')}`, async () => {
       const ids = new Set(selected.map(node => node.id))
       for (const item of editor.getConnections()) {
-        if (ids.has(item.source) || ids.has(item.target)) await editor.removeConnection(item.id)
+        if (selectedConnections.has(item.id) || ids.has(item.source) || ids.has(item.target)) await editor.removeConnection(item.id)
       }
       for (const node of selected) await editor.removeNode(node.id)
+      selectedConnectionIds.clear()
+      callbacks.onSelection(null)
     })
   }
 
@@ -298,7 +400,8 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
       nodes: selected.map((node, index) => ({
         typeId: node.typeId ?? '',
         position: { x: positions[index].x - minX, y: positions[index].y - minY },
-        values: controlValues(node)
+        values: controlValues(node),
+        properties: { label: node.label, variableId: node.variableId, variableAccess: node.variableAccess, dynamicOutputCount: node.dynamicOutputCount, legacyClass: node.legacyClass, legacyModule: node.legacyModule, legacyInputs: node.legacyInputs, legacyOutputs: node.legacyOutputs }
       })),
       connections: editor.getConnections().flatMap(item => {
         const sourceIndex = ids.get(item.source)
@@ -326,7 +429,15 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
       const nodes: BlueprintNode[] = []
       await selector.unselectAll()
       for (const item of clipboard!.nodes) {
-        const node = createNode(item.typeId)
+        const variableAccess = item.properties?.variableAccess ?? (item.typeId === 'origin.variable.set' ? 'set' : 'get')
+        const variable = currentVariables.find(entry => entry.id === item.properties?.variableId)
+        const node = item.typeId.startsWith('origin.variable.')
+          ? createVariableNode(variable ?? { id: item.properties?.variableId ?? '', name: 'Missing Variable', type: 'string', defaultValue: '', groupId: 'default' }, variableAccess)
+          : item.typeId === 'origin.legacy.placeholder'
+            ? createLegacyNode(item.properties ?? {})
+          : createNode(item.typeId)
+        if (node.dynamicOutputs) setDynamicOutputCount(node, item.properties?.dynamicOutputCount ?? 3)
+        if (item.properties?.label && !item.typeId.startsWith('origin.variable.')) node.label = item.properties.label
         setControlValues(node, item.values)
         await editor.addNode(node)
         await area.translate(node.id, { x: base.x + item.position.x, y: base.y + item.position.y })
@@ -357,19 +468,24 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     callbacks.onStatus('Redo')
   }
 
-  function getDocument(graphName = 'Untitled'): GraphDocument {
+  function getDocument(graphName = 'Untitled', variables?: GraphVariable[], variableGroups?: GraphVariableGroup[]): GraphDocument {
     const data = snapshot()
     return {
       schemaVersion: 1,
       graphName,
       ...data,
-      variables: [],
+      variables: (variables ?? currentVariables).map(item => ({ ...item })),
+      variableGroups: (variableGroups ?? currentVariableGroups).map(item => ({ ...item })),
       view: { x: area.area.transform.x, y: area.area.transform.y, zoom: area.area.transform.k }
     }
   }
 
   async function loadDocument(document: GraphDocument) {
     undoStack.length = 0; redoStack.length = 0
+    currentVariables = (document.variables ?? []).map(item => ({ ...item }))
+    currentVariableGroups = (document.variableGroups ?? []).map(item => ({ ...item }))
+    callbacks.onVariables(currentVariables.map(item => ({ ...item })))
+    callbacks.onVariableGroups(currentVariableGroups.map(item => ({ ...item })))
     await restore({ nodes: document.nodes ?? [], connections: document.connections ?? [], groups: document.groups ?? [] })
     if (document.view) {
       await area.area.translate(document.view.x, document.view.y)
@@ -380,6 +496,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
 
   async function newDocument() {
     undoStack.length = 0; redoStack.length = 0; groups.length = 0; selectedGroupId = null
+    currentVariables = []; currentVariableGroups = [{ id: 'default', name: 'Default' }]; insertionOffset = 0; callbacks.onVariables([]); callbacks.onVariableGroups(currentVariableGroups.map(item => ({ ...item }))); callbacks.onSelection(null)
     restoring = true; await selector.unselectAll(); await editor.clear(); restoring = false; renderGroups(); updateMetrics()
     await area.area.translate(0, 0); await area.area.zoom(1)
     callbacks.onStatus('New graph')
@@ -449,13 +566,113 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   }
 
   async function selectAll() {
+    await clearConnectionSelection()
     for (const node of editor.getNodes()) await selectable.select(node.id, true)
     callbacks.onStatus(`Selected ${editor.getNodes().length} node(s)`)
   }
 
   async function deselectAll() {
     await selector.unselectAll()
+    await clearConnectionSelection()
+    callbacks.onSelection(null)
     callbacks.onStatus('Selection cleared')
+  }
+
+  function selectedNodeInfo(node: BlueprintNode): SelectedNodeInfo {
+    return { id: node.id, typeId: node.typeId ?? '', label: node.label, values: controlValues(node), variableId: node.variableId }
+  }
+
+  function setDynamicOutputCount(node: BlueprintNode, requested: number) {
+    if (!node.dynamicOutputs) return
+    const count = Math.max(1, Math.min(12, Math.floor(requested)))
+    for (const key of Object.keys(node.outputs).filter(key => key.startsWith('then'))) node.removeOutput(key)
+    for (let index = 0; index < count; index++) node.addOutput(`then${index}`, new ClassicPreset.Output(new ClassicPreset.Socket('exec'), `Then ${index}`))
+    node.dynamicOutputCount = count
+  }
+
+  async function changeDynamicOutputs(nodeId: string, delta: number) {
+    const node = editor.getNode(nodeId)
+    if (!node?.dynamicOutputs) return
+    const current = node.dynamicOutputCount ?? 1
+    const next = Math.max(1, Math.min(12, current + delta))
+    if (next === current) return
+    await mutate('Sequence outputs changed', async () => {
+      const data = snapshot()
+      const item = data.nodes.find(entry => entry.id === nodeId)
+      if (!item) return
+      item.properties = { ...item.properties, dynamicOutputCount: next }
+      data.connections = data.connections.filter(connection => connection.source !== nodeId || !connection.sourceOutput.startsWith('then') || Number(connection.sourceOutput.slice(4)) < next)
+      await restore(data)
+      const restored = editor.getNode(nodeId)
+      if (restored) { await selectable.select(nodeId, false); callbacks.onSelection(selectedNodeInfo(restored)) }
+    })
+  }
+
+  const dynamicOutputListener = (event: Event) => {
+    const detail = (event as CustomEvent<{ nodeId: string; delta: number }>).detail
+    if (detail) void changeDynamicOutputs(detail.nodeId, detail.delta)
+  }
+  const controlChangeListener = () => { if (!restoring) callbacks.onDirty() }
+  const connectionSelectListener = (event: Event) => {
+    const detail = (event as CustomEvent<{ id: string; additive: boolean }>).detail
+    if (detail) void selectConnection(detail.id, detail.additive)
+  }
+  const connectionDeleteListener = (event: Event) => {
+    const detail = (event as CustomEvent<{ id: string }>).detail
+    if (!detail) return
+    void (async () => {
+      await clearConnectionSelection()
+      const item = editor.getConnection(detail.id)
+      if (!item) return
+      item.selected = true; selectedConnectionIds.add(detail.id)
+      await deleteSelected()
+    })()
+  }
+  container.addEventListener('origin-dynamic-output', dynamicOutputListener)
+  container.addEventListener('origin-connection-select', connectionSelectListener)
+  container.addEventListener('origin-connection-delete', connectionDeleteListener)
+  document.addEventListener('origin-control-change', controlChangeListener)
+
+  async function updateSelectedNode(label: string, values: Record<string, unknown>) {
+    const node = selectedNodes()[0]
+    if (!node) return
+    await mutate('Node properties updated', async () => {
+      node.label = label.trim() || node.label
+      setControlValues(node, values)
+      await area.update('node', node.id)
+      callbacks.onSelection(selectedNodeInfo(node))
+    })
+  }
+
+  async function setVariables(variables: GraphVariable[], variableGroups?: GraphVariableGroup[], refreshNodes = false) {
+    const before = snapshot()
+    currentVariables = variables.map(item => ({ ...item }))
+    if (variableGroups) currentVariableGroups = variableGroups.map(item => ({ ...item }))
+    if (refreshNodes && before.nodes.some(item => item.typeId.startsWith('origin.variable.'))) await restore(before)
+    callbacks.onVariables(currentVariables.map(item => ({ ...item })))
+    callbacks.onVariableGroups(currentVariableGroups.map(item => ({ ...item })))
+  }
+
+  async function focusNode(id: string) {
+    const node = editor.getNode(id)
+    if (!node) return
+    await selector.unselectAll()
+    await selectable.select(id, false)
+    callbacks.onSelection(selectedNodeInfo(node))
+    await AreaExtensions.zoomAt(area, [node], { scale: 0.9 })
+  }
+
+  async function setExecutionStates(states: Array<{ nodeId: string; state: 'idle' | 'running' | 'completed' | 'error' }>) {
+    for (const item of states) {
+      const node = editor.getNode(item.nodeId)
+      if (!node) continue
+      node.executionState = item.state
+      await area.update('node', node.id)
+    }
+  }
+
+  async function clearExecutionStates() {
+    await setExecutionStates(editor.getNodes().map(node => ({ nodeId: node.id, state: 'idle' as const })))
   }
 
   function setupRubberBandSelection() {
@@ -498,7 +715,8 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
 
     container.addEventListener('pointerdown', event => {
       const target = event.target as HTMLElement
-      if (event.button !== 0 || target.closest('.blueprint-node, .blueprint-socket, input')) return
+      if (event.button !== 0 || target.closest('.blueprint-node, .blueprint-socket, .blueprint-connection, input')) return
+      void clearConnectionSelection()
       const rect = container.getBoundingClientRect()
       start = { x: event.clientX - rect.left, y: event.clientY - rect.top }
       window.addEventListener('pointermove', move)
@@ -506,17 +724,109 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     })
   }
 
+  function setupCuttingLine() {
+    const namespace = 'http://www.w3.org/2000/svg'
+    const overlay = document.createElementNS(namespace, 'svg')
+    const line = document.createElementNS(namespace, 'polyline')
+    overlay.classList.add('cutting-line-overlay')
+    line.classList.add('cutting-line')
+    overlay.appendChild(line)
+    container.appendChild(overlay)
+    let points: Position[] = []
+    let cutting = false
+
+    const localPoint = (event: PointerEvent): Position => {
+      const rect = container.getBoundingClientRect()
+      return { x: event.clientX - rect.left, y: event.clientY - rect.top }
+    }
+    const draw = () => line.setAttribute('points', points.map(point => `${point.x},${point.y}`).join(' '))
+    const distanceToSegment = (point: Position, start: Position, end: Position) => {
+      const dx = end.x - start.x, dy = end.y - start.y
+      if (!dx && !dy) return Math.hypot(point.x - start.x, point.y - start.y)
+      const t = Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / (dx * dx + dy * dy)))
+      return Math.hypot(point.x - (start.x + t * dx), point.y - (start.y + t * dy))
+    }
+    const intersectsCut = (path: SVGPathElement) => {
+      if (points.length < 2) return false
+      const matrix = path.getScreenCTM()
+      const length = path.getTotalLength()
+      if (!matrix || !length) return false
+      const step = Math.max(3, Math.min(8, length / 45))
+      for (let offset = 0; offset <= length; offset += step) {
+        const sample = path.getPointAtLength(offset).matrixTransform(matrix)
+        const local = { x: sample.x - container.getBoundingClientRect().left, y: sample.y - container.getBoundingClientRect().top }
+        for (let index = 1; index < points.length; index++) if (distanceToSegment(local, points[index - 1], points[index]) <= 6) return true
+      }
+      return false
+    }
+    const move = (event: PointerEvent) => {
+      if (!cutting) return
+      points.push(localPoint(event)); draw()
+    }
+    const up = async (event: PointerEvent) => {
+      if (!cutting || event.button !== 2) return
+      cutting = false
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      const ids = Array.from(container.querySelectorAll('.blueprint-connection')).flatMap(element => {
+        const connectionElement = element as SVGSVGElement
+        const id = connectionElement.dataset.connectionId
+        const path = connectionElement.querySelector('.connection-line') as SVGPathElement | null
+        return id && path && intersectsCut(path) ? [id] : []
+      })
+      points = []; draw(); overlay.classList.remove('active'); container.classList.remove('cutting-mode')
+      if (!ids.length) { callbacks.onStatus('No connections cut'); return }
+      await mutate(`Cut ${ids.length} connection(s)`, async () => {
+        for (const id of ids) if (editor.getConnection(id)) await editor.removeConnection(id)
+        selectedConnectionIds.clear()
+      })
+    }
+    const down = (event: PointerEvent) => {
+      const target = event.target as HTMLElement
+      if (event.button !== 2 || !event.ctrlKey || target.closest('.blueprint-node, .blueprint-socket, .blueprint-connection, input')) return
+      event.preventDefault(); event.stopPropagation()
+      void clearConnectionSelection()
+      cutting = true; points = [localPoint(event)]; draw()
+      overlay.classList.add('active'); container.classList.add('cutting-mode')
+      window.addEventListener('pointermove', move)
+      window.addEventListener('pointerup', up)
+    }
+    const preventMenu = (event: Event) => { if (cutting) event.preventDefault() }
+    container.addEventListener('pointerdown', down, true)
+    container.addEventListener('contextmenu', preventMenu, true)
+    return () => {
+      window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up)
+      container.removeEventListener('pointerdown', down, true); container.removeEventListener('contextmenu', preventMenu, true)
+      overlay.remove()
+    }
+  }
+
   area.addPipe(context => {
     if (context.type === 'zoomed') callbacks.onZoom(context.data.zoom)
-    if (context.type === 'connectioncreated') updateMetrics()
-    if (context.type === 'connectionremoved') updateMetrics()
-    if (context.type === 'nodepicked') dragSnapshot = snapshot()
+    if ((context.type === 'connectioncreate' || context.type === 'connectionremove') && !restoring && !transactionActive && !initializing) pendingConnectionSnapshot = snapshot()
+    if (context.type === 'connectioncreated' || context.type === 'connectionremoved') {
+      if (context.type === 'connectionremoved') selectedConnectionIds.delete(context.data.id)
+      updateMetrics()
+      if (!restoring && !transactionActive && !initializing && pendingConnectionSnapshot) {
+        undoStack.push(pendingConnectionSnapshot); redoStack.length = 0; pendingConnectionSnapshot = null
+        callbacks.onDirty(); callbacks.onStatus(context.type === 'connectioncreated' ? 'Connection created' : 'Connection removed')
+      }
+    }
+    if (context.type === 'nodepicked') {
+      void clearConnectionSelection()
+      dragSnapshot = snapshot()
+      requestAnimationFrame(() => {
+        const node = editor.getNode(context.data.id)
+        callbacks.onSelection(node ? selectedNodeInfo(node) : null)
+      })
+    }
     if (context.type === 'nodedragged' && dragSnapshot) {
       undoStack.push(dragSnapshot); redoStack.length = 0; dragSnapshot = null; callbacks.onDirty(); callbacks.onStatus('Node moved')
     }
     return context
   })
   setupRubberBandSelection()
+  const destroyCuttingLine = setupCuttingLine()
 
   const initial = [
     { typeId: 'origin.event.begin', position: { x: 90, y: 115 } },
@@ -538,6 +848,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   await editor.addConnection(new ClassicPreset.Connection(initialNodes[2], 'true', initialNodes[4], 'exec'))
   await editor.addConnection(new ClassicPreset.Connection(initialNodes[3], 'result', initialNodes[4], 'value'))
   updateMetrics()
+  initializing = false
 
   async function resetView() {
     await AreaExtensions.zoomAt(area, editor.getNodes(), { scale: 0.9 })
@@ -546,9 +857,17 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   requestAnimationFrame(() => resetView())
 
   return {
-    destroy() { area.destroy() },
+    destroy() {
+      container.removeEventListener('origin-dynamic-output', dynamicOutputListener)
+      container.removeEventListener('origin-connection-select', connectionSelectListener)
+      container.removeEventListener('origin-connection-delete', connectionDeleteListener)
+      document.removeEventListener('origin-control-change', controlChangeListener)
+      destroyCuttingLine()
+      area.destroy()
+    },
     resetView,
     addNode,
+    addVariableNode,
     deleteSelected,
     selectAll,
     deselectAll,
@@ -563,6 +882,11 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     align,
     groupSelected,
     ungroupSelected,
-    fitSelected
+    fitSelected,
+    setVariables,
+    updateSelectedNode,
+    focusNode,
+    setExecutionStates,
+    clearExecutionStates
   }
 }
