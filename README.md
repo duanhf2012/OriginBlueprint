@@ -8,6 +8,8 @@ Go owns domain rules, persistence, validation, migration, compilation, and platf
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) before adding or moving application logic.
 
+For a Chinese, Go-oriented project walkthrough and maintenance guide, see [docs/MAINTENANCE_GUIDE_ZH.md](docs/MAINTENANCE_GUIDE_ZH.md).
+
 ## Live Development
 
 Run `wails dev` in this directory for desktop development with frontend hot reload.
