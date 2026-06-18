@@ -7,6 +7,7 @@ import BlueprintConnectionComponent from './BlueprintConnection.vue'
 import BlueprintNodeComponent from './BlueprintNode.vue'
 import BlueprintSocket from './BlueprintSocket.vue'
 import { createLegacyNode, createNode, createVariableNode } from './nodeRegistry'
+import { normalizeSocketName } from './socketTheme'
 import { BlueprintNode, type Schemes } from './types'
 import type { ConnectionSnapshot, GraphDocument, GraphSnapshot, GraphVariable, GraphVariableGroup, GroupSnapshot, NodeSnapshot } from './document'
 
@@ -280,7 +281,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
       const source = nodes.get(item.source)
       const target = nodes.get(item.target)
       if (source && target && source.outputs[item.sourceOutput] && target.inputs[item.targetInput]) {
-        await editor.addConnection(new ClassicPreset.Connection(source, item.sourceOutput, target, item.targetInput))
+        await editor.addConnection(createConnection(source, item.sourceOutput, target, item.targetInput))
       }
     }
     restoring = false
@@ -308,6 +309,26 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     }
   }
 
+  function connectionSocketType(item: { source: string; sourceOutput: string; target: string; targetInput: string }) {
+    const types = connectionTypes(item)
+    return normalizeSocketName(types.source ?? types.target)
+  }
+
+  function createConnection(source: BlueprintNode, sourceOutput: string, target: BlueprintNode, targetInput: string) {
+    const item = new ClassicPreset.Connection(source, sourceOutput, target, targetInput) as Schemes['Connection']
+    item.socketType = connectionSocketType({ source: source.id, sourceOutput, target: target.id, targetInput })
+    return item
+  }
+
+  function decorateConnection(item: Schemes['Connection']) {
+    item.socketType = connectionSocketType({
+      source: item.source,
+      sourceOutput: String(item.sourceOutput),
+      target: item.target,
+      targetInput: String(item.targetInput)
+    })
+  }
+
   function automaticConverter(source?: string, target?: string) {
     if (source === 'integer' && target === 'string') return 'origin.cast.integer-string'
     if (source === 'float' && target === 'string') return 'origin.cast.float-string'
@@ -323,14 +344,15 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
       const converter = createNode(typeId)
       await editor.addNode(converter)
       await area.translate(converter.id, { x: (sourcePosition.x + targetPosition.x) / 2, y: (sourcePosition.y + targetPosition.y) / 2 })
-      await editor.addConnection(new ClassicPreset.Connection(source, item.sourceOutput, converter, 'value'))
-      await editor.addConnection(new ClassicPreset.Connection(converter, 'result', target, item.targetInput))
+      await editor.addConnection(createConnection(source, item.sourceOutput, converter, 'value'))
+      await editor.addConnection(createConnection(converter, 'result', target, item.targetInput))
     })
   }
 
   editor.addPipe(context => {
     if (context.type !== 'connectioncreate' || restoring) return context
     const types = connectionTypes(context.data)
+    ;(context.data as Schemes['Connection']).socketType = normalizeSocketName(types.source ?? types.target)
     if (types.source && types.target && types.source !== types.target && types.source !== 'any' && types.target !== 'any') {
       const converter = automaticConverter(types.source, types.target)
       if (converter) {
@@ -447,7 +469,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
       for (const item of clipboard!.connections) {
         const source = nodes[item.sourceIndex]
         const target = nodes[item.targetIndex]
-        await editor.addConnection(new ClassicPreset.Connection(source, item.sourceOutput, target, item.targetInput))
+        await editor.addConnection(createConnection(source, item.sourceOutput, target, item.targetInput))
       }
     })
   }
@@ -805,6 +827,10 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     if (context.type === 'zoomed') callbacks.onZoom(context.data.zoom)
     if ((context.type === 'connectioncreate' || context.type === 'connectionremove') && !restoring && !transactionActive && !initializing) pendingConnectionSnapshot = snapshot()
     if (context.type === 'connectioncreated' || context.type === 'connectionremoved') {
+      if (context.type === 'connectioncreated') {
+        decorateConnection(context.data)
+        void area.update('connection', context.data.id)
+      }
       if (context.type === 'connectionremoved') selectedConnectionIds.delete(context.data.id)
       updateMetrics()
       if (!restoring && !transactionActive && !initializing && pendingConnectionSnapshot) {
@@ -842,11 +868,11 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     await area.translate(node.id, item.position)
     initialNodes.push(node)
   }
-  await editor.addConnection(new ClassicPreset.Connection(initialNodes[0], 'exec', initialNodes[1], 'exec'))
-  await editor.addConnection(new ClassicPreset.Connection(initialNodes[1], 'body', initialNodes[2], 'exec'))
-  await editor.addConnection(new ClassicPreset.Connection(initialNodes[1], 'index', initialNodes[3], 'value'))
-  await editor.addConnection(new ClassicPreset.Connection(initialNodes[2], 'true', initialNodes[4], 'exec'))
-  await editor.addConnection(new ClassicPreset.Connection(initialNodes[3], 'result', initialNodes[4], 'value'))
+  await editor.addConnection(createConnection(initialNodes[0], 'exec', initialNodes[1], 'exec'))
+  await editor.addConnection(createConnection(initialNodes[1], 'body', initialNodes[2], 'exec'))
+  await editor.addConnection(createConnection(initialNodes[1], 'index', initialNodes[3], 'value'))
+  await editor.addConnection(createConnection(initialNodes[2], 'true', initialNodes[4], 'exec'))
+  await editor.addConnection(createConnection(initialNodes[3], 'result', initialNodes[4], 'value'))
   updateMetrics()
   initializing = false
 

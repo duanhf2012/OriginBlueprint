@@ -1,24 +1,25 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { socketClassName, socketStyle } from './socketTheme'
 
 const props = defineProps<{ data: { name: string } }>()
 const isExec = computed(() => props.data.name === 'exec')
-const socketClass = computed(() => `socket-${props.data.name.replace(/[^a-z0-9_-]/gi, '-').toLowerCase()}`)
+const socketClass = computed(() => socketClassName(props.data.name))
+const styleVariables = computed(() => socketStyle(props.data.name))
 </script>
 
 <template>
-  <div class="blueprint-socket" :class="[socketClass, { exec: isExec }]" :title="data.name">
-    <svg v-if="isExec" viewBox="0 0 14 16" aria-hidden="true">
-      <path d="M2 2.5H5.2L12 8L5.2 13.5H2" />
+  <div class="blueprint-socket" :class="[socketClass, { exec: isExec }]" :style="styleVariables" :title="data.name">
+    <svg v-if="isExec" viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M2.6 2.2H7.2L13.6 8L7.2 13.8H2.6Z" />
     </svg>
   </div>
 </template>
 
 <style scoped>
-.blueprint-socket { width: 11px; height: 11px; border: 2px solid #a8a8a8; border-radius: 50%; background: #161616; cursor: crosshair; transition: transform .1s, filter .1s; }
+.blueprint-socket { width: 12px; height: 12px; border: 1px solid var(--socket-color); border-radius: 50%; background: var(--socket-fill); box-shadow: 0 0 0 1px #000, inset 0 1px #ffffff55, 0 0 4px var(--socket-color); cursor: crosshair; transition: transform .1s, filter .1s; }
 .blueprint-socket:hover { transform: scale(1.25); filter: brightness(1.5); }
-.blueprint-socket.exec { width: 14px; height: 16px; border: 0; border-radius: 0; background: transparent; }
-.blueprint-socket.exec svg { display: block; width: 14px; height: 16px; overflow: visible; }
-.blueprint-socket.exec path { fill: none; stroke: #f0f0f0; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
-.socket-integer, .socket-number { border-color: #20bd3d; }.socket-float { border-color: #4fc4a5; }.socket-boolean { border-color: #f12b38; }.socket-string { border-color: #e725b8; }.socket-array { border-color: #d6ac19; }.socket-file { border-color: #84b6e0; }.socket-table { border-color: #47c99d; }.socket-dictionary { border-color: #d98945; }.socket-any { border-color: #3a91db; }
+.blueprint-socket.exec { width: 16px; height: 16px; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: var(--socket-color); }
+.blueprint-socket.exec svg { display: block; width: 16px; height: 16px; overflow: visible; filter: drop-shadow(0 1px 1px #000) drop-shadow(0 0 1px #ffffff99); }
+.blueprint-socket.exec path { fill: var(--socket-fill); stroke: #ffffff; stroke-width: .75; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 </style>

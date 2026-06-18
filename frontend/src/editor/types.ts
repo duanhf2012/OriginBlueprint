@@ -1,4 +1,5 @@
 import { ClassicPreset, GetSchemes } from 'rete'
+import type { SocketThemeName } from './socketTheme'
 
 export type NodeKind = 'event' | 'flow' | 'function' | 'variable'
 
@@ -55,5 +56,5 @@ export class FileControl extends ClassicPreset.Control {
   }
 }
 
-export type BlueprintConnection = ClassicPreset.Connection<BlueprintNode, BlueprintNode> & { selected?: boolean }
+export type BlueprintConnection = ClassicPreset.Connection<BlueprintNode, BlueprintNode> & { selected?: boolean; socketType?: SocketThemeName }
 export type Schemes = GetSchemes<BlueprintNode, BlueprintConnection>
