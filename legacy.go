@@ -12,6 +12,7 @@ import (
 
 type legacyGraph struct {
 	GraphName string                   `json:"graph_name"`
+	Time      string                   `json:"time"`
 	Nodes     []legacyNode             `json:"nodes"`
 	Edges     []legacyEdge             `json:"edges"`
 	Groups    []legacyGroup            `json:"groups"`
@@ -27,6 +28,7 @@ type legacyNode struct {
 }
 
 type legacyEdge struct {
+	EdgeID       string      `json:"edge_id,omitempty"`
 	SourceNodeID string      `json:"source_node_id"`
 	SourceIndex  int         `json:"source_port_index"`
 	SourcePortID interface{} `json:"source_port_id"`
@@ -42,6 +44,17 @@ type legacyGroup struct {
 type legacyNodeSpec struct {
 	TypeID          string
 	Inputs, Outputs []string
+}
+
+type legacyRuntimeNodeDefinition struct {
+	Name    string                 `json:"name"`
+	ID      string                 `json:"id"`
+	Inputs  []legacyPortDefinition `json:"inputs"`
+	Outputs []legacyPortDefinition `json:"outputs"`
+}
+
+type legacyPortDefinition struct {
+	PortID interface{} `json:"port_id"`
 }
 
 var legacyNodeSpecs = map[string]legacyNodeSpec{
@@ -124,12 +137,28 @@ func (a *App) MigrateLegacyGraph(content string) (string, error) {
 	return string(data), err
 }
 
+func (a *App) ExportLegacyGraph(content string) (string, error) {
+	var document GraphDocument
+	if err := json.Unmarshal([]byte(content), &document); err != nil {
+		return "", fmt.Errorf("decode graph document: %w", err)
+	}
+	data, err := exportLegacyGraph(document)
+	return string(data), err
+}
+
 func migrateLegacyGraph(data []byte) (GraphDocument, error) {
 	var legacy legacyGraph
 	if err := json.Unmarshal(data, &legacy); err != nil {
 		return GraphDocument{}, fmt.Errorf("decode legacy graph: %w", err)
 	}
-	document := GraphDocument{SchemaVersion: GraphSchemaVersion, GraphName: legacy.GraphName, View: GraphView{Zoom: 1}, VariableGroups: []GraphVariableGroup{{ID: "default", Name: "Default"}}}
+	runtimeSpecs := runtimeLegacyNodeSpecs()
+	document := GraphDocument{
+		SchemaVersion:  GraphSchemaVersion,
+		GraphName:      legacy.GraphName,
+		View:           GraphView{Zoom: 1},
+		VariableGroups: []GraphVariableGroup{{ID: "default", Name: "Default"}},
+		Legacy:         &GraphLegacyState{Format: "vgf", Time: legacy.Time, Groups: cloneLegacyGroups(legacy.Groups), Variables: cloneLegacyVariables(legacy.Variables)},
+	}
 	if document.GraphName == "" {
 		document.GraphName = "Imported Graph"
 	}
@@ -153,7 +182,6 @@ func migrateLegacyGraph(data []byte) (GraphDocument, error) {
 	}
 	nodeByID := map[string]int{}
 	nodeSpecs := map[string]legacyNodeSpec{}
-	placeholderPorts := map[string]struct{ inputs, outputs map[int]bool }{}
 	maxInputs, maxOutputs := map[string]int{}, map[string]int{}
 	for _, edge := range legacy.Edges {
 		sourceIndex := legacyPortIndex(edge.SourcePortID, edge.SourceIndex)
@@ -166,11 +194,11 @@ func migrateLegacyGraph(data []byte) (GraphDocument, error) {
 		}
 	}
 	for _, item := range legacy.Nodes {
-		spec, known := legacyNodeSpecs[item.Class]
+		spec, known := runtimeSpecs[item.Class]
 		if (len(spec.Inputs) > 0 && maxInputs[item.ID] >= len(spec.Inputs)) || (len(spec.Outputs) > 0 && maxOutputs[item.ID] >= len(spec.Outputs)) {
 			known = false
 		}
-		properties := GraphNodeProperties{Label: item.Class}
+		properties := GraphNodeProperties{LegacyClass: item.Class, LegacyModule: item.Module}
 		if strings.HasPrefix(item.Class, "Get_") || strings.HasPrefix(item.Class, "Set_") {
 			access := "get"
 			name := strings.TrimPrefix(item.Class, "Get_")
@@ -192,8 +220,8 @@ func migrateLegacyGraph(data []byte) (GraphDocument, error) {
 			}
 		}
 		if !known {
-			spec.TypeID = "origin.legacy.placeholder"
-			properties.LegacyClass, properties.LegacyModule = item.Class, item.Module
+			document.Legacy.HiddenNodes = append(document.Legacy.HiddenNodes, cloneLegacyNode(item))
+			continue
 		}
 		nodeSpecs[item.ID] = spec
 		position := GraphPosition{}
@@ -208,14 +236,6 @@ func migrateLegacyGraph(data []byte) (GraphDocument, error) {
 			index, _ := strconv.Atoi(rawIndex)
 			if index >= 0 && index < len(spec.Inputs) {
 				node.Values[spec.Inputs[index]] = value
-			} else if spec.TypeID == "origin.legacy.placeholder" {
-				node.Values[fmt.Sprintf("in%d", index)] = value
-				ports := placeholderPorts[item.ID]
-				if ports.inputs == nil {
-					ports.inputs = map[int]bool{}
-				}
-				ports.inputs[index] = true
-				placeholderPorts[item.ID] = ports
 			}
 		}
 		document.Nodes = append(document.Nodes, node)
@@ -226,41 +246,15 @@ func migrateLegacyGraph(data []byte) (GraphDocument, error) {
 		targetIndex := legacyPortIndex(edge.TargetPortID, edge.TargetIndex)
 		sourceSpec := nodeSpecs[edge.SourceNodeID]
 		targetSpec := nodeSpecs[edge.TargetNodeID]
-		sourceKey := indexedKey(sourceSpec.Outputs, sourceIndex, "out")
-		targetKey := indexedKey(targetSpec.Inputs, targetIndex, "in")
-		if sourceIndexInDocument, ok := nodeByID[edge.SourceNodeID]; ok && document.Nodes[sourceIndexInDocument].TypeID == "origin.legacy.placeholder" {
-			ports := placeholderPorts[edge.SourceNodeID]
-			if ports.outputs == nil {
-				ports.outputs = map[int]bool{}
-			}
-			ports.outputs[sourceIndex] = true
-			placeholderPorts[edge.SourceNodeID] = ports
-			sourceKey = fmt.Sprintf("out%d", sourceIndex)
-		}
-		if targetIndexInDocument, ok := nodeByID[edge.TargetNodeID]; ok && document.Nodes[targetIndexInDocument].TypeID == "origin.legacy.placeholder" {
-			ports := placeholderPorts[edge.TargetNodeID]
-			if ports.inputs == nil {
-				ports.inputs = map[int]bool{}
-			}
-			ports.inputs[targetIndex] = true
-			placeholderPorts[edge.TargetNodeID] = ports
-			targetKey = fmt.Sprintf("in%d", targetIndex)
-		}
 		_, sourceExists := nodeByID[edge.SourceNodeID]
 		_, targetExists := nodeByID[edge.TargetNodeID]
-		if sourceExists && targetExists {
-			document.Connections = append(document.Connections, GraphConnection{Source: edge.SourceNodeID, SourceOutput: sourceKey, Target: edge.TargetNodeID, TargetInput: targetKey})
+		if !sourceExists || !targetExists {
+			document.Legacy.HiddenEdges = append(document.Legacy.HiddenEdges, cloneLegacyEdge(edge))
+			continue
 		}
-	}
-	for id, ports := range placeholderPorts {
-		nodeIndex := nodeByID[id]
-		node := &document.Nodes[nodeIndex]
-		for _, index := range sortedPortIndexes(ports.inputs) {
-			node.Properties.LegacyInputs = append(node.Properties.LegacyInputs, GraphLegacyPort{Key: fmt.Sprintf("in%d", index), Label: fmt.Sprintf("Input %d", index), Type: "any"})
-		}
-		for _, index := range sortedPortIndexes(ports.outputs) {
-			node.Properties.LegacyOutputs = append(node.Properties.LegacyOutputs, GraphLegacyPort{Key: fmt.Sprintf("out%d", index), Label: fmt.Sprintf("Output %d", index), Type: "any"})
-		}
+		sourceKey := indexedKey(sourceSpec.Outputs, sourceIndex, "out")
+		targetKey := indexedKey(targetSpec.Inputs, targetIndex, "in")
+		document.Connections = append(document.Connections, GraphConnection{Source: edge.SourceNodeID, SourceOutput: sourceKey, Target: edge.TargetNodeID, TargetInput: targetKey})
 	}
 	for _, group := range legacy.Groups {
 		positions := make([]GraphPosition, 0)
@@ -291,6 +285,256 @@ func migrateLegacyGraph(data []byte) (GraphDocument, error) {
 		}
 	}
 	return document, nil
+}
+
+func exportLegacyGraph(document GraphDocument) ([]byte, error) {
+	runtimeSpecs := runtimeLegacyNodeSpecs()
+	specByType := map[string]legacyNodeSpec{}
+	classByType := map[string]string{}
+	for class, spec := range runtimeSpecs {
+		if _, exists := specByType[spec.TypeID]; !exists {
+			specByType[spec.TypeID] = spec
+			classByType[spec.TypeID] = class
+		}
+	}
+
+	legacy := legacyGraph{GraphName: document.GraphName, Groups: legacyGroups(document), Variables: legacyVariables(document)}
+	if document.Legacy != nil {
+		legacy.Time = document.Legacy.Time
+	}
+
+	nodeSpecs := map[string]legacyNodeSpec{}
+	nodeIDs := map[string]bool{}
+	for _, node := range document.Nodes {
+		class := node.Properties.LegacyClass
+		if class == "" {
+			class = classByType[node.TypeID]
+		}
+		if class == "" {
+			continue
+		}
+		spec := runtimeSpecs[class]
+		if spec.TypeID == "" {
+			spec = specByType[node.TypeID]
+		}
+		if spec.TypeID == "" {
+			continue
+		}
+		nodeSpecs[node.ID] = spec
+		nodeIDs[node.ID] = true
+		portDefaults := map[string]interface{}{}
+		for key, value := range node.Values {
+			if index, ok := legacyKeyIndex(spec.Inputs, key, "in"); ok {
+				portDefaults[strconv.Itoa(index)] = value
+			}
+		}
+		module := node.Properties.LegacyModule
+		if module == "" {
+			module = "tools.json_node_loader"
+		}
+		legacy.Nodes = append(legacy.Nodes, legacyNode{
+			ID:           node.ID,
+			Class:        class,
+			Module:       module,
+			Position:     []float64{node.Position.X, node.Position.Y},
+			PortDefaults: portDefaults,
+		})
+	}
+	if document.Legacy != nil {
+		for _, node := range document.Legacy.HiddenNodes {
+			legacy.Nodes = append(legacy.Nodes, cloneLegacyNode(node))
+			nodeIDs[node.ID] = true
+		}
+	}
+
+	for _, connection := range document.Connections {
+		sourceSpec, sourceOK := nodeSpecs[connection.Source]
+		targetSpec, targetOK := nodeSpecs[connection.Target]
+		if !sourceOK || !targetOK {
+			continue
+		}
+		sourceIndex, sourcePortOK := legacyKeyIndex(sourceSpec.Outputs, connection.SourceOutput, "out")
+		targetIndex, targetPortOK := legacyKeyIndex(targetSpec.Inputs, connection.TargetInput, "in")
+		if !sourcePortOK || !targetPortOK {
+			continue
+		}
+		legacy.Edges = append(legacy.Edges, legacyEdge{
+			EdgeID:       uuid.NewString(),
+			SourceNodeID: connection.Source,
+			SourceIndex:  sourceIndex,
+			SourcePortID: sourceIndex,
+			TargetNodeID: connection.Target,
+			TargetIndex:  targetIndex,
+			TargetPortID: targetIndex,
+		})
+	}
+	if document.Legacy != nil {
+		for _, edge := range document.Legacy.HiddenEdges {
+			if nodeIDs[edge.SourceNodeID] && nodeIDs[edge.TargetNodeID] {
+				legacy.Edges = append(legacy.Edges, cloneLegacyEdge(edge))
+			}
+		}
+	}
+
+	return json.MarshalIndent(legacy, "", "  ")
+}
+
+func runtimeLegacyNodeSpecs() map[string]legacyNodeSpec {
+	result := map[string]legacyNodeSpec{}
+	loadResult := loadRuntimeNodeSchemaDocuments(runtimeNodeDirectories())
+	for _, document := range loadResult.Documents {
+		for _, definition := range parseLegacyRuntimeNodeDefinitions([]byte(document.Content)) {
+			name := strings.TrimSpace(definition.Name)
+			if name == "" {
+				continue
+			}
+			if spec, exists := legacyNodeSpecs[name]; exists {
+				result[name] = spec
+				continue
+			}
+			result[name] = legacyNodeSpec{
+				TypeID:  legacyRuntimeTypeID(definition, name),
+				Inputs:  generatedLegacyPortKeys(definition.Inputs, "in"),
+				Outputs: generatedLegacyPortKeys(definition.Outputs, "out"),
+			}
+		}
+	}
+	return result
+}
+
+func parseLegacyRuntimeNodeDefinitions(data []byte) []legacyRuntimeNodeDefinition {
+	var array []legacyRuntimeNodeDefinition
+	if err := json.Unmarshal(data, &array); err == nil {
+		return array
+	}
+	var wrapped struct {
+		Nodes []legacyRuntimeNodeDefinition `json:"nodes"`
+	}
+	if err := json.Unmarshal(data, &wrapped); err == nil && len(wrapped.Nodes) > 0 {
+		return wrapped.Nodes
+	}
+	var single legacyRuntimeNodeDefinition
+	if err := json.Unmarshal(data, &single); err == nil && (single.Name != "" || single.ID != "") {
+		return []legacyRuntimeNodeDefinition{single}
+	}
+	return nil
+}
+
+func generatedLegacyPortKeys(ports []legacyPortDefinition, prefix string) []string {
+	indexes := make([]int, 0, len(ports))
+	for fallback, port := range ports {
+		indexes = append(indexes, legacyPortIndex(port.PortID, fallback))
+	}
+	sort.Ints(indexes)
+	keys := make([]string, 0, len(indexes))
+	for _, index := range indexes {
+		keys = append(keys, fmt.Sprintf("%s%d", prefix, index))
+	}
+	return keys
+}
+
+func legacyKeyIndex(keys []string, key, prefix string) (int, bool) {
+	for index, candidate := range keys {
+		if candidate == key {
+			return index, true
+		}
+	}
+	if strings.HasPrefix(key, prefix) {
+		index, err := strconv.Atoi(strings.TrimPrefix(key, prefix))
+		return index, err == nil
+	}
+	return 0, false
+}
+
+func legacyVariables(document GraphDocument) []map[string]interface{} {
+	if document.Legacy != nil && document.Legacy.Variables != nil {
+		return cloneLegacyVariables(document.Legacy.Variables)
+	}
+	result := make([]map[string]interface{}, 0, len(document.Variables))
+	for _, variable := range document.Variables {
+		result = append(result, map[string]interface{}{"name": variable.Name, "type": variable.Type, "value": variable.DefaultValue})
+	}
+	return result
+}
+
+func legacyGroups(document GraphDocument) []legacyGroup {
+	if document.Legacy != nil && document.Legacy.Groups != nil {
+		return cloneLegacyGroups(document.Legacy.Groups)
+	}
+	result := make([]legacyGroup, 0, len(document.Groups))
+	for _, group := range document.Groups {
+		result = append(result, legacyGroup{Title: group.Title, Nodes: append([]string(nil), group.NodeIDs...)})
+	}
+	return result
+}
+
+func legacyRuntimeTypeID(definition legacyRuntimeNodeDefinition, name string) string {
+	if strings.TrimSpace(definition.ID) != "" {
+		return strings.TrimSpace(definition.ID)
+	}
+	return "origin.custom." + legacySlug(name)
+}
+
+func legacySlug(value string) string {
+	var builder strings.Builder
+	previousDash := false
+	for index, char := range strings.TrimSpace(value) {
+		if index > 0 && char >= 'A' && char <= 'Z' {
+			if !previousDash {
+				builder.WriteByte('-')
+				previousDash = true
+			}
+		}
+		lower := char
+		if lower >= 'A' && lower <= 'Z' {
+			lower += 'a' - 'A'
+		}
+		if (lower >= 'a' && lower <= 'z') || (lower >= '0' && lower <= '9') {
+			builder.WriteRune(lower)
+			previousDash = false
+			continue
+		}
+		if !previousDash && builder.Len() > 0 {
+			builder.WriteByte('-')
+			previousDash = true
+		}
+	}
+	return strings.Trim(builder.String(), "-")
+}
+
+func cloneLegacyNode(node legacyNode) legacyNode {
+	return legacyNode{ID: node.ID, Class: node.Class, Module: node.Module, Position: append([]float64(nil), node.Position...), PortDefaults: cloneInterfaceMap(node.PortDefaults)}
+}
+
+func cloneLegacyEdge(edge legacyEdge) legacyEdge {
+	return edge
+}
+
+func cloneLegacyGroups(groups []legacyGroup) []legacyGroup {
+	result := make([]legacyGroup, 0, len(groups))
+	for _, group := range groups {
+		result = append(result, legacyGroup{Title: group.Title, Nodes: append([]string(nil), group.Nodes...)})
+	}
+	return result
+}
+
+func cloneLegacyVariables(variables []map[string]interface{}) []map[string]interface{} {
+	result := make([]map[string]interface{}, 0, len(variables))
+	for _, variable := range variables {
+		result = append(result, cloneInterfaceMap(variable))
+	}
+	return result
+}
+
+func cloneInterfaceMap(values map[string]interface{}) map[string]interface{} {
+	if values == nil {
+		return map[string]interface{}{}
+	}
+	result := make(map[string]interface{}, len(values))
+	for key, value := range values {
+		result[key] = value
+	}
+	return result
 }
 
 func legacyVariableType(value interface{}) string {

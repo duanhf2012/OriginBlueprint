@@ -16,6 +16,7 @@ type GraphDocument struct {
 	Variables      []GraphVariable      `json:"variables"`
 	VariableGroups []GraphVariableGroup `json:"variableGroups"`
 	View           GraphView            `json:"view"`
+	Legacy         *GraphLegacyState    `json:"legacy,omitempty"`
 }
 
 type GraphNode struct {
@@ -35,6 +36,15 @@ type GraphNodeProperties struct {
 	LegacyModule       string            `json:"legacyModule,omitempty"`
 	LegacyInputs       []GraphLegacyPort `json:"legacyInputs,omitempty"`
 	LegacyOutputs      []GraphLegacyPort `json:"legacyOutputs,omitempty"`
+}
+
+type GraphLegacyState struct {
+	Format      string                   `json:"format,omitempty"`
+	Time        string                   `json:"time,omitempty"`
+	HiddenNodes []legacyNode             `json:"hiddenNodes,omitempty"`
+	HiddenEdges []legacyEdge             `json:"hiddenEdges,omitempty"`
+	Groups      []legacyGroup            `json:"groups,omitempty"`
+	Variables   []map[string]interface{} `json:"variables,omitempty"`
 }
 
 type GraphLegacyPort struct {

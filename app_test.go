@@ -38,6 +38,42 @@ func TestGraphFileRoundTrip(t *testing.T) {
 	}
 }
 
+func TestGraphContentForLegacyPathExportsVGF(t *testing.T) {
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		GraphName:     "Legacy",
+		Nodes: []GraphNode{{
+			ID:       "add",
+			TypeID:   "origin.math.add-integer",
+			Position: GraphPosition{X: 12, Y: 34},
+			Values:   map[string]interface{}{"a": 1, "b": 2},
+			Properties: GraphNodeProperties{
+				Label:        "AddInt",
+				LegacyClass:  "AddInt",
+				LegacyModule: "tools.json_node_loader",
+			},
+		}},
+	}
+	content, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := graphContentForPath("test.vgf", string(content))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var legacy legacyGraph
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		t.Fatal(err)
+	}
+	if legacy.GraphName != "Legacy" || len(legacy.Nodes) != 1 || legacy.Nodes[0].Class != "AddInt" {
+		t.Fatalf("legacy = %#v", legacy)
+	}
+	if strings.Contains(string(data), "schemaVersion") {
+		t.Fatalf("vgf output should not contain schemaVersion: %s", data)
+	}
+}
+
 func TestValidateGraphAcceptsValidVariableGraph(t *testing.T) {
 	document := GraphDocument{
 		SchemaVersion: GraphSchemaVersion,
@@ -461,8 +497,8 @@ func TestMigrateLegacyTableAndDictionaryNodes(t *testing.T) {
 	}
 }
 
-func TestMigrateLegacyPreservesUnknownNodesAndConnections(t *testing.T) {
-	content := `{"graph_name":"Legacy","nodes":[{"id":"a","class":"UnknownSource","module":"old","pos":[1,2],"port_defaultv":{"0":"x"}},{"id":"b","class":"PrintNode","module":"old","pos":[3,4],"port_defaultv":{}}],"edges":[{"source_node_id":"a","source_port_index":2,"des_node_id":"b","des_port_index":1}],"groups":[],"variables":[]}`
+func TestMigrateLegacyHidesUnknownNodesButPreservesThemForRoundTrip(t *testing.T) {
+	content := `{"graph_name":"Legacy","nodes":[{"id":"begin","class":"BeginNode","module":"old","pos":[1,2],"port_defaultv":{}},{"id":"hidden","class":"UnknownSource","module":"old","pos":[5,6],"port_defaultv":{"0":"x"}},{"id":"print","class":"PrintNode","module":"old","pos":[9,10],"port_defaultv":{}}],"edges":[{"edge_id":"known","source_node_id":"begin","source_port_index":0,"des_node_id":"print","des_port_index":0},{"edge_id":"hidden-edge","source_node_id":"hidden","source_port_index":2,"des_node_id":"print","des_port_index":1}],"groups":[],"variables":[]}`
 	document, err := migrateLegacyGraph([]byte(content))
 	if err != nil {
 		t.Fatal(err)
@@ -470,14 +506,52 @@ func TestMigrateLegacyPreservesUnknownNodesAndConnections(t *testing.T) {
 	if len(document.Nodes) != 2 || len(document.Connections) != 1 {
 		t.Fatalf("document = %#v", document)
 	}
-	placeholder := document.Nodes[0]
-	if placeholder.TypeID != "origin.legacy.placeholder" || len(placeholder.Properties.LegacyInputs) != 1 || len(placeholder.Properties.LegacyOutputs) != 1 {
-		t.Fatalf("placeholder = %#v", placeholder)
+	for _, node := range document.Nodes {
+		if node.Properties.LegacyClass == "UnknownSource" || node.TypeID == "origin.legacy.placeholder" {
+			t.Fatalf("unknown node should be hidden, got %#v", node)
+		}
+	}
+	if document.Legacy == nil || len(document.Legacy.HiddenNodes) != 1 || len(document.Legacy.HiddenEdges) != 1 {
+		t.Fatalf("legacy state = %#v", document.Legacy)
+	}
+	roundTrip, err := exportLegacyGraph(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var legacy legacyGraph
+	if err := json.Unmarshal(roundTrip, &legacy); err != nil {
+		t.Fatal(err)
+	}
+	if len(legacy.Nodes) != 3 || len(legacy.Edges) != 2 {
+		t.Fatalf("legacy = %#v", legacy)
 	}
 	for _, issue := range validateGraph(document) {
 		if issue.Severity == "error" {
 			t.Fatalf("unexpected validation error: %#v", issue)
 		}
+	}
+}
+
+func TestMigrateLegacyHit20001ShowsDefinedNodes(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("build", "bin", "vgf", "buffskill", "MonsterBuffSkill", "hit_20001.vgf"))
+	if err != nil {
+		t.Skip("hit_20001.vgf sample not available")
+	}
+	document, err := migrateLegacyGraph(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundForeach := false
+	for _, node := range document.Nodes {
+		if node.Properties.LegacyClass == "ForeachIntArray" {
+			foundForeach = true
+			if node.Properties.Label != "" {
+				t.Fatalf("legacy class should not override JSON title, node=%#v", node)
+			}
+		}
+	}
+	if !foundForeach {
+		t.Fatalf("expected ForeachIntArray to be visible, nodes=%#v legacy=%#v", document.Nodes, document.Legacy)
 	}
 }
 
@@ -509,8 +583,13 @@ func TestMigrateLegacyRepositorySamples(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", path, err)
 		}
-		if len(document.Nodes) != len(source.Nodes) || len(document.Connections) != len(source.Edges) {
-			t.Fatalf("%s lost content: nodes %d/%d edges %d/%d", path, len(document.Nodes), len(source.Nodes), len(document.Connections), len(source.Edges))
+		hiddenNodes, hiddenEdges := 0, 0
+		if document.Legacy != nil {
+			hiddenNodes = len(document.Legacy.HiddenNodes)
+			hiddenEdges = len(document.Legacy.HiddenEdges)
+		}
+		if len(document.Nodes)+hiddenNodes != len(source.Nodes) || len(document.Connections)+hiddenEdges != len(source.Edges) {
+			t.Fatalf("%s lost content: nodes %d+%d/%d edges %d+%d/%d", path, len(document.Nodes), hiddenNodes, len(source.Nodes), len(document.Connections), hiddenEdges, len(source.Edges))
 		}
 		for _, issue := range validateGraph(document) {
 			if issue.Severity == "error" {
@@ -520,16 +599,10 @@ func TestMigrateLegacyRepositorySamples(t *testing.T) {
 	}
 }
 
-func TestMigrateLegacyLeavesOnlyExplicitlyExcludedPlaceholders(t *testing.T) {
+func TestMigrateLegacyDoesNotCreatePlaceholderNodes(t *testing.T) {
 	root := filepath.Join("..", "OriginNodeEditor_old")
 	if _, err := os.Stat(root); err != nil {
 		t.Skip("legacy sample repository not available")
-	}
-	excluded := map[string]bool{
-		"Table VIF": true, "Table Column VIF": true,
-		"OLS Regression": true, "Poission Regression": true,
-		"Negative Binomial Regression": true, "Zero Inflated Poission Regression": true,
-		"Zero Inflated Negative Binomial Regression": true,
 	}
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil || entry.IsDir() || !strings.EqualFold(filepath.Ext(path), ".vgf") {
@@ -544,8 +617,8 @@ func TestMigrateLegacyLeavesOnlyExplicitlyExcludedPlaceholders(t *testing.T) {
 			return err
 		}
 		for _, node := range document.Nodes {
-			if node.TypeID == "origin.legacy.placeholder" && !excluded[node.Properties.LegacyClass] {
-				t.Fatalf("%s still contains unexpected COMPAT node %q", path, node.Properties.LegacyClass)
+			if node.TypeID == "origin.legacy.placeholder" {
+				t.Fatalf("%s still contains COMPAT node %q", path, node.Properties.LegacyClass)
 			}
 		}
 		return nil

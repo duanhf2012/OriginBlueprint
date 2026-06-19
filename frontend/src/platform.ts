@@ -37,6 +37,7 @@ type DesktopApp = {
   StartGraph(content: string): Promise<string>
   StopGraph(sessionId: string): Promise<boolean>
   MigrateLegacyGraph(content: string): Promise<string>
+  ExportLegacyGraph(content: string): Promise<string>
   LoadNodeSchemaDocuments(): Promise<RawNodeSchemaDocumentLoadResult>
 }
 
@@ -153,6 +154,7 @@ export const platform = {
   },
   async stopGraph(sessionId: string) { return desktop() ? desktop()!.StopGraph(sessionId) : false },
   async migrateLegacyGraph(content: string) { return desktop() ? desktop()!.MigrateLegacyGraph(content) : '' },
+  async exportLegacyGraph(content: string) { return desktop() ? desktop()!.ExportLegacyGraph(content) : content },
   async loadNodeSchemas(): Promise<NodeSchemaLoadResult> {
     const result = normalizeNodeSchemaDocumentLoadResult(desktop() ? await desktop()!.LoadNodeSchemaDocuments() : await loadBrowserNodeSchemaDocuments())
     return parseNodeSchemaDocuments(result.documents, result.errors)

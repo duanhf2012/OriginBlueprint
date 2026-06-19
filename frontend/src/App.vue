@@ -434,8 +434,13 @@ function normalizeDocument(value: any): GraphDocument {
     groups: Array.isArray(value.groups) ? value.groups : [],
     variables,
     variableGroups: groups,
-    view: value.view ?? { x: 0, y: 0, zoom: 1 }
+    view: value.view ?? { x: 0, y: 0, zoom: 1 },
+    legacy: value.legacy
   }
+}
+
+function isLegacyGraphPath(path: string) {
+  return /\.vgf$/i.test(path)
 }
 
 async function validateGraph() {
@@ -505,6 +510,10 @@ async function openGraph(path = '') {
   const title = file.path.split(/[\\/]/).pop() ?? document.graphName
   const tab: GraphTab = { id: crypto.randomUUID(), title, path: file.path, dirty: false, document }
   tabs.value.push(tab); activeTabId.value = tab.id; selectedVariableId.value = null; await editor?.loadDocument(document)
+  if (document.legacy?.format === 'vgf') {
+    const hiddenCount = document.legacy.hiddenNodes?.length ?? 0
+    status.value = `Loaded ${document.nodes.length} visible node(s), ${hiddenCount} hidden undefined node(s)`
+  }
   recentFiles.value = await platform.recentFiles()
 }
 
@@ -512,7 +521,9 @@ async function saveGraph(saveAs: boolean) {
   if (!editor) return
   const tab = activeTab.value
   const document = editor.getDocument(tab.title, variables.value, variableGroups.value)
-  const path = await platform.saveGraph(saveAs ? '' : tab.path, JSON.stringify(document, null, 2))
+  const shouldSaveLegacy = !saveAs && isLegacyGraphPath(tab.path)
+  const content = shouldSaveLegacy ? await platform.exportLegacyGraph(JSON.stringify(document)) : JSON.stringify(document, null, 2)
+  const path = await platform.saveGraph(saveAs ? '' : tab.path, content)
   if (!path) return
   tab.path = path; tab.title = path.split(/[\\/]/).pop() ?? tab.title; tab.document = document; tab.dirty = false
   recentFiles.value = await platform.recentFiles(); status.value = `Saved ${tab.title}`

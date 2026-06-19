@@ -10,7 +10,8 @@ import { createLegacyNode, createNode, createVariableNode, hasNodeDefinition } f
 import { normalizeSocketName } from './socketTheme'
 import { BlueprintNode, type Schemes } from './types'
 import { refreshNodePortStates } from './portVisualState'
-import type { ConnectionSnapshot, GraphDocument, GraphSnapshot, GraphVariable, GraphVariableGroup, GroupSnapshot, NodeSnapshot } from './document'
+import { pathIntersectsRect, rectsIntersect, type Rect } from './selectionGeometry'
+import type { ConnectionSnapshot, GraphDocument, GraphSnapshot, GraphVariable, GraphVariableGroup, GroupSnapshot, LegacyGraphState, NodeSnapshot } from './document'
 
 export type { GraphDocument, GraphVariable, GraphVariableGroup, ValidationIssue, VariableType } from './document'
 
@@ -109,6 +110,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   let pendingConnectionSnapshot: GraphSnapshot | null = null
   let currentVariables: GraphVariable[] = []
   let currentVariableGroups: GraphVariableGroup[] = []
+  let currentLegacy: LegacyGraphState | undefined
   let insertionOffset = 0
 
   render.addPreset(VuePresets.classic.setup({
@@ -157,6 +159,20 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     callbacks.onStatus(selected ? 'Connection selected' : 'Connection deselected')
   }
 
+  async function selectConnections(ids: string[], additive: boolean) {
+    if (!additive) await clearConnectionSelection()
+    let selected = 0
+    for (const id of ids) {
+      const item = editor.getConnection(id)
+      if (!item || selectedConnectionIds.has(id)) continue
+      item.selected = true
+      selectedConnectionIds.add(id)
+      selected++
+      await area.update('connection', id)
+    }
+    return selected
+  }
+
   function graphPosition(clientPosition?: Position): Position {
     if (!clientPosition) {
       const rect = container.getBoundingClientRect()
@@ -170,6 +186,10 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
       x: (clientPosition.x - rect.left - transform.x) / transform.k,
       y: (clientPosition.y - rect.top - transform.y) / transform.k
     }
+  }
+
+  function cloneLegacyState(value?: LegacyGraphState): LegacyGraphState | undefined {
+    return value ? JSON.parse(JSON.stringify(value)) as LegacyGraphState : undefined
   }
 
   function snapshot(): GraphSnapshot {
@@ -265,6 +285,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     for (const item of data.nodes) {
       const variableAccess = item.properties?.variableAccess ?? (item.typeId === 'origin.variable.set' ? 'set' : 'get')
       const variable = currentVariables.find(entry => entry.id === item.properties?.variableId)
+      if (!item.typeId.startsWith('origin.variable.') && item.typeId !== 'origin.legacy.placeholder' && !hasNodeDefinition(item.typeId)) continue
       const node = item.typeId.startsWith('origin.variable.')
         ? createVariableNode(variable ?? { id: item.properties?.variableId ?? '', name: 'Missing Variable', type: 'string', defaultValue: '', groupId: 'default' }, variableAccess)
         : item.typeId === 'origin.legacy.placeholder'
@@ -272,7 +293,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
         : createNode(item.typeId)
       if (node.dynamicOutputs) setDynamicOutputCount(node, item.properties?.dynamicOutputCount ?? 3)
       node.id = item.id
-      if (item.properties?.label && !item.typeId.startsWith('origin.variable.')) node.label = item.properties.label
+      if (item.properties?.label && !item.typeId.startsWith('origin.variable.') && !item.properties.legacyClass) node.label = item.properties.label
       setControlValues(node, item.values)
       await editor.addNode(node)
       await area.translate(node.id, item.position)
@@ -469,7 +490,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
             ? createLegacyNode(item.properties ?? {})
           : createNode(item.typeId)
         if (node.dynamicOutputs) setDynamicOutputCount(node, item.properties?.dynamicOutputCount ?? 3)
-        if (item.properties?.label && !item.typeId.startsWith('origin.variable.')) node.label = item.properties.label
+        if (item.properties?.label && !item.typeId.startsWith('origin.variable.') && !item.properties.legacyClass) node.label = item.properties.label
         setControlValues(node, item.values)
         await editor.addNode(node)
         await area.translate(node.id, { x: base.x + item.position.x, y: base.y + item.position.y })
@@ -508,7 +529,8 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
       ...data,
       variables: (variables ?? currentVariables).map(item => ({ ...item })),
       variableGroups: (variableGroups ?? currentVariableGroups).map(item => ({ ...item })),
-      view: { x: area.area.transform.x, y: area.area.transform.y, zoom: area.area.transform.k }
+      view: { x: area.area.transform.x, y: area.area.transform.y, zoom: area.area.transform.k },
+      legacy: cloneLegacyState(currentLegacy)
     }
   }
 
@@ -516,10 +538,13 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     undoStack.length = 0; redoStack.length = 0
     currentVariables = (document.variables ?? []).map(item => ({ ...item }))
     currentVariableGroups = (document.variableGroups ?? []).map(item => ({ ...item }))
+    currentLegacy = cloneLegacyState(document.legacy)
     callbacks.onVariables(currentVariables.map(item => ({ ...item })))
     callbacks.onVariableGroups(currentVariableGroups.map(item => ({ ...item })))
     await restore({ nodes: document.nodes ?? [], connections: document.connections ?? [], groups: document.groups ?? [] })
-    if (document.view) {
+    if (document.legacy?.format === 'vgf' && document.nodes?.length) {
+      await AreaExtensions.zoomAt(area, editor.getNodes(), { scale: 0.9 })
+    } else if (document.view) {
       await area.area.translate(document.view.x, document.view.y)
       await area.area.zoom(document.view.zoom || 1)
     } else if (document.nodes?.length) await AreaExtensions.zoomAt(area, editor.getNodes(), { scale: 0.9 })
@@ -528,7 +553,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
 
   async function newDocument() {
     undoStack.length = 0; redoStack.length = 0; groups.length = 0; selectedGroupId = null
-    currentVariables = []; currentVariableGroups = [{ id: 'default', name: 'Default' }]; insertionOffset = 0; callbacks.onVariables([]); callbacks.onVariableGroups(currentVariableGroups.map(item => ({ ...item }))); callbacks.onSelection(null)
+    currentVariables = []; currentVariableGroups = [{ id: 'default', name: 'Default' }]; currentLegacy = undefined; insertionOffset = 0; callbacks.onVariables([]); callbacks.onVariableGroups(currentVariableGroups.map(item => ({ ...item }))); callbacks.onSelection(null)
     restoring = true; await selector.unselectAll(); await editor.clear(); restoring = false; renderGroups(); updateMetrics()
     await area.area.translate(0, 0); await area.area.zoom(1)
     callbacks.onStatus('New graph')
@@ -733,17 +758,25 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
       if (!start) return
       const rect = container.getBoundingClientRect()
       const current = { x: event.clientX - rect.left, y: event.clientY - rect.top }
-      const left = rect.left + Math.min(start.x, current.x)
-      const top = rect.top + Math.min(start.y, current.y)
-      const right = rect.left + Math.max(start.x, current.x)
-      const bottom = rect.top + Math.max(start.y, current.y)
+      const selectionRect: Rect = {
+        left: rect.left + Math.min(start.x, current.x),
+        top: rect.top + Math.min(start.y, current.y),
+        right: rect.left + Math.max(start.x, current.x),
+        bottom: rect.top + Math.max(start.y, current.y)
+      }
       if (!event.ctrlKey) await selector.unselectAll()
+      const connectionIds = connectionIdsInClientRect(selectionRect)
+      const selectedConnections = await selectConnections(connectionIds, event.ctrlKey)
+      let selectedNodes = 0
       for (const node of editor.getNodes()) {
         const bounds = area.nodeViews.get(node.id)?.element.getBoundingClientRect()
-        if (bounds && bounds.right >= left && bounds.left <= right && bounds.bottom >= top && bounds.top <= bottom) {
+        if (bounds && rectsIntersect(bounds, selectionRect)) {
           await selectable.select(node.id, true)
+          selectedNodes++
         }
       }
+      if (!selectedNodes) callbacks.onSelection(null)
+      if (selectedNodes || selectedConnections) callbacks.onStatus(`Selected ${selectedNodes} node(s), ${selectedConnections} connection(s)`)
       start = null
       rectangle.style.display = 'none'
       window.removeEventListener('pointermove', move)
@@ -753,11 +786,29 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     container.addEventListener('pointerdown', event => {
       const target = event.target as HTMLElement
       if (event.button !== 0 || target.closest('.blueprint-node, .blueprint-socket, .blueprint-connection, input')) return
-      void clearConnectionSelection()
       const rect = container.getBoundingClientRect()
       start = { x: event.clientX - rect.left, y: event.clientY - rect.top }
       window.addEventListener('pointermove', move)
       window.addEventListener('pointerup', up)
+    })
+  }
+
+  function connectionIdsInClientRect(selectionRect: Rect) {
+    return Array.from(container.querySelectorAll('.blueprint-connection')).flatMap(element => {
+      const connectionElement = element as SVGSVGElement
+      const id = connectionElement.dataset.connectionId
+      const path = connectionElement.querySelector('.connection-line') as SVGPathElement | null
+      if (!id || !path) return []
+      const matrix = path.getScreenCTM()
+      if (!matrix) return []
+      const clientPath = {
+        getTotalLength: () => path.getTotalLength(),
+        getPointAtLength: (offset: number) => {
+          const point = path.getPointAtLength(offset).matrixTransform(matrix)
+          return { x: point.x, y: point.y }
+        }
+      }
+      return pathIntersectsRect(clientPath, selectionRect) ? [id] : []
     })
   }
 

@@ -69,21 +69,35 @@ func (a *App) SaveGraph(path, content string) (string, error) {
 	var err error
 	if path == "" {
 		path, err = runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
-			Title: "Save Graph", DefaultDirectory: a.lastGraphDirectory(), DefaultFilename: "Untitled.obp",
-			Filters: []runtime.FileFilter{{DisplayName: "Origin Blueprint (*.obp)", Pattern: "*.obp"}},
+			Title: "Save Graph", DefaultDirectory: a.lastGraphDirectory(), DefaultFilename: "Untitled.vgf",
+			Filters: graphFilters(),
 		})
 		if err != nil || path == "" {
 			return "", err
 		}
 	}
 	if filepath.Ext(path) == "" {
-		path += ".obp"
+		path += ".vgf"
 	}
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+	data, err := graphContentForPath(path, content)
+	if err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(path, data, 0644); err != nil {
 		return "", err
 	}
 	a.recordRecent(path)
 	return path, nil
+}
+
+func graphContentForPath(path, content string) ([]byte, error) {
+	if strings.EqualFold(filepath.Ext(path), ".vgf") {
+		var document GraphDocument
+		if err := json.Unmarshal([]byte(content), &document); err == nil && document.SchemaVersion == GraphSchemaVersion {
+			return exportLegacyGraph(document)
+		}
+	}
+	return []byte(content), nil
 }
 
 func (a *App) ChooseWorkspace() (string, error) {

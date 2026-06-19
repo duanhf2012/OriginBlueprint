@@ -26,6 +26,33 @@ export interface NodeProperties {
   legacyOutputs?: Array<{ key: string; label: string; type: string }>
 }
 
+export interface LegacyNodeSnapshot {
+  id: string
+  class: string
+  module: string
+  pos: number[]
+  port_defaultv: Record<string, unknown>
+}
+
+export interface LegacyEdgeSnapshot {
+  edge_id?: string
+  source_node_id: string
+  source_port_index?: number
+  source_port_id?: number | string
+  des_node_id: string
+  des_port_index?: number
+  des_port_id?: number | string
+}
+
+export interface LegacyGraphState {
+  format?: 'vgf' | string
+  time?: string
+  hiddenNodes?: LegacyNodeSnapshot[]
+  hiddenEdges?: LegacyEdgeSnapshot[]
+  groups?: Array<{ title: string; nodes: string[] }>
+  variables?: Array<Record<string, unknown>>
+}
+
 export interface NodeSnapshot {
   id: string
   typeId: string
@@ -63,6 +90,7 @@ export interface GraphDocument extends GraphSnapshot {
   variables: GraphVariable[]
   variableGroups: GraphVariableGroup[]
   view: { x: number; y: number; zoom: number }
+  legacy?: LegacyGraphState
 }
 
 export interface ValidationIssue {
