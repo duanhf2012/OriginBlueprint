@@ -14,6 +14,8 @@ export function GetRecentFiles():Promise<Array<string>>;
 
 export function ListWorkspace(arg1:string):Promise<Array<main.WorkspaceEntry>>;
 
+export function LoadNodeSchemaDocuments():Promise<main.RuntimeNodeSchemaDocumentLoadResult>;
+
 export function MigrateLegacyGraph(arg1:string):Promise<string>;
 
 export function NewWindow():Promise<void>;

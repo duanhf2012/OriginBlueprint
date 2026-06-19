@@ -12,6 +12,7 @@ import (
 )
 
 func TestGraphFileRoundTrip(t *testing.T) {
+	t.Setenv("ORIGIN_BLUEPRINT_CONFIG_PATH", filepath.Join(t.TempDir(), "config.json"))
 	app := NewApp()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "sample.obp")
@@ -31,6 +32,9 @@ func TestGraphFileRoundTrip(t *testing.T) {
 	}
 	if opened.Content != content {
 		t.Fatalf("content = %q, want %q", opened.Content, content)
+	}
+	if got := app.lastGraphDirectory(); got != dir {
+		t.Fatalf("last graph directory = %q, want %q", got, dir)
 	}
 }
 

@@ -26,6 +26,10 @@ export function ListWorkspace(arg1) {
   return window['go']['main']['App']['ListWorkspace'](arg1);
 }
 
+export function LoadNodeSchemaDocuments() {
+  return window['go']['main']['App']['LoadNodeSchemaDocuments']();
+}
+
 export function MigrateLegacyGraph(arg1) {
   return window['go']['main']['App']['MigrateLegacyGraph'](arg1);
 }

@@ -2,6 +2,11 @@ import { ClassicPreset, GetSchemes } from 'rete'
 import type { SocketThemeName } from './socketTheme'
 
 export type NodeKind = 'event' | 'flow' | 'function' | 'variable'
+export interface PortVisualState { connected: boolean; filled: boolean }
+export interface NodePortVisualStates {
+  inputs: Record<string, PortVisualState>
+  outputs: Record<string, PortVisualState>
+}
 
 export class BlueprintNode extends ClassicPreset.Node {
   typeId?: string
@@ -18,6 +23,7 @@ export class BlueprintNode extends ClassicPreset.Node {
   legacyModule?: string
   legacyInputs?: Array<{ key: string; label: string; type: string }>
   legacyOutputs?: Array<{ key: string; label: string; type: string }>
+  portStates?: NodePortVisualStates
 
   constructor(label: string, kind: NodeKind = 'function', subtitle?: string) {
     super(label)

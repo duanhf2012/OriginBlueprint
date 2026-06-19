@@ -1,0 +1,81 @@
+[
+  {
+    "name": "BeginNode",
+    "title": "Begin To Run",
+    "package": "Action Default",
+    "description": "Event",
+    "is_pure": true,
+    "outputs": [
+      { "name": "Begin", "type": "exec", "port_id": 0 }
+    ]
+  },
+  {
+    "name": "PrintNode",
+    "title": "Print To Console",
+    "package": "Action Default",
+    "description": "Action",
+    "is_pure": true,
+    "inputs": [
+      { "name": "", "type": "exec", "port_id": 0 },
+      { "name": "str", "type": "data", "data_type": "String", "has_input": true, "port_id": 1 }
+    ],
+    "outputs": [
+      { "name": "", "type": "exec", "port_id": 0 }
+    ]
+  },
+  {
+    "name": "Integer2String",
+    "title": "Integer To String",
+    "package": "Casting",
+    "description": "Casting",
+    "is_pure": true,
+    "inputs": [
+      { "name": "value", "type": "data", "data_type": "Integer", "has_input": true, "port_id": 0 }
+    ],
+    "outputs": [
+      { "name": "string", "type": "data", "data_type": "String", "port_id": 0 }
+    ]
+  },
+  {
+    "name": "float -> str",
+    "title": "Float To String",
+    "package": "Casting",
+    "description": "Casting",
+    "is_pure": true,
+    "inputs": [
+      { "name": "value", "type": "data", "data_type": "Float", "has_input": true, "port_id": 0 }
+    ],
+    "outputs": [
+      { "name": "string", "type": "data", "data_type": "String", "port_id": 0 }
+    ]
+  },
+  {
+    "name": "StringNode",
+    "title": "String",
+    "package": "Input",
+    "description": "Literal",
+    "is_pure": true,
+    "inputs": [
+      { "name": "value", "type": "data", "data_type": "String", "has_input": true, "port_id": 0 }
+    ],
+    "outputs": [
+      { "name": "string", "type": "data", "data_type": "String", "port_id": 0 }
+    ]
+  },
+  {
+    "name": "DebugOutput",
+    "title": "打印调试信息",
+    "package": "测试",
+    "description": "Debug",
+    "is_pure": true,
+    "inputs": [
+      { "name": "", "type": "exec", "port_id": 0 },
+      { "name": "要打印的值1", "type": "data", "data_type": "Integer", "has_input": true, "port_id": 1 },
+      { "name": "要打印的值2", "type": "data", "data_type": "String", "has_input": true, "port_id": 2 },
+      { "name": "要打印的值3", "type": "data", "data_type": "Array", "has_input": true, "port_id": 3 }
+    ],
+    "outputs": [
+      { "name": "", "type": "exec", "port_id": 0 }
+    ]
+  }
+]

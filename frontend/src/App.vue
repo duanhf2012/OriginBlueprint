@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { toPng } from 'html-to-image'
 import { createBlueprintEditor, type BlueprintEditorHandle, type EditorMetrics, type GraphDocument, type GraphVariable, type GraphVariableGroup, type SelectedNodeInfo, type ValidationIssue, type VariableType } from './editor/createEditor'
-import { createNode, nodeDefinitions } from './editor/nodeRegistry'
+import { getNodeDefinitions, registerNodeSchemas, type NodeDefinition } from './editor/nodeRegistry'
 import { platform, type ExecutionEvent, type ExecutionLog, type WorkspaceEntry } from './platform'
 
 interface GraphTab { id: string; title: string; path: string; dirty: boolean; document: GraphDocument | null }
@@ -24,6 +24,7 @@ const showLeft = ref(true)
 const showRight = ref(true)
 const showLogger = ref(false)
 const showAbout = ref(false)
+const nodeLibrary = ref<NodeDefinition[]>(getNodeDefinitions())
 const moduleSearch = ref('')
 const variables = ref<GraphVariable[]>([])
 const variableGroups = ref<GraphVariableGroup[]>([{ id: 'default', name: 'Default' }])
@@ -42,6 +43,8 @@ const previewPageSize = ref(100)
 let untitledCount = 1
 let editor: BlueprintEditorHandle | null = null
 let unsubscribeExecution = () => {}
+let nodePointerDrag: { typeId: string; startX: number; startY: number; lastX: number; lastY: number; moved: boolean } | null = null
+let removeNodePointerListeners = () => {}
 
 const activeTab = computed(() => tabs.value.find(tab => tab.id === activeTabId.value)!)
 const selectedVariable = computed(() => variables.value.find(variable => variable.id === selectedVariableId.value) ?? null)
@@ -50,16 +53,16 @@ const groupedVariables = computed(() => variableGroups.value.map(group => ({
   variables: variables.value.filter(variable => variable.groupId === group.id)
 })))
 const categories = computed(() => {
-  const result = new Map<string, typeof nodeDefinitions>()
+  const result = new Map<string, NodeDefinition[]>()
   const search = moduleSearch.value.trim().toLowerCase()
-  for (const definition of nodeDefinitions.filter(item => !search || `${item.title} ${item.category} ${item.id}`.toLowerCase().includes(search))) {
+  for (const definition of nodeLibrary.value.filter(item => !search || `${item.title} ${item.category} ${item.id}`.toLowerCase().includes(search))) {
     const items = result.get(definition.category) ?? []; items.push(definition); result.set(definition.category, items)
   }
   return Array.from(result.entries())
 })
 const filteredDefinitions = computed(() => {
   const search = contextMenu.value.search.trim().toLowerCase()
-  return search ? nodeDefinitions.filter(item => `${item.title} ${item.category}`.toLowerCase().includes(search)) : nodeDefinitions
+  return search ? nodeLibrary.value.filter(item => `${item.title} ${item.category}`.toLowerCase().includes(search)) : nodeLibrary.value
 })
 const tableResults = computed(() => executionResults.value.filter(isTableExecutionResult))
 const filteredPreviewRows = computed(() => {
@@ -77,6 +80,7 @@ const pagedPreviewRows = computed(() => {
 
 onMounted(async () => {
   if (!canvas.value) return
+  const nodeLoadStatus = await loadRuntimeNodeLibrary()
   editor = await createBlueprintEditor(canvas.value, {
     onZoom(value) { zoomLabel.value = `${Math.round(value * 100)}%` },
     onStatus(value) { status.value = value },
@@ -90,6 +94,7 @@ onMounted(async () => {
     }
   })
   await editor.newDocument()
+  if (nodeLoadStatus) status.value = nodeLoadStatus
   unsubscribeExecution = platform.onExecution(handleExecutionEvent)
   recentFiles.value = await platform.recentFiles()
   const savedWorkspace = localStorage.getItem('origin-blueprint-workspace') ?? ''
@@ -98,7 +103,25 @@ onMounted(async () => {
   window.addEventListener('pointerdown', closeFloatingMenus)
 })
 
+async function loadRuntimeNodeLibrary() {
+  let result
+  try {
+    result = await platform.loadNodeSchemas()
+  } catch (error) {
+    return `Node library load failed: ${error instanceof Error ? error.message : String(error)}`
+  }
+  if (result.nodes.length) {
+    registerNodeSchemas(result.nodes)
+    nodeLibrary.value = getNodeDefinitions()
+  }
+  if (result.errors.length) return `Loaded ${result.nodes.length} node template(s), ${result.errors.length} JSON error(s)`
+  if (result.nodes.length) return `Loaded ${result.nodes.length} node template(s) from nodes`
+  if (!result.documentCount) return 'No node JSON files found in nodes directory'
+  return ''
+}
+
 onBeforeUnmount(() => {
+  removeNodePointerListeners()
   unsubscribeExecution(); window.removeEventListener('keydown', onKeyDown); window.removeEventListener('pointerdown', closeFloatingMenus); editor?.destroy()
 })
 
@@ -465,42 +488,6 @@ function handleExecutionEvent(event: ExecutionEvent) {
 async function focusIssue(issue: ValidationIssue) { if (issue.nodeId) await editor?.focusNode(issue.nodeId) }
 async function focusExecutionLog(log: ExecutionLog) { if (log.nodeId) await editor?.focusNode(log.nodeId) }
 
-function migrateLegacy(value: any): GraphDocument {
-  const typeMap: Record<string, string> = {
-    BeginNode: 'origin.event.begin', ForLoop: 'origin.flow.for-loop', BranchNode: 'origin.flow.branch',
-    PrintNode: 'origin.action.print', 'int -> str': 'origin.cast.integer-string',
-    AddInt: 'origin.math.add-integer', SubInt: 'origin.math.subtract-integer', MulInt: 'origin.math.multiply-integer',
-    DivInt: 'origin.math.divide-integer', ModInt: 'origin.math.modulo-integer', RandNumber: 'origin.math.random-integer',
-    Sequence: 'origin.flow.sequence', GreaterThanInteger: 'origin.flow.greater-integer',
-    LessThanInteger: 'origin.flow.less-integer', EqualInteger: 'origin.flow.equal-integer',
-    GetArrayInt: 'origin.array.get-integer', GetArrayString: 'origin.array.get-string', GetArrayLen: 'origin.array.length',
-    CreateIntArray: 'origin.array.create-integer', CreateStringArray: 'origin.array.create-string',
-    AppendStringToArray: 'origin.array.append-string', AppendIntegerToArray: 'origin.array.append-integer',
-    AppendIntReturn: 'origin.result.append-integer', AppendStringReturn: 'origin.result.append-string',
-    Entrance_ArrayParam_000002: 'origin.event.entry-array', Entrance_IntParam_000001: 'origin.event.entry-two-integers',
-    Entrance_Timer_000003: 'origin.event.timer', CreateTimer: 'origin.timer.create', CloseTimer: 'origin.timer.close',
-    ForeachIntArray: 'origin.flow.foreach-integer-array', Probability: 'origin.flow.probability', DebugOutput: 'origin.debug.output'
-  }
-  const nodes = (value.nodes ?? []).flatMap((item: any) => {
-    const typeId = typeMap[item.class]
-    if (!typeId) return []
-    const template = createNode(typeId)
-    const inputKeys = Object.keys(template.inputs)
-    const values: Record<string, unknown> = {}
-    for (const [index, data] of Object.entries(item.port_defaultv ?? {})) if (inputKeys[Number(index)]) values[inputKeys[Number(index)]] = data
-    return [{ id: item.id, typeId, position: { x: item.pos?.[0] ?? 0, y: item.pos?.[1] ?? 0 }, values }]
-  })
-  const nodeMap = new Map(nodes.map((node: any) => [node.id, node]))
-  const connections = (value.edges ?? []).flatMap((edge: any) => {
-    const sourceInfo: any = nodeMap.get(edge.source_node_id), targetInfo: any = nodeMap.get(edge.des_node_id)
-    if (!sourceInfo || !targetInfo) return []
-    const source = createNode(sourceInfo.typeId), target = createNode(targetInfo.typeId)
-    const sourceOutput = Object.keys(source.outputs)[edge.source_port_index], targetInput = Object.keys(target.inputs)[edge.des_port_index]
-    return sourceOutput && targetInput ? [{ source: sourceInfo.id, sourceOutput, target: targetInfo.id, targetInput }] : []
-  })
-  return normalizeDocument({ schemaVersion: 1, graphName: value.graph_name || 'Imported Graph', nodes, connections, groups: [], variables: value.variables ?? [], view: { x: 0, y: 0, zoom: 1 } })
-}
-
 async function openGraph(path = '') {
   const file = await platform.openGraph(path)
   if (!file) return
@@ -511,7 +498,7 @@ async function openGraph(path = '') {
   else if (platform.isDesktop()) {
     try { document = normalizeDocument(JSON.parse(await platform.migrateLegacyGraph(file.content))) }
     catch (error) { status.value = error instanceof Error ? error.message : 'Legacy graph migration failed'; return }
-  } else document = normalizeDocument(migrateLegacy(parsed))
+  } else { status.value = 'Legacy graph migration requires the desktop runtime'; return }
   persistActive()
   const existing = tabs.value.find(tab => tab.path === file.path)
   if (existing) return switchTab(existing.id)
@@ -567,23 +554,75 @@ async function exportImage(selected: boolean) {
   const path = await platform.exportPNG(data); status.value = path ? `Exported ${path}` : 'Export cancelled'
 }
 
-function startNodeDrag(event: DragEvent, typeId: string) { event.dataTransfer?.setData('application/x-origin-node', typeId); if (event.dataTransfer) event.dataTransfer.effectAllowed = 'copy' }
+async function addNodeAt(typeId: string, position?: { x: number; y: number }) {
+  try {
+    await editor?.addNode(typeId, position)
+  } catch (error) {
+    status.value = error instanceof Error ? error.message : String(error)
+  }
+}
+
+function beginNodePointerDrag(event: PointerEvent, typeId: string) {
+  if (event.button !== 0) return
+  removeNodePointerListeners()
+  nodePointerDrag = { typeId, startX: event.clientX, startY: event.clientY, lastX: event.clientX, lastY: event.clientY, moved: false }
+  status.value = `Dragging ${typeId}`
+
+  const move = (next: PointerEvent) => {
+    if (!nodePointerDrag) return
+    nodePointerDrag.lastX = next.clientX
+    nodePointerDrag.lastY = next.clientY
+    const dx = next.clientX - nodePointerDrag.startX
+    const dy = next.clientY - nodePointerDrag.startY
+    if (Math.hypot(dx, dy) > 3) nodePointerDrag.moved = true
+  }
+
+  const up = (next: PointerEvent) => {
+    const drag = nodePointerDrag
+    removeNodePointerListeners()
+    nodePointerDrag = null
+    if (!drag?.moved) return
+    const position = { x: next.clientX || drag.lastX, y: next.clientY || drag.lastY }
+    if (isInsideCanvas(position.x, position.y)) void addNodeAt(drag.typeId, position)
+    else status.value = 'Node drag cancelled'
+  }
+
+  removeNodePointerListeners = () => {
+    window.removeEventListener('pointermove', move)
+    window.removeEventListener('pointerup', up)
+    window.removeEventListener('pointercancel', up)
+    removeNodePointerListeners = () => {}
+  }
+  window.addEventListener('pointermove', move)
+  window.addEventListener('pointerup', up)
+  window.addEventListener('pointercancel', up)
+}
+
+function isInsideCanvas(clientX: number, clientY: number) {
+  const rect = canvas.value?.getBoundingClientRect()
+  return Boolean(rect && clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom)
+}
+
 function dropNode(event: DragEvent) {
-  const typeId = event.dataTransfer?.getData('application/x-origin-node')
-  if (typeId) { void editor?.addNode(typeId, { x: event.clientX, y: event.clientY }); return }
   const variableId = event.dataTransfer?.getData('application/x-origin-variable')
   const variable = variables.value.find(item => item.id === variableId)
   if (!variable) return
   const access = event.dataTransfer?.getData('application/x-origin-variable-access') === 'set' ? 'set' : 'get'
   void createVariableNode(variable, access, { x: event.clientX, y: event.clientY })
 }
+
+function allowNodeDrop(event: DragEvent) {
+  event.preventDefault()
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
+}
+
 function openContextMenu(event: MouseEvent) {
   if (event.ctrlKey) return
   if ((event.target as HTMLElement).closest('.blueprint-node, input, .node-group')) return
   const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
   contextMenu.value = { visible: true, x: event.clientX - rect.left, y: event.clientY - rect.top, clientX: event.clientX, clientY: event.clientY, search: '' }
 }
-function createFromContext(typeId: string) { void editor?.addNode(typeId, { x: contextMenu.value.clientX, y: contextMenu.value.clientY }); contextMenu.value.visible = false }
+function createFromContext(typeId: string) { void addNodeAt(typeId, { x: contextMenu.value.clientX, y: contextMenu.value.clientY }); contextMenu.value.visible = false }
 </script>
 
 <template>
@@ -637,14 +676,14 @@ function createFromContext(typeId: string) { void editor?.addNode(typeId, { x: c
 
       <section class="editor-column">
         <div class="tab-strip"><div v-for="tab in tabs" :key="tab.id" class="graph-tab" :class="{ active: tab.id === activeTabId }" @click="switchTab(tab.id)"><span class="tab-mark"></span>{{ tab.title }}<span v-if="tab.dirty" class="dirty-mark">●</span><button class="tab-close" @click="closeTab(tab.id, $event)">×</button></div><button class="new-tab" @click="newGraph">＋</button></div>
-        <div class="canvas-wrap" @contextmenu.prevent="openContextMenu" @dragover.prevent @drop.prevent="dropNode"><div ref="canvas" class="rete-canvas"></div><div class="canvas-toolbar"><button title="Select">⌖</button><button title="Reset view" @click="editor?.resetView()">⌂</button></div><div class="canvas-hint">Middle drag: pan&nbsp;&nbsp; Ctrl: multi-select&nbsp;&nbsp; Ctrl + right drag: cut connections&nbsp;&nbsp; Connection: click + Delete</div>
+        <div class="canvas-wrap" @contextmenu.prevent="openContextMenu" @dragenter="allowNodeDrop" @dragover="allowNodeDrop" @drop.prevent="dropNode"><div ref="canvas" class="rete-canvas"></div><div class="canvas-toolbar"><button title="Select">⌖</button><button title="Reset view" @click="editor?.resetView()">⌂</button></div><div class="canvas-hint">Middle drag: pan&nbsp;&nbsp; Ctrl: multi-select&nbsp;&nbsp; Ctrl + right drag: cut connections&nbsp;&nbsp; Connection: click + Delete</div>
           <div v-if="contextMenu.visible" class="node-context-menu" :style="{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }" @pointerdown.stop><input v-model="contextMenu.search" autofocus placeholder="Search nodes..." /><button v-for="item in filteredDefinitions" :key="item.id" @click="createFromContext(item.id)"><span>{{ item.title }}</span><small>{{ item.category }}</small></button></div>
         </div>
         <div v-show="showLogger" class="logger-panel"><div class="logger-title"><span :class="{ running: executionRunning }">{{ executionRunning ? 'Running Graph...' : 'Logger' }}</span><button @click="validateGraph">Validate</button><button :disabled="executionRunning" @click="runGraph">Run</button></div><div v-if="!validationIssues.length && !executionLogs.length && !executionResults.length" class="logger-line">No validation or execution messages.</div><button v-for="issue in validationIssues" :key="`${issue.code}-${issue.nodeId}`" class="logger-issue" :class="issue.severity" @click="focusIssue(issue)"><strong>{{ issue.severity.toUpperCase() }}</strong><span>{{ issue.message }}</span><small>{{ issue.code }}</small></button><button v-for="(log, index) in executionLogs" :key="`run-${index}-${log.nodeId}`" class="logger-issue execution-log" :class="log.level" @click="focusExecutionLog(log)"><strong>{{ log.level.toUpperCase() }}</strong><span>{{ log.message }}</span><small>{{ log.nodeId || 'runtime' }}</small></button><button v-for="result in tableResults" :key="result.nodeId" class="table-result" @click="openTablePreview(result)"><strong>TABLE</strong><span>{{ result.table.rows.length }} rows x {{ result.table.columns.length }} columns</span><small>Open preview</small></button><div v-if="executionResults.length && !tableResults.length" class="execution-summary"><strong>Results</strong><code>{{ JSON.stringify(executionResults) }}</code></div><div v-if="Object.keys(executionVariables).length" class="execution-summary"><strong>Variables</strong><code>{{ JSON.stringify(executionVariables) }}</code></div></div>
         <footer class="status-bar"><span>{{ status }}</span><span>Nodes {{ metrics.nodes }} · Connections {{ metrics.connections }}</span><button @click="editor?.resetView()">{{ zoomLabel }}</button></footer>
       </section>
 
-      <aside v-show="showRight" class="sidebar sidebar-right"><div class="panel module-panel"><div class="panel-title"><span class="chevron">⌄</span> 模块库</div><div class="search-box">⌕ <input v-model="moduleSearch" placeholder="搜索模块..." /></div><div class="module-list"><section v-for="[category, items] in categories" :key="category"><div class="module-category"><span>⌄</span>{{ category }}</div><button v-for="item in items" :key="item.id" class="module-item" draggable="true" @dragstart="startNodeDrag($event, item.id)" @dblclick="editor?.addNode(item.id)">{{ item.title }}</button></section><div v-if="!categories.length" class="empty-panel">没有匹配的模块</div></div></div><div class="panel grow detail-panel"><div class="panel-title"><span class="chevron">⌄</span> 详情</div><div v-if="selectedVariable" class="node-detail variable-detail"><div class="detail-section-title">变量属性</div><label>Variable ID<input :value="selectedVariable.id" disabled /></label><label>名称<input v-model="selectedVariable.name" /></label><label>类型<select v-model="selectedVariable.type" @change="changeVariableType(selectedVariable)"><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="float">Float</option><option value="string">String</option><option value="array">Array</option><option value="file">File</option><option value="table">Table</option><option value="dictionary">Dictionary</option></select></label><label>分组<select v-model="selectedVariable.groupId"><option v-for="group in variableGroups" :key="group.id" :value="group.id">{{ group.name }}</option></select></label><label>说明<textarea v-model="selectedVariable.description" rows="4" placeholder="变量用途和约束"></textarea></label><label>默认值<input v-if="selectedVariable.type === 'boolean'" v-model="selectedVariable.defaultValue" type="checkbox" /><input v-else-if="selectedVariable.type === 'string' || selectedVariable.type === 'file'" v-model="selectedVariable.defaultValue" type="text" /><input v-else-if="selectedVariable.type === 'array'" :value="Array.isArray(selectedVariable.defaultValue) ? selectedVariable.defaultValue.join(', ') : ''" placeholder="1, 2, text" @change="setVariableArrayDefault(selectedVariable, $event)" /><textarea v-else-if="selectedVariable.type === 'table' || selectedVariable.type === 'dictionary'" :value="JSON.stringify(selectedVariable.defaultValue, null, 2)" rows="6" @change="setVariableStructuredDefault(selectedVariable, $event)"></textarea><input v-else v-model.number="selectedVariable.defaultValue" type="number" /></label><button class="apply-properties" @click="updateVariable(selectedVariable)">应用变量属性</button><button class="delete-properties" @click="removeVariable(selectedVariable)">删除变量</button></div><div v-else-if="selectedNode" class="node-detail"><label>Node ID<input :value="selectedNode.id" disabled /></label><label>Type<input :value="selectedNode.typeId" disabled /></label><label>Title<input v-model="selectedNode.label" :disabled="Boolean(selectedNode.variableId)" /></label><div v-if="Object.keys(selectedNode.values).length" class="detail-section-title">Input Defaults</div><label v-for="(value, key) in selectedNode.values" :key="key">{{ key }}<input v-if="Array.isArray(value)" :value="value.join(', ')" type="text" placeholder="Comma-separated values" @input="setSelectedArrayValue(key, $event)" /><input v-else :value="value" :type="typeof value === 'number' ? 'number' : 'text'" @input="setSelectedValue(key, $event)" /></label><button class="apply-properties" @click="applyNodeProperties">Apply</button></div><div v-else class="empty-detail">选择节点或变量以查看属性</div></div></aside>
+      <aside v-show="showRight" class="sidebar sidebar-right"><div class="panel module-panel"><div class="panel-title"><span class="chevron">⌄</span> 模块库</div><div class="search-box">⌕ <input v-model="moduleSearch" placeholder="搜索模块..." /></div><div class="module-list"><section v-for="[category, items] in categories" :key="category"><div class="module-category"><span>⌄</span>{{ category }}</div><button v-for="item in items" :key="item.id" class="module-item" @pointerdown.stop="beginNodePointerDrag($event, item.id)" @dblclick="addNodeAt(item.id)">{{ item.title }}</button></section><div v-if="!categories.length" class="empty-panel">{{ status || '没有匹配的模块' }}</div></div></div><div class="panel grow detail-panel"><div class="panel-title"><span class="chevron">⌄</span> 详情</div><div v-if="selectedVariable" class="node-detail variable-detail"><div class="detail-section-title">变量属性</div><label>Variable ID<input :value="selectedVariable.id" disabled /></label><label>名称<input v-model="selectedVariable.name" /></label><label>类型<select v-model="selectedVariable.type" @change="changeVariableType(selectedVariable)"><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="float">Float</option><option value="string">String</option><option value="array">Array</option><option value="file">File</option><option value="table">Table</option><option value="dictionary">Dictionary</option></select></label><label>分组<select v-model="selectedVariable.groupId"><option v-for="group in variableGroups" :key="group.id" :value="group.id">{{ group.name }}</option></select></label><label>说明<textarea v-model="selectedVariable.description" rows="4" placeholder="变量用途和约束"></textarea></label><label>默认值<input v-if="selectedVariable.type === 'boolean'" v-model="selectedVariable.defaultValue" type="checkbox" /><input v-else-if="selectedVariable.type === 'string' || selectedVariable.type === 'file'" v-model="selectedVariable.defaultValue" type="text" /><input v-else-if="selectedVariable.type === 'array'" :value="Array.isArray(selectedVariable.defaultValue) ? selectedVariable.defaultValue.join(', ') : ''" placeholder="1, 2, text" @change="setVariableArrayDefault(selectedVariable, $event)" /><textarea v-else-if="selectedVariable.type === 'table' || selectedVariable.type === 'dictionary'" :value="JSON.stringify(selectedVariable.defaultValue, null, 2)" rows="6" @change="setVariableStructuredDefault(selectedVariable, $event)"></textarea><input v-else v-model.number="selectedVariable.defaultValue" type="number" /></label><button class="apply-properties" @click="updateVariable(selectedVariable)">应用变量属性</button><button class="delete-properties" @click="removeVariable(selectedVariable)">删除变量</button></div><div v-else-if="selectedNode" class="node-detail"><label>Node ID<input :value="selectedNode.id" disabled /></label><label>Type<input :value="selectedNode.typeId" disabled /></label><label>Title<input v-model="selectedNode.label" :disabled="Boolean(selectedNode.variableId)" /></label><div v-if="Object.keys(selectedNode.values).length" class="detail-section-title">Input Defaults</div><label v-for="(value, key) in selectedNode.values" :key="key">{{ key }}<input v-if="Array.isArray(value)" :value="value.join(', ')" type="text" placeholder="Comma-separated values" @input="setSelectedArrayValue(key, $event)" /><input v-else :value="value" :type="typeof value === 'number' ? 'number' : 'text'" @input="setSelectedValue(key, $event)" /></label><button class="apply-properties" @click="applyNodeProperties">Apply</button></div><div v-else class="empty-detail">选择节点或变量以查看属性</div></div></aside>
     </section>
     <div v-if="previewTable" class="table-preview-backdrop" @click.self="previewTable = null">
       <section class="table-preview-dialog">

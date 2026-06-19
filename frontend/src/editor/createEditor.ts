@@ -6,9 +6,10 @@ import BlueprintControl from './BlueprintControl.vue'
 import BlueprintConnectionComponent from './BlueprintConnection.vue'
 import BlueprintNodeComponent from './BlueprintNode.vue'
 import BlueprintSocket from './BlueprintSocket.vue'
-import { createLegacyNode, createNode, createVariableNode } from './nodeRegistry'
+import { createLegacyNode, createNode, createVariableNode, hasNodeDefinition } from './nodeRegistry'
 import { normalizeSocketName } from './socketTheme'
 import { BlueprintNode, type Schemes } from './types'
+import { refreshNodePortStates } from './portVisualState'
 import type { ConnectionSnapshot, GraphDocument, GraphSnapshot, GraphVariable, GraphVariableGroup, GroupSnapshot, NodeSnapshot } from './document'
 
 export type { GraphDocument, GraphVariable, GraphVariableGroup, ValidationIssue, VariableType } from './document'
@@ -284,6 +285,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
         await editor.addConnection(createConnection(source, item.sourceOutput, target, item.targetInput))
       }
     }
+    await refreshPortStates(true)
     restoring = false
     renderGroups()
     updateMetrics()
@@ -329,9 +331,15 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     })
   }
 
+  async function refreshPortStates(updateNodes = false) {
+    const nodes = editor.getNodes()
+    refreshNodePortStates(nodes, editor.getConnections(), id => editor.getNode(id))
+    if (updateNodes) await Promise.all(nodes.map(node => area.update('node', node.id)))
+  }
+
   function automaticConverter(source?: string, target?: string) {
-    if (source === 'integer' && target === 'string') return 'origin.cast.integer-string'
-    if (source === 'float' && target === 'string') return 'origin.cast.float-string'
+    if (source === 'integer' && target === 'string' && hasNodeDefinition('origin.cast.integer-string')) return 'origin.cast.integer-string'
+    if (source === 'float' && target === 'string' && hasNodeDefinition('origin.cast.float-string')) return 'origin.cast.float-string'
     return ''
   }
 
@@ -377,6 +385,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
       const node = createNode(typeId)
       await editor.addNode(node)
       await area.translate(node.id, graphPosition(clientPosition))
+      await refreshPortStates(true)
       await selector.unselectAll()
       await selectable.select(node.id, false)
       callbacks.onSelection(selectedNodeInfo(node))
@@ -389,6 +398,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
       const node = createVariableNode(variable, access)
       await editor.addNode(node)
       await area.translate(node.id, graphPosition(clientPosition))
+      await refreshPortStates(true)
       await selector.unselectAll()
       await selectable.select(node.id, false)
       callbacks.onSelection(selectedNodeInfo(node))
@@ -634,7 +644,11 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     const detail = (event as CustomEvent<{ nodeId: string; delta: number }>).detail
     if (detail) void changeDynamicOutputs(detail.nodeId, detail.delta)
   }
-  const controlChangeListener = () => { if (!restoring) callbacks.onDirty() }
+  const controlChangeListener = () => {
+    if (restoring) return
+    callbacks.onDirty()
+    void refreshPortStates(true)
+  }
   const connectionSelectListener = (event: Event) => {
     const detail = (event as CustomEvent<{ id: string; additive: boolean }>).detail
     if (detail) void selectConnection(detail.id, detail.additive)
@@ -661,6 +675,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     await mutate('Node properties updated', async () => {
       node.label = label.trim() || node.label
       setControlValues(node, values)
+      await refreshPortStates()
       await area.update('node', node.id)
       callbacks.onSelection(selectedNodeInfo(node))
     })
@@ -831,7 +846,10 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
         decorateConnection(context.data)
         void area.update('connection', context.data.id)
       }
-      if (context.type === 'connectionremoved') selectedConnectionIds.delete(context.data.id)
+      if (context.type === 'connectionremoved') {
+        selectedConnectionIds.delete(context.data.id)
+      }
+      queueMicrotask(() => void refreshPortStates(true))
       updateMetrics()
       if (!restoring && !transactionActive && !initializing && pendingConnectionSnapshot) {
         undoStack.push(pendingConnectionSnapshot); redoStack.length = 0; pendingConnectionSnapshot = null
@@ -854,25 +872,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   setupRubberBandSelection()
   const destroyCuttingLine = setupCuttingLine()
 
-  const initial = [
-    { typeId: 'origin.event.begin', position: { x: 90, y: 115 } },
-    { typeId: 'origin.flow.for-loop', position: { x: 390, y: 90 } },
-    { typeId: 'origin.flow.branch', position: { x: 720, y: 65 } },
-    { typeId: 'origin.cast.integer-string', position: { x: 720, y: 235 } },
-    { typeId: 'origin.action.print', position: { x: 1040, y: 100 } }
-  ]
-  const initialNodes: BlueprintNode[] = []
-  for (const item of initial) {
-    const node = createNode(item.typeId)
-    await editor.addNode(node)
-    await area.translate(node.id, item.position)
-    initialNodes.push(node)
-  }
-  await editor.addConnection(createConnection(initialNodes[0], 'exec', initialNodes[1], 'exec'))
-  await editor.addConnection(createConnection(initialNodes[1], 'body', initialNodes[2], 'exec'))
-  await editor.addConnection(createConnection(initialNodes[1], 'index', initialNodes[3], 'value'))
-  await editor.addConnection(createConnection(initialNodes[2], 'true', initialNodes[4], 'exec'))
-  await editor.addConnection(createConnection(initialNodes[3], 'result', initialNodes[4], 'value'))
+  await refreshPortStates(true)
   updateMetrics()
   initializing = false
 

@@ -1,0 +1,69 @@
+[
+  {
+    "name": "Entrance_ArrayParam_000002",
+    "title": "执行入口 (数组)",
+    "package": "入口",
+    "description": "Entry",
+    "is_pure": true,
+    "outputs": [
+      { "name": "", "type": "exec", "port_id": 0 },
+      { "name": "对象ID", "type": "data", "data_type": "Integer", "port_id": 1 },
+      { "name": "param数组", "type": "data", "data_type": "Array", "port_id": 2 }
+    ]
+  },
+  {
+    "name": "Entrance_IntParam_000001",
+    "title": "执行入口 (2参数)",
+    "package": "入口",
+    "description": "Entry",
+    "is_pure": true,
+    "outputs": [
+      { "name": "", "type": "exec", "port_id": 0 },
+      { "name": "对象ID", "type": "data", "data_type": "Integer", "port_id": 1 },
+      { "name": "参数1", "type": "data", "data_type": "Integer", "port_id": 2 },
+      { "name": "参数2", "type": "data", "data_type": "Integer", "port_id": 3 }
+    ]
+  },
+  {
+    "name": "Entrance_Timer_000003",
+    "title": "Timer事件入口",
+    "package": "入口",
+    "description": "Entry",
+    "is_pure": true,
+    "outputs": [
+      { "name": "", "type": "exec", "port_id": 0 },
+      { "name": "定时器ID", "type": "data", "data_type": "Integer", "port_id": 1 },
+      { "name": "附加参数", "type": "data", "data_type": "Array", "port_id": 2 }
+    ]
+  },
+  {
+    "name": "CreateTimer",
+    "title": "创建定时器",
+    "package": "基础",
+    "description": "Timer",
+    "is_pure": true,
+    "inputs": [
+      { "name": "", "type": "exec", "port_id": 0 },
+      { "name": "时间(毫秒)", "type": "data", "data_type": "Integer", "has_input": true, "port_id": 1 },
+      { "name": "附加参数", "type": "data", "data_type": "Array", "has_input": true, "port_id": 2 }
+    ],
+    "outputs": [
+      { "name": "", "type": "exec", "port_id": 0 },
+      { "name": "定时器ID", "type": "data", "data_type": "Integer", "port_id": 1 }
+    ]
+  },
+  {
+    "name": "CloseTimer",
+    "title": "关闭定时器",
+    "package": "基础",
+    "description": "Timer",
+    "is_pure": true,
+    "inputs": [
+      { "name": "", "type": "exec", "port_id": 0 },
+      { "name": "定时器ID", "type": "data", "data_type": "Integer", "has_input": true, "port_id": 1 }
+    ],
+    "outputs": [
+      { "name": "", "type": "exec", "port_id": 0 }
+    ]
+  }
+]

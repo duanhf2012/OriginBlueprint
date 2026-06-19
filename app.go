@@ -32,6 +32,11 @@ type WorkspaceEntry struct {
 	IsDir bool   `json:"isDir"`
 }
 
+type appConfig struct {
+	RecentFiles        []string `json:"recentFiles"`
+	LastGraphDirectory string   `json:"lastGraphDirectory"`
+}
+
 func NewApp() *App { return &App{sessions: make(map[string]context.CancelFunc)} }
 
 func (a *App) startup(ctx context.Context) { a.ctx = ctx }
@@ -47,7 +52,7 @@ func graphFilters() []runtime.FileFilter {
 func (a *App) OpenGraph(path string) (FileResult, error) {
 	var err error
 	if path == "" {
-		path, err = runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{Title: "Open Graph", Filters: graphFilters()})
+		path, err = runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{Title: "Open Graph", DefaultDirectory: a.lastGraphDirectory(), Filters: graphFilters()})
 		if err != nil || path == "" {
 			return FileResult{}, err
 		}
@@ -64,7 +69,7 @@ func (a *App) SaveGraph(path, content string) (string, error) {
 	var err error
 	if path == "" {
 		path, err = runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
-			Title: "Save Graph", DefaultFilename: "Untitled.obp",
+			Title: "Save Graph", DefaultDirectory: a.lastGraphDirectory(), DefaultFilename: "Untitled.obp",
 			Filters: []runtime.FileFilter{{DisplayName: "Origin Blueprint (*.obp)", Pattern: "*.obp"}},
 		})
 		if err != nil || path == "" {
@@ -105,11 +110,13 @@ func (a *App) NewWindow() error {
 }
 
 func (a *App) ClearRecentFiles() error {
-	err := os.Remove(configPath())
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
+	for _, path := range []string{configPath(), legacyRecentPath()} {
+		err := os.Remove(path)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
 	}
-	return err
+	return nil
 }
 
 func (a *App) Quit() {
@@ -164,21 +171,51 @@ func (a *App) ExportPNG(dataURL string) (string, error) {
 }
 
 func configPath() string {
+	if override := os.Getenv("ORIGIN_BLUEPRINT_CONFIG_PATH"); override != "" {
+		return override
+	}
+	dir, _ := os.UserConfigDir()
+	return filepath.Join(dir, "OriginBlueprint", "config.json")
+}
+
+func legacyRecentPath() string {
 	dir, _ := os.UserConfigDir()
 	return filepath.Join(dir, "OriginBlueprint", "recent.json")
 }
 
-func (a *App) GetRecentFiles() []string {
+func readAppConfig() appConfig {
 	data, err := os.ReadFile(configPath())
 	if err != nil {
-		return []string{}
+		if legacyData, legacyErr := os.ReadFile(legacyRecentPath()); legacyErr == nil {
+			var legacyRecent []string
+			if json.Unmarshal(legacyData, &legacyRecent) == nil {
+				return appConfig{RecentFiles: legacyRecent}
+			}
+		}
+		return appConfig{}
 	}
-	var result []string
-	if json.Unmarshal(data, &result) != nil {
-		return []string{}
+	var config appConfig
+	if json.Unmarshal(data, &config) == nil {
+		return config
 	}
-	filtered := result[:0]
-	for _, path := range result {
+	var legacyRecent []string
+	if json.Unmarshal(data, &legacyRecent) == nil {
+		return appConfig{RecentFiles: legacyRecent}
+	}
+	return appConfig{}
+}
+
+func writeAppConfig(config appConfig) {
+	path := configPath()
+	_ = os.MkdirAll(filepath.Dir(path), 0755)
+	data, _ := json.MarshalIndent(config, "", "  ")
+	_ = os.WriteFile(path, data, 0644)
+}
+
+func (a *App) GetRecentFiles() []string {
+	config := readAppConfig()
+	filtered := config.RecentFiles[:0]
+	for _, path := range config.RecentFiles {
 		if _, err := os.Stat(path); err == nil {
 			filtered = append(filtered, path)
 		}
@@ -186,7 +223,16 @@ func (a *App) GetRecentFiles() []string {
 	return filtered
 }
 
+func (a *App) lastGraphDirectory() string {
+	path := readAppConfig().LastGraphDirectory
+	if info, err := os.Stat(path); err == nil && info.IsDir() {
+		return path
+	}
+	return ""
+}
+
 func (a *App) recordRecent(path string) {
+	config := readAppConfig()
 	items := a.GetRecentFiles()
 	result := []string{path}
 	for _, item := range items {
@@ -194,8 +240,9 @@ func (a *App) recordRecent(path string) {
 			result = append(result, item)
 		}
 	}
-	config := configPath()
-	_ = os.MkdirAll(filepath.Dir(config), 0755)
-	data, _ := json.MarshalIndent(result, "", "  ")
-	_ = os.WriteFile(config, data, 0644)
+	config.RecentFiles = result
+	if dir := filepath.Dir(path); dir != "." {
+		config.LastGraphDirectory = dir
+	}
+	writeAppConfig(config)
 }
