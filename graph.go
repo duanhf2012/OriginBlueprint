@@ -431,6 +431,18 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 			known = true
 			issues = append(issues, ValidationIssue{Severity: "warning", Code: "node.legacy-placeholder", Message: "Legacy node is preserved but not executable: " + node.Properties.LegacyClass, NodeID: node.ID})
 		}
+		if !known && (len(node.Properties.LegacyInputs) > 0 || len(node.Properties.LegacyOutputs) > 0) {
+			inputs := make(map[string]string, len(node.Properties.LegacyInputs))
+			outputs := make(map[string]string, len(node.Properties.LegacyOutputs))
+			for _, port := range node.Properties.LegacyInputs {
+				inputs[port.Key] = port.Type
+			}
+			for _, port := range node.Properties.LegacyOutputs {
+				outputs[port.Key] = port.Type
+			}
+			definition = portDefinition{Inputs: inputs, Outputs: outputs}
+			known = true
+		}
 		if !known {
 			issues = append(issues, ValidationIssue{Severity: "error", Code: "node.unknown-type", Message: "Unknown node type: " + node.TypeID, NodeID: node.ID})
 			continue

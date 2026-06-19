@@ -8,6 +8,8 @@ import { platform, type ExecutionEvent, type ExecutionLog, type WorkspaceEntry }
 interface GraphTab { id: string; title: string; path: string; dirty: boolean; document: GraphDocument | null }
 interface TableValue { columns: string[]; rows: unknown[][] }
 interface TableExecutionResult { kind: 'table'; nodeId: string; table: TableValue }
+interface WorkspaceTreeNode extends WorkspaceEntry { children: WorkspaceTreeNode[] }
+interface VisibleWorkspaceNode { node: WorkspaceTreeNode; depth: number }
 
 const canvas = ref<HTMLElement | null>(null)
 const zoomLabel = ref('100%')
@@ -19,7 +21,12 @@ const tabs = ref<GraphTab[]>([{ id: crypto.randomUUID(), title: 'Untitled-1 Grap
 const activeTabId = ref(tabs.value[0].id)
 const recentFiles = ref<string[]>([])
 const workspaceRoot = ref('')
-const workspaceEntries = ref<WorkspaceEntry[]>([])
+const workspaceTree = ref<WorkspaceTreeNode[]>([])
+const workspaceSearch = ref('')
+const expandedWorkspacePaths = ref<Set<string>>(new Set())
+const selectedWorkspacePath = ref('')
+const fileBrowserWidth = ref(savedPanelWidth('origin-blueprint-file-browser-width', 210))
+const leftToolsWidth = ref(savedPanelWidth('origin-blueprint-left-tools-width', 210))
 const showLeft = ref(true)
 const showRight = ref(true)
 const showLogger = ref(false)
@@ -77,6 +84,14 @@ const pagedPreviewRows = computed(() => {
   const start = (page - 1) * previewPageSize.value
   return filteredPreviewRows.value.slice(start, start + previewPageSize.value)
 })
+const workspaceStyle = computed(() => ({
+  '--file-browser-width': `${fileBrowserWidth.value}px`,
+  '--left-tools-width': `${leftToolsWidth.value}px`
+}))
+const visibleWorkspaceNodes = computed(() => {
+  const search = workspaceSearch.value.trim().toLowerCase()
+  return flattenWorkspaceNodes(workspaceTree.value, 0, search)
+})
 
 onMounted(async () => {
   if (!canvas.value) return
@@ -97,11 +112,16 @@ onMounted(async () => {
   if (nodeLoadStatus) status.value = nodeLoadStatus
   unsubscribeExecution = platform.onExecution(handleExecutionEvent)
   recentFiles.value = await platform.recentFiles()
-  const savedWorkspace = localStorage.getItem('origin-blueprint-workspace') ?? ''
-  if (savedWorkspace) await loadWorkspace(savedWorkspace)
+  const initialWorkspace = await platform.currentWorkingDirectory()
+  if (initialWorkspace) await loadWorkspace(initialWorkspace)
   window.addEventListener('keydown', onKeyDown)
   window.addEventListener('pointerdown', closeFloatingMenus)
 })
+
+function savedPanelWidth(key: string, fallback: number) {
+  const value = Number.parseInt(localStorage.getItem(key) ?? '', 10)
+  return Number.isFinite(value) ? Math.min(360, Math.max(140, value)) : fallback
+}
 
 async function loadRuntimeNodeLibrary() {
   let result
@@ -553,9 +573,84 @@ async function quitApplication() {
   await platform.quit()
 }
 async function loadWorkspace(path: string) {
-  workspaceRoot.value = path; workspaceEntries.value = await platform.listWorkspace(path); localStorage.setItem('origin-blueprint-workspace', path)
+  workspaceRoot.value = path
+  workspaceTree.value = await loadWorkspaceTree(path)
+  expandedWorkspacePaths.value = new Set(workspaceTree.value.filter(item => item.isDir).map(item => item.path))
 }
-async function workspaceOpen(item: WorkspaceEntry) { if (item.isDir) await loadWorkspace(item.path); else await openGraph(item.path) }
+
+async function loadWorkspaceTree(path: string, depth = 0): Promise<WorkspaceTreeNode[]> {
+  if (depth > 8) return []
+  const entries = await platform.listWorkspace(path)
+  const nodes: WorkspaceTreeNode[] = []
+  for (const entry of entries) {
+    const node: WorkspaceTreeNode = { ...entry, children: [] }
+    if (entry.isDir) node.children = await loadWorkspaceTree(entry.path, depth + 1)
+    nodes.push(node)
+  }
+  return nodes
+}
+
+function flattenWorkspaceNodes(nodes: WorkspaceTreeNode[], depth: number, search: string): VisibleWorkspaceNode[] {
+  const rows: VisibleWorkspaceNode[] = []
+  for (const node of nodes) {
+    const childRows = flattenWorkspaceNodes(node.children, depth + 1, search)
+    const selfMatches = search ? !node.isDir && node.name.toLowerCase().startsWith(search) : true
+    if (search) {
+      if (selfMatches || childRows.length) rows.push({ node, depth }, ...childRows)
+      continue
+    }
+    rows.push({ node, depth })
+    if (node.isDir && expandedWorkspacePaths.value.has(node.path)) rows.push(...childRows)
+  }
+  return rows
+}
+
+function toggleWorkspaceNode(node: WorkspaceTreeNode) {
+  selectedWorkspacePath.value = node.path
+  if (!node.isDir) return
+  const next = new Set(expandedWorkspacePaths.value)
+  if (next.has(node.path)) next.delete(node.path); else next.add(node.path)
+  expandedWorkspacePaths.value = next
+}
+
+async function workspaceOpen(item: WorkspaceTreeNode) {
+  selectedWorkspacePath.value = item.path
+  if (item.isDir) toggleWorkspaceNode(item); else await openGraph(item.path)
+}
+
+function workspaceIndent(depth: number) {
+  return `${8 + depth * 16}px`
+}
+
+function workspaceRootName() {
+  return workspaceRoot.value.split(/[\\/]/).filter(Boolean).pop() || workspaceRoot.value || 'Workspace'
+}
+
+function beginLeftSidebarResize(event: PointerEvent) {
+  if (event.button !== 0) return
+  event.preventDefault()
+  const startX = event.clientX
+  const startFileWidth = fileBrowserWidth.value
+  const startToolsWidth = leftToolsWidth.value
+  const totalWidth = startFileWidth + startToolsWidth
+  const minWidth = 140
+
+  const move = (next: PointerEvent) => {
+    const fileWidth = Math.min(totalWidth - minWidth, Math.max(minWidth, startFileWidth + next.clientX - startX))
+    fileBrowserWidth.value = Math.round(fileWidth)
+    leftToolsWidth.value = Math.round(totalWidth - fileWidth)
+  }
+  const up = () => {
+    localStorage.setItem('origin-blueprint-file-browser-width', String(fileBrowserWidth.value))
+    localStorage.setItem('origin-blueprint-left-tools-width', String(leftToolsWidth.value))
+    window.removeEventListener('pointermove', move)
+    window.removeEventListener('pointerup', up)
+    window.removeEventListener('pointercancel', up)
+  }
+  window.addEventListener('pointermove', move)
+  window.addEventListener('pointerup', up)
+  window.addEventListener('pointercancel', up)
+}
 
 async function exportImage(selected: boolean) {
   if (!canvas.value) return
@@ -662,9 +757,24 @@ function createFromContext(typeId: string) { void addNodeAt(typeId, { x: context
       </div><div class="run-toolbar"><button class="run-button" :disabled="executionRunning" title="运行蓝图 (F5)" @click="run(runGraph)">▶ Run</button><button class="stop-button" :disabled="!executionRunning" title="停止运行 (Shift+F5)" @click="run(stopGraph)">■ Stop</button></div><div class="window-title">Origin Blueprint</div>
     </header>
 
-    <section class="workspace">
+    <section class="workspace" :style="workspaceStyle">
+      <aside v-show="showLeft" class="sidebar sidebar-file-browser">
+        <div class="panel workspace-panel">
+          <div class="panel-title"><span class="chevron">⌄</span> 文件浏览器<button class="panel-action" @click="chooseWorkspace">…</button></div>
+          <div class="workspace-root" :title="workspaceRoot"><span class="workspace-root-arrow">⌄</span>{{ workspaceRootName() }}</div>
+          <div class="workspace-search"><input v-model="workspaceSearch" placeholder="搜索文件..." /></div>
+          <div class="workspace-tree">
+            <button v-for="row in visibleWorkspaceNodes" :key="row.node.path" class="workspace-entry" :class="{ selected: selectedWorkspacePath === row.node.path, folder: row.node.isDir }" :style="{ paddingLeft: workspaceIndent(row.depth) }" :title="row.node.path" @click="toggleWorkspaceNode(row.node)" @dblclick="!row.node.isDir && workspaceOpen(row.node)">
+              <span class="workspace-arrow">{{ row.node.isDir ? (workspaceSearch || expandedWorkspacePaths.has(row.node.path) ? '⌄' : '›') : '' }}</span>
+              <span class="workspace-icon" :class="{ folder: row.node.isDir }"></span>
+              <span class="workspace-name">{{ row.node.name }}</span>
+            </button>
+            <div v-if="!visibleWorkspaceNodes.length" class="empty-panel">{{ workspaceSearch ? '没有匹配的文件' : '没有可显示的文件' }}</div>
+          </div>
+        </div>
+      </aside>
+      <div v-show="showLeft" class="sidebar-splitter" @pointerdown="beginLeftSidebarResize"></div>
       <aside v-show="showLeft" class="sidebar sidebar-left">
-        <div class="panel workspace-panel"><div class="panel-title"><span class="chevron">⌄</span> 文件浏览器<button class="panel-action" @click="chooseWorkspace">…</button></div><div class="workspace-root" :title="workspaceRoot">{{ workspaceRoot || 'No workspace selected' }}</div><button v-for="item in workspaceEntries" :key="item.path" class="workspace-entry" @dblclick="workspaceOpen(item)"><span>{{ item.isDir ? '▸' : '◇' }}</span>{{ item.name }}</button></div>
         <div class="panel"><div class="panel-title"><span class="chevron">⌄</span> 函数</div><div class="tree-row"><span class="folder-dot blue"></span>Default</div></div>
         <div class="panel grow variable-panel"><div class="panel-title"><span class="chevron">⌄</span> 变量 <span class="panel-title-spacer"></span><button class="panel-action" title="添加变量组" @click="addVariableGroup">▣＋</button><button class="panel-action" title="添加变量" @click="addVariable()">＋</button></div>
           <div v-if="!variables.length" class="empty-panel">尚未创建变量</div>
@@ -687,9 +797,7 @@ function createFromContext(typeId: string) { void addNodeAt(typeId, { x: context
 
       <section class="editor-column">
         <div class="tab-strip"><div v-for="tab in tabs" :key="tab.id" class="graph-tab" :class="{ active: tab.id === activeTabId }" @click="switchTab(tab.id)"><span class="tab-mark"></span>{{ tab.title }}<span v-if="tab.dirty" class="dirty-mark">●</span><button class="tab-close" @click="closeTab(tab.id, $event)">×</button></div><button class="new-tab" @click="newGraph">＋</button></div>
-        <div class="canvas-wrap" @contextmenu.prevent="openContextMenu" @dragenter="allowNodeDrop" @dragover="allowNodeDrop" @drop.prevent="dropNode"><div ref="canvas" class="rete-canvas"></div><div class="canvas-toolbar"><button title="Select">⌖</button><button title="Reset view" @click="editor?.resetView()">⌂</button></div><div class="canvas-hint">Middle drag: pan&nbsp;&nbsp; Ctrl: multi-select&nbsp;&nbsp; Ctrl + right drag: cut connections&nbsp;&nbsp; Connection: click + Delete</div>
-          <div v-if="contextMenu.visible" class="node-context-menu" :style="{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }" @pointerdown.stop><input v-model="contextMenu.search" autofocus placeholder="Search nodes..." /><button v-for="item in filteredDefinitions" :key="item.id" @click="createFromContext(item.id)"><span>{{ item.title }}</span><small>{{ item.category }}</small></button></div>
-        </div>
+        <div class="canvas-wrap" @contextmenu.prevent @dragenter="allowNodeDrop" @dragover="allowNodeDrop" @drop.prevent="dropNode"><div ref="canvas" class="rete-canvas"></div><div class="canvas-toolbar"><button title="Select">⌖</button><button title="Reset view" @click="editor?.resetView()">⌂</button></div><div class="canvas-hint">Middle drag: pan&nbsp;&nbsp; Ctrl: multi-select&nbsp;&nbsp; Ctrl + right drag: cut connections&nbsp;&nbsp; Connection: click + Delete</div></div>
         <div v-show="showLogger" class="logger-panel"><div class="logger-title"><span :class="{ running: executionRunning }">{{ executionRunning ? 'Running Graph...' : 'Logger' }}</span><button @click="validateGraph">Validate</button><button :disabled="executionRunning" @click="runGraph">Run</button></div><div v-if="!validationIssues.length && !executionLogs.length && !executionResults.length" class="logger-line">No validation or execution messages.</div><button v-for="issue in validationIssues" :key="`${issue.code}-${issue.nodeId}`" class="logger-issue" :class="issue.severity" @click="focusIssue(issue)"><strong>{{ issue.severity.toUpperCase() }}</strong><span>{{ issue.message }}</span><small>{{ issue.code }}</small></button><button v-for="(log, index) in executionLogs" :key="`run-${index}-${log.nodeId}`" class="logger-issue execution-log" :class="log.level" @click="focusExecutionLog(log)"><strong>{{ log.level.toUpperCase() }}</strong><span>{{ log.message }}</span><small>{{ log.nodeId || 'runtime' }}</small></button><button v-for="result in tableResults" :key="result.nodeId" class="table-result" @click="openTablePreview(result)"><strong>TABLE</strong><span>{{ result.table.rows.length }} rows x {{ result.table.columns.length }} columns</span><small>Open preview</small></button><div v-if="executionResults.length && !tableResults.length" class="execution-summary"><strong>Results</strong><code>{{ JSON.stringify(executionResults) }}</code></div><div v-if="Object.keys(executionVariables).length" class="execution-summary"><strong>Variables</strong><code>{{ JSON.stringify(executionVariables) }}</code></div></div>
         <footer class="status-bar"><span>{{ status }}</span><span>Nodes {{ metrics.nodes }} · Connections {{ metrics.connections }}</span><button @click="editor?.resetView()">{{ zoomLabel }}</button></footer>
       </section>

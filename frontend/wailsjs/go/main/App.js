@@ -14,6 +14,10 @@ export function ClearRecentFiles() {
   return window['go']['main']['App']['ClearRecentFiles']();
 }
 
+export function CurrentWorkingDirectory() {
+  return window['go']['main']['App']['CurrentWorkingDirectory']();
+}
+
 export function ExportLegacyGraph(arg1) {
   return window['go']['main']['App']['ExportLegacyGraph'](arg1);
 }

@@ -498,7 +498,7 @@ func TestMigrateLegacyTableAndDictionaryNodes(t *testing.T) {
 }
 
 func TestMigrateLegacyHidesUnknownNodesButPreservesThemForRoundTrip(t *testing.T) {
-	content := `{"graph_name":"Legacy","nodes":[{"id":"begin","class":"BeginNode","module":"old","pos":[1,2],"port_defaultv":{}},{"id":"hidden","class":"UnknownSource","module":"old","pos":[5,6],"port_defaultv":{"0":"x"}},{"id":"print","class":"PrintNode","module":"old","pos":[9,10],"port_defaultv":{}}],"edges":[{"edge_id":"known","source_node_id":"begin","source_port_index":0,"des_node_id":"print","des_port_index":0},{"edge_id":"hidden-edge","source_node_id":"hidden","source_port_index":2,"des_node_id":"print","des_port_index":1}],"groups":[],"variables":[]}`
+	content := `{"graph_name":"Legacy","nodes":[{"id":"targets","class":"GetTargetsByCamp","module":"old","pos":[1,2],"port_defaultv":{"2":true}},{"id":"hidden","class":"UnknownSource","module":"old","pos":[5,6],"port_defaultv":{"0":"x"}},{"id":"loop","class":"ForeachIntArray","module":"old","pos":[9,10],"port_defaultv":{}}],"edges":[{"edge_id":"known","source_node_id":"targets","source_port_index":1,"des_node_id":"loop","des_port_index":1},{"edge_id":"hidden-edge","source_node_id":"hidden","source_port_index":2,"des_node_id":"loop","des_port_index":0}],"groups":[],"variables":[]}`
 	document, err := migrateLegacyGraph([]byte(content))
 	if err != nil {
 		t.Fatal(err)

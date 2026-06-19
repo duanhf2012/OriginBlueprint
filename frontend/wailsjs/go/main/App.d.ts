@@ -8,6 +8,8 @@ export function ChooseWorkspace():Promise<string>;
 
 export function ClearRecentFiles():Promise<void>;
 
+export function CurrentWorkingDirectory():Promise<string>;
+
 export function ExportLegacyGraph(arg1:string):Promise<string>;
 
 export function ExportPNG(arg1:string):Promise<string>;

@@ -104,6 +104,18 @@ func (a *App) ChooseWorkspace() (string, error) {
 	return runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{Title: "Select Workspace"})
 }
 
+func (a *App) CurrentWorkingDirectory() (string, error) {
+	root, err := os.Getwd()
+	if err == nil && root != "" {
+		return root, nil
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Dir(executable), nil
+}
+
 func (a *App) ChooseDataFile(mode string) (string, error) {
 	filters := []runtime.FileFilter{
 		{DisplayName: "CSV and text files", Pattern: "*.csv;*.tsv;*.txt;*.json"},

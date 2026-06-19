@@ -223,6 +223,10 @@ func migrateLegacyGraph(data []byte) (GraphDocument, error) {
 			document.Legacy.HiddenNodes = append(document.Legacy.HiddenNodes, cloneLegacyNode(item))
 			continue
 		}
+		if _, staticallyKnown := graphNodePorts[spec.TypeID]; !staticallyKnown {
+			properties.LegacyInputs = legacyPortsFromKeys(spec.Inputs)
+			properties.LegacyOutputs = legacyPortsFromKeys(spec.Outputs)
+		}
 		nodeSpecs[item.ID] = spec
 		position := GraphPosition{}
 		if len(item.Position) > 0 {
@@ -444,6 +448,14 @@ func legacyKeyIndex(keys []string, key, prefix string) (int, bool) {
 		return index, err == nil
 	}
 	return 0, false
+}
+
+func legacyPortsFromKeys(keys []string) []GraphLegacyPort {
+	result := make([]GraphLegacyPort, 0, len(keys))
+	for _, key := range keys {
+		result = append(result, GraphLegacyPort{Key: key, Label: key, Type: "any"})
+	}
+	return result
 }
 
 func legacyVariables(document GraphDocument) []map[string]interface{} {

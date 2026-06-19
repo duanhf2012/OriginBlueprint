@@ -25,6 +25,7 @@ export interface ExecutionEvent {
 type DesktopApp = {
   OpenGraph(path: string): Promise<FileResult>
   SaveGraph(path: string, content: string): Promise<string>
+  CurrentWorkingDirectory(): Promise<string>
   ChooseWorkspace(): Promise<string>
   ChooseDataFile(mode: string): Promise<string>
   NewWindow(): Promise<void>
@@ -120,6 +121,7 @@ export const platform = {
     download(path || 'Untitled.obp', content, 'application/json')
     return path || 'Untitled.obp'
   },
+  async currentWorkingDirectory() { return desktop() ? desktop()!.CurrentWorkingDirectory() : '' },
   async chooseWorkspace() { return desktop() ? desktop()!.ChooseWorkspace() : '' },
   async chooseDataFile(mode: 'open' | 'save') {
     if (desktop()) return desktop()!.ChooseDataFile(mode)

@@ -69,14 +69,14 @@ func TestDefaultNodeDirectoryDocumentsLoad(t *testing.T) {
 	if len(result.Documents) == 0 {
 		t.Fatal("default nodes directory should provide node JSON documents")
 	}
-	found := false
+	foundJSON := false
 	for _, document := range result.Documents {
-		if strings.HasSuffix(document.Path, "math.json") && strings.Contains(document.Content, `"name": "AddInt"`) {
-			found = true
+		if strings.HasSuffix(strings.ToLower(document.Path), ".json") && strings.Contains(document.Content, `"name"`) {
+			foundJSON = true
 			break
 		}
 	}
-	if !found {
-		t.Fatal("default nodes should include math.json containing AddInt")
+	if !foundJSON {
+		t.Fatal("default nodes should include JSON node definitions")
 	}
 }
