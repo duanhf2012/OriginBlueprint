@@ -75,11 +75,15 @@ button { font: inherit; color: inherit; }
 .rete-canvas.is-dragging-node .blueprint-node.selected { outline-width: 1px !important; box-shadow: 0 2px 6px #0008 !important; }
 .rete-canvas.is-dragging-node .blueprint-node.selected .blueprint-title, .rete-canvas.is-dragging-node .blueprint-node.selected .port-label { text-shadow: none !important; }
 .rete-canvas.is-dragging-node .blueprint-node.selected .blueprint-socket svg { filter: none !important; }
-.rete-canvas.is-interacting .connection-line { filter: none !important; shape-rendering: optimizeSpeed; }
+.rete-canvas.is-interacting .connection-line { filter: none !important; shape-rendering: optimizeSpeed; stroke-width: 1px !important; }
+.rete-canvas.is-interacting .blueprint-connection.socket-exec .connection-line { stroke-width: 1.4px !important; }
 .rete-canvas.is-interacting .connection-hit-area { display: none !important; pointer-events: none !important; }
-.rete-canvas.is-interacting .blueprint-node { backdrop-filter: none !important; box-shadow: 0 3px 8px #0008 !important; }
+.rete-canvas.is-interacting .blueprint-node { backdrop-filter: none !important; background: #151515cc !important; box-shadow: 0 1px 3px #0008 !important; }
+.rete-canvas.is-interacting .blueprint-node.selected { outline-width: 1px !important; outline-offset: 1px !important; }
 .rete-canvas.is-interacting .blueprint-title, .rete-canvas.is-interacting .port-label { text-shadow: none !important; }
+.rete-canvas.is-interacting .control-ref, .rete-canvas.is-interacting .branch-remove, .rete-canvas.is-interacting .branch-actions-inline { opacity: .65; }
 .rete-canvas.is-interacting .blueprint-socket, .rete-canvas.is-interacting .blueprint-socket svg { transition: none !important; filter: none !important; box-shadow: none !important; }
+.rete-canvas.is-interacting .blueprint-socket:not(.exec) { border-width: 1px !important; }
 .rete-canvas.is-interacting input, .rete-canvas.is-interacting textarea, .rete-canvas.is-interacting select, .rete-canvas.is-interacting button { box-shadow: none !important; }
 .rete-canvas.is-interacting .blueprint-socket.exec path { stroke-width: .75; }
 .rete-canvas.is-interacting .blueprint-socket:hover { transform: none !important; }
