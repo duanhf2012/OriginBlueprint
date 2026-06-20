@@ -8,7 +8,7 @@ import { platform, type ExecutionEvent, type ExecutionLog, type WorkspaceEntry }
 interface GraphTab { id: string; title: string; path: string; dirty: boolean; document: GraphDocument | null }
 interface TableValue { columns: string[]; rows: unknown[][] }
 interface TableExecutionResult { kind: 'table'; nodeId: string; table: TableValue }
-interface WorkspaceTreeNode extends WorkspaceEntry { children: WorkspaceTreeNode[] }
+interface WorkspaceTreeNode extends WorkspaceEntry { children: WorkspaceTreeNode[]; loaded: boolean; loading: boolean }
 interface VisibleWorkspaceNode { node: WorkspaceTreeNode; depth: number }
 
 const canvas = ref<HTMLElement | null>(null)
@@ -52,6 +52,7 @@ let editor: BlueprintEditorHandle | null = null
 let unsubscribeExecution = () => {}
 let nodePointerDrag: { typeId: string; startX: number; startY: number; lastX: number; lastY: number; moved: boolean } | null = null
 let removeNodePointerListeners = () => {}
+let workspaceLoadToken = 0
 
 const activeTab = computed(() => tabs.value.find(tab => tab.id === activeTabId.value)!)
 const selectedVariable = computed(() => variables.value.find(variable => variable.id === selectedVariableId.value) ?? null)
@@ -573,21 +574,47 @@ async function quitApplication() {
   await platform.quit()
 }
 async function loadWorkspace(path: string) {
+  const token = ++workspaceLoadToken
   workspaceRoot.value = path
-  workspaceTree.value = await loadWorkspaceTree(path)
   expandedWorkspacePaths.value = new Set()
+  workspaceTree.value = []
+  workspaceTree.value = await loadWorkspaceTree(path)
+  void hydrateWorkspaceTree(workspaceTree.value, 1, token)
 }
 
 async function loadWorkspaceTree(path: string, depth = 0): Promise<WorkspaceTreeNode[]> {
   if (depth > 8) return []
   const entries = await platform.listWorkspace(path)
-  const nodes: WorkspaceTreeNode[] = []
-  for (const entry of entries) {
-    const node: WorkspaceTreeNode = { ...entry, children: [] }
-    if (entry.isDir) node.children = await loadWorkspaceTree(entry.path, depth + 1)
-    nodes.push(node)
+  return entries.map(entry => ({ ...entry, children: [], loaded: !entry.isDir, loading: false }))
+}
+
+async function ensureWorkspaceChildren(node: WorkspaceTreeNode, depth: number) {
+  if (!node.isDir || node.loaded || node.loading) return
+  node.loading = true
+  try {
+    node.children = await loadWorkspaceTree(node.path, depth)
+    node.loaded = true
+  } catch (error) {
+    status.value = `Workspace load failed: ${error instanceof Error ? error.message : String(error)}`
+  } finally {
+    node.loading = false
   }
-  return nodes
+}
+
+function workspaceNodeDepth(path: string) {
+  const root = workspaceRoot.value.replace(/[\\/]+$/, '')
+  const relative = path.startsWith(root) ? path.slice(root.length).replace(/^[\\/]+/, '') : path
+  return relative ? relative.split(/[\\/]/).filter(Boolean).length : 0
+}
+
+async function hydrateWorkspaceTree(nodes: WorkspaceTreeNode[], depth: number, token: number) {
+  if (token !== workspaceLoadToken || depth > 8) return
+  for (const node of nodes) {
+    if (token !== workspaceLoadToken) return
+    await ensureWorkspaceChildren(node, depth)
+    if (node.children.length) await hydrateWorkspaceTree(node.children, depth + 1, token)
+    await new Promise(resolve => setTimeout(resolve, 0))
+  }
 }
 
 function flattenWorkspaceNodes(nodes: WorkspaceTreeNode[], depth: number, search: string): VisibleWorkspaceNode[] {
@@ -605,17 +632,20 @@ function flattenWorkspaceNodes(nodes: WorkspaceTreeNode[], depth: number, search
   return rows
 }
 
-function toggleWorkspaceNode(node: WorkspaceTreeNode) {
+async function toggleWorkspaceNode(node: WorkspaceTreeNode) {
   selectedWorkspacePath.value = node.path
   if (!node.isDir) return
   const next = new Set(expandedWorkspacePaths.value)
-  if (next.has(node.path)) next.delete(node.path); else next.add(node.path)
+  if (next.has(node.path)) next.delete(node.path); else {
+    next.add(node.path)
+    await ensureWorkspaceChildren(node, workspaceNodeDepth(node.path) + 1)
+  }
   expandedWorkspacePaths.value = next
 }
 
 async function workspaceOpen(item: WorkspaceTreeNode) {
   selectedWorkspacePath.value = item.path
-  if (item.isDir) toggleWorkspaceNode(item); else await openGraph(item.path)
+  if (item.isDir) await toggleWorkspaceNode(item); else await openGraph(item.path)
 }
 
 function workspaceIndent(depth: number) {
@@ -760,7 +790,7 @@ function createFromContext(typeId: string) { void addNodeAt(typeId, { x: context
           <div class="workspace-search"><input v-model="workspaceSearch" placeholder="搜索文件..." /></div>
           <div class="workspace-tree">
             <button v-for="row in visibleWorkspaceNodes" :key="row.node.path" class="workspace-entry" :class="{ selected: selectedWorkspacePath === row.node.path, folder: row.node.isDir }" :style="{ paddingLeft: workspaceIndent(row.depth) }" :title="row.node.path" @click="toggleWorkspaceNode(row.node)" @dblclick="!row.node.isDir && workspaceOpen(row.node)">
-              <span class="workspace-arrow">{{ row.node.isDir ? (workspaceSearch || expandedWorkspacePaths.has(row.node.path) ? '⌄' : '›') : '' }}</span>
+              <span class="workspace-arrow">{{ row.node.loading ? '…' : row.node.isDir ? (workspaceSearch || expandedWorkspacePaths.has(row.node.path) ? '⌄' : '›') : '' }}</span>
               <span class="workspace-icon" :class="{ folder: row.node.isDir }"></span>
               <span class="workspace-name">{{ row.node.name }}</span>
             </button>

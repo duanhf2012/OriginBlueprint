@@ -868,6 +868,11 @@ func TestListWorkspaceFiltersAndSorts(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(dir, "Graphs"), 0755); err != nil {
 		t.Fatal(err)
 	}
+	for _, name := range []string{".git", ".gocache", "node_modules"} {
+		if err := os.Mkdir(filepath.Join(dir, name), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
 	for _, name := range []string{"b.obp", "a.vgf", "ignored.txt"} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte("{}"), 0644); err != nil {
 			t.Fatal(err)

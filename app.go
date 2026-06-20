@@ -163,6 +163,9 @@ func (a *App) ListWorkspace(root string) ([]WorkspaceEntry, error) {
 	}
 	result := make([]WorkspaceEntry, 0, len(items))
 	for _, item := range items {
+		if item.IsDir() && isIgnoredWorkspaceDirectory(item.Name()) {
+			continue
+		}
 		ext := strings.ToLower(filepath.Ext(item.Name()))
 		if !item.IsDir() && ext != ".obp" && ext != ".vgf" && ext != ".json" {
 			continue
@@ -176,6 +179,15 @@ func (a *App) ListWorkspace(root string) ([]WorkspaceEntry, error) {
 		return strings.ToLower(result[i].Name) < strings.ToLower(result[j].Name)
 	})
 	return result, nil
+}
+
+func isIgnoredWorkspaceDirectory(name string) bool {
+	switch strings.ToLower(name) {
+	case ".git", ".gocache", "node_modules":
+		return true
+	default:
+		return false
+	}
 }
 
 func (a *App) ExportPNG(dataURL string) (string, error) {
