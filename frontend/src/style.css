@@ -70,11 +70,18 @@ button { font: inherit; color: inherit; }
 .rete-canvas.is-panning .blueprint-node, .rete-canvas.is-panning .blueprint-socket, .rete-canvas.is-panning .node-group { pointer-events: none !important; }
 .rete-canvas.is-dragging-node { cursor: grabbing; }
 .rete-canvas.is-dragging-node .blueprint-node.selected, .rete-canvas.is-dragging-node .blueprint-title { cursor: grabbing !important; }
-.rete-canvas.is-interacting .connection-line { filter: none !important; }
-.rete-canvas.is-interacting .connection-hit-area { pointer-events: none !important; }
+.rete-canvas.is-dragging-node .blueprint-node:not(.selected), .rete-canvas.is-dragging-node .node-group { pointer-events: none !important; }
+.rete-canvas.is-dragging-node .blueprint-socket, .rete-canvas.is-dragging-node input, .rete-canvas.is-dragging-node textarea, .rete-canvas.is-dragging-node select, .rete-canvas.is-dragging-node button { pointer-events: none !important; }
+.rete-canvas.is-dragging-node .blueprint-node.selected { outline-width: 1px !important; box-shadow: 0 2px 6px #0008 !important; }
+.rete-canvas.is-dragging-node .blueprint-node.selected .blueprint-title, .rete-canvas.is-dragging-node .blueprint-node.selected .port-label { text-shadow: none !important; }
+.rete-canvas.is-dragging-node .blueprint-node.selected .blueprint-socket svg { filter: none !important; }
+.rete-canvas.is-interacting .connection-line { filter: none !important; shape-rendering: optimizeSpeed; }
+.rete-canvas.is-interacting .connection-hit-area { display: none !important; pointer-events: none !important; }
 .rete-canvas.is-interacting .blueprint-node { backdrop-filter: none !important; box-shadow: 0 3px 8px #0008 !important; }
 .rete-canvas.is-interacting .blueprint-title, .rete-canvas.is-interacting .port-label { text-shadow: none !important; }
-.rete-canvas.is-interacting .blueprint-socket, .rete-canvas.is-interacting .blueprint-socket svg { transition: none !important; filter: none !important; }
+.rete-canvas.is-interacting .blueprint-socket, .rete-canvas.is-interacting .blueprint-socket svg { transition: none !important; filter: none !important; box-shadow: none !important; }
+.rete-canvas.is-interacting input, .rete-canvas.is-interacting textarea, .rete-canvas.is-interacting select, .rete-canvas.is-interacting button { box-shadow: none !important; }
+.rete-canvas.is-interacting .blueprint-socket.exec path { stroke-width: .75; }
 .rete-canvas.is-interacting .blueprint-socket:hover { transform: none !important; }
 .canvas-toolbar { position: absolute; top: 12px; left: 12px; display: flex; gap: 4px; }
 .canvas-toolbar button { width: 30px; height: 28px; border: 1px solid #444; border-radius: 3px; background: #292929dd; color: #aaa; cursor: pointer; }
