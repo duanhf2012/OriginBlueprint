@@ -15,7 +15,7 @@ func TestGraphFileRoundTrip(t *testing.T) {
 	t.Setenv("ORIGIN_BLUEPRINT_CONFIG_PATH", filepath.Join(t.TempDir(), "config.json"))
 	app := NewApp()
 	dir := t.TempDir()
-	path := filepath.Join(dir, "sample.obp")
+	path := filepath.Join(dir, "sample.json")
 	content := `{"schemaVersion":1,"nodes":[]}`
 
 	saved, err := app.SaveGraph(path, content)
@@ -71,6 +71,103 @@ func TestGraphContentForLegacyPathExportsVGF(t *testing.T) {
 	}
 	if strings.Contains(string(data), "schemaVersion") {
 		t.Fatalf("vgf output should not contain schemaVersion: %s", data)
+	}
+}
+
+func TestGraphContentForObpPathExportsLegacyVGFForExternalParser(t *testing.T) {
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		GraphName:     "External",
+		Nodes: []GraphNode{{
+			ID:       "add",
+			TypeID:   "origin.math.add-integer",
+			Position: GraphPosition{X: 1, Y: 2},
+		}},
+	}
+	content, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := graphContentForPath("external.obp", string(content))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var legacy legacyGraph
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		t.Fatal(err)
+	}
+	if legacy.GraphName != "External" || len(legacy.Nodes) != 1 || legacy.Nodes[0].Class != "AddInt" {
+		t.Fatalf("legacy = %#v", legacy)
+	}
+	if strings.Contains(string(data), "schemaVersion") || strings.Contains(string(data), "typeId") {
+		t.Fatalf("obp output should be legacy-compatible vgf JSON: %s", data)
+	}
+}
+
+func TestExportLegacyGraphSynthesizesNewVariableNodes(t *testing.T) {
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		GraphName:     "Variables",
+		Variables: []GraphVariable{{
+			ID:           "score",
+			Name:         "Score",
+			Type:         "integer",
+			DefaultValue: 0,
+			GroupID:      "default",
+		}},
+		Nodes: []GraphNode{
+			{ID: "get", TypeID: "origin.variable.get", Position: GraphPosition{X: 10, Y: 20}, Properties: GraphNodeProperties{VariableID: "score"}},
+			{ID: "set", TypeID: "origin.variable.set", Position: GraphPosition{X: 30, Y: 40}, Properties: GraphNodeProperties{VariableID: "score"}},
+		},
+	}
+	data, err := exportLegacyGraph(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var legacy legacyGraph
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		t.Fatal(err)
+	}
+	classes := map[string]bool{}
+	for _, node := range legacy.Nodes {
+		classes[node.Class] = true
+	}
+	if !classes["Get_Score"] || !classes["Set_Score"] {
+		t.Fatalf("legacy variable nodes were not exported: %#v", legacy.Nodes)
+	}
+}
+
+func TestExportLegacyGraphPreservesRuntimeJSONNodeClassAndPortIDs(t *testing.T) {
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		GraphName:     "Runtime JSON",
+		Nodes: []GraphNode{{
+			ID:       "hit",
+			TypeID:   "origin.custom.do-hit-effect",
+			Position: GraphPosition{X: 11, Y: 22},
+			Values:   map[string]interface{}{"in14": 99},
+		}},
+	}
+	data, err := exportLegacyGraph(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var legacy legacyGraph
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		t.Fatal(err)
+	}
+	if len(legacy.Nodes) != 1 {
+		t.Fatalf("legacy nodes = %#v", legacy.Nodes)
+	}
+	node := legacy.Nodes[0]
+	if node.Class != "DoHitEffect" || node.Module != "tools.json_node_loader" {
+		t.Fatalf("legacy node = %#v", node)
+	}
+	if node.PortDefaults["14"] != float64(99) {
+		t.Fatalf("port defaults = %#v", node.PortDefaults)
+	}
+	if strings.Contains(string(data), "schemaVersion") || strings.Contains(string(data), "typeId") {
+		t.Fatalf("runtime JSON node output should be legacy-compatible vgf JSON: %s", data)
 	}
 }
 
@@ -555,6 +652,68 @@ func TestMigrateLegacyHit20001ShowsDefinedNodes(t *testing.T) {
 	}
 }
 
+func TestMigrateBuildBinVGFFilesShowsAllDefinedNodes(t *testing.T) {
+	root := filepath.Join("build", "bin", "vgf")
+	if _, err := os.Stat(root); err != nil {
+		t.Skip("build/bin/vgf samples not available")
+	}
+	paths := make([]string, 0)
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err == nil && !entry.IsDir() && strings.EqualFold(filepath.Ext(path), ".vgf") {
+			paths = append(paths, path)
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(paths) == 0 {
+		t.Fatal("expected build/bin/vgf to contain .vgf files")
+	}
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var source legacyGraph
+		if err := json.Unmarshal(data, &source); err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+		document, err := migrateLegacyGraph(data)
+		if err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+		hiddenNodes, hiddenEdges := 0, 0
+		if document.Legacy != nil {
+			hiddenNodes = len(document.Legacy.HiddenNodes)
+			hiddenEdges = len(document.Legacy.HiddenEdges)
+		}
+		if hiddenNodes != 0 {
+			t.Fatalf("%s has %d hidden node(s): %#v", path, hiddenNodes, document.Legacy.HiddenNodes)
+		}
+		if hiddenEdges != 0 {
+			t.Fatalf("%s has %d hidden edge(s): %#v", path, hiddenEdges, document.Legacy.HiddenEdges)
+		}
+		if len(document.Nodes) != len(source.Nodes) || len(document.Connections) != len(source.Edges) {
+			t.Fatalf("%s lost content: nodes %d/%d edges %d+%d/%d", path, len(document.Nodes), len(source.Nodes), len(document.Connections), hiddenEdges, len(source.Edges))
+		}
+		roundTrip, err := exportLegacyGraph(document)
+		if err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+		var exported legacyGraph
+		if err := json.Unmarshal(roundTrip, &exported); err != nil {
+			t.Fatalf("%s exported invalid legacy JSON: %v", path, err)
+		}
+		if len(exported.Nodes) != len(source.Nodes) || len(exported.Edges) != len(source.Edges) {
+			t.Fatalf("%s exported different content: nodes %d/%d edges %d/%d", path, len(exported.Nodes), len(source.Nodes), len(exported.Edges), len(source.Edges))
+		}
+		if strings.Contains(string(roundTrip), "schemaVersion") || strings.Contains(string(roundTrip), "typeId") {
+			t.Fatalf("%s exported new-format fields in legacy output", path)
+		}
+	}
+}
+
 func TestMigrateLegacyRepositorySamples(t *testing.T) {
 	root := filepath.Join("..", "OriginNodeEditor_old")
 	if _, err := os.Stat(root); err != nil {
@@ -625,6 +784,66 @@ func TestMigrateLegacyDoesNotCreatePlaceholderNodes(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestChoiceskillEqualSwitchRoundTripKeepsLegacyBranchPorts(t *testing.T) {
+	path := filepath.Join("build", "bin", "vgf", "monsterChoiceskill", "choiceskill_easy.vgf")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Skip("choiceskill_easy.vgf sample not available")
+	}
+	document, err := migrateLegacyGraph(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]GraphNode{}
+	for _, node := range document.Nodes {
+		byID[node.ID] = node
+	}
+	first := byID["116323275342000809"]
+	values, ok := first.Values["cases"].([]interface{})
+	if !ok || len(values) != 4 {
+		t.Fatalf("EqualSwitch cases = %#v", first.Values["cases"])
+	}
+	expectedOutputs := map[string]bool{"otherwise": false, "case1": false, "case2": false, "case3": false, "case4": false}
+	for _, connection := range document.Connections {
+		if connection.Source == first.ID {
+			if _, exists := expectedOutputs[connection.SourceOutput]; exists {
+				expectedOutputs[connection.SourceOutput] = true
+			}
+			if connection.SourceOutput == "case0" {
+				t.Fatalf("hidden EqualSwitch placeholder output was connected: %#v", connection)
+			}
+		}
+	}
+	for key, seen := range expectedOutputs {
+		if !seen {
+			t.Fatalf("missing migrated EqualSwitch output %s", key)
+		}
+	}
+
+	roundTrip, err := exportLegacyGraph(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var legacy legacyGraph
+	if err := json.Unmarshal(roundTrip, &legacy); err != nil {
+		t.Fatal(err)
+	}
+	sourcePorts := map[int]bool{}
+	for _, edge := range legacy.Edges {
+		if edge.SourceNodeID == first.ID {
+			sourcePorts[legacyPortIndex(edge.SourcePortID, edge.SourceIndex)] = true
+		}
+	}
+	for _, port := range []int{0, 2, 3, 4, 5} {
+		if !sourcePorts[port] {
+			t.Fatalf("round-trip missing legacy source port %d; got %#v", port, sourcePorts)
+		}
+	}
+	if sourcePorts[1] {
+		t.Fatalf("round-trip unexpectedly connected hidden legacy source port 1")
 	}
 }
 

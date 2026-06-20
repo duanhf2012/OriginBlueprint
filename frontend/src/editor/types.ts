@@ -8,6 +8,15 @@ export interface NodePortVisualStates {
   outputs: Record<string, PortVisualState>
 }
 
+export interface DynamicBranchConfig {
+  controlInput: string
+  defaultOutput: string
+  outputPrefix: string
+  outputStartIndex: number
+  maxBranches: number
+  hiddenOutputKeys?: string[]
+}
+
 export class BlueprintNode extends ClassicPreset.Node {
   typeId?: string
   kind?: NodeKind
@@ -18,6 +27,7 @@ export class BlueprintNode extends ClassicPreset.Node {
   variableAccess?: 'get' | 'set'
   dynamicOutputs?: boolean
   dynamicOutputCount?: number
+  dynamicBranch?: DynamicBranchConfig
   executionState?: 'idle' | 'running' | 'completed' | 'error'
   legacyClass?: string
   legacyModule?: string

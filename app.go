@@ -91,13 +91,17 @@ func (a *App) SaveGraph(path, content string) (string, error) {
 }
 
 func graphContentForPath(path, content string) ([]byte, error) {
-	if strings.EqualFold(filepath.Ext(path), ".vgf") {
+	if exportsLegacyGraph(filepath.Ext(path)) {
 		var document GraphDocument
 		if err := json.Unmarshal([]byte(content), &document); err == nil && document.SchemaVersion == GraphSchemaVersion {
 			return exportLegacyGraph(document)
 		}
 	}
 	return []byte(content), nil
+}
+
+func exportsLegacyGraph(ext string) bool {
+	return strings.EqualFold(ext, ".vgf") || strings.EqualFold(ext, ".obp")
 }
 
 func (a *App) ChooseWorkspace() (string, error) {

@@ -27,8 +27,8 @@ const expandedWorkspacePaths = ref<Set<string>>(new Set())
 const selectedWorkspacePath = ref('')
 const fileBrowserWidth = ref(savedPanelWidth('origin-blueprint-file-browser-width', 210))
 const leftToolsWidth = ref(savedPanelWidth('origin-blueprint-left-tools-width', 210))
-const showLeft = ref(true)
-const showRight = ref(true)
+const showTools = ref(false)
+const showRight = ref(false)
 const showLogger = ref(false)
 const showAbout = ref(false)
 const nodeLibrary = ref<NodeDefinition[]>(getNodeDefinitions())
@@ -172,7 +172,7 @@ function onKeyDown(event: KeyboardEvent) {
   else if (event.key === 'F5' && event.shiftKey) run(stopGraph, event)
   else if (event.key === 'F5') run(runGraph, event)
   else if (event.altKey && event.shiftKey && key === 'b') { showLogger.value = !showLogger.value; event.preventDefault() }
-  else if (event.altKey && event.shiftKey && key === 'l') { showLeft.value = !showLeft.value; event.preventDefault() }
+  else if (event.altKey && event.shiftKey && key === 'l') { showTools.value = !showTools.value; event.preventDefault() }
   else if (event.altKey && event.shiftKey && key === 'r') { showRight.value = !showRight.value; event.preventDefault() }
   else if (event.altKey && key === 'g') run(() => editor?.ungroupSelected(), event)
   else if (event.shiftKey && key === 'l') run(() => editor?.align('left'), event)
@@ -575,7 +575,7 @@ async function quitApplication() {
 async function loadWorkspace(path: string) {
   workspaceRoot.value = path
   workspaceTree.value = await loadWorkspaceTree(path)
-  expandedWorkspacePaths.value = new Set(workspaceTree.value.filter(item => item.isDir).map(item => item.path))
+  expandedWorkspacePaths.value = new Set()
 }
 
 async function loadWorkspaceTree(path: string, depth = 0): Promise<WorkspaceTreeNode[]> {
@@ -594,7 +594,7 @@ function flattenWorkspaceNodes(nodes: WorkspaceTreeNode[], depth: number, search
   const rows: VisibleWorkspaceNode[] = []
   for (const node of nodes) {
     const childRows = flattenWorkspaceNodes(node.children, depth + 1, search)
-    const selfMatches = search ? !node.isDir && node.name.toLowerCase().startsWith(search) : true
+    const selfMatches = search ? !node.isDir && node.name.toLowerCase().includes(search) : true
     if (search) {
       if (selfMatches || childRows.length) rows.push({ node, depth }, ...childRows)
       continue
@@ -620,10 +620,6 @@ async function workspaceOpen(item: WorkspaceTreeNode) {
 
 function workspaceIndent(depth: number) {
   return `${8 + depth * 16}px`
-}
-
-function workspaceRootName() {
-  return workspaceRoot.value.split(/[\\/]/).filter(Boolean).pop() || workspaceRoot.value || 'Workspace'
 }
 
 function beginLeftSidebarResize(event: PointerEvent) {
@@ -732,7 +728,7 @@ function createFromContext(typeId: string) { void addNodeAt(typeId, { x: context
 </script>
 
 <template>
-  <main class="application-shell" :class="{ 'left-hidden': !showLeft, 'right-hidden': !showRight }">
+  <main class="application-shell" :class="{ 'tools-hidden': !showTools, 'right-hidden': !showRight }">
     <header class="menu-bar">
       <div class="menu-items">
         <div class="menu-root"><button @click.stop="toggleMenu('file')">File</button><div v-if="activeMenu === 'file'" class="dropdown-menu">
@@ -751,17 +747,16 @@ function createFromContext(typeId: string) { void addNodeAt(typeId, { x: context
           <button @click="run(() => editor?.align('vertical-distribute'))">Vertical Distribution <kbd>Shift+V</kbd></button><button @click="run(() => editor?.align('horizontal-distribute'))">Horizontal Distribution <kbd>Shift+H</kbd></button>
           <button @click="run(() => editor?.align('left'))">Align Left <kbd>Shift+L</kbd></button><button @click="run(() => editor?.align('right'))">Align Right <kbd>Shift+R</kbd></button><button @click="run(() => editor?.align('top'))">Align Top <kbd>Shift+T</kbd></button><button @click="run(() => editor?.align('bottom'))">Align Bottom <kbd>Shift+B</kbd></button><button @click="run(() => editor?.align('straighten'))">Straighten Edge <kbd>Q</kbd></button>
         </div></div>
-        <div class="menu-root"><button @click.stop="toggleMenu('view')">View</button><div v-if="activeMenu === 'view'" class="dropdown-menu"><button @click="showLogger = !showLogger">Show Logger <kbd>Alt+Shift+B</kbd></button><button @click="showLeft = !showLeft">Show Left Sidebar <kbd>Alt+Shift+L</kbd></button><button @click="showRight = !showRight">Show Right Sidebar <kbd>Alt+Shift+R</kbd></button></div></div>
+        <div class="menu-root"><button @click.stop="toggleMenu('view')">View</button><div v-if="activeMenu === 'view'" class="dropdown-menu"><button @click="showLogger = !showLogger">Show Logger <kbd>Alt+Shift+B</kbd></button><button @click="showTools = !showTools">Show Tool Sidebar <kbd>Alt+Shift+L</kbd></button><button @click="showRight = !showRight">Show Right Sidebar <kbd>Alt+Shift+R</kbd></button></div></div>
         <div class="menu-root"><button @click.stop="toggleMenu('render')">Render</button><div v-if="activeMenu === 'render'" class="dropdown-menu"><button @click="run(() => exportImage(true))">Render Selected Nodes <kbd>Ctrl+Alt+R</kbd></button><button @click="run(() => exportImage(false))">Render Graph <kbd>Ctrl+Shift+R</kbd></button></div></div>
         <button @click="run(validateGraph)">Validate</button><button @click="showAbout = true">Help</button>
       </div><div class="run-toolbar"><button class="run-button" :disabled="executionRunning" title="运行蓝图 (F5)" @click="run(runGraph)">▶ Run</button><button class="stop-button" :disabled="!executionRunning" title="停止运行 (Shift+F5)" @click="run(stopGraph)">■ Stop</button></div><div class="window-title">Origin Blueprint</div>
     </header>
 
     <section class="workspace" :style="workspaceStyle">
-      <aside v-show="showLeft" class="sidebar sidebar-file-browser">
+      <aside class="sidebar sidebar-file-browser">
         <div class="panel workspace-panel">
           <div class="panel-title"><span class="chevron">⌄</span> 文件浏览器<button class="panel-action" @click="chooseWorkspace">…</button></div>
-          <div class="workspace-root" :title="workspaceRoot"><span class="workspace-root-arrow">⌄</span>{{ workspaceRootName() }}</div>
           <div class="workspace-search"><input v-model="workspaceSearch" placeholder="搜索文件..." /></div>
           <div class="workspace-tree">
             <button v-for="row in visibleWorkspaceNodes" :key="row.node.path" class="workspace-entry" :class="{ selected: selectedWorkspacePath === row.node.path, folder: row.node.isDir }" :style="{ paddingLeft: workspaceIndent(row.depth) }" :title="row.node.path" @click="toggleWorkspaceNode(row.node)" @dblclick="!row.node.isDir && workspaceOpen(row.node)">
@@ -773,8 +768,8 @@ function createFromContext(typeId: string) { void addNodeAt(typeId, { x: context
           </div>
         </div>
       </aside>
-      <div v-show="showLeft" class="sidebar-splitter" @pointerdown="beginLeftSidebarResize"></div>
-      <aside v-show="showLeft" class="sidebar sidebar-left">
+      <div v-show="showTools" class="sidebar-splitter" @pointerdown="beginLeftSidebarResize"></div>
+      <aside v-show="showTools" class="sidebar sidebar-left">
         <div class="panel"><div class="panel-title"><span class="chevron">⌄</span> 函数</div><div class="tree-row"><span class="folder-dot blue"></span>Default</div></div>
         <div class="panel grow variable-panel"><div class="panel-title"><span class="chevron">⌄</span> 变量 <span class="panel-title-spacer"></span><button class="panel-action" title="添加变量组" @click="addVariableGroup">▣＋</button><button class="panel-action" title="添加变量" @click="addVariable()">＋</button></div>
           <div v-if="!variables.length" class="empty-panel">尚未创建变量</div>
@@ -797,12 +792,12 @@ function createFromContext(typeId: string) { void addNodeAt(typeId, { x: context
 
       <section class="editor-column">
         <div class="tab-strip"><div v-for="tab in tabs" :key="tab.id" class="graph-tab" :class="{ active: tab.id === activeTabId }" @click="switchTab(tab.id)"><span class="tab-mark"></span>{{ tab.title }}<span v-if="tab.dirty" class="dirty-mark">●</span><button class="tab-close" @click="closeTab(tab.id, $event)">×</button></div><button class="new-tab" @click="newGraph">＋</button></div>
-        <div class="canvas-wrap" @contextmenu.prevent @dragenter="allowNodeDrop" @dragover="allowNodeDrop" @drop.prevent="dropNode"><div ref="canvas" class="rete-canvas"></div><div class="canvas-toolbar"><button title="Select">⌖</button><button title="Reset view" @click="editor?.resetView()">⌂</button></div><div class="canvas-hint">Middle drag: pan&nbsp;&nbsp; Ctrl: multi-select&nbsp;&nbsp; Ctrl + right drag: cut connections&nbsp;&nbsp; Connection: click + Delete</div></div>
+        <div class="canvas-wrap" @contextmenu.prevent @dragenter="allowNodeDrop" @dragover="allowNodeDrop" @drop.prevent="dropNode"><div ref="canvas" class="rete-canvas"></div><div class="canvas-toolbar"><button title="Select">⌖</button><button title="Reset view" @click="editor?.resetView()">⌂</button></div><div class="canvas-hint">Right drag: pan&nbsp;&nbsp; Middle drag: pan&nbsp;&nbsp; Ctrl: multi-select&nbsp;&nbsp; Ctrl + right drag: cut connections&nbsp;&nbsp; Connection: click + Delete</div></div>
         <div v-show="showLogger" class="logger-panel"><div class="logger-title"><span :class="{ running: executionRunning }">{{ executionRunning ? 'Running Graph...' : 'Logger' }}</span><button @click="validateGraph">Validate</button><button :disabled="executionRunning" @click="runGraph">Run</button></div><div v-if="!validationIssues.length && !executionLogs.length && !executionResults.length" class="logger-line">No validation or execution messages.</div><button v-for="issue in validationIssues" :key="`${issue.code}-${issue.nodeId}`" class="logger-issue" :class="issue.severity" @click="focusIssue(issue)"><strong>{{ issue.severity.toUpperCase() }}</strong><span>{{ issue.message }}</span><small>{{ issue.code }}</small></button><button v-for="(log, index) in executionLogs" :key="`run-${index}-${log.nodeId}`" class="logger-issue execution-log" :class="log.level" @click="focusExecutionLog(log)"><strong>{{ log.level.toUpperCase() }}</strong><span>{{ log.message }}</span><small>{{ log.nodeId || 'runtime' }}</small></button><button v-for="result in tableResults" :key="result.nodeId" class="table-result" @click="openTablePreview(result)"><strong>TABLE</strong><span>{{ result.table.rows.length }} rows x {{ result.table.columns.length }} columns</span><small>Open preview</small></button><div v-if="executionResults.length && !tableResults.length" class="execution-summary"><strong>Results</strong><code>{{ JSON.stringify(executionResults) }}</code></div><div v-if="Object.keys(executionVariables).length" class="execution-summary"><strong>Variables</strong><code>{{ JSON.stringify(executionVariables) }}</code></div></div>
         <footer class="status-bar"><span>{{ status }}</span><span>Nodes {{ metrics.nodes }} · Connections {{ metrics.connections }}</span><button @click="editor?.resetView()">{{ zoomLabel }}</button></footer>
       </section>
 
-      <aside v-show="showRight" class="sidebar sidebar-right"><div class="panel module-panel"><div class="panel-title"><span class="chevron">⌄</span> 模块库</div><div class="search-box">⌕ <input v-model="moduleSearch" placeholder="搜索模块..." /></div><div class="module-list"><section v-for="[category, items] in categories" :key="category"><div class="module-category"><span>⌄</span>{{ category }}</div><button v-for="item in items" :key="item.id" class="module-item" @pointerdown.stop="beginNodePointerDrag($event, item.id)" @dblclick="addNodeAt(item.id)">{{ item.title }}</button></section><div v-if="!categories.length" class="empty-panel">{{ status || '没有匹配的模块' }}</div></div></div><div class="panel grow detail-panel"><div class="panel-title"><span class="chevron">⌄</span> 详情</div><div v-if="selectedVariable" class="node-detail variable-detail"><div class="detail-section-title">变量属性</div><label>Variable ID<input :value="selectedVariable.id" disabled /></label><label>名称<input v-model="selectedVariable.name" /></label><label>类型<select v-model="selectedVariable.type" @change="changeVariableType(selectedVariable)"><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="float">Float</option><option value="string">String</option><option value="array">Array</option><option value="file">File</option><option value="table">Table</option><option value="dictionary">Dictionary</option></select></label><label>分组<select v-model="selectedVariable.groupId"><option v-for="group in variableGroups" :key="group.id" :value="group.id">{{ group.name }}</option></select></label><label>说明<textarea v-model="selectedVariable.description" rows="4" placeholder="变量用途和约束"></textarea></label><label>默认值<input v-if="selectedVariable.type === 'boolean'" v-model="selectedVariable.defaultValue" type="checkbox" /><input v-else-if="selectedVariable.type === 'string' || selectedVariable.type === 'file'" v-model="selectedVariable.defaultValue" type="text" /><input v-else-if="selectedVariable.type === 'array'" :value="Array.isArray(selectedVariable.defaultValue) ? selectedVariable.defaultValue.join(', ') : ''" placeholder="1, 2, text" @change="setVariableArrayDefault(selectedVariable, $event)" /><textarea v-else-if="selectedVariable.type === 'table' || selectedVariable.type === 'dictionary'" :value="JSON.stringify(selectedVariable.defaultValue, null, 2)" rows="6" @change="setVariableStructuredDefault(selectedVariable, $event)"></textarea><input v-else v-model.number="selectedVariable.defaultValue" type="number" /></label><button class="apply-properties" @click="updateVariable(selectedVariable)">应用变量属性</button><button class="delete-properties" @click="removeVariable(selectedVariable)">删除变量</button></div><div v-else-if="selectedNode" class="node-detail"><label>Node ID<input :value="selectedNode.id" disabled /></label><label>Type<input :value="selectedNode.typeId" disabled /></label><label>Title<input v-model="selectedNode.label" :disabled="Boolean(selectedNode.variableId)" /></label><div v-if="Object.keys(selectedNode.values).length" class="detail-section-title">Input Defaults</div><label v-for="(value, key) in selectedNode.values" :key="key">{{ key }}<input v-if="Array.isArray(value)" :value="value.join(', ')" type="text" placeholder="Comma-separated values" @input="setSelectedArrayValue(key, $event)" /><input v-else :value="value" :type="typeof value === 'number' ? 'number' : 'text'" @input="setSelectedValue(key, $event)" /></label><button class="apply-properties" @click="applyNodeProperties">Apply</button></div><div v-else class="empty-detail">选择节点或变量以查看属性</div></div></aside>
+      <aside v-show="showRight" class="sidebar sidebar-right"><div class="panel module-panel"><div class="panel-title"><span class="chevron">⌄</span> 模块库</div><div class="search-box">⌕ <input v-model="moduleSearch" placeholder="搜索模块..." /></div><div class="module-list"><section v-for="[category, items] in categories" :key="category"><div class="module-category"><span>⌄</span>{{ category }}</div><button v-for="item in items" :key="item.id" class="module-item" @pointerdown.stop="beginNodePointerDrag($event, item.id)" @dblclick="addNodeAt(item.id)">{{ item.title }}</button></section><div v-if="!categories.length" class="empty-panel">{{ status || '没有匹配的模块' }}</div></div></div><div class="panel grow detail-panel"><div class="panel-title"><span class="chevron">⌄</span> 详情</div><div v-if="selectedVariable" class="node-detail variable-detail"><div class="detail-section-title">变量属性</div><label>Variable ID<input :value="selectedVariable.id" disabled /></label><label>名称<input v-model="selectedVariable.name" /></label><label>类型<select v-model="selectedVariable.type" @change="changeVariableType(selectedVariable)"><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="float">Float</option><option value="string">String</option><option value="array">Array</option><option value="file">File</option><option value="table">Table</option><option value="dictionary">Dictionary</option></select></label><label>分组<select v-model="selectedVariable.groupId"><option v-for="group in variableGroups" :key="group.id" :value="group.id">{{ group.name }}</option></select></label><label>说明<textarea v-model="selectedVariable.description" rows="4" placeholder="变量用途和约束"></textarea></label><label>默认值<input v-if="selectedVariable.type === 'boolean'" v-model="selectedVariable.defaultValue" type="checkbox" /><input v-else-if="selectedVariable.type === 'string' || selectedVariable.type === 'file'" v-model="selectedVariable.defaultValue" type="text" /><input v-else-if="selectedVariable.type === 'array'" :value="Array.isArray(selectedVariable.defaultValue) ? selectedVariable.defaultValue.join(', ') : ''" placeholder="1, 2, text" @change="setVariableArrayDefault(selectedVariable, $event)" /><textarea v-else-if="selectedVariable.type === 'table' || selectedVariable.type === 'dictionary'" :value="JSON.stringify(selectedVariable.defaultValue, null, 2)" rows="6" @change="setVariableStructuredDefault(selectedVariable, $event)"></textarea><input v-else v-model.number="selectedVariable.defaultValue" type="number" /></label><button class="apply-properties" @click="updateVariable(selectedVariable)">应用变量属性</button><button class="delete-properties" @click="removeVariable(selectedVariable)">删除变量</button></div><div v-else-if="selectedNode" class="node-detail"><label>Node ID<input :value="selectedNode.id" disabled /></label><label>Type<input :value="selectedNode.typeId" disabled /></label><label>Title<input v-model="selectedNode.label" :disabled="Boolean(selectedNode.variableId)" /></label><label v-if="selectedNode.description">说明<textarea :value="selectedNode.description" rows="4" readonly></textarea></label><div v-if="Object.keys(selectedNode.values).length" class="detail-section-title">Input Defaults</div><label v-for="(value, key) in selectedNode.values" :key="key">{{ key }}<input v-if="Array.isArray(value)" :value="value.join(', ')" type="text" placeholder="Comma-separated values" @input="setSelectedArrayValue(key, $event)" /><input v-else :value="value" :type="typeof value === 'number' ? 'number' : 'text'" @input="setSelectedValue(key, $event)" /></label><button class="apply-properties" @click="applyNodeProperties">Apply</button></div><div v-else class="empty-detail">选择节点或变量以查看属性</div></div></aside>
     </section>
     <div v-if="previewTable" class="table-preview-backdrop" @click.self="previewTable = null">
       <section class="table-preview-dialog">
@@ -812,6 +807,6 @@ function createFromContext(typeId: string) { void addNodeAt(typeId, { x: context
         <footer><button :disabled="previewPage <= 1" @click="previewPage--">Previous</button><span>Page {{ Math.min(previewPage, previewPageCount) }} / {{ previewPageCount }}</span><button :disabled="previewPage >= previewPageCount" @click="previewPage++">Next</button></footer>
       </section>
     </div>
-    <div v-if="showAbout" class="about-backdrop" @click.self="showAbout = false"><section class="about-dialog"><header><strong>Origin Blueprint</strong><button @click="showAbout = false">×</button></header><p>Cross-platform blueprint editor built with Go, Wails, Vue 3 and Rete.js.</p><dl><dt>Canvas</dt><dd>Middle drag pans, mouse wheel zooms, left drag selects.</dd><dt>Connections</dt><dd>Click a connection then Delete, or Ctrl + right-drag to cut lines.</dd><dt>Editing</dt><dd>Ctrl+C/X/V, Ctrl+Z/Y, Ctrl+G and alignment shortcuts match OriginNodeEditor.</dd><dt>Run</dt><dd>F5 runs the graph; Shift+F5 stops it.</dd></dl><footer><button @click="showAbout = false">Close</button></footer></section></div>
+    <div v-if="showAbout" class="about-backdrop" @click.self="showAbout = false"><section class="about-dialog"><header><strong>Origin Blueprint</strong><button @click="showAbout = false">×</button></header><p>Cross-platform blueprint editor built with Go, Wails, Vue 3 and Rete.js.</p><dl><dt>Canvas</dt><dd>Right drag or middle drag pans, mouse wheel zooms, left drag selects.</dd><dt>Connections</dt><dd>Click a connection then Delete, or Ctrl + right-drag to cut lines.</dd><dt>Editing</dt><dd>Ctrl+C/X/V, Ctrl+Z/Y, Ctrl+G and alignment shortcuts match OriginNodeEditor.</dd><dt>Run</dt><dd>F5 runs the graph; Shift+F5 stops it.</dd></dl><footer><button @click="showAbout = false">Close</button></footer></section></div>
   </main>
 </template>

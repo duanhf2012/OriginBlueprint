@@ -1,5 +1,5 @@
 import { ClassicPreset } from 'rete'
-import { ArrayControl, BlueprintNode, FileControl, type NodeKind } from './types'
+import { ArrayControl, BlueprintNode, FileControl, type DynamicBranchConfig, type NodeKind } from './types'
 import type { GraphVariable, NodeProperties } from './document'
 
 export interface NodeDefinition {
@@ -35,6 +35,7 @@ export interface NodeSchema {
   inputs?: PortSchema[]
   outputs?: PortSchema[]
   dynamicOutputs?: boolean
+  dynamicBranch?: DynamicBranchConfig
   custom?: boolean
 }
 
@@ -54,10 +55,16 @@ function input(socket: ClassicPreset.Socket, label: string, value?: unknown, arr
   return port
 }
 
+export function nodeTitleWidth(title: string) {
+  let units = 0
+  for (const char of title) units += /[\u4e00-\u9fff\uff00-\uffef]/.test(char) ? 1 : 0.58
+  return Math.max(230, Math.min(520, Math.ceil(units * 16 + 72)))
+}
+
 function node(typeId: string, title: string, kind: NodeKind, subtitle: string, width: number) {
   const result = new BlueprintNode(title, kind, subtitle)
   result.typeId = typeId
-  result.width = width
+  result.width = Math.max(width, nodeTitleWidth(title))
   return result
 }
 
@@ -70,8 +77,12 @@ function fromSchema(schema: NodeSchema): NodeDefinition {
     create() {
       const result = node(schema.id, schema.title, schema.kind, schema.subtitle, schema.width ?? 230)
       result.dynamicOutputs = schema.dynamicOutputs
+      result.dynamicBranch = schema.dynamicBranch
       if (schema.dynamicOutputs) result.dynamicOutputCount = schema.outputs?.filter(port => port.key.startsWith('then')).length ?? 1
-      for (const port of schema.inputs ?? []) result.addInput(port.key, input(sockets[port.type] ?? sockets.any, port.label, port.defaultValue, port.arrayItemType, port.fileMode))
+      for (const port of schema.inputs ?? []) {
+        const defaultValue = schema.dynamicBranch?.controlInput === port.key && port.defaultValue === undefined ? [] : port.defaultValue
+        result.addInput(port.key, input(sockets[port.type] ?? sockets.any, port.label, defaultValue, port.arrayItemType, port.fileMode))
+      }
       for (const port of schema.outputs ?? []) result.addOutput(port.key, new ClassicPreset.Output(sockets[port.type] ?? sockets.any, port.label))
       return result
     }

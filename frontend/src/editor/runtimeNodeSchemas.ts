@@ -1,4 +1,5 @@
 import type { NodeSchema, PortSchema } from './nodeRegistry'
+import type { DynamicBranchConfig } from './types'
 import type { NodeKind } from './types'
 
 type SocketType = 'exec' | 'integer' | 'boolean' | 'string' | 'float' | 'array' | 'file' | 'table' | 'dictionary' | 'any'
@@ -119,8 +120,23 @@ function convertLegacyNodeDefinition(definition: LegacyNodeDefinition, index: nu
     inputs,
     outputs,
     dynamicOutputs: id === 'origin.flow.sequence',
+    dynamicBranch: dynamicBranchForType(id),
     custom: !spec
   }
+}
+
+function dynamicBranchForType(id: string): DynamicBranchConfig | undefined {
+  if (id === 'origin.flow.equal-switch') {
+    return {
+      controlInput: 'cases',
+      defaultOutput: 'otherwise',
+      outputPrefix: 'case',
+      outputStartIndex: 1,
+      maxBranches: 4,
+      hiddenOutputKeys: ['case0']
+    }
+  }
+  return undefined
 }
 
 function convertLegacyPort(port: LegacyPortDefinition, keys: Map<number, string>, fallbackIndex: number, prefix: string, input: boolean): PortSchema {

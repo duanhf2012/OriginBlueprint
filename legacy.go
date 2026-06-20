@@ -301,6 +301,10 @@ func exportLegacyGraph(document GraphDocument) ([]byte, error) {
 			classByType[spec.TypeID] = class
 		}
 	}
+	variablesByID := map[string]GraphVariable{}
+	for _, variable := range document.Variables {
+		variablesByID[variable.ID] = variable
+	}
 
 	legacy := legacyGraph{GraphName: document.GraphName, Groups: legacyGroups(document), Variables: legacyVariables(document)}
 	if document.Legacy != nil {
@@ -311,13 +315,37 @@ func exportLegacyGraph(document GraphDocument) ([]byte, error) {
 	nodeIDs := map[string]bool{}
 	for _, node := range document.Nodes {
 		class := node.Properties.LegacyClass
+		module := node.Properties.LegacyModule
+		spec := legacyNodeSpec{}
+		if node.TypeID == "origin.variable.get" || node.TypeID == "origin.variable.set" {
+			variable, exists := variablesByID[node.Properties.VariableID]
+			if !exists || variable.Name == "" {
+				continue
+			}
+			if node.TypeID == "origin.variable.get" {
+				if class == "" {
+					class = "Get_" + variable.Name
+				}
+				spec = legacyNodeSpec{TypeID: node.TypeID, Outputs: []string{"value"}}
+			} else {
+				if class == "" {
+					class = "Set_" + variable.Name
+				}
+				spec = legacyNodeSpec{TypeID: node.TypeID, Inputs: []string{"exec", "value"}, Outputs: []string{"exec", "value"}}
+			}
+			if module == "" {
+				module = "nodes.VariableNode"
+			}
+		}
 		if class == "" {
 			class = classByType[node.TypeID]
 		}
 		if class == "" {
 			continue
 		}
-		spec := runtimeSpecs[class]
+		if spec.TypeID == "" {
+			spec = runtimeSpecs[class]
+		}
 		if spec.TypeID == "" {
 			spec = specByType[node.TypeID]
 		}
@@ -332,7 +360,6 @@ func exportLegacyGraph(document GraphDocument) ([]byte, error) {
 				portDefaults[strconv.Itoa(index)] = value
 			}
 		}
-		module := node.Properties.LegacyModule
 		if module == "" {
 			module = "tools.json_node_loader"
 		}

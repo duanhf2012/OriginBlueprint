@@ -21,9 +21,9 @@ button { font: inherit; color: inherit; }
 .window-title { position: absolute; left: 50%; transform: translateX(-50%); color: #888; font-size: 12px; }
 .run-toolbar { position: absolute; right: 10px; display: flex; gap: 4px; height: 26px; }.run-toolbar button { min-width: 70px; border: 1px solid #444; border-radius: 3px; background: #303030; font-size: 11px; }.run-toolbar .run-button { border-color: #3f8053; color: #8fdaa5; }.run-toolbar .stop-button { border-color: #824949; color: #dda0a0; }.run-toolbar button:disabled { border-color: #3a3a3a; color: #555; }
 .workspace { min-height: 0; flex: 1; display: grid; grid-template-columns: var(--file-browser-width, 210px) 3px var(--left-tools-width, 210px) minmax(520px, 1fr) 230px; }
-.application-shell.left-hidden .workspace { grid-template-columns: minmax(520px, 1fr) 230px; }
+.application-shell.tools-hidden .workspace { grid-template-columns: var(--file-browser-width, 210px) minmax(520px, 1fr) 230px; }
 .application-shell.right-hidden .workspace { grid-template-columns: var(--file-browser-width, 210px) 3px var(--left-tools-width, 210px) minmax(520px, 1fr); }
-.application-shell.left-hidden.right-hidden .workspace { grid-template-columns: minmax(520px, 1fr); }
+.application-shell.tools-hidden.right-hidden .workspace { grid-template-columns: var(--file-browser-width, 210px) minmax(520px, 1fr); }
 .sidebar { min-width: 0; display: flex; flex-direction: column; background: #2c2c2c; border-color: #111; }
 .sidebar-file-browser { border-right: 1px solid #151515; }
 .sidebar-splitter { width: 3px; min-width: 3px; background: #151515; cursor: col-resize; }
@@ -65,6 +65,14 @@ button { font: inherit; color: inherit; }
 .new-tab { height: 34px; width: 34px; border: 0; background: transparent; color: #bbb; font-size: 18px; }
 .canvas-wrap { min-height: 0; flex: 1; position: relative; overflow: hidden; background-color: #1e1e1e; }
 .rete-canvas { position: absolute; inset: 0; overflow: hidden; touch-action: none; background-color: #212121; background-image: linear-gradient(#313131 1px, transparent 1px), linear-gradient(90deg, #313131 1px, transparent 1px), linear-gradient(#151515 2px, transparent 2px), linear-gradient(90deg, #151515 2px, transparent 2px); background-size: 20px 20px, 20px 20px, 200px 200px, 200px 200px; }
+.rete-canvas.is-panning { cursor: grabbing; }
+.rete-canvas.is-panning .blueprint-area-content { cursor: grabbing; }
+.rete-canvas.is-dragging-node { cursor: grabbing; }
+.rete-canvas.is-dragging-node .blueprint-node.selected, .rete-canvas.is-dragging-node .blueprint-title { cursor: grabbing !important; }
+.rete-canvas.is-interacting .blueprint-node { backdrop-filter: none !important; box-shadow: 0 3px 8px #0008 !important; }
+.rete-canvas.is-interacting .blueprint-title, .rete-canvas.is-interacting .port-label { text-shadow: none !important; }
+.rete-canvas.is-interacting .blueprint-socket, .rete-canvas.is-interacting .blueprint-socket svg { transition: none !important; filter: none !important; }
+.rete-canvas.is-interacting .blueprint-socket:hover { transform: none !important; }
 .canvas-toolbar { position: absolute; top: 12px; left: 12px; display: flex; gap: 4px; }
 .canvas-toolbar button { width: 30px; height: 28px; border: 1px solid #444; border-radius: 3px; background: #292929dd; color: #aaa; cursor: pointer; }
 .canvas-toolbar button:hover { color: white; border-color: #657b8b; }
@@ -105,5 +113,7 @@ button { font: inherit; color: inherit; }
 
 @media (max-width: 900px) {
   .workspace { grid-template-columns: minmax(140px, var(--file-browser-width, 150px)) 3px minmax(140px, var(--left-tools-width, 165px)) minmax(420px, 1fr) 190px; }
+  .application-shell.tools-hidden .workspace { grid-template-columns: minmax(140px, var(--file-browser-width, 150px)) minmax(420px, 1fr) 190px; }
   .application-shell.right-hidden .workspace { grid-template-columns: minmax(140px, var(--file-browser-width, 150px)) 3px minmax(140px, var(--left-tools-width, 165px)) minmax(420px, 1fr); }
+  .application-shell.tools-hidden.right-hidden .workspace { grid-template-columns: minmax(140px, var(--file-browser-width, 150px)) minmax(420px, 1fr); }
 }

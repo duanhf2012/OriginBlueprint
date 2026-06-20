@@ -6,7 +6,7 @@ import BlueprintControl from './BlueprintControl.vue'
 import BlueprintConnectionComponent from './BlueprintConnection.vue'
 import BlueprintNodeComponent from './BlueprintNode.vue'
 import BlueprintSocket from './BlueprintSocket.vue'
-import { createLegacyNode, createNode, createVariableNode, hasNodeDefinition } from './nodeRegistry'
+import { createLegacyNode, createNode, createVariableNode, hasNodeDefinition, nodeTitleWidth } from './nodeRegistry'
 import { normalizeSocketName } from './socketTheme'
 import { BlueprintNode, type Schemes } from './types'
 import { refreshNodePortStates } from './portVisualState'
@@ -32,6 +32,7 @@ export interface SelectedNodeInfo {
   id: string
   typeId: string
   label: string
+  description?: string
   values: Record<string, unknown>
   variableId?: string
 }
@@ -89,6 +90,17 @@ function setControlValues(node: BlueprintNode, values: Record<string, unknown>) 
   }
 }
 
+function dynamicBranchValueCount(node: BlueprintNode) {
+  const key = node.dynamicBranch?.controlInput
+  const control = key ? node.inputs[key]?.control as { value?: unknown } | undefined : undefined
+  const value = control?.value
+  return Array.isArray(value) ? value.length : 0
+}
+
+function nextFrame() {
+  return new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+}
+
 export async function createBlueprintEditor(container: HTMLElement, callbacks: Callbacks): Promise<BlueprintEditorHandle> {
   const editor = new NodeEditor<Schemes>()
   const area = new AreaPlugin<Schemes, AreaExtra>(container)
@@ -126,12 +138,50 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   area.use(connection)
   area.use(render)
   AreaExtensions.simpleNodesOrder(area)
+  area.area.content.holder.classList.add('blueprint-area-content')
 
-  // OriginNodeEditor pans with the middle mouse button. Node dragging remains left-button based.
+  // Match graph editors like Unreal: right-drag or middle-drag pans the empty canvas.
   area.area.setDragHandler(new Drag({
-    down: event => event.pointerType !== 'mouse' || event.button === 1,
+    down: canStartCanvasPan,
     move: () => true
   }))
+
+  function canStartCanvasPan(event: PointerEvent) {
+    if (event.pointerType !== 'mouse') return true
+    if (event.button === 1) return true
+    if (event.button !== 2 || event.ctrlKey) return false
+    const target = event.target as HTMLElement
+    return !target.closest('.blueprint-node, .blueprint-socket, .blueprint-connection, .node-group, input, textarea, select, button')
+  }
+
+  function setInteractionClass(name: string, active: boolean) {
+    container.classList.toggle(name, active)
+    container.classList.toggle('is-interacting', container.classList.contains('is-panning') || container.classList.contains('is-dragging-node'))
+  }
+
+  function setupCanvasPanFeedback() {
+    const stop = () => setInteractionClass('is-panning', false)
+    const down = (event: PointerEvent) => {
+      if (!canStartCanvasPan(event)) return
+      setInteractionClass('is-panning', true)
+      window.addEventListener('pointerup', stop, { once: true })
+      window.addEventListener('pointercancel', stop, { once: true })
+    }
+    container.addEventListener('pointerdown', down)
+    return () => {
+      container.removeEventListener('pointerdown', down)
+      window.removeEventListener('pointerup', stop)
+      window.removeEventListener('pointercancel', stop)
+    }
+  }
+
+  const stopNodeDragFeedback = () => setInteractionClass('is-dragging-node', false)
+
+  function startNodeDragFeedback() {
+    setInteractionClass('is-dragging-node', true)
+    window.addEventListener('pointerup', stopNodeDragFeedback, { once: true })
+    window.addEventListener('pointercancel', stopNodeDragFeedback, { once: true })
+  }
 
   function updateMetrics() {
     callbacks.onMetrics({ nodes: editor.getNodes().length, connections: editor.getConnections().length })
@@ -293,7 +343,10 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
         : createNode(item.typeId)
       if (node.dynamicOutputs) setDynamicOutputCount(node, item.properties?.dynamicOutputCount ?? 3)
       node.id = item.id
-      if (item.properties?.label && !item.typeId.startsWith('origin.variable.') && !item.properties.legacyClass) node.label = item.properties.label
+      if (item.properties?.label && !item.typeId.startsWith('origin.variable.') && !item.properties.legacyClass) {
+        node.label = item.properties.label
+        node.width = Math.max(node.width ?? 230, nodeTitleWidth(node.label))
+      }
       setControlValues(node, item.values)
       await editor.addNode(node)
       await area.translate(node.id, item.position)
@@ -352,10 +405,66 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     })
   }
 
+  function refreshInputControlVisibility() {
+    const connectedInputs = new Set(editor.getConnections().map(item => `${item.target}:${String(item.targetInput)}`))
+    for (const node of editor.getNodes()) {
+      for (const [key, input] of Object.entries(node.inputs)) {
+        if (input?.control) input.showControl = !connectedInputs.has(`${node.id}:${key}`)
+      }
+    }
+  }
+
   async function refreshPortStates(updateNodes = false) {
     const nodes = editor.getNodes()
     refreshNodePortStates(nodes, editor.getConnections(), id => editor.getNode(id))
+    refreshInputControlVisibility()
     if (updateNodes) await Promise.all(nodes.map(node => area.update('node', node.id)))
+  }
+
+  async function pruneDynamicBranchConnections(nodeId: string, count: number) {
+    const node = editor.getNode(nodeId)
+    const config = node?.dynamicBranch
+    if (!node || !config) return
+    const firstHiddenIndex = config.outputStartIndex + count
+    const stale = editor.getConnections().filter(item => {
+      if (item.source !== nodeId) return false
+      const output = String(item.sourceOutput)
+      if (!output.startsWith(config.outputPrefix)) return false
+      const index = Number(output.slice(config.outputPrefix.length))
+      return Number.isFinite(index) && index >= firstHiddenIndex
+    })
+    for (const item of stale) await editor.removeConnection(item.id)
+  }
+
+  async function fitGraphAfterRender() {
+    const nodes = editor.getNodes()
+    if (!nodes.length) return
+    await nextFrame()
+    await nextFrame()
+    const zoom = area.area.transform.k || 1
+    const entries = nodes.map(node => {
+      const view = area.nodeViews.get(node.id)
+      const position = view?.position ?? { x: 0, y: 0 }
+      const rect = view?.element.getBoundingClientRect()
+      return {
+        position,
+        width: rect ? rect.width / zoom : node.width ?? 230,
+        height: rect ? rect.height / zoom : 90
+      }
+    })
+    const left = Math.min(...entries.map(entry => entry.position.x))
+    const top = Math.min(...entries.map(entry => entry.position.y))
+    const right = Math.max(...entries.map(entry => entry.position.x + entry.width))
+    const bottom = Math.max(...entries.map(entry => entry.position.y + entry.height))
+    const graphWidth = Math.max(1, right - left)
+    const graphHeight = Math.max(1, bottom - top)
+    const rect = container.getBoundingClientRect()
+    const padding = 120
+    const nextZoom = Math.min(1, Math.max(0.25, Math.min((rect.width - padding) / graphWidth, (rect.height - padding) / graphHeight)))
+    const centerX = left + graphWidth / 2
+    const centerY = top + graphHeight / 2
+    await area.area.zoom(nextZoom)
+    await area.area.translate(rect.width / 2 - centerX * nextZoom, rect.height / 2 - centerY * nextZoom)
   }
 
   function automaticConverter(source?: string, target?: string) {
@@ -490,7 +599,10 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
             ? createLegacyNode(item.properties ?? {})
           : createNode(item.typeId)
         if (node.dynamicOutputs) setDynamicOutputCount(node, item.properties?.dynamicOutputCount ?? 3)
-        if (item.properties?.label && !item.typeId.startsWith('origin.variable.') && !item.properties.legacyClass) node.label = item.properties.label
+        if (item.properties?.label && !item.typeId.startsWith('origin.variable.') && !item.properties.legacyClass) {
+          node.label = item.properties.label
+          node.width = Math.max(node.width ?? 230, nodeTitleWidth(node.label))
+        }
         setControlValues(node, item.values)
         await editor.addNode(node)
         await area.translate(node.id, { x: base.x + item.position.x, y: base.y + item.position.y })
@@ -542,12 +654,12 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     callbacks.onVariables(currentVariables.map(item => ({ ...item })))
     callbacks.onVariableGroups(currentVariableGroups.map(item => ({ ...item })))
     await restore({ nodes: document.nodes ?? [], connections: document.connections ?? [], groups: document.groups ?? [] })
-    if (document.legacy?.format === 'vgf' && document.nodes?.length) {
-      await AreaExtensions.zoomAt(area, editor.getNodes(), { scale: 0.9 })
-    } else if (document.view) {
+    if (document.nodes?.length) await fitGraphAfterRender()
+    else if (document.view) {
       await area.area.translate(document.view.x, document.view.y)
       await area.area.zoom(document.view.zoom || 1)
-    } else if (document.nodes?.length) await AreaExtensions.zoomAt(area, editor.getNodes(), { scale: 0.9 })
+    }
+    await refreshPortStates()
     callbacks.onStatus('Graph loaded')
   }
 
@@ -636,7 +748,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   }
 
   function selectedNodeInfo(node: BlueprintNode): SelectedNodeInfo {
-    return { id: node.id, typeId: node.typeId ?? '', label: node.label, values: controlValues(node), variableId: node.variableId }
+    return { id: node.id, typeId: node.typeId ?? '', label: node.label, description: node.subtitle, values: controlValues(node), variableId: node.variableId }
   }
 
   function setDynamicOutputCount(node: BlueprintNode, requested: number) {
@@ -669,6 +781,20 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     const detail = (event as CustomEvent<{ nodeId: string; delta: number }>).detail
     if (detail) void changeDynamicOutputs(detail.nodeId, detail.delta)
   }
+  const dynamicBranchListener = (event: Event) => {
+    const detail = (event as CustomEvent<{ nodeId: string; count: number; countChanged?: boolean }>).detail
+    if (!detail) return
+    void (async () => {
+      if (detail.countChanged) await pruneDynamicBranchConnections(detail.nodeId, detail.count)
+      const node = editor.getNode(detail.nodeId)
+      await refreshPortStates(Boolean(node))
+      if (node) {
+        await area.update('node', node.id)
+        if (node.selected) callbacks.onSelection(selectedNodeInfo(node))
+      }
+      callbacks.onDirty()
+    })()
+  }
   const controlChangeListener = () => {
     if (restoring) return
     callbacks.onDirty()
@@ -690,16 +816,20 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     })()
   }
   container.addEventListener('origin-dynamic-output', dynamicOutputListener)
+  document.addEventListener('origin-dynamic-branch-change', dynamicBranchListener)
   container.addEventListener('origin-connection-select', connectionSelectListener)
   container.addEventListener('origin-connection-delete', connectionDeleteListener)
   document.addEventListener('origin-control-change', controlChangeListener)
+  const destroyPanFeedback = setupCanvasPanFeedback()
 
   async function updateSelectedNode(label: string, values: Record<string, unknown>) {
     const node = selectedNodes()[0]
     if (!node) return
     await mutate('Node properties updated', async () => {
       node.label = label.trim() || node.label
+      node.width = Math.max(230, nodeTitleWidth(node.label))
       setControlValues(node, values)
+      if (node.dynamicBranch) await pruneDynamicBranchConnections(node.id, dynamicBranchValueCount(node))
       await refreshPortStates()
       await area.update('node', node.id)
       callbacks.onSelection(selectedNodeInfo(node))
@@ -909,6 +1039,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     }
     if (context.type === 'nodepicked') {
       void clearConnectionSelection()
+      startNodeDragFeedback()
       dragSnapshot = snapshot()
       requestAnimationFrame(() => {
         const node = editor.getNode(context.data.id)
@@ -916,6 +1047,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
       })
     }
     if (context.type === 'nodedragged' && dragSnapshot) {
+      stopNodeDragFeedback()
       undoStack.push(dragSnapshot); redoStack.length = 0; dragSnapshot = null; callbacks.onDirty(); callbacks.onStatus('Node moved')
     }
     return context
@@ -928,7 +1060,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   initializing = false
 
   async function resetView() {
-    await AreaExtensions.zoomAt(area, editor.getNodes(), { scale: 0.9 })
+    await fitGraphAfterRender()
     callbacks.onStatus('View fitted')
   }
   requestAnimationFrame(() => resetView())
@@ -936,9 +1068,13 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   return {
     destroy() {
       container.removeEventListener('origin-dynamic-output', dynamicOutputListener)
+      document.removeEventListener('origin-dynamic-branch-change', dynamicBranchListener)
       container.removeEventListener('origin-connection-select', connectionSelectListener)
       container.removeEventListener('origin-connection-delete', connectionDeleteListener)
       document.removeEventListener('origin-control-change', controlChangeListener)
+      window.removeEventListener('pointerup', stopNodeDragFeedback)
+      window.removeEventListener('pointercancel', stopNodeDragFeedback)
+      destroyPanFeedback()
       destroyCuttingLine()
       area.destroy()
     },
