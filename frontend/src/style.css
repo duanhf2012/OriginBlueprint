@@ -67,9 +67,11 @@ button { font: inherit; color: inherit; }
 .rete-canvas { position: absolute; inset: 0; overflow: hidden; touch-action: none; background-color: #212121; background-image: linear-gradient(#313131 1px, transparent 1px), linear-gradient(90deg, #313131 1px, transparent 1px), linear-gradient(#151515 2px, transparent 2px), linear-gradient(90deg, #151515 2px, transparent 2px); background-size: 20px 20px, 20px 20px, 200px 200px, 200px 200px; }
 .rete-canvas.is-panning { cursor: grabbing; }
 .rete-canvas.is-panning .blueprint-area-content { cursor: grabbing; }
+.rete-canvas.is-panning .blueprint-node, .rete-canvas.is-panning .blueprint-socket, .rete-canvas.is-panning .node-group { pointer-events: none !important; }
 .rete-canvas.is-dragging-node { cursor: grabbing; }
 .rete-canvas.is-dragging-node .blueprint-node.selected, .rete-canvas.is-dragging-node .blueprint-title { cursor: grabbing !important; }
 .rete-canvas.is-interacting .connection-line { filter: none !important; }
+.rete-canvas.is-interacting .connection-hit-area { pointer-events: none !important; }
 .rete-canvas.is-interacting .blueprint-node { backdrop-filter: none !important; box-shadow: 0 3px 8px #0008 !important; }
 .rete-canvas.is-interacting .blueprint-title, .rete-canvas.is-interacting .port-label { text-shadow: none !important; }
 .rete-canvas.is-interacting .blueprint-socket, .rete-canvas.is-interacting .blueprint-socket svg { transition: none !important; filter: none !important; }
