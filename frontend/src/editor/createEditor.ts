@@ -1,6 +1,7 @@
-import { ClassicPreset, NodeEditor } from 'rete'
+import { ClassicPreset, NodeEditor, type Scope } from 'rete'
 import { AreaExtensions, AreaPlugin, Drag } from 'rete-area-plugin'
 import { ConnectionPlugin, Presets as ConnectionPresets } from 'rete-connection-plugin'
+import { getDOMSocketPosition, type SocketPositionWatcher } from 'rete-render-utils'
 import { Presets as VuePresets, VuePlugin } from 'rete-vue-plugin'
 import BlueprintControl from './BlueprintControl.vue'
 import BlueprintConnectionComponent from './BlueprintConnection.vue'
@@ -17,10 +18,55 @@ export type { GraphDocument, GraphVariable, GraphVariableGroup, ValidationIssue,
 
 type AreaExtra = import('rete-vue-plugin').VueArea2D<Schemes>
 type Position = { x: number; y: number }
+type SocketWatcher = SocketPositionWatcher<Scope<never, [AreaExtra]>>
 
 interface ClipboardGraph {
   nodes: Omit<NodeSnapshot, 'id'>[]
   connections: Array<Omit<ConnectionSnapshot, 'source' | 'target'> & { sourceIndex: number; targetIndex: number }>
+}
+
+function createFrameSocketPositionWatcher(): SocketWatcher {
+  const base = getDOMSocketPosition<Schemes, AreaExtra>()
+  const pending = new Set<{ active: boolean; latest: Position | null; emit: (position: Position) => void }>()
+  let frame = 0
+
+  function flush() {
+    frame = 0
+    const entries = [...pending]
+    pending.clear()
+    for (const entry of entries) {
+      if (!entry.active || !entry.latest) continue
+      const latest = entry.latest
+      entry.latest = null
+      entry.emit(latest)
+    }
+  }
+
+  function schedule(entry: { active: boolean; latest: Position | null; emit: (position: Position) => void }, position: Position) {
+    entry.latest = position
+    pending.add(entry)
+    if (!frame) frame = requestAnimationFrame(flush)
+  }
+
+  return {
+    attach(scope) {
+      base.attach(scope)
+    },
+    listen(nodeId, side, key, onChange) {
+      const entry = { active: true, latest: null as Position | null, emit: onChange }
+      const unlisten = base.listen(nodeId, side, key, position => schedule(entry, position))
+      return () => {
+        entry.active = false
+        entry.latest = null
+        pending.delete(entry)
+        unlisten()
+        if (!pending.size && frame) {
+          cancelAnimationFrame(frame)
+          frame = 0
+        }
+      }
+    }
+  }
 }
 
 export interface EditorMetrics {
@@ -126,6 +172,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   let insertionOffset = 0
 
   render.addPreset(VuePresets.classic.setup({
+    socketPositionWatcher: createFrameSocketPositionWatcher(),
     customize: {
       node: () => BlueprintNodeComponent,
       connection: () => BlueprintConnectionComponent,
