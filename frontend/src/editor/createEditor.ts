@@ -405,20 +405,25 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     })
   }
 
-  function refreshInputControlVisibility() {
+  function refreshInputControlVisibility(nodeIds?: Set<string>) {
     const connectedInputs = new Set(editor.getConnections().map(item => `${item.target}:${String(item.targetInput)}`))
     for (const node of editor.getNodes()) {
+      if (nodeIds && !nodeIds.has(node.id)) continue
       for (const [key, input] of Object.entries(node.inputs)) {
         if (input?.control) input.showControl = !connectedInputs.has(`${node.id}:${key}`)
       }
     }
   }
 
-  async function refreshPortStates(updateNodes = false) {
+  async function refreshPortStates(updateNodes = false, onlyNodeIds?: Iterable<string>) {
     const nodes = editor.getNodes()
+    const nodeIds = onlyNodeIds ? new Set(onlyNodeIds) : undefined
     refreshNodePortStates(nodes, editor.getConnections(), id => editor.getNode(id))
-    refreshInputControlVisibility()
-    if (updateNodes) await Promise.all(nodes.map(node => area.update('node', node.id)))
+    refreshInputControlVisibility(nodeIds)
+    if (updateNodes) {
+      const updates = nodeIds ? nodes.filter(node => nodeIds.has(node.id)) : nodes
+      await Promise.all(updates.map(node => area.update('node', node.id)))
+    }
   }
 
   async function pruneDynamicBranchConnections(nodeId: string, count: number) {
@@ -1030,7 +1035,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
       if (context.type === 'connectionremoved') {
         selectedConnectionIds.delete(context.data.id)
       }
-      queueMicrotask(() => void refreshPortStates(true))
+      queueMicrotask(() => void refreshPortStates(true, [context.data.source, context.data.target]))
       updateMetrics()
       if (!restoring && !transactionActive && !initializing && pendingConnectionSnapshot) {
         undoStack.push(pendingConnectionSnapshot); redoStack.length = 0; pendingConnectionSnapshot = null
