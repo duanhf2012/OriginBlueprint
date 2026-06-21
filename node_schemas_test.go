@@ -109,3 +109,86 @@ func TestRangeCompareUsesDynamicBranchSchema(t *testing.T) {
 	}
 	t.Fatal("range compare schema not found")
 }
+
+func TestNewNodeSchemasOmitOptionalKindAndCustom(t *testing.T) {
+	files := []string{
+		filepath.Join("nodes", "json", "common", "Base.json"),
+		filepath.Join("nodes", "json", "common", "SysFlowControl.json"),
+	}
+	newNodeIDs := map[string]bool{
+		"origin.array.create-integer-new": true,
+		"origin.array.create-string-new":  true,
+		"origin.flow.equal-switch-new":    true,
+		"origin.flow.range-compare":       true,
+	}
+	found := map[string]bool{}
+
+	for _, file := range files {
+		data, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var definitions []map[string]interface{}
+		if err := json.Unmarshal(data, &definitions); err != nil {
+			t.Fatalf("%s: %v", file, err)
+		}
+		for _, definition := range definitions {
+			id, _ := definition["id"].(string)
+			if !newNodeIDs[id] {
+				continue
+			}
+			found[id] = true
+			if _, ok := definition["kind"]; ok {
+				t.Fatalf("%s should omit optional kind", id)
+			}
+			if _, ok := definition["custom"]; ok {
+				t.Fatalf("%s should omit optional custom", id)
+			}
+		}
+	}
+
+	for id := range newNodeIDs {
+		if !found[id] {
+			t.Fatalf("new node schema not found: %s", id)
+		}
+	}
+}
+
+func TestNewNodeSchemasUseLegacyPortTypeShape(t *testing.T) {
+	files := []string{
+		filepath.Join("nodes", "json", "common", "Base.json"),
+		filepath.Join("nodes", "json", "common", "SysFlowControl.json"),
+	}
+
+	for _, file := range files {
+		data, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var definitions []map[string]interface{}
+		if err := json.Unmarshal(data, &definitions); err != nil {
+			t.Fatalf("%s: %v", file, err)
+		}
+		for _, definition := range definitions {
+			id, _ := definition["id"].(string)
+			if id == "" {
+				continue
+			}
+			for _, section := range []string{"inputs", "outputs"} {
+				ports, _ := definition[section].([]interface{})
+				for _, value := range ports {
+					port, _ := value.(map[string]interface{})
+					portType, _ := port["type"].(string)
+					if portType != "exec" && portType != "data" {
+						t.Fatalf("%s %s port %q should use type=data/exec, got %q", id, section, port["key"], portType)
+					}
+					if portType == "data" {
+						if dataType, _ := port["data_type"].(string); dataType == "" {
+							t.Fatalf("%s %s data port %q should declare data_type", id, section, port["key"])
+						}
+					}
+				}
+			}
+		}
+	}
+}

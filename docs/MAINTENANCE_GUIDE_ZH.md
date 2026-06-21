@@ -393,7 +393,7 @@ main.go
 - `id`：稳定 `typeId`。
 - `title`：界面标题。
 - `category`：模块库分类。
-- `kind`：决定节点视觉类型。
+- `kind`：可选。决定节点视觉类型；未填写时由端口和 `id` 自动推断。
 - `inputs` / `outputs`：端口 key、标签和数据类型。
 - `defaultValue`：未连接时的默认值。
 

@@ -850,7 +850,7 @@ func (e *graphExecutor) output(nodeID, key string, visiting map[string]bool) (in
 			return cloneValue(items[index]), nil
 		}
 		return fmt.Sprint(items[index]), nil
-	case "origin.array.create-integer", "origin.array.create-string":
+	case "origin.array.create-integer", "origin.array.create-integer-new", "origin.array.create-string", "origin.array.create-string-new":
 		return input("items")
 	case "origin.array.append-integer", "origin.array.append-string":
 		items, err := input("array")

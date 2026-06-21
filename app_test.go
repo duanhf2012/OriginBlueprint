@@ -887,6 +887,33 @@ func TestNewEqualSwitchExportsAsLegacyEqualSwitch(t *testing.T) {
 	}
 }
 
+func TestNewCreateIntegerArrayExportsAsLegacyCreateIntArray(t *testing.T) {
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		GraphName:     "NewArray",
+		Nodes: []GraphNode{{
+			ID:       "array",
+			TypeID:   "origin.array.create-integer-new",
+			Position: GraphPosition{X: 10, Y: 20},
+			Values:   map[string]interface{}{"items": []interface{}{1, 2}},
+		}},
+	}
+	data, err := exportLegacyGraph(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var legacy legacyGraph
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		t.Fatal(err)
+	}
+	if len(legacy.Nodes) != 1 || legacy.Nodes[0].Class != "CreateIntArray" {
+		t.Fatalf("legacy nodes = %#v", legacy.Nodes)
+	}
+	if got := legacy.Nodes[0].PortDefaults["0"]; got == nil {
+		t.Fatalf("items default missing from legacy port 0: %#v", legacy.Nodes[0].PortDefaults)
+	}
+}
+
 func TestMigrateLegacyGraphServiceReturnsDocument(t *testing.T) {
 	content := `{"graph_name":"Legacy","nodes":[],"edges":[],"groups":[],"variables":[]}`
 	result, err := NewApp().MigrateLegacyGraph(content)

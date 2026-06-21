@@ -735,10 +735,16 @@ async function exportImage(selected: boolean) {
 
 async function addNodeAt(typeId: string, position?: { x: number; y: number }) {
   try {
-    await editor?.addNode(typeId, position)
+    await editor?.addNode(typeId, position ?? visibleCanvasInsertPosition())
   } catch (error) {
     status.value = error instanceof Error ? error.message : String(error)
   }
+}
+
+function visibleCanvasInsertPosition() {
+  const rect = canvas.value?.getBoundingClientRect()
+  if (!rect) return undefined
+  return { x: rect.left + rect.width * 0.42, y: rect.top + rect.height * 0.36 }
 }
 
 function beginNodePointerDrag(event: PointerEvent, typeId: string) {

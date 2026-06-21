@@ -321,6 +321,14 @@ func exportLegacyGraph(document GraphDocument) ([]byte, error) {
 			class = "EqualSwitch"
 			spec = legacyNodeSpecs[class]
 		}
+		if node.TypeID == "origin.array.create-integer-new" {
+			class = "CreateIntArray"
+			spec = legacyNodeSpecs[class]
+		}
+		if node.TypeID == "origin.array.create-string-new" {
+			class = "CreateStringArray"
+			spec = legacyNodeSpecs[class]
+		}
 		if node.TypeID == "origin.variable.get" || node.TypeID == "origin.variable.set" {
 			variable, exists := variablesByID[node.Properties.VariableID]
 			if !exists || variable.Name == "" {

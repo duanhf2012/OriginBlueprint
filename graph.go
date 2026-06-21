@@ -173,7 +173,13 @@ var graphNodePorts = map[string]portDefinition{
 	"origin.array.create-integer": {
 		Inputs: map[string]string{"items": "array"}, Outputs: map[string]string{"array": "array"},
 	},
+	"origin.array.create-integer-new": {
+		Inputs: map[string]string{"items": "array"}, Outputs: map[string]string{"array": "array"},
+	},
 	"origin.array.create-string": {
+		Inputs: map[string]string{"items": "array"}, Outputs: map[string]string{"array": "array"},
+	},
+	"origin.array.create-string-new": {
 		Inputs: map[string]string{"items": "array"}, Outputs: map[string]string{"array": "array"},
 	},
 	"origin.array.append-string": {

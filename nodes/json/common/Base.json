@@ -111,6 +111,19 @@
     ]
   },
   {
+    "id": "origin.array.create-integer-new",
+    "title": "创建整型数组 [新]",
+    "category": "基础",
+    "subtitle": "创建整型数组",
+    "width": 230,
+    "inputs": [
+      { "key": "items", "label": "", "type": "data", "data_type": "Array", "defaultValue": [], "arrayItemType": "number" }
+    ],
+    "outputs": [
+      { "key": "array", "label": "数组", "type": "data", "data_type": "Array" }
+    ]
+  },
+  {
     "name": "CreateStringArray",
     "title": "创建字符串数组",
     "package": "基础",
@@ -134,6 +147,19 @@
         "has_input": false,
 		"port_id": 0
       }
+    ]
+  },
+  {
+    "id": "origin.array.create-string-new",
+    "title": "创建字符串数组 [新]",
+    "category": "基础",
+    "subtitle": "创建字符串数组",
+    "width": 230,
+    "inputs": [
+      { "key": "items", "label": "", "type": "data", "data_type": "Array", "defaultValue": [], "arrayItemType": "string" }
+    ],
+    "outputs": [
+      { "key": "array", "label": "数组", "type": "data", "data_type": "Array" }
     ]
   },
   {

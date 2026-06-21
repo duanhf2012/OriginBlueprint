@@ -142,18 +142,19 @@ function dynamicBranchForType(id: string): DynamicBranchConfig | undefined {
 function convertLegacyPort(port: LegacyPortDefinition, keys: Map<number, string>, fallbackIndex: number, prefix: string, input: boolean): PortSchema {
   const index = legacyPortIndex(port.port_id, fallbackIndex)
   const type = normalizeSocketType(port.type, port.data_type)
+  const itemType = arrayItemType(port.pin_widget)
   return {
     key: keys.get(index) || `${prefix}${index}`,
     label: String(port.name ?? ''),
     type,
-    defaultValue: input && type !== 'exec' && port.has_input ? defaultPortValue(type) : undefined,
-    arrayItemType: arrayItemType(port.pin_widget),
+    defaultValue: input && type !== 'exec' && (port.has_input || itemType) ? defaultPortValue(type) : undefined,
+    arrayItemType: itemType,
     hideIcon: port.hide_icon
   }
 }
 
 function isNodeSchema(value: unknown): value is NodeSchema {
-  return isRecord(value) && typeof value.id === 'string' && typeof value.title === 'string' && typeof value.category === 'string' && typeof value.kind === 'string'
+  return isRecord(value) && typeof value.id === 'string' && typeof value.title === 'string' && typeof value.category === 'string'
 }
 
 function isRecord(value: unknown): value is Record<string, any> {

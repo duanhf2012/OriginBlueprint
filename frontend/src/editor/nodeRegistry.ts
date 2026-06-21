@@ -24,13 +24,14 @@ const sockets = {
 }
 
 type SocketType = keyof typeof sockets
-export interface PortSchema { key: string; label: string; type: SocketType; defaultValue?: unknown; arrayItemType?: 'string' | 'number'; fileMode?: 'open' | 'save'; hideIcon?: boolean }
+type PortKind = SocketType | 'data'
+export interface PortSchema { key: string; label: string; type: PortKind; data_type?: string; defaultValue?: unknown; arrayItemType?: 'string' | 'number'; fileMode?: 'open' | 'save'; hideIcon?: boolean }
 export interface NodeSchema {
   id: string
   title: string
   category: string
-  kind: NodeKind
-  subtitle: string
+  kind?: NodeKind
+  subtitle?: string
   width?: number
   inputs?: PortSchema[]
   outputs?: PortSchema[]
@@ -68,22 +69,78 @@ function node(typeId: string, title: string, kind: NodeKind, subtitle: string, w
   return result
 }
 
+function socketTypeForPort(port: PortSchema): SocketType {
+  if (port.type === 'exec') return 'exec'
+  if (port.type === 'data') return socketTypeForDataType(port.data_type)
+  return sockets[port.type] ? port.type : socketTypeForDataType(port.data_type)
+}
+
+function socketTypeForDataType(value?: string): SocketType {
+  switch (String(value ?? '').trim().toLowerCase()) {
+    case 'int':
+    case 'integer':
+      return 'integer'
+    case 'float':
+    case 'double':
+    case 'number':
+      return 'float'
+    case 'bool':
+    case 'boolean':
+      return 'boolean'
+    case 'string':
+      return 'string'
+    case 'array':
+    case 'list':
+      return 'array'
+    case 'file':
+      return 'file'
+    case 'dataframe':
+    case 'table':
+      return 'table'
+    case 'dict':
+    case 'dictionary':
+    case 'map':
+      return 'dictionary'
+    case 'any':
+    default:
+      return 'any'
+  }
+}
+
+function inferKind(schema: NodeSchema): NodeKind {
+  if (schema.kind) return schema.kind
+  if (schema.id.startsWith('origin.variable.')) return 'variable'
+  if (schema.id.startsWith('origin.event.')) return 'event'
+  const inputs = schema.inputs ?? []
+  const outputs = schema.outputs ?? []
+  const hasExecInput = inputs.some(port => socketTypeForPort(port) === 'exec')
+  const hasExecOutput = outputs.some(port => socketTypeForPort(port) === 'exec')
+  if (hasExecOutput && !hasExecInput) return 'event'
+  if (hasExecInput || hasExecOutput || schema.id.startsWith('origin.flow.')) return 'flow'
+  return 'function'
+}
+
 function fromSchema(schema: NodeSchema): NodeDefinition {
+  const kind = inferKind(schema)
   return {
     id: schema.id,
     title: schema.title,
     category: schema.category,
-    kind: schema.kind,
+    kind,
     create() {
-      const result = node(schema.id, schema.title, schema.kind, schema.subtitle, schema.width ?? 230)
+      const result = node(schema.id, schema.title, kind, schema.subtitle ?? schema.category, schema.width ?? 230)
       result.dynamicOutputs = schema.dynamicOutputs
       result.dynamicBranch = schema.dynamicBranch
       if (schema.dynamicOutputs) result.dynamicOutputCount = schema.outputs?.filter(port => port.key.startsWith('then')).length ?? 1
       for (const port of schema.inputs ?? []) {
+        const socketType = socketTypeForPort(port)
         const defaultValue = schema.dynamicBranch?.controlInput === port.key && port.defaultValue === undefined ? [] : port.defaultValue
-        result.addInput(port.key, input(sockets[port.type] ?? sockets.any, port.label, defaultValue, port.arrayItemType, port.fileMode))
+        result.addInput(port.key, input(sockets[socketType] ?? sockets.any, port.label, defaultValue, port.arrayItemType, port.fileMode))
       }
-      for (const port of schema.outputs ?? []) result.addOutput(port.key, new ClassicPreset.Output(sockets[port.type] ?? sockets.any, port.label))
+      for (const port of schema.outputs ?? []) {
+        const socketType = socketTypeForPort(port)
+        result.addOutput(port.key, new ClassicPreset.Output(sockets[socketType] ?? sockets.any, port.label))
+      }
       return result
     }
   }

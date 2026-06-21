@@ -284,13 +284,12 @@
     "id": "origin.flow.range-compare",
     "title": "范围比较<=",
     "category": "流程控制",
-    "kind": "flow",
     "subtitle": "范围比较",
     "width": 260,
     "inputs": [
       { "key": "exec", "label": "", "type": "exec" },
-      { "key": "value", "label": "值", "type": "integer", "defaultValue": 0 },
-      { "key": "ranges", "label": "值", "type": "array", "defaultValue": [], "arrayItemType": "number" }
+      { "key": "value", "label": "值", "type": "data", "data_type": "Integer", "defaultValue": 0 },
+      { "key": "ranges", "label": "值", "type": "data", "data_type": "Array", "defaultValue": [], "arrayItemType": "number" }
     ],
     "outputs": [
       { "key": "otherwise", "label": "否则", "type": "exec" },
@@ -307,8 +306,7 @@
       "outputStartIndex": 1,
       "maxBranches": 4,
       "hiddenOutputKeys": ["case0"]
-    },
-    "custom": false
+    }
   },
   {
     "name": "EqualSwitch",
@@ -371,13 +369,12 @@
     "id": "origin.flow.equal-switch-new",
     "title": "等于分支== [新]",
     "category": "流程控制",
-    "kind": "flow",
     "subtitle": "等于比较",
     "width": 260,
     "inputs": [
       { "key": "exec", "label": "", "type": "exec" },
-      { "key": "value", "label": "值", "type": "integer", "defaultValue": 0 },
-      { "key": "cases", "label": "值", "type": "array", "defaultValue": [], "arrayItemType": "number" }
+      { "key": "value", "label": "值", "type": "data", "data_type": "Integer", "defaultValue": 0 },
+      { "key": "cases", "label": "值", "type": "data", "data_type": "Array", "defaultValue": [], "arrayItemType": "number" }
     ],
     "outputs": [
       { "key": "otherwise", "label": "否则", "type": "exec" },
@@ -394,8 +391,7 @@
       "outputStartIndex": 1,
       "maxBranches": 50,
       "hiddenOutputKeys": ["case0"]
-    },
-    "custom": false
+    }
   },
   {
 		"name": "Probability",

@@ -204,14 +204,14 @@ function removeBranch(index: number) {
 .control-ref { margin-left: auto; margin-right: 4px; display: flex; align-items: center; }
 .port-spacer { min-height: 1px; }
 .branch-row { min-height: 25px; }
-.branch-input { display: grid; grid-template-columns: 24px 22px 1fr 18px; gap: 5px; justify-content: stretch; }
+.branch-input { position: relative; z-index: 2; width: calc(100% + 23px); display: grid; grid-template-columns: 24px 22px 1fr 18px; gap: 5px; justify-content: stretch; }
 .branch-input .socket-ref { margin-left: 8px; }
 .branch-socket-spacer { width: 16px; height: 1px; }
 .branch-label-spacer { width: 22px; }
 .branch-value { width: 58px; height: 18px; justify-self: end; padding: 1px 4px; border: 1px solid #555; border-radius: 1px; background: #e9e9e9; color: #111; font: 11px Consolas, monospace; }
-.branch-remove { width: 18px; height: 18px; padding: 0; border: 1px solid #555; border-radius: 1px; background: #2b2b2b; color: #bbb; font: 12px Consolas, monospace; }
+.branch-remove { position: relative; z-index: 3; width: 18px; height: 18px; padding: 0; border: 1px solid #555; border-radius: 1px; background: #2b2b2b; color: #bbb; font: 12px Consolas, monospace; }
 .branch-actions-row { min-height: 22px; }
-.branch-actions-inline { margin-left: 100px; }
+.branch-actions-inline { display: flex; justify-content: flex-end; padding-right: 4px; }
 .branch-actions-inline button { width: 72px; height: 20px; border: 1px solid #555; border-radius: 2px; background: #252525; color: #bbb; font: 11px Consolas, monospace; }
 .branch-actions-inline button:disabled { opacity: .45; }
 </style>

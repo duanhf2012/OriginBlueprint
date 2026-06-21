@@ -58,12 +58,11 @@
   "id": "origin.flow.equal-switch-new",
   "title": "等于分支== [新]",
   "category": "流程控制",
-  "kind": "flow",
   "subtitle": "等于比较",
   "inputs": [
     { "key": "exec", "label": "", "type": "exec" },
-    { "key": "value", "label": "值", "type": "integer", "defaultValue": 0 },
-    { "key": "cases", "label": "值", "type": "array", "defaultValue": [], "arrayItemType": "number" }
+    { "key": "value", "label": "值", "type": "data", "data_type": "Integer", "defaultValue": 0 },
+    { "key": "cases", "label": "值", "type": "data", "data_type": "Array", "defaultValue": [], "arrayItemType": "number" }
   ],
   "outputs": [
     { "key": "otherwise", "label": "否则", "type": "exec" },
@@ -87,3 +86,4 @@
 - `outputPrefix` 和 `outputStartIndex`: 右侧动态执行出口的 key 生成规则。例如 `case` + `1` 会生成 `case1`、`case2`。
 - `maxBranches`: 最大动态分支数量。右侧输出端口需要在 `outputs` 中预声明到这个数量。
 - `hiddenOutputKeys`: 需要保留但不显示的兼容端口。旧端口编号有占位时使用，例如 `case0`。
+`kind` 和 `custom` 都是可选字段。新写 JSON 时通常不需要填写：`kind` 会由端口和 `id` 自动推断，`custom` 未填写等价于 `false`。模块库分类只使用 `category`（旧格式使用 `package`）。
