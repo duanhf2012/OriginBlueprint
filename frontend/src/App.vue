@@ -28,12 +28,13 @@ const expandedWorkspacePaths = ref<Set<string>>(new Set())
 const selectedWorkspacePath = ref('')
 const fileBrowserWidth = ref(savedPanelWidth('origin-blueprint-file-browser-width', 210))
 const leftToolsWidth = ref(savedPanelWidth('origin-blueprint-left-tools-width', 210))
-const showTools = ref(false)
+const showTools = ref(true)
 const showRight = ref(true)
 const showLogger = ref(false)
 const showAbout = ref(false)
 const nodeLibrary = ref<NodeDefinition[]>(getNodeDefinitions())
 const moduleSearch = ref('')
+const expandedModuleCategories = ref<Set<string>>(new Set())
 const variables = ref<GraphVariable[]>([])
 const variableGroups = ref<GraphVariableGroup[]>([{ id: 'default', name: 'Default' }])
 const selectedVariableId = ref<string | null>(null)
@@ -76,6 +77,7 @@ const filteredDefinitions = computed(() => {
   const search = contextMenu.value.search.trim().toLowerCase()
   return search ? nodeLibrary.value.filter(item => `${item.title} ${item.category}`.toLowerCase().includes(search)) : nodeLibrary.value
 })
+const moduleSearchActive = computed(() => Boolean(moduleSearch.value.trim()))
 const tableResults = computed(() => executionResults.value.filter(isTableExecutionResult))
 const filteredPreviewRows = computed(() => {
   const rows = previewTable.value?.table.rows ?? []
@@ -808,6 +810,16 @@ function openContextMenu(event: MouseEvent) {
   contextMenu.value = { visible: true, x: event.clientX - rect.left, y: event.clientY - rect.top, clientX: event.clientX, clientY: event.clientY, search: '' }
 }
 function createFromContext(typeId: string) { void addNodeAt(typeId, { x: contextMenu.value.clientX, y: contextMenu.value.clientY }); contextMenu.value.visible = false }
+
+function isModuleCategoryExpanded(category: string) {
+  return moduleSearchActive.value || expandedModuleCategories.value.has(category)
+}
+
+function toggleModuleCategory(category: string) {
+  const next = new Set(expandedModuleCategories.value)
+  if (next.has(category)) next.delete(category); else next.add(category)
+  expandedModuleCategories.value = next
+}
 </script>
 
 <template>
@@ -871,6 +883,7 @@ function createFromContext(typeId: string) { void addNodeAt(typeId, { x: context
           </section>
           <button class="add-variable" @click="addVariable()">＋ 添加变量</button>
         </div>
+        <div class="panel grow detail-panel sidebar-detail-panel"><div class="panel-title"><span class="chevron">⌄</span> 详情</div><div v-if="selectedVariable" class="node-detail variable-detail"><div class="detail-section-title">变量属性</div><label>Variable ID<input :value="selectedVariable.id" disabled /></label><label>名称<input v-model="selectedVariable.name" /></label><label>类型<select v-model="selectedVariable.type" @change="changeVariableType(selectedVariable)"><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="float">Float</option><option value="string">String</option><option value="array">Array</option><option value="file">File</option><option value="table">Table</option><option value="dictionary">Dictionary</option></select></label><label>分组<select v-model="selectedVariable.groupId"><option v-for="group in variableGroups" :key="group.id" :value="group.id">{{ group.name }}</option></select></label><label>说明<textarea v-model="selectedVariable.description" rows="4" placeholder="变量用途和约束"></textarea></label><label>默认值<input v-if="selectedVariable.type === 'boolean'" v-model="selectedVariable.defaultValue" type="checkbox" /><input v-else-if="selectedVariable.type === 'string' || selectedVariable.type === 'file'" v-model="selectedVariable.defaultValue" type="text" /><input v-else-if="selectedVariable.type === 'array'" :value="Array.isArray(selectedVariable.defaultValue) ? selectedVariable.defaultValue.join(', ') : ''" placeholder="1, 2, text" @change="setVariableArrayDefault(selectedVariable, $event)" /><textarea v-else-if="selectedVariable.type === 'table' || selectedVariable.type === 'dictionary'" :value="JSON.stringify(selectedVariable.defaultValue, null, 2)" rows="6" @change="setVariableStructuredDefault(selectedVariable, $event)"></textarea><input v-else v-model.number="selectedVariable.defaultValue" type="number" /></label><button class="apply-properties" @click="updateVariable(selectedVariable)">应用变量属性</button><button class="delete-properties" @click="removeVariable(selectedVariable)">删除变量</button></div><div v-else-if="selectedNode" class="node-detail"><label>Node ID<input :value="selectedNode.id" disabled /></label><label>Type<input :value="selectedNode.typeId" disabled /></label><label>Title<input v-model="selectedNode.label" :disabled="Boolean(selectedNode.variableId)" /></label><label v-if="selectedNode.description">说明<textarea :value="selectedNode.description" rows="4" readonly></textarea></label><div v-if="Object.keys(selectedNode.values).length" class="detail-section-title">Input Defaults</div><label v-for="(value, key) in selectedNode.values" :key="key">{{ key }}<input v-if="Array.isArray(value)" :value="value.join(', ')" type="text" placeholder="Comma-separated values" @input="setSelectedArrayValue(key, $event)" /><input v-else :value="value" :type="typeof value === 'number' ? 'number' : 'text'" @input="setSelectedValue(key, $event)" /></label><button class="apply-properties" @click="applyNodeProperties">Apply</button></div><div v-else class="empty-detail">选择节点或变量以查看属性</div></div>
       </aside>
 
       <section class="editor-column">
@@ -880,7 +893,25 @@ function createFromContext(typeId: string) { void addNodeAt(typeId, { x: context
         <footer class="status-bar"><span>{{ status }}</span><span>Nodes {{ metrics.nodes }} · Connections {{ metrics.connections }}</span><button @click="editor?.resetView()">{{ zoomLabel }}</button></footer>
       </section>
 
-      <aside v-show="showRight" class="sidebar sidebar-right"><div class="panel module-panel"><div class="panel-title"><span class="chevron">⌄</span> 模块库</div><div class="search-box">⌕ <input v-model="moduleSearch" placeholder="搜索模块..." /></div><div class="module-list"><section v-for="[category, items] in categories" :key="category"><div class="module-category"><span>⌄</span>{{ category }}</div><button v-for="item in items" :key="item.id" class="module-item" @pointerdown.stop="beginNodePointerDrag($event, item.id)" @dblclick="addNodeAt(item.id)">{{ item.title }}</button></section><div v-if="!categories.length" class="empty-panel">{{ status || '没有匹配的模块' }}</div></div></div><div class="panel grow detail-panel"><div class="panel-title"><span class="chevron">⌄</span> 详情</div><div v-if="selectedVariable" class="node-detail variable-detail"><div class="detail-section-title">变量属性</div><label>Variable ID<input :value="selectedVariable.id" disabled /></label><label>名称<input v-model="selectedVariable.name" /></label><label>类型<select v-model="selectedVariable.type" @change="changeVariableType(selectedVariable)"><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="float">Float</option><option value="string">String</option><option value="array">Array</option><option value="file">File</option><option value="table">Table</option><option value="dictionary">Dictionary</option></select></label><label>分组<select v-model="selectedVariable.groupId"><option v-for="group in variableGroups" :key="group.id" :value="group.id">{{ group.name }}</option></select></label><label>说明<textarea v-model="selectedVariable.description" rows="4" placeholder="变量用途和约束"></textarea></label><label>默认值<input v-if="selectedVariable.type === 'boolean'" v-model="selectedVariable.defaultValue" type="checkbox" /><input v-else-if="selectedVariable.type === 'string' || selectedVariable.type === 'file'" v-model="selectedVariable.defaultValue" type="text" /><input v-else-if="selectedVariable.type === 'array'" :value="Array.isArray(selectedVariable.defaultValue) ? selectedVariable.defaultValue.join(', ') : ''" placeholder="1, 2, text" @change="setVariableArrayDefault(selectedVariable, $event)" /><textarea v-else-if="selectedVariable.type === 'table' || selectedVariable.type === 'dictionary'" :value="JSON.stringify(selectedVariable.defaultValue, null, 2)" rows="6" @change="setVariableStructuredDefault(selectedVariable, $event)"></textarea><input v-else v-model.number="selectedVariable.defaultValue" type="number" /></label><button class="apply-properties" @click="updateVariable(selectedVariable)">应用变量属性</button><button class="delete-properties" @click="removeVariable(selectedVariable)">删除变量</button></div><div v-else-if="selectedNode" class="node-detail"><label>Node ID<input :value="selectedNode.id" disabled /></label><label>Type<input :value="selectedNode.typeId" disabled /></label><label>Title<input v-model="selectedNode.label" :disabled="Boolean(selectedNode.variableId)" /></label><label v-if="selectedNode.description">说明<textarea :value="selectedNode.description" rows="4" readonly></textarea></label><div v-if="Object.keys(selectedNode.values).length" class="detail-section-title">Input Defaults</div><label v-for="(value, key) in selectedNode.values" :key="key">{{ key }}<input v-if="Array.isArray(value)" :value="value.join(', ')" type="text" placeholder="Comma-separated values" @input="setSelectedArrayValue(key, $event)" /><input v-else :value="value" :type="typeof value === 'number' ? 'number' : 'text'" @input="setSelectedValue(key, $event)" /></label><button class="apply-properties" @click="applyNodeProperties">Apply</button></div><div v-else class="empty-detail">选择节点或变量以查看属性</div></div></aside>
+      <aside v-show="showRight" class="sidebar sidebar-right">
+        <div class="panel module-panel">
+          <div class="panel-title"><span class="chevron">⌄</span> 模块库</div>
+          <div class="search-box">⌕ <input v-model="moduleSearch" placeholder="搜索模块..." /></div>
+          <div class="module-list">
+            <section v-for="[category, items] in categories" :key="category" class="module-category-section" :class="{ open: isModuleCategoryExpanded(category) }">
+              <button class="module-category" :aria-expanded="isModuleCategoryExpanded(category)" @click="toggleModuleCategory(category)">
+                <span class="module-arrow">{{ isModuleCategoryExpanded(category) ? '⌄' : '›' }}</span>
+                <span class="module-category-name">{{ category }}</span>
+                <small>{{ items.length }}</small>
+              </button>
+              <div v-if="isModuleCategoryExpanded(category)" class="module-items">
+                <button v-for="item in items" :key="item.id" class="module-item" :title="item.title" @pointerdown.stop="beginNodePointerDrag($event, item.id)" @dblclick="addNodeAt(item.id)">{{ item.title }}</button>
+              </div>
+            </section>
+            <div v-if="!categories.length" class="empty-panel">{{ status || '没有匹配的模块' }}</div>
+          </div>
+        </div>
+      </aside>
     </section>
     <div v-if="previewTable" class="table-preview-backdrop" @click.self="previewTable = null">
       <section class="table-preview-dialog">
