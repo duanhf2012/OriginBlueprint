@@ -10,6 +10,7 @@ interface TableValue { columns: string[]; rows: unknown[][] }
 interface TableExecutionResult { kind: 'table'; nodeId: string; table: TableValue }
 interface WorkspaceTreeNode extends WorkspaceEntry { children: WorkspaceTreeNode[]; loaded: boolean; loading: boolean }
 interface VisibleWorkspaceNode { node: WorkspaceTreeNode; depth: number }
+type UnsavedCloseAction = 'save' | 'discard' | 'cancel'
 
 const canvas = ref<HTMLElement | null>(null)
 const zoomLabel = ref('100%')
@@ -28,7 +29,7 @@ const selectedWorkspacePath = ref('')
 const fileBrowserWidth = ref(savedPanelWidth('origin-blueprint-file-browser-width', 210))
 const leftToolsWidth = ref(savedPanelWidth('origin-blueprint-left-tools-width', 210))
 const showTools = ref(false)
-const showRight = ref(false)
+const showRight = ref(true)
 const showLogger = ref(false)
 const showAbout = ref(false)
 const nodeLibrary = ref<NodeDefinition[]>(getNodeDefinitions())
@@ -47,9 +48,12 @@ const previewTable = ref<TableExecutionResult | null>(null)
 const previewSearch = ref('')
 const previewPage = ref(1)
 const previewPageSize = ref(100)
+const unsavedCloseDialog = ref<{ visible: boolean; names: string[]; resolve?: (action: UnsavedCloseAction) => void }>({ visible: false, names: [] })
 let untitledCount = 1
 let editor: BlueprintEditorHandle | null = null
 let unsubscribeExecution = () => {}
+let unsubscribeCloseRequest = () => {}
+let closingApplication = false
 let nodePointerDrag: { typeId: string; startX: number; startY: number; lastX: number; lastY: number; moved: boolean } | null = null
 let removeNodePointerListeners = () => {}
 let workspaceLoadToken = 0
@@ -115,8 +119,10 @@ onMounted(async () => {
   recentFiles.value = await platform.recentFiles()
   const initialWorkspace = await platform.currentWorkingDirectory()
   if (initialWorkspace) await loadWorkspace(initialWorkspace)
+  unsubscribeCloseRequest = platform.onCloseRequest(() => { void handleCloseRequest() })
   window.addEventListener('keydown', onKeyDown)
   window.addEventListener('pointerdown', closeFloatingMenus)
+  window.addEventListener('beforeunload', onBeforeWindowUnload)
 })
 
 function savedPanelWidth(key: string, fallback: number) {
@@ -143,8 +149,20 @@ async function loadRuntimeNodeLibrary() {
 
 onBeforeUnmount(() => {
   removeNodePointerListeners()
-  unsubscribeExecution(); window.removeEventListener('keydown', onKeyDown); window.removeEventListener('pointerdown', closeFloatingMenus); editor?.destroy()
+  unsubscribeCloseRequest()
+  unsubscribeExecution(); window.removeEventListener('keydown', onKeyDown); window.removeEventListener('pointerdown', closeFloatingMenus); window.removeEventListener('beforeunload', onBeforeWindowUnload); editor?.destroy()
 })
+
+function hasDirtyTabs() {
+  persistActive()
+  return tabs.value.some(tab => tab.dirty)
+}
+
+function onBeforeWindowUnload(event: BeforeUnloadEvent) {
+  if (!hasDirtyTabs() || closingApplication) return
+  event.preventDefault()
+  event.returnValue = ''
+}
 
 function closeFloatingMenus(event: PointerEvent) {
   const target = event.target as HTMLElement
@@ -559,6 +577,36 @@ async function saveAll() {
   await switchTab(active)
 }
 
+async function confirmUnsavedBeforeClose() {
+  if (!hasDirtyTabs()) return true
+  const dirtyNames = tabs.value.filter(tab => tab.dirty).map(tab => tab.title)
+  const action = await requestUnsavedCloseAction(dirtyNames)
+  if (action === 'save') {
+    await saveAll()
+    return !hasDirtyTabs()
+  }
+  return action === 'discard'
+}
+
+function requestUnsavedCloseAction(names: string[]) {
+  return new Promise<UnsavedCloseAction>(resolve => {
+    unsavedCloseDialog.value = { visible: true, names, resolve }
+  })
+}
+
+function resolveUnsavedCloseAction(action: UnsavedCloseAction) {
+  const resolve = unsavedCloseDialog.value.resolve
+  unsavedCloseDialog.value = { visible: false, names: [] }
+  resolve?.(action)
+}
+
+async function handleCloseRequest() {
+  if (closingApplication) return
+  if (!(await confirmUnsavedBeforeClose())) return
+  closingApplication = true
+  await platform.quit()
+}
+
 async function chooseWorkspace() {
   const path = await platform.chooseWorkspace(); if (path) await loadWorkspace(path)
 }
@@ -570,8 +618,7 @@ async function clearRecentFiles() {
 }
 
 async function quitApplication() {
-  if (tabs.value.some(tab => tab.dirty) && !window.confirm('There are unsaved graphs. Quit anyway?')) return
-  await platform.quit()
+  await handleCloseRequest()
 }
 async function loadWorkspace(path: string) {
   const token = ++workspaceLoadToken
@@ -835,6 +882,17 @@ function createFromContext(typeId: string) { void addNodeAt(typeId, { x: context
         <div class="table-preview-tools"><input v-model="previewSearch" placeholder="Search all cells..." @input="previewPage = 1" /><label>Rows<select v-model.number="previewPageSize" @change="previewPage = 1"><option :value="50">50</option><option :value="100">100</option><option :value="250">250</option><option :value="500">500</option></select></label><span>{{ filteredPreviewRows.length }} matched</span></div>
         <div class="table-preview-scroll"><table><thead><tr><th class="row-number">#</th><th v-for="column in previewTable.table.columns" :key="column">{{ column }}</th></tr></thead><tbody><tr v-for="(row, rowIndex) in pagedPreviewRows" :key="rowIndex"><td class="row-number">{{ (previewPage - 1) * previewPageSize + rowIndex + 1 }}</td><td v-for="(cell, cellIndex) in row" :key="cellIndex" :title="String(cell ?? '')">{{ cell }}</td></tr></tbody></table><div v-if="!pagedPreviewRows.length" class="table-preview-empty">No matching rows.</div></div>
         <footer><button :disabled="previewPage <= 1" @click="previewPage--">Previous</button><span>Page {{ Math.min(previewPage, previewPageCount) }} / {{ previewPageCount }}</span><button :disabled="previewPage >= previewPageCount" @click="previewPage++">Next</button></footer>
+      </section>
+    </div>
+    <div v-if="unsavedCloseDialog.visible" class="unsaved-close-backdrop">
+      <section class="unsaved-close-dialog">
+        <header>有未保存的蓝图</header>
+        <p>{{ unsavedCloseDialog.names.join('，') }}</p>
+        <footer>
+          <button class="primary" @click="resolveUnsavedCloseAction('save')">保存</button>
+          <button @click="resolveUnsavedCloseAction('discard')">不保存</button>
+          <button @click="resolveUnsavedCloseAction('cancel')">取消</button>
+        </footer>
       </section>
     </div>
     <div v-if="showAbout" class="about-backdrop" @click.self="showAbout = false"><section class="about-dialog"><header><strong>Origin Blueprint</strong><button @click="showAbout = false">×</button></header><p>Cross-platform blueprint editor built with Go, Wails, Vue 3 and Rete.js.</p><dl><dt>Canvas</dt><dd>Right drag or middle drag pans, mouse wheel zooms, left drag selects.</dd><dt>Connections</dt><dd>Click a connection then Delete, or Ctrl + right-drag to cut lines.</dd><dt>Editing</dt><dd>Ctrl+C/X/V, Ctrl+Z/Y, Ctrl+G and alignment shortcuts match OriginNodeEditor.</dd><dt>Run</dt><dd>F5 runs the graph; Shift+F5 stops it.</dd></dl><footer><button @click="showAbout = false">Close</button></footer></section></div>

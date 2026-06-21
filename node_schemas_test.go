@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -79,4 +80,32 @@ func TestDefaultNodeDirectoryDocumentsLoad(t *testing.T) {
 	if !foundJSON {
 		t.Fatal("default nodes should include JSON node definitions")
 	}
+}
+
+func TestRangeCompareUsesDynamicBranchSchema(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("nodes", "json", "common", "SysFlowControl.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var definitions []map[string]interface{}
+	if err := json.Unmarshal(data, &definitions); err != nil {
+		t.Fatal(err)
+	}
+	for _, definition := range definitions {
+		if definition["id"] != "origin.flow.range-compare" {
+			continue
+		}
+		branch, ok := definition["dynamicBranch"].(map[string]interface{})
+		if !ok {
+			t.Fatal("range compare should use dynamicBranch")
+		}
+		if branch["controlInput"] != "ranges" || branch["defaultOutput"] != "otherwise" || branch["outputPrefix"] != "case" {
+			t.Fatalf("unexpected dynamicBranch: %#v", branch)
+		}
+		if branch["outputStartIndex"] != float64(1) || branch["maxBranches"] != float64(4) {
+			t.Fatalf("unexpected branch indexes: %#v", branch)
+		}
+		return
+	}
+	t.Fatal("range compare schema not found")
 }

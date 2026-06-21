@@ -1,0 +1,62 @@
+[
+	{
+		"name": "ChangeAttrByType",
+		"title": "修改属性值",
+		"package": "属性",
+		"description": "修改属性值",
+		"is_pure": true,
+		"inputs": [{
+				"name": "",
+				"type": "exec",
+				"port_id": 0
+			},{
+				"name": "施放者Id",
+				"type": "data",
+				"data_type": "Integer",
+				"has_input": true,
+				"port_id": 1
+            },{
+				"name": "目标Id",
+				"type": "data",
+				"data_type": "Integer",
+				"has_input": true,
+				"port_id": 2
+            },{
+				"name": "效果器Id",
+				"type": "data",
+				"data_type": "Integer",
+				"has_input": true,
+				"port_id": 3
+            },{
+				"name": "属性类型",
+				"type": "data",
+				"data_type": "Integer",
+				"has_input": true,
+				"port_id": 4
+            },{
+				"name": "属性值",
+				"type": "data",
+				"data_type": "Integer",
+				"has_input": true,
+				"port_id": 5
+            },{
+				"name": "属性万分比",
+				"type": "data",
+				"data_type": "Integer",
+				"has_input": true,
+				"port_id": 6
+            },{
+				"name": "喊招类型Id",
+				"type": "data",
+				"data_type": "Integer",
+				"has_input": true,
+				"port_id": 7
+            }
+        ],
+		"outputs": [{
+				"name": "",
+				"type": "exec",
+				"port_id": 0
+			}]
+	}
+]

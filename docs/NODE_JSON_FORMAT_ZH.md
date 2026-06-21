@@ -44,3 +44,46 @@
 ## 注意
 
 只修改标题、分类和端口显示时，不需要重新编译程序；重新启动即可读取运行目录下的 JSON。新增未知 `name` 的节点可以编辑和连线，但执行器不会自动获得业务逻辑。需要执行的节点仍然要映射到已有 `origin.*` 类型，或后续在执行器中实现对应逻辑。
+
+当前阶段新增结点先手写 JSON。后续会补可视化结点设计器，用于生成和维护新的结点定义；在设计器落地前，不要因为单个新结点临时引入另一套定义格式。
+
+结点格式兼容的方向是：旧编辑器产出的结点定义和旧蓝图文件要能被新编辑器读取；新编辑器里的新结点定义不要求被旧编辑器读取。需要给现有蓝图运行解析器使用时，由保存/导出流程负责生成它能识别的旧 `.vgf/.obp` 格式。
+
+## 新格式动态分支
+
+如果结点需要通过“+ Item / -”同时增加左侧参数行和右侧执行出口，可以在新格式 JSON 中配置 `dynamicBranch`。旧格式结点仍保持原样；新结点可以使用下面这种结构：
+
+```json
+{
+  "id": "origin.flow.equal-switch-new",
+  "title": "等于分支== [新]",
+  "category": "流程控制",
+  "kind": "flow",
+  "subtitle": "等于比较",
+  "inputs": [
+    { "key": "exec", "label": "", "type": "exec" },
+    { "key": "value", "label": "值", "type": "integer", "defaultValue": 0 },
+    { "key": "cases", "label": "值", "type": "array", "defaultValue": [], "arrayItemType": "number" }
+  ],
+  "outputs": [
+    { "key": "otherwise", "label": "否则", "type": "exec" },
+    { "key": "case0", "label": "", "type": "exec" },
+    { "key": "case1", "label": "", "type": "exec" }
+  ],
+  "dynamicBranch": {
+    "controlInput": "cases",
+    "defaultOutput": "otherwise",
+    "outputPrefix": "case",
+    "outputStartIndex": 1,
+    "maxBranches": 4,
+    "hiddenOutputKeys": ["case0"]
+  }
+}
+```
+
+- `controlInput`: 左侧动态参数使用的数组输入端口 key。该输入必须是 `type: "array"`，并建议设置 `defaultValue: []`。
+- `arrayItemType`: 动态参数输入框类型，`number` 显示数字输入，`string` 显示文本输入。
+- `defaultOutput`: 不随 `+ Item` 增减的默认右侧执行出口。
+- `outputPrefix` 和 `outputStartIndex`: 右侧动态执行出口的 key 生成规则。例如 `case` + `1` 会生成 `case1`、`case2`。
+- `maxBranches`: 最大动态分支数量。右侧输出端口需要在 `outputs` 中预声明到这个数量。
+- `hiddenOutputKeys`: 需要保留但不显示的兼容端口。旧端口编号有占位时使用，例如 `case0`。

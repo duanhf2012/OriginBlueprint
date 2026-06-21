@@ -16,9 +16,11 @@ import (
 )
 
 type App struct {
-	ctx       context.Context
-	sessions  map[string]context.CancelFunc
-	sessionMu sync.Mutex
+	ctx        context.Context
+	sessions   map[string]context.CancelFunc
+	sessionMu  sync.Mutex
+	closeMu    sync.Mutex
+	allowClose bool
 }
 
 type FileResult struct {
@@ -40,6 +42,17 @@ type appConfig struct {
 func NewApp() *App { return &App{sessions: make(map[string]context.CancelFunc)} }
 
 func (a *App) startup(ctx context.Context) { a.ctx = ctx }
+
+func (a *App) beforeClose(ctx context.Context) bool {
+	a.closeMu.Lock()
+	allow := a.allowClose
+	a.closeMu.Unlock()
+	if allow {
+		return false
+	}
+	runtime.EventsEmit(ctx, "origin:before-close")
+	return true
+}
 
 func graphFilters() []runtime.FileFilter {
 	return []runtime.FileFilter{
@@ -150,6 +163,9 @@ func (a *App) ClearRecentFiles() error {
 }
 
 func (a *App) Quit() {
+	a.closeMu.Lock()
+	a.allowClose = true
+	a.closeMu.Unlock()
 	runtime.Quit(a.ctx)
 }
 

@@ -215,6 +215,9 @@ var graphNodePorts = map[string]portDefinition{
 	"origin.flow.equal-switch": {
 		Inputs: map[string]string{"exec": "exec", "value": "integer", "cases": "array"}, Outputs: map[string]string{"otherwise": "exec", "case0": "exec", "case1": "exec", "case2": "exec", "case3": "exec", "case4": "exec"},
 	},
+	"origin.flow.equal-switch-new": {
+		Inputs: map[string]string{"exec": "exec", "value": "integer", "cases": "array"}, Outputs: map[string]string{"otherwise": "exec", "case0": "exec", "case1": "exec", "case2": "exec", "case3": "exec", "case4": "exec"},
+	},
 	"origin.debug.output": {
 		Inputs: map[string]string{"exec": "exec", "integer": "integer", "string": "string", "array": "array"}, Outputs: map[string]string{"exec": "exec"},
 	},

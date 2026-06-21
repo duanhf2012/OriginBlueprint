@@ -317,6 +317,10 @@ func exportLegacyGraph(document GraphDocument) ([]byte, error) {
 		class := node.Properties.LegacyClass
 		module := node.Properties.LegacyModule
 		spec := legacyNodeSpec{}
+		if node.TypeID == "origin.flow.equal-switch-new" {
+			class = "EqualSwitch"
+			spec = legacyNodeSpecs[class]
+		}
 		if node.TypeID == "origin.variable.get" || node.TypeID == "origin.variable.set" {
 			variable, exists := variablesByID[node.Properties.VariableID]
 			if !exists || variable.Name == "" {

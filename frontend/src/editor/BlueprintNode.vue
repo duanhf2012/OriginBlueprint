@@ -1,16 +1,18 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { Ref } from 'rete-vue-plugin'
 import type { BlueprintNode } from './types'
 import { socketClassName, socketStyle } from './socketTheme'
 
 const props = defineProps<{ data: BlueprintNode; emit: (signal: unknown) => void }>()
+const branchRevision = ref(0)
 const inputs = computed(() => Object.entries(props.data.inputs).filter((entry): entry is [string, NonNullable<typeof entry[1]>] => Boolean(entry[1])))
 const hiddenOutputKeys = computed(() => new Set(props.data.dynamicBranch?.hiddenOutputKeys ?? []))
 const outputs = computed(() => Object.entries(props.data.outputs).filter((entry): entry is [string, NonNullable<typeof entry[1]>] => Boolean(entry[1]) && !hiddenOutputKeys.value.has(entry[0]) && !isOverflowBranchOutput(entry[0])))
 const normalInputs = computed(() => props.data.dynamicBranch ? inputs.value.filter(([key]) => key !== props.data.dynamicBranch?.controlInput) : inputs.value)
 const normalOutputs = computed(() => props.data.dynamicBranch ? outputs.value.filter(([key]) => key === props.data.dynamicBranch?.defaultOutput) : outputs.value)
 const branchValues = computed(() => {
+  branchRevision.value
   const key = props.data.dynamicBranch?.controlInput
   const control = key ? props.data.inputs[key]?.control as { value?: unknown[] } | undefined : undefined
   const value = control?.value
@@ -19,18 +21,23 @@ const branchValues = computed(() => {
 const branchRows = computed(() => {
   const config = props.data.dynamicBranch
   if (!config) return []
-  const indexes = new Set<number>()
-  branchValues.value.slice(0, config.maxBranches).forEach((_, index) => indexes.add(config.outputStartIndex + index))
-  for (const [key, state] of Object.entries(props.data.portStates?.outputs ?? {})) {
-    if (!state.connected || !key.startsWith(config.outputPrefix) || config.hiddenOutputKeys?.includes(key)) continue
-    const index = Number(key.slice(config.outputPrefix.length))
-    if (Number.isFinite(index) && index >= config.outputStartIndex && index < config.outputStartIndex + config.maxBranches) indexes.add(index)
-  }
-  return [...indexes].sort((a, b) => a - b).map(outputIndex => ({
-    value: branchValues.value[outputIndex - config.outputStartIndex] ?? '',
-    outputKey: `${config.outputPrefix}${outputIndex}`,
-    index: outputIndex - config.outputStartIndex
+  return branchValues.value.slice(0, config.maxBranches).map((value, index) => ({
+    value,
+    outputKey: `${config.outputPrefix}${config.outputStartIndex + index}`,
+    index
   }))
+})
+const branchOutputRows = computed(() => {
+  const config = props.data.dynamicBranch
+  if (!config) return []
+  const count = Math.min(branchValues.value.length, config.maxBranches)
+  return Array.from({ length: count }, (_, index) => {
+    const outputIndex = config.outputStartIndex + index
+    return {
+      outputKey: `${config.outputPrefix}${outputIndex}`,
+      index
+    }
+  })
 })
 const rows = computed(() => Math.max(inputs.value.length, outputs.value.length))
 const normalRows = computed(() => Math.max(normalInputs.value.length, normalOutputs.value.length))
@@ -67,6 +74,7 @@ function dynamicControl() {
 function setBranchValues(values: Array<string | number>, countChanged: boolean) {
   const control = dynamicControl()
   control?.setValue?.(values)
+  branchRevision.value++
   document.dispatchEvent(new CustomEvent('origin-control-change'))
   document.dispatchEvent(new CustomEvent('origin-dynamic-branch-change', { detail: { nodeId: props.data.id, count: values.length, countChanged } }))
 }
@@ -99,7 +107,7 @@ function removeBranch(index: number) {
       <span class="node-icon">&#9670;</span>
       <span class="title-text">{{ data.label }}</span>
       <span v-if="data.legacyClass" class="legacy-badge">COMPAT</span>
-      <span v-if="data.dynamicOutputs" class="dynamic-actions"><button @pointerdown.stop @click="changeOutputs(-1, $event)">-</button><button @pointerdown.stop @click="changeOutputs(1, $event)">+</button></span>
+      <span v-if="data.dynamicOutputs" class="dynamic-actions"><button @pointerdown.stop.prevent="changeOutputs(-1, $event)">-</button><button @pointerdown.stop.prevent="changeOutputs(1, $event)">+</button></span>
     </header>
 
     <div v-if="data.dynamicBranch" class="ports">
@@ -117,23 +125,23 @@ function removeBranch(index: number) {
         </div>
         <div v-else class="port-spacer"></div>
       </div>
-      <div v-for="row in branchRows" :key="`branch-${row.index}`" class="port-row branch-row">
+      <div v-for="row in branchRows" :key="`branch-${row.index}`" class="port-row branch-row" @pointerdown.stop @dblclick.stop.prevent>
         <div class="port input-port branch-input" :class="data.inputs[data.dynamicBranch.controlInput] ? portClass('inputs', data.dynamicBranch.controlInput, data.inputs[data.dynamicBranch.controlInput]!.socket) : []" :style="data.inputs[data.dynamicBranch.controlInput] ? socketStyle(data.inputs[data.dynamicBranch.controlInput]!.socket.name) : undefined">
           <Ref v-if="row.index === 0 && data.inputs[data.dynamicBranch.controlInput]" class="socket-ref" :emit="emit" :data="{ type: 'socket', side: 'input', key: data.dynamicBranch.controlInput, nodeId: data.id, payload: socketPayload('inputs', data.dynamicBranch.controlInput, data.inputs[data.dynamicBranch.controlInput]!.socket) }" />
           <span v-else class="socket-ref branch-socket-spacer"></span>
           <span v-if="row.index === 0 && data.inputs[data.dynamicBranch.controlInput]" class="port-label">{{ data.inputs[data.dynamicBranch.controlInput]!.label }}</span>
           <span v-else class="port-label branch-label-spacer"></span>
           <input class="branch-value" :value="row.value" :type="dynamicControl()?.itemType === 'number' ? 'number' : 'text'" @pointerdown.stop @dblclick.stop @input="updateBranchValue(row.index, $event)" />
-          <button class="branch-remove" title="Remove branch" @pointerdown.stop @click="removeBranch(row.index)">-</button>
+          <button class="branch-remove" title="Remove branch" @pointerdown.stop.prevent="removeBranch(row.index)">-</button>
         </div>
-        <div v-if="data.outputs[row.outputKey]" class="port output-port branch-output" :class="portClass('outputs', row.outputKey, data.outputs[row.outputKey]!.socket)" :style="socketStyle(data.outputs[row.outputKey]!.socket.name)">
+        <div v-if="branchOutputRows[row.index] && data.outputs[branchOutputRows[row.index].outputKey]" class="port output-port branch-output" :class="portClass('outputs', branchOutputRows[row.index].outputKey, data.outputs[branchOutputRows[row.index].outputKey]!.socket)" :style="socketStyle(data.outputs[branchOutputRows[row.index].outputKey]!.socket.name)">
           <span class="port-label"></span>
-          <Ref class="socket-ref" :emit="emit" :data="{ type: 'socket', side: 'output', key: row.outputKey, nodeId: data.id, payload: socketPayload('outputs', row.outputKey, data.outputs[row.outputKey]!.socket) }" />
+          <Ref class="socket-ref" :emit="emit" :data="{ type: 'socket', side: 'output', key: branchOutputRows[row.index].outputKey, nodeId: data.id, payload: socketPayload('outputs', branchOutputRows[row.index].outputKey, data.outputs[branchOutputRows[row.index].outputKey]!.socket) }" />
         </div>
         <div v-else class="port-spacer"></div>
       </div>
-      <div class="port-row branch-actions-row">
-        <div class="branch-actions-inline"><button :disabled="branchValues.length >= data.dynamicBranch.maxBranches" @pointerdown.stop @click="addBranch">+ Item</button></div>
+      <div class="port-row branch-actions-row" @pointerdown.stop @dblclick.stop.prevent>
+        <div class="branch-actions-inline"><button :disabled="branchValues.length >= data.dynamicBranch.maxBranches" @pointerdown.stop.prevent="addBranch" @dblclick.stop.prevent>+ Item</button></div>
         <div class="port-spacer"></div>
       </div>
     </div>
@@ -158,7 +166,7 @@ function removeBranch(index: number) {
 </template>
 
 <style scoped>
-.blueprint-node { --accent: #4474bf; position: relative; overflow: visible; border: 1px solid color-mix(in srgb, var(--accent) 64%, transparent); border-radius: 4px; background: linear-gradient(100deg, #18181842, #10101038); box-shadow: 0 5px 13px #0009, inset 0 1px #ffffff10; color: #ddd; cursor: default; user-select: none; backdrop-filter: blur(2px); }
+.blueprint-node { --accent: #4474bf; position: relative; overflow: visible; border: 1px solid color-mix(in srgb, var(--accent) 64%, transparent); border-radius: 4px; background: linear-gradient(145deg, #ffffff14, transparent 42%), linear-gradient(100deg, #191919ee, #101010eb); box-shadow: 0 5px 13px #0009, inset 0 1px #ffffff18; color: #ddd; cursor: default; user-select: none; }
 .blueprint-node.kind-event { --accent: #bd202f; }
 .blueprint-node.kind-function { --accent: #4f9a7f; }
 .blueprint-node.kind-variable { --accent: #805aa8; }
@@ -196,13 +204,14 @@ function removeBranch(index: number) {
 .control-ref { margin-left: auto; margin-right: 4px; display: flex; align-items: center; }
 .port-spacer { min-height: 1px; }
 .branch-row { min-height: 25px; }
-.branch-input { gap: 5px; }
-.branch-socket-spacer { width: 16px; height: 1px; margin-left: 8px; }
-.branch-label-spacer { width: 1.5em; }
-.branch-value { width: 54px; height: 18px; padding: 1px 4px; border: 1px solid #555; border-radius: 1px; background: #e9e9e9; color: #111; font: 11px Consolas, monospace; }
+.branch-input { display: grid; grid-template-columns: 24px 22px 1fr 18px; gap: 5px; justify-content: stretch; }
+.branch-input .socket-ref { margin-left: 8px; }
+.branch-socket-spacer { width: 16px; height: 1px; }
+.branch-label-spacer { width: 22px; }
+.branch-value { width: 58px; height: 18px; justify-self: end; padding: 1px 4px; border: 1px solid #555; border-radius: 1px; background: #e9e9e9; color: #111; font: 11px Consolas, monospace; }
 .branch-remove { width: 18px; height: 18px; padding: 0; border: 1px solid #555; border-radius: 1px; background: #2b2b2b; color: #bbb; font: 12px Consolas, monospace; }
 .branch-actions-row { min-height: 22px; }
-.branch-actions-inline { margin-left: 39px; }
+.branch-actions-inline { margin-left: 100px; }
 .branch-actions-inline button { width: 72px; height: 20px; border: 1px solid #555; border-radius: 2px; background: #252525; color: #bbb; font: 11px Consolas, monospace; }
 .branch-actions-inline button:disabled { opacity: .45; }
 </style>

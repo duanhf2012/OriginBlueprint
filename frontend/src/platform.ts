@@ -42,6 +42,10 @@ type DesktopApp = {
   LoadNodeSchemaDocuments(): Promise<RawNodeSchemaDocumentLoadResult>
 }
 
+type WailsRuntime = {
+  EventsOnMultiple?: (name: string, callback: (...data: unknown[]) => void, count: number) => () => void
+}
+
 function desktop(): DesktopApp | undefined {
   return (window as unknown as { go?: { main?: { App?: DesktopApp } } }).go?.main?.App
 }
@@ -162,8 +166,12 @@ export const platform = {
     return parseNodeSchemaDocuments(result.documents, result.errors)
   },
   onExecution(callback: (event: ExecutionEvent) => void) {
-    const runtime = (window as unknown as { runtime?: { EventsOnMultiple?: (name: string, callback: (event: ExecutionEvent) => void, count: number) => () => void } }).runtime
-    return runtime?.EventsOnMultiple?.('origin:execution', callback, -1) ?? (() => {})
+    const runtime = (window as unknown as { runtime?: WailsRuntime }).runtime
+    return runtime?.EventsOnMultiple?.('origin:execution', event => callback(event as ExecutionEvent), -1) ?? (() => {})
+  },
+  onCloseRequest(callback: () => void) {
+    const runtime = (window as unknown as { runtime?: WailsRuntime }).runtime
+    return runtime?.EventsOnMultiple?.('origin:before-close', callback, -1) ?? (() => {})
   },
   async exportPNG(dataURL: string) {
     if (desktop()) return desktop()!.ExportPNG(dataURL)

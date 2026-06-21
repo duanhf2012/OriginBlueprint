@@ -847,6 +847,46 @@ func TestChoiceskillEqualSwitchRoundTripKeepsLegacyBranchPorts(t *testing.T) {
 	}
 }
 
+func TestNewEqualSwitchExportsAsLegacyEqualSwitch(t *testing.T) {
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		GraphName:     "NewSwitch",
+		Nodes: []GraphNode{
+			{
+				ID:       "switch",
+				TypeID:   "origin.flow.equal-switch-new",
+				Position: GraphPosition{X: 10, Y: 20},
+				Values:   map[string]interface{}{"cases": []interface{}{1, 2}},
+			},
+			{
+				ID:       "target",
+				TypeID:   "origin.result.append-integer",
+				Position: GraphPosition{X: 200, Y: 20},
+			},
+		},
+		Connections: []GraphConnection{{
+			Source: "switch", SourceOutput: "case1", Target: "target", TargetInput: "exec",
+		}},
+	}
+	data, err := exportLegacyGraph(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var legacy legacyGraph
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		t.Fatal(err)
+	}
+	if len(legacy.Nodes) != 2 || legacy.Nodes[0].Class != "EqualSwitch" {
+		t.Fatalf("legacy nodes = %#v", legacy.Nodes)
+	}
+	if got := legacy.Nodes[0].PortDefaults["2"]; got == nil {
+		t.Fatalf("cases default missing from legacy port 2: %#v", legacy.Nodes[0].PortDefaults)
+	}
+	if len(legacy.Edges) != 1 || legacyPortIndex(legacy.Edges[0].SourcePortID, legacy.Edges[0].SourceIndex) != 2 {
+		t.Fatalf("legacy edges = %#v", legacy.Edges)
+	}
+}
+
 func TestMigrateLegacyGraphServiceReturnsDocument(t *testing.T) {
 	content := `{"graph_name":"Legacy","nodes":[],"edges":[],"groups":[],"variables":[]}`
 	result, err := NewApp().MigrateLegacyGraph(content)

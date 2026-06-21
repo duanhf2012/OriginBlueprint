@@ -1,0 +1,201 @@
+[
+ 
+	{
+		"name": "SkillFormulaResult",
+		"title": "公式计算结果(配对自定义计算公式入口)",
+		"package": "技能",
+		"description": "公式计算结果",
+		"is_pure": true,
+		"inputs": [{
+				"name": "",
+				"type": "exec",
+				"port_id": 0
+			},{
+				"name": "伤害",
+				"type": "data",
+				"data_type": "Integer",
+				"has_input": true,
+				"port_id": 1
+            },{
+				"name": "治疗",
+				"type": "data",
+				"data_type": "Integer",
+				"has_input": true,
+				"port_id": 2
+            },{
+				"name": "Mp",
+				"type": "data",
+				"data_type": "Integer",
+				"has_input": true,
+				"port_id": 3
+            },{
+				"name": "闪避",
+				"type": "data",
+				"data_type": "Boolean",
+				"has_input": true,
+				"port_id": 4
+            },{
+				"name": "暴击",
+				"type": "data",
+				"data_type": "Boolean",
+				"has_input": true,
+				"port_id": 5
+            },{
+				"name": "治疗暴击",
+				"type": "data",
+				"data_type": "Boolean",
+				"has_input": true,
+				"port_id": 6
+            },{
+				"name": "忽略目标",
+				"type": "data",
+				"data_type": "Boolean",
+				"has_input": true,
+				"port_id": 7
+            }
+        ],
+		"outputs": []
+
+	},
+	{
+		"name": "SetSkillBlackBoard",
+		"title": "设置技能黑板",
+		"package": "技能",
+		"description": "技能黑板",
+		"is_pure": true,
+		"inputs": [{
+				"name": "",
+				"type": "exec",
+				"port_id": 0
+			},{
+				"name": "施放者Id",
+				"type": "data",
+				"data_type": "Integer",
+				"has_input": true,
+				"port_id": 1
+            },{
+				"name": "技能Id",
+				"type": "data",
+				"data_type": "Integer",
+				"has_input": true,
+				"port_id": 2
+            },{
+				"name": "key",
+				"type": "data",
+				"data_type": "Integer",
+				"has_input": true,
+				"port_id": 3
+            },{
+				"name": "值",
+				"type": "data",
+				"data_type": "Integer",
+				"has_input": true,
+				"port_id": 4
+            }
+        ],
+		"outputs": [{
+				"name": "",
+				"type": "exec",
+				"port_id": 0
+			}]
+
+	},
+	{
+		"name": "GetSkillBlackBoard",
+		"title": "获取技能黑板",
+		"package": "技能",
+		"description": "技能黑板",
+		"is_pure": true,
+		"inputs": [{
+				"name": "",
+				"type": "exec",
+				"port_id": 0
+			},{
+				"name": "施放者Id",
+				"type": "data",
+				"data_type": "Integer",
+				"has_input": true,
+				"port_id": 1
+            },{
+				"name": "技能Id",
+				"type": "data",
+				"data_type": "Integer",
+				"has_input": true,
+				"port_id": 2
+            },{
+				"name": "Key",
+				"type": "data",
+				"data_type": "Integer",
+				"has_input": true,
+				"port_id": 3
+            }
+        ],
+		"outputs": [{
+				"name": "",
+				"type": "exec",
+				"port_id": 0
+			},{
+				"name": "值",
+				"type": "data",
+				"data_type": "Integer",
+				"has_input": true,
+				"port_id": 1
+            }]
+
+	},
+	{
+		"name": "CastEffectById",
+		"title": "通过效果器Id对指定目标执行技能效果",
+		"package": "技能",
+		"description": "根据释放者和技能Id获取SkillContext，设置默认目标Id后执行指定效果器",
+		"is_pure": true,
+		"inputs": [{
+				"name": "",
+				"type": "exec",
+				"port_id": 0
+			},{
+				"name": "释放者Id",
+				"type": "data",
+				"data_type": "Integer",
+				"has_input": true,
+				"port_id": 1
+            },{
+				"name": "技能Id",
+				"type": "data",
+				"data_type": "Integer",
+				"has_input": true,
+				"port_id": 2
+            },{
+				"name": "目标Id",
+				"type": "data",
+				"data_type": "Integer",
+				"has_input": true,
+				"port_id": 3
+            },{
+				"name": "效果器Id",
+				"type": "data",
+				"data_type": "Integer",
+				"has_input": true,
+				"port_id": 4
+            },{
+				"name": "来源BuffId",
+				"type": "data",
+				"data_type": "Integer",
+				"has_input": true,
+				"port_id": 5
+            },{
+				"name": "喊招类型Id",
+				"type": "data",
+				"data_type": "Integer",
+				"has_input": true,
+				"port_id": 6
+            }
+        ],
+		"outputs": [{
+				"name": "",
+				"type": "exec",
+				"port_id": 0
+			}]
+
+	}
+]

@@ -1,0 +1,181 @@
+[	
+	{
+		"name": "GetObjLeftMinHpPercent",
+		"title": "获取对象最小血量比",
+		"package": "技能",
+		"description": "获取对象最小血量比",
+		"is_pure": true,
+		"inputs": [{
+				"name": "",
+				"type": "exec",
+				"port_id": 0
+			},{
+				"name": "对象Id",
+				"type": "data",
+				"data_type": "Integer",
+				"has_input": true,
+				"port_id": 1
+            },{
+				"name": "是否敌方",
+				"type": "data",
+				"data_type": "bool",
+				"has_input": true,
+				"port_id": 2
+            },{
+				"name": "允许死亡",
+				"type": "data",
+				"data_type": "bool",
+				"has_input": true,
+				"port_id": 3
+            }
+        ],
+		"outputs": [{
+				"name": "",
+				"type": "exec",
+				"port_id": 0
+			},{
+				"name": "对象Id",
+				"type": "data",
+				"data_type": "Integer",
+				"has_input": false,
+				"port_id": 1
+		},
+		 {
+				"name": "Hp",
+				"type": "data",
+				"data_type": "Integer",
+				"has_input": false,
+				"port_id": 2
+		},{
+				"name": "MaxHp",
+				"type": "data",
+				"data_type": "Integer",
+				"has_input": false,
+				"port_id": 3
+		},
+		 {
+				"name": "百分比",
+				"type": "data",
+				"data_type": "Integer",
+				"has_input": false,
+				"port_id": 4
+		}]
+
+	},
+	
+	{
+		"name": "CheckCanCastSkill",
+		"title": "检查技能是否能释放",
+		"package": "技能",
+		"description": "获取对象最小血量比",
+		"is_pure": true,
+		"inputs": [{
+				"name": "",
+				"type": "exec",
+				"port_id": 0
+			},{
+				"name": "对象Id",
+				"type": "data",
+				"data_type": "Integer",
+				"has_input": true,
+				"port_id": 1
+            },{
+				"name": "SkillId",
+				"type": "data",
+				"data_type": "Integer",
+				"has_input": true,
+				"port_id": 2
+            }
+        ],
+		"outputs": [{
+				"name": "不能",
+				"type": "exec",
+				"port_id": 0
+			},{
+				"name": "能",
+				"type": "exec",
+				"port_id": 1
+			}]
+
+	},{
+		"name": "GetSkillByType",
+		"title": "获取指定类型的技能",
+		"package": "技能",
+		"description": "获取指定类型的技能",
+		"is_pure": true,
+		"inputs": [{
+				"name": "",
+				"type": "exec",
+				"port_id": 0
+			},{
+				"name": "对象Id",
+				"type": "data",
+				"data_type": "Integer",
+				"has_input": true,
+				"port_id": 1
+            },{
+				"name": "技能类型",
+				"type": "data",
+				"data_type": "Integer",
+				"has_input": true,
+				"port_id": 2
+            }
+        ],
+		"outputs": [{
+				"name": "",
+				"type": "exec",
+				"port_id": 0
+			},
+		 {
+				"name": "SkillId",
+				"type": "data",
+				"data_type": "Integer",
+				"has_input": false,
+				"port_id": 1
+		},
+		 {
+				"name": "SkillLev",
+				"type": "data",
+				"data_type": "Integer",
+				"has_input": false,
+				"port_id": 2
+		}]
+
+	},
+	{
+		"name": "RandomChoiceSkillByObjId",
+		"title": "随机获取可释放技能",
+		"package": "技能",
+		"description": "获取对象所有技能，过滤不可释放与被动技能，从可释放技能中随机返回一个技能Id和技能等级",
+		"is_pure": true,
+		"inputs": [{
+				"name": "",
+				"type": "exec",
+				"port_id": 0
+			},{
+				"name": "对象Id",
+				"type": "data",
+				"data_type": "Integer",
+				"has_input": true,
+				"port_id": 1
+			}
+		],
+		"outputs": [{
+				"name": "",
+				"type": "exec",
+				"port_id": 0
+			},{
+				"name": "SkillId",
+				"type": "data",
+				"data_type": "Integer",
+				"has_input": false,
+				"port_id": 1
+			},{
+				"name": "SkillLev",
+				"type": "data",
+				"data_type": "Integer",
+				"has_input": false,
+				"port_id": 2
+			}]
+	}
+]
