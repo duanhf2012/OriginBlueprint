@@ -1,4 +1,5 @@
 import type { BlueprintNode, NodePortVisualStates, Schemes } from './types'
+import { describeEntryBinding, type EntryBindingNode } from './implicitEntryLinks'
 
 type PortSide = keyof NodePortVisualStates
 type ConnectionLike = Pick<Schemes['Connection'], 'source' | 'target' | 'sourceOutput' | 'targetInput'>
@@ -33,6 +34,13 @@ function fillPort(node: BlueprintNode | undefined, side: PortSide, key: string) 
   }
 }
 
+function entryBindingNode(node?: BlueprintNode): EntryBindingNode | undefined {
+  if (!node) return undefined
+  const inputs = Object.fromEntries(Object.entries(node.inputs).flatMap(([key, port]) => port ? [[key, { label: port.label, socket: port.socket.name }]] : []))
+  const outputs = Object.fromEntries(Object.entries(node.outputs).flatMap(([key, port]) => port ? [[key, { label: port.label, socket: port.socket.name }]] : []))
+  return { id: node.id, typeId: node.typeId, legacyClass: node.legacyClass, label: node.label, inputs, outputs }
+}
+
 export function refreshNodePortStates(
   nodes: BlueprintNode[],
   connections: ConnectionLike[],
@@ -43,5 +51,16 @@ export function refreshNodePortStates(
   for (const connection of connections) {
     fillPort(getNode(connection.source), 'outputs', String(connection.sourceOutput))
     fillPort(getNode(connection.target), 'inputs', String(connection.targetInput))
+    const binding = describeEntryBinding({
+      source: connection.source,
+      sourceOutput: String(connection.sourceOutput),
+      target: connection.target,
+      targetInput: String(connection.targetInput)
+    }, id => entryBindingNode(getNode(id)))
+    if (binding) {
+      const target = getNode(connection.target)
+      const state = target?.portStates?.inputs[String(connection.targetInput)]
+      if (state) state.entryBinding = binding
+    }
   }
 }

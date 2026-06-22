@@ -55,7 +55,7 @@ function remove(event: MouseEvent) {
 </script>
 
 <template>
-  <svg class="blueprint-connection" :class="[socketClass, { selected: data.selected }]" :style="connectionStyle" :viewBox="viewBox" data-testid="connection" :data-connection-id="data.id" @click.stop="select" @contextmenu.stop="remove">
+  <svg v-if="!data.hidden" class="blueprint-connection" :class="[socketClass, { selected: data.selected }]" :style="connectionStyle" :viewBox="viewBox" data-testid="connection" :data-connection-id="data.id" @click.stop="select" @contextmenu.stop="remove">
     <path class="connection-hit-area" :d="path" />
     <path class="connection-line" :d="path" />
   </svg>

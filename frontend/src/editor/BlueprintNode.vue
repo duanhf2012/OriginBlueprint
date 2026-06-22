@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { Ref } from 'rete-vue-plugin'
 import type { BlueprintNode } from './types'
+import { entryBindingLabel } from './implicitEntryLinks'
 import { socketClassName, socketStyle } from './socketTheme'
 
 const props = defineProps<{ data: BlueprintNode; emit: (signal: unknown) => void }>()
@@ -41,6 +42,7 @@ const branchOutputRows = computed(() => {
 })
 const rows = computed(() => Math.max(inputs.value.length, outputs.value.length))
 const normalRows = computed(() => Math.max(normalInputs.value.length, normalOutputs.value.length))
+const hasEntryBinding = computed(() => Object.values(props.data.portStates?.inputs ?? {}).some(state => Boolean(state?.entryBinding)))
 
 function portFilled(side: 'inputs' | 'outputs', key: string) {
   return props.data.portStates?.[side][key]?.filled ?? false
@@ -52,6 +54,19 @@ function socketPayload(side: 'inputs' | 'outputs', key: string, socket: { name: 
 
 function portClass(side: 'inputs' | 'outputs', key: string, socket: { name: string }) {
   return [socketClassName(socket.name), { filled: portFilled(side, key) }]
+}
+
+function inputEntryBindingLabel(key: string) {
+  return entryBindingLabel(props.data.portStates?.inputs[key]?.entryBinding)
+}
+
+function openEntryBindingMenu(event: MouseEvent, key: string, socket: { name: string }) {
+  if (socket.name === 'exec') return
+  if ((event.target as HTMLElement).closest('input, textarea, select, button')) return
+  ;(event.currentTarget as HTMLElement).dispatchEvent(new CustomEvent('origin-entry-binding-menu', {
+    bubbles: true,
+    detail: { nodeId: props.data.id, inputKey: key, clientX: event.clientX, clientY: event.clientY }
+  }))
 }
 
 function changeOutputs(delta: number, event: MouseEvent) {
@@ -102,7 +117,7 @@ function removeBranch(index: number) {
 </script>
 
 <template>
-  <article class="blueprint-node" :class="[`kind-${data.kind ?? 'function'}`, `execution-${data.executionState ?? 'idle'}`, { selected: data.selected, compact: data.compact, legacy: Boolean(data.legacyClass) }]" :style="{ width: `${data.width ?? 230}px` }">
+  <article class="blueprint-node" :class="[`kind-${data.kind ?? 'function'}`, `execution-${data.executionState ?? 'idle'}`, { selected: data.selected, compact: data.compact, legacy: Boolean(data.legacyClass), 'has-entry-binding': hasEntryBinding }]" :style="{ width: `${data.width ?? 230}px` }">
     <header class="blueprint-title">
       <span class="node-icon">&#9670;</span>
       <span class="title-text">{{ data.label }}</span>
@@ -112,9 +127,10 @@ function removeBranch(index: number) {
 
     <div v-if="data.dynamicBranch" class="ports">
       <div v-for="index in normalRows" :key="`normal-${index}`" class="port-row">
-        <div v-if="normalInputs[index - 1]" class="port input-port" :class="portClass('inputs', normalInputs[index - 1][0], normalInputs[index - 1][1].socket)" :style="socketStyle(normalInputs[index - 1][1].socket.name)">
+        <div v-if="normalInputs[index - 1]" class="port input-port" :class="portClass('inputs', normalInputs[index - 1][0], normalInputs[index - 1][1].socket)" :style="socketStyle(normalInputs[index - 1][1].socket.name)" @contextmenu.stop.prevent="openEntryBindingMenu($event, normalInputs[index - 1][0], normalInputs[index - 1][1].socket)">
           <Ref class="socket-ref" :emit="emit" :data="{ type: 'socket', side: 'input', key: normalInputs[index - 1][0], nodeId: data.id, payload: socketPayload('inputs', normalInputs[index - 1][0], normalInputs[index - 1][1].socket) }" />
           <span class="port-label">{{ normalInputs[index - 1][1].label }}</span>
+          <span v-if="inputEntryBindingLabel(normalInputs[index - 1][0])" class="entry-binding-badge" :title="inputEntryBindingLabel(normalInputs[index - 1][0])">{{ inputEntryBindingLabel(normalInputs[index - 1][0]) }}</span>
           <Ref v-if="normalInputs[index - 1][1].control && normalInputs[index - 1][1].showControl" class="control-ref" :emit="emit" :data="{ type: 'control', payload: normalInputs[index - 1][1].control }" />
         </div>
         <div v-else class="port-spacer"></div>
@@ -126,7 +142,7 @@ function removeBranch(index: number) {
         <div v-else class="port-spacer"></div>
       </div>
       <div v-for="row in branchRows" :key="`branch-${row.index}`" class="port-row branch-row" @pointerdown.stop @dblclick.stop.prevent>
-        <div class="port input-port branch-input" :class="data.inputs[data.dynamicBranch.controlInput] ? portClass('inputs', data.dynamicBranch.controlInput, data.inputs[data.dynamicBranch.controlInput]!.socket) : []" :style="data.inputs[data.dynamicBranch.controlInput] ? socketStyle(data.inputs[data.dynamicBranch.controlInput]!.socket.name) : undefined">
+        <div class="port input-port branch-input" :class="data.inputs[data.dynamicBranch.controlInput] ? portClass('inputs', data.dynamicBranch.controlInput, data.inputs[data.dynamicBranch.controlInput]!.socket) : []" :style="data.inputs[data.dynamicBranch.controlInput] ? socketStyle(data.inputs[data.dynamicBranch.controlInput]!.socket.name) : undefined" @contextmenu.stop.prevent="data.inputs[data.dynamicBranch.controlInput] && openEntryBindingMenu($event, data.dynamicBranch.controlInput, data.inputs[data.dynamicBranch.controlInput]!.socket)">
           <Ref v-if="row.index === 0 && data.inputs[data.dynamicBranch.controlInput]" class="socket-ref" :emit="emit" :data="{ type: 'socket', side: 'input', key: data.dynamicBranch.controlInput, nodeId: data.id, payload: socketPayload('inputs', data.dynamicBranch.controlInput, data.inputs[data.dynamicBranch.controlInput]!.socket) }" />
           <span v-else class="socket-ref branch-socket-spacer"></span>
           <span v-if="row.index === 0 && data.inputs[data.dynamicBranch.controlInput]" class="port-label">{{ data.inputs[data.dynamicBranch.controlInput]!.label }}</span>
@@ -148,9 +164,10 @@ function removeBranch(index: number) {
 
     <div v-else class="ports">
       <div v-for="index in rows" :key="index" class="port-row">
-        <div v-if="inputs[index - 1]" class="port input-port" :class="portClass('inputs', inputs[index - 1][0], inputs[index - 1][1].socket)" :style="socketStyle(inputs[index - 1][1].socket.name)">
+        <div v-if="inputs[index - 1]" class="port input-port" :class="portClass('inputs', inputs[index - 1][0], inputs[index - 1][1].socket)" :style="socketStyle(inputs[index - 1][1].socket.name)" @contextmenu.stop.prevent="openEntryBindingMenu($event, inputs[index - 1][0], inputs[index - 1][1].socket)">
           <Ref class="socket-ref" :emit="emit" :data="{ type: 'socket', side: 'input', key: inputs[index - 1][0], nodeId: data.id, payload: socketPayload('inputs', inputs[index - 1][0], inputs[index - 1][1].socket) }" />
           <span class="port-label">{{ inputs[index - 1][1].label }}</span>
+          <span v-if="inputEntryBindingLabel(inputs[index - 1][0])" class="entry-binding-badge" :title="inputEntryBindingLabel(inputs[index - 1][0])">{{ inputEntryBindingLabel(inputs[index - 1][0]) }}</span>
           <Ref v-if="inputs[index - 1][1].control && inputs[index - 1][1].showControl" class="control-ref" :emit="emit" :data="{ type: 'control', payload: inputs[index - 1][1].control }" />
         </div>
         <div v-else class="port-spacer"></div>
@@ -171,6 +188,7 @@ function removeBranch(index: number) {
 .blueprint-node.kind-function { --accent: #4f9a7f; }
 .blueprint-node.kind-variable { --accent: #805aa8; }
 .blueprint-node.legacy { --accent: #b77b32; border-style: dashed; }
+.blueprint-node.has-entry-binding { min-width: 460px; }
 .legacy-badge { margin-left: 4px; padding: 1px 4px; border: 1px solid #ffe0a455; border-radius: 2px; background: #2a1d0d99; color: #ffe0a4; font-size: 8px; letter-spacing: .5px; }
 .blueprint-node.selected { outline: 2px solid #f5b642; outline-offset: 2px; box-shadow: 0 0 12px #f5b64255; }
 .blueprint-node.execution-running { outline: 3px solid #f1c232; outline-offset: 3px; box-shadow: 0 0 18px #f1c23299; }
@@ -189,6 +207,7 @@ function removeBranch(index: number) {
 .dynamic-actions button { width: 19px; height: 18px; padding: 0; border: 1px solid #ffffff55; border-radius: 2px; background: #0003; color: white; line-height: 14px; }
 .ports { padding: 7px 0 8px; }
 .port-row { min-height: 27px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center; }
+.blueprint-node.has-entry-binding .port-row { grid-template-columns: minmax(0, 1.45fr) minmax(86px, .75fr); column-gap: 18px; }
 .port { min-width: 0; display: flex; align-items: center; gap: 6px; font: 12px Consolas, monospace; }
 .input-port { justify-content: flex-start; }
 .output-port { justify-content: flex-end; text-align: right; }
@@ -196,6 +215,7 @@ function removeBranch(index: number) {
 .input-port .socket-ref { margin-left: 8px; }
 .output-port .socket-ref { margin-right: 8px; }
 .port-label { color: var(--socket-label-color); white-space: nowrap; }
+.entry-binding-badge { max-width: 260px; min-width: 128px; overflow: hidden; padding: 1px 7px; border: 1px solid #33c5e8; border-radius: 2px; background: linear-gradient(90deg, #0b2e38e6, #101b20d9); color: #bff4ff; font: 10px "Segoe UI", sans-serif; text-overflow: ellipsis; white-space: nowrap; box-shadow: inset 0 0 0 1px #ffffff10, 0 0 5px #33c5e833; }
 .port.socket-exec { min-height: 25px; }
 .port:not(.filled) :deep(.blueprint-socket:not(.exec)) { background: #101010; box-shadow: 0 0 0 1px #000, inset 0 1px #ffffff24; }
 .port.filled :deep(.blueprint-socket:not(.exec)) { background: var(--socket-fill); box-shadow: 0 0 0 1px #000, inset 0 1px #ffffff55, 0 0 4px var(--socket-color); }

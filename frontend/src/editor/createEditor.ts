@@ -10,6 +10,7 @@ import BlueprintSocket from './BlueprintSocket.vue'
 import { createLegacyNode, createNode, createVariableNode, hasNodeDefinition, nodeTitleWidth } from './nodeRegistry'
 import { normalizeSocketName } from './socketTheme'
 import { BlueprintNode, type Schemes } from './types'
+import { describeEntryBinding, entryBindingCandidateGroups, isEntryOutputConnection, type EntryBindingNode } from './implicitEntryLinks'
 import { refreshNodePortStates } from './portVisualState'
 import { pathIntersectsRect, rectsIntersect, type Rect } from './selectionGeometry'
 import type { ConnectionSnapshot, GraphDocument, GraphSnapshot, GraphVariable, GraphVariableGroup, GroupSnapshot, LegacyGraphState, NodeSnapshot } from './document'
@@ -170,6 +171,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   let currentVariableGroups: GraphVariableGroup[] = []
   let currentLegacy: LegacyGraphState | undefined
   let insertionOffset = 0
+  const visibleEntryConnectionIds = new Set<string>()
 
   render.addPreset(VuePresets.classic.setup({
     socketPositionWatcher: createFrameSocketPositionWatcher(),
@@ -374,6 +376,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
 
   async function restore(data: GraphSnapshot) {
     restoring = true
+    visibleEntryConnectionIds.clear()
     selectedConnectionIds.clear()
     await selector.unselectAll()
     await editor.clear()
@@ -437,9 +440,30 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     return normalizeSocketName(types.source ?? types.target)
   }
 
+  function entryBindingNode(node?: BlueprintNode): EntryBindingNode | undefined {
+    if (!node) return undefined
+    const inputs = Object.fromEntries(Object.entries(node.inputs).flatMap(([key, port]) => port ? [[key, { label: port.label, socket: port.socket.name }]] : []))
+    const outputs = Object.fromEntries(Object.entries(node.outputs).flatMap(([key, port]) => port ? [[key, { label: port.label, socket: port.socket.name }]] : []))
+    return { id: node.id, typeId: node.typeId, legacyClass: node.legacyClass, label: node.label, inputs, outputs }
+  }
+
+  function updateConnectionPresentation(item: Schemes['Connection']) {
+    const implicitEntryConnection = isEntryOutputConnection({
+      source: item.source,
+      sourceOutput: String(item.sourceOutput),
+      target: item.target,
+      targetInput: String(item.targetInput)
+    }, id => entryBindingNode(editor.getNode(id)))
+    const hidden = implicitEntryConnection && !visibleEntryConnectionIds.has(item.id)
+    const changed = item.hidden !== hidden
+    item.hidden = hidden
+    return changed
+  }
+
   function createConnection(source: BlueprintNode, sourceOutput: string, target: BlueprintNode, targetInput: string) {
     const item = new ClassicPreset.Connection(source, sourceOutput, target, targetInput) as Schemes['Connection']
     item.socketType = connectionSocketType({ source: source.id, sourceOutput, target: target.id, targetInput })
+    updateConnectionPresentation(item)
     return item
   }
 
@@ -450,6 +474,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
       target: item.target,
       targetInput: String(item.targetInput)
     })
+    updateConnectionPresentation(item)
   }
 
   function refreshInputControlVisibility(nodeIds?: Set<string>) {
@@ -465,11 +490,14 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   async function refreshPortStates(updateNodes = false, onlyNodeIds?: Iterable<string>) {
     const nodes = editor.getNodes()
     const nodeIds = onlyNodeIds ? new Set(onlyNodeIds) : undefined
-    refreshNodePortStates(nodes, editor.getConnections(), id => editor.getNode(id))
+    const connections = editor.getConnections()
+    const changedConnections = connections.filter(updateConnectionPresentation)
+    refreshNodePortStates(nodes, connections, id => editor.getNode(id))
     refreshInputControlVisibility(nodeIds)
     if (updateNodes) {
       const updates = nodeIds ? nodes.filter(node => nodeIds.has(node.id)) : nodes
       await Promise.all(updates.map(node => area.update('node', node.id)))
+      await Promise.all(changedConnections.map(item => area.update('connection', item.id)))
     }
   }
 
@@ -700,6 +728,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
 
   async function loadDocument(document: GraphDocument) {
     undoStack.length = 0; redoStack.length = 0
+    visibleEntryConnectionIds.clear()
     currentVariables = (document.variables ?? []).map(item => ({ ...item }))
     currentVariableGroups = (document.variableGroups ?? []).map(item => ({ ...item }))
     currentLegacy = cloneLegacyState(document.legacy)
@@ -717,6 +746,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
 
   async function newDocument() {
     undoStack.length = 0; redoStack.length = 0; groups.length = 0; selectedGroupId = null
+    visibleEntryConnectionIds.clear()
     currentVariables = []; currentVariableGroups = [{ id: 'default', name: 'Default' }]; currentLegacy = undefined; insertionOffset = 0; callbacks.onVariables([]); callbacks.onVariableGroups(currentVariableGroups.map(item => ({ ...item }))); callbacks.onSelection(null)
     restoring = true; await selector.unselectAll(); await editor.clear(); restoring = false; renderGroups(); updateMetrics()
     await area.area.translate(0, 0); await area.area.zoom(1)
@@ -833,6 +863,134 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     const detail = (event as CustomEvent<{ nodeId: string; delta: number }>).detail
     if (detail) void changeDynamicOutputs(detail.nodeId, detail.delta)
   }
+
+  function entryBindingGroups(targetNodeId: string, inputKey: string) {
+    const nodes = editor.getNodes().flatMap(node => {
+      const entry = entryBindingNode(node)
+      return entry ? [entry] : []
+    })
+    return entryBindingCandidateGroups(targetNodeId, inputKey, nodes)
+  }
+
+  async function removeInputConnections(targetNodeId: string, inputKey: string) {
+    for (const item of editor.getConnections()) {
+      if (item.target === targetNodeId && String(item.targetInput) === inputKey) await editor.removeConnection(item.id)
+    }
+  }
+
+  async function bindEntryOutput(targetNodeId: string, inputKey: string, sourceNodeId: string, sourceOutput: string) {
+    const source = editor.getNode(sourceNodeId)
+    const target = editor.getNode(targetNodeId)
+    if (!source || !target || !source.outputs[sourceOutput] || !target.inputs[inputKey]) return
+    await mutate('入口参数已绑定', async () => {
+      await removeInputConnections(targetNodeId, inputKey)
+      await editor.addConnection(createConnection(source, sourceOutput, target, inputKey))
+      await refreshPortStates(true, [sourceNodeId, targetNodeId])
+    })
+  }
+
+  async function clearEntryBinding(targetNodeId: string, inputKey: string) {
+    await mutate('入口参数绑定已清除', async () => {
+      await removeInputConnections(targetNodeId, inputKey)
+      await refreshPortStates(true, [targetNodeId])
+    })
+  }
+
+  function currentEntryBinding(targetNodeId: string, inputKey: string) {
+    for (const item of editor.getConnections()) {
+      if (item.target !== targetNodeId || String(item.targetInput) !== inputKey) continue
+      const binding = describeEntryBinding({
+        source: item.source,
+        sourceOutput: String(item.sourceOutput),
+        target: item.target,
+        targetInput: String(item.targetInput)
+      }, id => entryBindingNode(editor.getNode(id)))
+      if (binding) return { binding, connectionId: item.id, visible: visibleEntryConnectionIds.has(item.id) }
+    }
+    return undefined
+  }
+
+  async function setEntryConnectionVisible(connectionId: string, visible: boolean) {
+    const item = editor.getConnection(connectionId)
+    if (!item) return
+    if (visible) visibleEntryConnectionIds.add(connectionId); else visibleEntryConnectionIds.delete(connectionId)
+    updateConnectionPresentation(item)
+    await area.update('connection', connectionId)
+  }
+
+  const entryBindingMenu = document.createElement('div')
+  entryBindingMenu.className = 'entry-binding-menu'
+  entryBindingMenu.hidden = true
+  entryBindingMenu.addEventListener('pointerdown', event => event.stopPropagation())
+  container.appendChild(entryBindingMenu)
+
+  function hideEntryBindingMenu() {
+    entryBindingMenu.hidden = true
+    entryBindingMenu.replaceChildren()
+  }
+
+  function addEntryBindingMenuButton(label: string, action: () => void | Promise<void>, className = '') {
+    const button = document.createElement('button')
+    if (className) button.className = className
+    button.textContent = label
+    button.onclick = () => { hideEntryBindingMenu(); void action() }
+    entryBindingMenu.appendChild(button)
+  }
+
+  function showEntryBindingMenu(detail: { nodeId: string; inputKey: string; clientX: number; clientY: number }) {
+    const target = editor.getNode(detail.nodeId)
+    const input = target?.inputs[detail.inputKey]
+    if (!target || !input || input.socket.name === 'exec') return
+    entryBindingMenu.replaceChildren()
+
+    const title = document.createElement('div')
+    title.className = 'entry-binding-title'
+    title.textContent = `${input.label || detail.inputKey} 绑定入口参数`
+    entryBindingMenu.appendChild(title)
+
+    const current = currentEntryBinding(detail.nodeId, detail.inputKey)
+    if (current) {
+      const currentLabel = document.createElement('div')
+      currentLabel.className = 'entry-binding-current'
+      currentLabel.textContent = `当前: ${current.binding.sourceNodeLabel} / ${current.binding.sourceOutputLabel}`
+      entryBindingMenu.appendChild(currentLabel)
+      addEntryBindingMenuButton('跳转到入口节点', () => focusNode(current.binding.sourceNodeId))
+      addEntryBindingMenuButton(current.visible ? '折叠为入口标签' : '显示为普通连线', () => setEntryConnectionVisible(current.connectionId, !current.visible))
+      addEntryBindingMenuButton('清除入口参数绑定', () => clearEntryBinding(detail.nodeId, detail.inputKey), 'danger')
+    }
+
+    const groups = entryBindingGroups(detail.nodeId, detail.inputKey)
+    if (groups.length) {
+      const heading = document.createElement('div')
+      heading.className = 'entry-binding-group'
+      heading.textContent = '可用入口参数'
+      entryBindingMenu.appendChild(heading)
+      for (const group of groups) {
+        const source = document.createElement('div')
+        source.className = 'entry-binding-source'
+        source.textContent = group.sourceNodeLabel
+        entryBindingMenu.appendChild(source)
+        for (const candidate of group.candidates) {
+          addEntryBindingMenuButton(candidate.sourceOutputLabel, () => bindEntryOutput(detail.nodeId, detail.inputKey, candidate.sourceNodeId, candidate.sourceOutput), 'entry-output')
+        }
+      }
+    } else {
+      const empty = document.createElement('div')
+      empty.className = 'entry-binding-empty'
+      empty.textContent = '没有类型匹配的入口参数'
+      entryBindingMenu.appendChild(empty)
+    }
+
+    const rect = container.getBoundingClientRect()
+    entryBindingMenu.style.left = `${Math.max(6, Math.min(detail.clientX - rect.left, rect.width - 250))}px`
+    entryBindingMenu.style.top = `${Math.max(6, Math.min(detail.clientY - rect.top, rect.height - 260))}px`
+    entryBindingMenu.hidden = false
+  }
+
+  const entryBindingMenuListener = (event: Event) => {
+    const detail = (event as CustomEvent<{ nodeId: string; inputKey: string; clientX: number; clientY: number }>).detail
+    if (detail) showEntryBindingMenu(detail)
+  }
   const dynamicBranchListener = (event: Event) => {
     const detail = (event as CustomEvent<{ nodeId: string; count: number; countChanged?: boolean }>).detail
     if (!detail) return
@@ -868,10 +1026,12 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     })()
   }
   container.addEventListener('origin-dynamic-output', dynamicOutputListener)
+  container.addEventListener('origin-entry-binding-menu', entryBindingMenuListener)
   document.addEventListener('origin-dynamic-branch-change', dynamicBranchListener)
   container.addEventListener('origin-connection-select', connectionSelectListener)
   container.addEventListener('origin-connection-delete', connectionDeleteListener)
   document.addEventListener('origin-control-change', controlChangeListener)
+  window.addEventListener('pointerdown', hideEntryBindingMenu)
   const destroyPanFeedback = setupCanvasPanFeedback()
 
   async function updateSelectedNode(label: string, values: Record<string, unknown>) {
@@ -1081,6 +1241,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
       }
       if (context.type === 'connectionremoved') {
         selectedConnectionIds.delete(context.data.id)
+        visibleEntryConnectionIds.delete(context.data.id)
       }
       queueMicrotask(() => void refreshPortStates(true, [context.data.source, context.data.target]))
       updateMetrics()
@@ -1120,14 +1281,17 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   return {
     destroy() {
       container.removeEventListener('origin-dynamic-output', dynamicOutputListener)
+      container.removeEventListener('origin-entry-binding-menu', entryBindingMenuListener)
       document.removeEventListener('origin-dynamic-branch-change', dynamicBranchListener)
       container.removeEventListener('origin-connection-select', connectionSelectListener)
       container.removeEventListener('origin-connection-delete', connectionDeleteListener)
       document.removeEventListener('origin-control-change', controlChangeListener)
+      window.removeEventListener('pointerdown', hideEntryBindingMenu)
       window.removeEventListener('pointerup', stopNodeDragFeedback)
       window.removeEventListener('pointercancel', stopNodeDragFeedback)
       destroyPanFeedback()
       destroyCuttingLine()
+      entryBindingMenu.remove()
       area.destroy()
     },
     resetView,

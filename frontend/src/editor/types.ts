@@ -1,8 +1,9 @@
 import { ClassicPreset, GetSchemes } from 'rete'
+import type { EntryPortBinding } from './implicitEntryLinks'
 import type { SocketThemeName } from './socketTheme'
 
 export type NodeKind = 'event' | 'flow' | 'function' | 'variable'
-export interface PortVisualState { connected: boolean; filled: boolean }
+export interface PortVisualState { connected: boolean; filled: boolean; entryBinding?: EntryPortBinding }
 export interface NodePortVisualStates {
   inputs: Record<string, PortVisualState>
   outputs: Record<string, PortVisualState>
@@ -72,5 +73,5 @@ export class FileControl extends ClassicPreset.Control {
   }
 }
 
-export type BlueprintConnection = ClassicPreset.Connection<BlueprintNode, BlueprintNode> & { selected?: boolean; socketType?: SocketThemeName }
+export type BlueprintConnection = ClassicPreset.Connection<BlueprintNode, BlueprintNode> & { selected?: boolean; socketType?: SocketThemeName; hidden?: boolean }
 export type Schemes = GetSchemes<BlueprintNode, BlueprintConnection>
