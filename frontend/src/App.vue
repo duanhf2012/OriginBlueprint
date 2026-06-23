@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { toPng } from 'html-to-image'
 import { createBlueprintEditor, type BlueprintEditorHandle, type EditorMetrics, type GraphDocument, type GraphVariable, type GraphVariableGroup, type SelectedNodeInfo, type ValidationIssue, type VariableType } from './editor/createEditor'
 import { getNodeDefinitions, registerNodeSchemas, type NodeDefinition } from './editor/nodeRegistry'
-import { platform, type ExecutionEvent, type ExecutionLog, type WorkspaceEntry } from './platform'
+import { platform, type ExecutionEvent, type ExecutionLog, type NodeReferenceResult, type WorkspaceEntry } from './platform'
 
 interface GraphTab { id: string; title: string; path: string; dirty: boolean; document: GraphDocument | null }
 interface TableValue { columns: string[]; rows: unknown[][] }
@@ -11,6 +11,8 @@ interface TableExecutionResult { kind: 'table'; nodeId: string; table: TableValu
 interface WorkspaceTreeNode extends WorkspaceEntry { children: WorkspaceTreeNode[]; loaded: boolean; loading: boolean }
 interface VisibleWorkspaceNode { node: WorkspaceTreeNode; depth: number }
 type UnsavedCloseAction = 'save' | 'discard' | 'cancel'
+interface ModuleNodeMenuState { visible: boolean; x: number; y: number; node: NodeDefinition | null }
+interface NodeReferenceSearchState { visible: boolean; loading: boolean; nodeTitle: string; typeId: string; results: NodeReferenceResult[] }
 
 const canvas = ref<HTMLElement | null>(null)
 const zoomLabel = ref('100%')
@@ -18,6 +20,8 @@ const status = ref('Ready')
 const metrics = ref<EditorMetrics>({ nodes: 0, connections: 0 })
 const activeMenu = ref<string | null>(null)
 const contextMenu = ref({ visible: false, x: 0, y: 0, clientX: 0, clientY: 0, search: '' })
+const moduleNodeMenu = ref<ModuleNodeMenuState>({ visible: false, x: 0, y: 0, node: null })
+const nodeReferenceSearch = ref<NodeReferenceSearchState>({ visible: false, loading: false, nodeTitle: '', typeId: '', results: [] })
 const tabs = ref<GraphTab[]>([{ id: crypto.randomUUID(), title: 'Untitled-1 Graph', path: '', dirty: false, document: null }])
 const activeTabId = ref(tabs.value[0].id)
 const recentFiles = ref<string[]>([])
@@ -534,7 +538,7 @@ function handleExecutionEvent(event: ExecutionEvent) {
 async function focusIssue(issue: ValidationIssue) { if (issue.nodeId) await editor?.focusNode(issue.nodeId) }
 async function focusExecutionLog(log: ExecutionLog) { if (log.nodeId) await editor?.focusNode(log.nodeId) }
 
-async function openGraph(path = '') {
+async function openGraph(path = '', highlightTypeId = '') {
   const file = await platform.openGraph(path)
   if (!file) return
   let parsed: any
@@ -547,13 +551,24 @@ async function openGraph(path = '') {
   } else { status.value = 'Legacy graph migration requires the desktop runtime'; return }
   persistActive()
   const existing = tabs.value.find(tab => tab.path === file.path)
-  if (existing) return switchTab(existing.id)
+  if (existing) {
+    await switchTab(existing.id)
+    if (highlightTypeId) {
+      const count = await editor?.highlightNodesByType(highlightTypeId) ?? 0
+      status.value = count ? `已高亮 ${count} 个引用结点` : '该蓝图中未找到引用结点'
+    }
+    return
+  }
   const title = file.path.split(/[\\/]/).pop() ?? document.graphName
   const tab: GraphTab = { id: crypto.randomUUID(), title, path: file.path, dirty: false, document }
   tabs.value.push(tab); activeTabId.value = tab.id; selectedVariableId.value = null; await editor?.loadDocument(document)
   if (document.legacy?.format === 'vgf') {
     const hiddenCount = document.legacy.hiddenNodes?.length ?? 0
     status.value = `Loaded ${document.nodes.length} visible node(s), ${hiddenCount} hidden undefined node(s)`
+  }
+  if (highlightTypeId) {
+    const count = await editor?.highlightNodesByType(highlightTypeId) ?? 0
+    status.value = count ? `已高亮 ${count} 个引用结点` : '该蓝图中未找到引用结点'
   }
   recentFiles.value = await platform.recentFiles()
 }
@@ -815,6 +830,45 @@ function openContextMenu(event: MouseEvent) {
 }
 function createFromContext(typeId: string) { void addNodeAt(typeId, { x: contextMenu.value.clientX, y: contextMenu.value.clientY }); contextMenu.value.visible = false }
 
+function openModuleNodeMenu(event: MouseEvent, node: NodeDefinition) {
+  moduleNodeMenu.value = { visible: true, x: event.clientX, y: event.clientY, node }
+}
+
+function closeModuleNodeMenu() {
+  moduleNodeMenu.value.visible = false
+}
+
+async function findModuleNodeReferences(node = moduleNodeMenu.value.node) {
+  closeModuleNodeMenu()
+  if (!node) return
+  if (!workspaceRoot.value) {
+    status.value = '请先选择工程目录'
+    return
+  }
+  nodeReferenceSearch.value = { visible: true, loading: true, nodeTitle: node.title, typeId: node.id, results: [] }
+  try {
+    const results = await platform.findNodeReferences(workspaceRoot.value, node.id)
+    nodeReferenceSearch.value = { visible: true, loading: false, nodeTitle: node.title, typeId: node.id, results }
+    status.value = `找到 ${results.length} 个引用蓝图`
+  } catch (error) {
+    nodeReferenceSearch.value.loading = false
+    status.value = error instanceof Error ? error.message : String(error)
+  }
+}
+
+async function openNodeReference(result: NodeReferenceResult) {
+  await openGraph(result.path, nodeReferenceSearch.value.typeId)
+}
+
+async function revealFileInFolder(path: string) {
+  try {
+    await platform.revealInFolder(path)
+    status.value = '已在文件夹中定位文件'
+  } catch (error) {
+    status.value = error instanceof Error ? error.message : String(error)
+  }
+}
+
 function isModuleCategoryExpanded(category: string) {
   return moduleSearchActive.value || expandedModuleCategories.value.has(category)
 }
@@ -827,7 +881,7 @@ function toggleModuleCategory(category: string) {
 </script>
 
 <template>
-  <main class="application-shell" :class="{ 'tools-hidden': !showTools, 'right-hidden': !showRight }">
+  <main class="application-shell" :class="{ 'tools-hidden': !showTools, 'right-hidden': !showRight }" @pointerdown="closeModuleNodeMenu">
     <header class="menu-bar">
       <div class="menu-items">
         <div class="menu-root"><button @click.stop="toggleMenu('file')">File</button><div v-if="activeMenu === 'file'" class="dropdown-menu">
@@ -858,7 +912,7 @@ function toggleModuleCategory(category: string) {
           <div class="panel-title"><span class="chevron">⌄</span> 文件浏览器<button class="panel-action" @click="chooseWorkspace">…</button></div>
           <div class="workspace-search"><input v-model="workspaceSearch" placeholder="搜索文件..." /></div>
           <div class="workspace-tree">
-            <button v-for="row in visibleWorkspaceNodes" :key="row.node.path" class="workspace-entry" :class="{ selected: selectedWorkspacePath === row.node.path, folder: row.node.isDir }" :style="{ paddingLeft: workspaceIndent(row.depth) }" :title="row.node.path" @click="toggleWorkspaceNode(row.node)" @dblclick="!row.node.isDir && workspaceOpen(row.node)">
+            <button v-for="row in visibleWorkspaceNodes" :key="row.node.path" class="workspace-entry" :class="{ selected: selectedWorkspacePath === row.node.path, folder: row.node.isDir }" :style="{ paddingLeft: workspaceIndent(row.depth) }" :title="row.node.path" @click="toggleWorkspaceNode(row.node)" @contextmenu.stop.prevent="!row.node.isDir && revealFileInFolder(row.node.path)" @dblclick="!row.node.isDir && workspaceOpen(row.node)">
               <span class="workspace-arrow">{{ row.node.loading ? '…' : row.node.isDir ? (workspaceSearch || expandedWorkspacePaths.has(row.node.path) ? '⌄' : '›') : '' }}</span>
               <span class="workspace-icon" :class="{ folder: row.node.isDir }"></span>
               <span class="workspace-name">{{ row.node.name }}</span>
@@ -894,6 +948,18 @@ function toggleModuleCategory(category: string) {
         <div class="tab-strip"><div v-for="tab in tabs" :key="tab.id" class="graph-tab" :class="{ active: tab.id === activeTabId }" @click="switchTab(tab.id)"><span class="tab-mark"></span>{{ tab.title }}<span v-if="tab.dirty" class="dirty-mark">●</span><button class="tab-close" @click="closeTab(tab.id, $event)">×</button></div><button class="new-tab" @click="newGraph">＋</button></div>
         <div class="canvas-wrap" @contextmenu.prevent @dragenter="allowNodeDrop" @dragover="allowNodeDrop" @drop.prevent="dropNode"><div ref="canvas" class="rete-canvas"></div><div class="canvas-toolbar"><button title="Select">⌖</button><button title="Reset view" @click="editor?.resetView()">⌂</button></div><div class="canvas-hint">Right drag: pan&nbsp;&nbsp; Middle drag: pan&nbsp;&nbsp; Ctrl: multi-select&nbsp;&nbsp; Ctrl + right drag: cut connections&nbsp;&nbsp; Connection: click + Delete</div></div>
         <div v-show="showLogger" class="logger-panel"><div class="logger-title"><span :class="{ running: executionRunning }">{{ executionRunning ? 'Running Graph...' : 'Logger' }}</span><button @click="validateGraph">Validate</button><button :disabled="executionRunning" @click="runGraph">Run</button></div><div v-if="!validationIssues.length && !executionLogs.length && !executionResults.length" class="logger-line">No validation or execution messages.</div><button v-for="issue in validationIssues" :key="`${issue.code}-${issue.nodeId}`" class="logger-issue" :class="issue.severity" @click="focusIssue(issue)"><strong>{{ issue.severity.toUpperCase() }}</strong><span>{{ issue.message }}</span><small>{{ issue.code }}</small></button><button v-for="(log, index) in executionLogs" :key="`run-${index}-${log.nodeId}`" class="logger-issue execution-log" :class="log.level" @click="focusExecutionLog(log)"><strong>{{ log.level.toUpperCase() }}</strong><span>{{ log.message }}</span><small>{{ log.nodeId || 'runtime' }}</small></button><button v-for="result in tableResults" :key="result.nodeId" class="table-result" @click="openTablePreview(result)"><strong>TABLE</strong><span>{{ result.table.rows.length }} rows x {{ result.table.columns.length }} columns</span><small>Open preview</small></button><div v-if="executionResults.length && !tableResults.length" class="execution-summary"><strong>Results</strong><code>{{ JSON.stringify(executionResults) }}</code></div><div v-if="Object.keys(executionVariables).length" class="execution-summary"><strong>Variables</strong><code>{{ JSON.stringify(executionVariables) }}</code></div></div>
+        <div v-if="nodeReferenceSearch.visible" class="reference-panel">
+          <div class="reference-title"><span>引用：{{ nodeReferenceSearch.nodeTitle }}</span><small>{{ nodeReferenceSearch.loading ? '扫描中...' : `${nodeReferenceSearch.results.length} 个蓝图` }}</small><button @click="nodeReferenceSearch.visible = false">×</button></div>
+          <div v-if="nodeReferenceSearch.loading" class="reference-empty">正在扫描当前工程下的 .vgf / .obp 文件...</div>
+          <div v-else-if="!nodeReferenceSearch.results.length" class="reference-empty">没有找到引用该结点的蓝图</div>
+          <template v-else>
+            <button v-for="result in nodeReferenceSearch.results" :key="result.path" class="reference-row" :title="result.path" @contextmenu.stop.prevent="revealFileInFolder(result.path)" @dblclick="openNodeReference(result)">
+              <span>{{ result.name }}</span>
+              <small>{{ result.count }} 次</small>
+              <code>{{ result.path }}</code>
+            </button>
+          </template>
+        </div>
         <footer class="status-bar"><span>{{ status }}</span><span>Nodes {{ metrics.nodes }} · Connections {{ metrics.connections }}</span><button @click="editor?.resetView()">{{ zoomLabel }}</button></footer>
       </section>
 
@@ -909,7 +975,7 @@ function toggleModuleCategory(category: string) {
                 <small>{{ items.length }}</small>
               </button>
               <div v-if="isModuleCategoryExpanded(category)" class="module-items">
-                <button v-for="item in items" :key="item.id" class="module-item" :title="item.title" @pointerdown.stop="beginNodePointerDrag($event, item.id)" @dblclick="addNodeAt(item.id)">{{ item.title }}</button>
+                <button v-for="item in items" :key="item.id" class="module-item" :title="item.title" @pointerdown.stop="beginNodePointerDrag($event, item.id)" @contextmenu.stop.prevent="openModuleNodeMenu($event, item)" @dblclick="addNodeAt(item.id)">{{ item.title }}</button>
               </div>
             </section>
             <div v-if="!categories.length" class="empty-panel">{{ status || '没有匹配的模块' }}</div>
@@ -917,6 +983,10 @@ function toggleModuleCategory(category: string) {
         </div>
       </aside>
     </section>
+    <div v-if="moduleNodeMenu.visible" class="module-node-menu" :style="{ left: `${moduleNodeMenu.x}px`, top: `${moduleNodeMenu.y}px` }" @pointerdown.stop>
+      <div class="module-node-menu-title">{{ moduleNodeMenu.node?.title }}</div>
+      <button @click="findModuleNodeReferences()">查找所有引用</button>
+    </div>
     <div v-if="previewTable" class="table-preview-backdrop" @click.self="previewTable = null">
       <section class="table-preview-dialog">
         <header><strong>Table Preview</strong><span>{{ previewTable.table.rows.length }} rows x {{ previewTable.table.columns.length }} columns</span><button @click="copyPreviewCSV">Copy CSV</button><button @click="exportPreviewCSV">Export CSV</button><button @click="previewTable = null">Close</button></header>

@@ -14,6 +14,22 @@ export namespace main {
 	        this.content = source["content"];
 	    }
 	}
+	export class NodeReferenceResult {
+	    name: string;
+	    path: string;
+	    count: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new NodeReferenceResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.path = source["path"];
+	        this.count = source["count"];
+	    }
+	}
 	export class RuntimeNodeLoadError {
 	    path: string;
 	    message: string;

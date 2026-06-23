@@ -5,9 +5,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	stdRuntime "runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -32,6 +34,12 @@ type WorkspaceEntry struct {
 	Name  string `json:"name"`
 	Path  string `json:"path"`
 	IsDir bool   `json:"isDir"`
+}
+
+type NodeReferenceResult struct {
+	Name  string `json:"name"`
+	Path  string `json:"path"`
+	Count int    `json:"count"`
 }
 
 type appConfig struct {
@@ -195,6 +203,78 @@ func (a *App) ListWorkspace(root string) ([]WorkspaceEntry, error) {
 		return strings.ToLower(result[i].Name) < strings.ToLower(result[j].Name)
 	})
 	return result, nil
+}
+
+func (a *App) FindNodeReferences(root, typeID string) ([]NodeReferenceResult, error) {
+	if root == "" || strings.TrimSpace(typeID) == "" {
+		return []NodeReferenceResult{}, nil
+	}
+	results := make([]NodeReferenceResult, 0)
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if entry.IsDir() {
+			if path != root && isIgnoredWorkspaceDirectory(entry.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		ext := strings.ToLower(filepath.Ext(entry.Name()))
+		if ext != ".vgf" && ext != ".obp" {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+		document, err := graphDocumentForReferenceSearch(data)
+		if err != nil {
+			return nil
+		}
+		count := 0
+		for _, node := range document.Nodes {
+			if node.TypeID == typeID {
+				count++
+			}
+		}
+		if count > 0 {
+			results = append(results, NodeReferenceResult{Name: entry.Name(), Path: path, Count: count})
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(results, func(i, j int) bool {
+		return strings.ToLower(results[i].Path) < strings.ToLower(results[j].Path)
+	})
+	return results, nil
+}
+
+func (a *App) RevealInFolder(path string) error {
+	if strings.TrimSpace(path) == "" {
+		return errors.New("file path is empty")
+	}
+	if _, err := os.Stat(path); err != nil {
+		return err
+	}
+	switch stdRuntime.GOOS {
+	case "windows":
+		return exec.Command("explorer.exe", "/select,"+path).Start()
+	case "darwin":
+		return exec.Command("open", "-R", path).Start()
+	default:
+		return exec.Command("xdg-open", filepath.Dir(path)).Start()
+	}
+}
+
+func graphDocumentForReferenceSearch(data []byte) (GraphDocument, error) {
+	var document GraphDocument
+	if err := json.Unmarshal(data, &document); err == nil && document.SchemaVersion == GraphSchemaVersion {
+		return document, nil
+	}
+	return migrateLegacyGraph(data)
 }
 
 func isIgnoredWorkspaceDirectory(name string) bool {

@@ -107,6 +107,7 @@ export interface BlueprintEditorHandle {
   setVariables(variables: GraphVariable[], variableGroups?: GraphVariableGroup[], refreshNodes?: boolean): Promise<void>
   updateSelectedNode(label: string, values: Record<string, unknown>): Promise<void>
   focusNode(id: string): Promise<void>
+  highlightNodesByType(typeId: string): Promise<number>
   setExecutionStates(states: Array<{ nodeId: string; state: 'idle' | 'running' | 'completed' | 'error' }>): Promise<void>
   clearExecutionStates(): Promise<void>
 }
@@ -1075,6 +1076,15 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     await AreaExtensions.zoomAt(area, [node], { scale: 0.9 })
   }
 
+  async function highlightNodesByType(typeId: string) {
+    const matches = editor.getNodes().filter(node => node.typeId === typeId)
+    await selector.unselectAll()
+    for (const node of matches) await selectable.select(node.id, true)
+    callbacks.onSelection(matches.length === 1 ? selectedNodeInfo(matches[0]) : null)
+    if (matches.length) await AreaExtensions.zoomAt(area, matches, { scale: 0.9 })
+    return matches.length
+  }
+
   async function setExecutionStates(states: Array<{ nodeId: string; state: 'idle' | 'running' | 'completed' | 'error' }>) {
     for (const item of states) {
       const node = editor.getNode(item.nodeId)
@@ -1324,6 +1334,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     setVariables,
     updateSelectedNode,
     focusNode,
+    highlightNodesByType,
     setExecutionStates,
     clearExecutionStates
   }

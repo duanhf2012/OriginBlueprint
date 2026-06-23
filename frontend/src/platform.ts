@@ -3,6 +3,7 @@ import { parseNodeSchemaDocument } from './editor/runtimeNodeSchemas'
 
 export interface FileResult { path: string; content: string }
 export interface WorkspaceEntry { name: string; path: string; isDir: boolean }
+export interface NodeReferenceResult { name: string; path: string; count: number }
 export interface ValidationIssue { severity: 'error' | 'warning'; code: string; message: string; nodeId?: string }
 export interface ExecutionLog { level: 'debug' | 'info' | 'warning' | 'error'; message: string; nodeId?: string }
 export interface NodeSchemaLoadResult { nodes: NodeSchema[]; errors: Array<{ path: string; message: string }>; documentCount: number }
@@ -32,6 +33,8 @@ type DesktopApp = {
   ClearRecentFiles(): Promise<void>
   Quit(): Promise<void>
   ListWorkspace(path: string): Promise<WorkspaceEntry[]>
+  FindNodeReferences(root: string, typeId: string): Promise<NodeReferenceResult[]>
+  RevealInFolder(path: string): Promise<void>
   ExportPNG(dataURL: string): Promise<string>
   GetRecentFiles(): Promise<string[]>
   ValidateGraph(content: string): Promise<ValidationIssue[]>
@@ -149,6 +152,8 @@ export const platform = {
     else window.close()
   },
   async listWorkspace(path: string) { return desktop() ? desktop()!.ListWorkspace(path) : [] },
+  async findNodeReferences(root: string, typeId: string) { return desktop() ? desktop()!.FindNodeReferences(root, typeId) : [] },
+  async revealInFolder(path: string) { if (desktop()) await desktop()!.RevealInFolder(path) },
   async recentFiles() { return desktop() ? desktop()!.GetRecentFiles() : [] },
   async validateGraph(content: string): Promise<ValidationIssue[]> {
     if (desktop()) return desktop()!.ValidateGraph(content)

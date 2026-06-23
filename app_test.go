@@ -1020,3 +1020,66 @@ func TestListWorkspaceFiltersAndSorts(t *testing.T) {
 		t.Fatalf("unexpected order: %#v", items)
 	}
 }
+
+func TestFindNodeReferencesScansVgfAndObpFiles(t *testing.T) {
+	app := NewApp()
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "nested"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	legacyDocument := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		GraphName:     "legacy",
+		Nodes: []GraphNode{
+			{ID: "add1", TypeID: "origin.math.add-integer", Position: GraphPosition{X: 1, Y: 2}},
+			{ID: "add2", TypeID: "origin.math.add-integer", Position: GraphPosition{X: 3, Y: 4}},
+		},
+	}
+	legacyData, err := exportLegacyGraph(legacyDocument)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "legacy.vgf"), legacyData, 0644); err != nil {
+		t.Fatal(err)
+	}
+	newDocument := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		GraphName:     "new",
+		Nodes: []GraphNode{
+			{ID: "add3", TypeID: "origin.math.add-integer", Position: GraphPosition{X: 5, Y: 6}},
+			{ID: "branch", TypeID: "origin.flow.branch", Position: GraphPosition{X: 7, Y: 8}},
+		},
+	}
+	newData, err := json.Marshal(newDocument)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "nested", "new.obp"), newData, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "ignored.json"), newData, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	results, err := app.FindNodeReferences(dir, "origin.math.add-integer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("len(results) = %d, want 2: %#v", len(results), results)
+	}
+	if results[0].Name != "legacy.vgf" || results[0].Count != 2 {
+		t.Fatalf("first result = %#v", results[0])
+	}
+	if results[1].Name != "new.obp" || results[1].Count != 1 {
+		t.Fatalf("second result = %#v", results[1])
+	}
+}
+
+func TestRevealInFolderRejectsMissingFile(t *testing.T) {
+	app := NewApp()
+	err := app.RevealInFolder(filepath.Join(t.TempDir(), "missing.vgf"))
+	if err == nil {
+		t.Fatal("expected missing file to return an error")
+	}
+}

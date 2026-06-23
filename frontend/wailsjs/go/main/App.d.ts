@@ -14,6 +14,8 @@ export function ExportLegacyGraph(arg1:string):Promise<string>;
 
 export function ExportPNG(arg1:string):Promise<string>;
 
+export function FindNodeReferences(arg1:string,arg2:string):Promise<Array<main.NodeReferenceResult>>;
+
 export function GetRecentFiles():Promise<Array<string>>;
 
 export function ListWorkspace(arg1:string):Promise<Array<main.WorkspaceEntry>>;
@@ -27,6 +29,8 @@ export function NewWindow():Promise<void>;
 export function OpenGraph(arg1:string):Promise<main.FileResult>;
 
 export function Quit():Promise<void>;
+
+export function RevealInFolder(arg1:string):Promise<void>;
 
 export function SaveGraph(arg1:string,arg2:string):Promise<string>;
 

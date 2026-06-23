@@ -26,6 +26,10 @@ export function ExportPNG(arg1) {
   return window['go']['main']['App']['ExportPNG'](arg1);
 }
 
+export function FindNodeReferences(arg1, arg2) {
+  return window['go']['main']['App']['FindNodeReferences'](arg1, arg2);
+}
+
 export function GetRecentFiles() {
   return window['go']['main']['App']['GetRecentFiles']();
 }
@@ -52,6 +56,10 @@ export function OpenGraph(arg1) {
 
 export function Quit() {
   return window['go']['main']['App']['Quit']();
+}
+
+export function RevealInFolder(arg1) {
+  return window['go']['main']['App']['RevealInFolder'](arg1);
 }
 
 export function SaveGraph(arg1, arg2) {
