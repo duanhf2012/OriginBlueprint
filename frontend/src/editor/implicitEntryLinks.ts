@@ -92,7 +92,7 @@ export function describeEntryBinding(
     targetNodeId: connection.target,
     targetInput: connection.targetInput,
     socket: output.socket,
-    label: `${sourceNodeLabel}: ${sourceOutputLabel}`
+    label: sourceOutputLabel
   }
 }
 
@@ -129,5 +129,13 @@ export function entryBindingCandidateGroups(
 }
 
 export function entryBindingLabel(binding?: EntryPortBinding) {
-  return binding ? `入口: ${binding.sourceNodeLabel} / ${binding.sourceOutputLabel}` : ''
+  return binding ? binding.sourceOutputLabel : ''
+}
+
+export function entryBindingBadgeLabel(binding?: EntryPortBinding) {
+  return entryBindingLabel(binding)
+}
+
+export function entryBindingTitle(binding?: EntryPortBinding) {
+  return binding ? `${binding.sourceNodeLabel}/${binding.sourceOutputLabel}` : ''
 }

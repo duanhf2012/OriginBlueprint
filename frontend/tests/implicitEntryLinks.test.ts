@@ -1,7 +1,9 @@
 import {
   describeEntryBinding,
+  entryBindingBadgeLabel,
   entryBindingCandidateGroups,
   entryBindingLabel,
+  entryBindingTitle,
   isEntryNode,
   isEntryOutputConnection,
   socketsCompatible,
@@ -16,21 +18,21 @@ function assert(value: unknown, message: string) {
 const entry: EntryBindingNode = {
   id: 'entry',
   typeId: 'origin.event.entry-two-integers',
-  label: '技能入口',
+  label: 'Skill Entry',
   outputs: {
     exec: { label: '', socket: 'exec' },
-    objectId: { label: '对象Id', socket: 'integer' },
-    param1: { label: '参数1', socket: 'integer' }
+    objectId: { label: 'ObjectId', socket: 'integer' },
+    param1: { label: 'Param1', socket: 'integer' }
   }
 }
 
 const target: EntryBindingNode = {
   id: 'target',
   typeId: 'origin.action.use-target',
-  label: '使用目标',
+  label: 'Use Target',
   inputs: {
-    targetId: { label: '目标Id', socket: 'integer' },
-    name: { label: '名称', socket: 'string' }
+    targetId: { label: 'TargetId', socket: 'integer' },
+    name: { label: 'Name', socket: 'string' }
   },
   outputs: {
     exec: { label: '', socket: 'exec' }
@@ -86,7 +88,9 @@ assert(binding?.sourceNodeId === 'entry', 'describes the source entry node')
 assert(binding?.sourceOutput === 'objectId', 'describes the source output key')
 assert(binding?.targetNodeId === 'target', 'describes the target node')
 assert(binding?.targetInput === 'targetId', 'describes the target input key')
-assert(binding?.label === '技能入口: 对象Id', 'uses source node and output labels for the visible input badge')
-assert(entryBindingLabel(binding) === '入口: 技能入口 / 对象Id', 'formats a compact badge label')
+assert(binding?.label === 'ObjectId', 'uses only the field name for the visible input badge')
+assert(entryBindingLabel(binding) === 'ObjectId', 'formats a compact field-only badge label')
+assert(entryBindingBadgeLabel(binding) === 'ObjectId', 'formats the visible field-only badge text')
+assert(entryBindingTitle(binding) === 'Skill Entry/ObjectId', 'formats the tooltip without an entry prefix')
 
 console.log('implicitEntryLinks tests passed')

@@ -922,6 +922,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   entryBindingMenu.className = 'entry-binding-menu'
   entryBindingMenu.hidden = true
   entryBindingMenu.addEventListener('pointerdown', event => event.stopPropagation())
+  entryBindingMenu.addEventListener('wheel', event => event.stopPropagation())
   container.appendChild(entryBindingMenu)
 
   function hideEntryBindingMenu() {
