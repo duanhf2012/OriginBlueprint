@@ -929,6 +929,28 @@ func TestMigrateLegacyGraphServiceReturnsDocument(t *testing.T) {
 	}
 }
 
+func TestMigrateLegacyGraphPreservesEmptyGraphName(t *testing.T) {
+	content := `{"graph_name":"","nodes":[],"edges":[],"groups":[],"variables":[]}`
+	document, err := migrateLegacyGraph([]byte(content))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if document.GraphName != "" {
+		t.Fatalf("graph name = %q, want empty", document.GraphName)
+	}
+	data, err := exportLegacyGraph(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var legacy legacyGraph
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		t.Fatal(err)
+	}
+	if legacy.GraphName != "" {
+		t.Fatalf("legacy graph_name = %q, want empty", legacy.GraphName)
+	}
+}
+
 func TestListWorkspaceFiltersAndSorts(t *testing.T) {
 	app := NewApp()
 	dir := t.TempDir()

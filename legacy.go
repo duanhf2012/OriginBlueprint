@@ -159,9 +159,6 @@ func migrateLegacyGraph(data []byte) (GraphDocument, error) {
 		VariableGroups: []GraphVariableGroup{{ID: "default", Name: "Default"}},
 		Legacy:         &GraphLegacyState{Format: "vgf", Time: legacy.Time, Groups: cloneLegacyGroups(legacy.Groups), Variables: cloneLegacyVariables(legacy.Variables)},
 	}
-	if document.GraphName == "" {
-		document.GraphName = "Imported Graph"
-	}
 	variableIDs := map[string]string{}
 	groupIDs := map[string]string{"Default": "default"}
 	for _, item := range legacy.Variables {
