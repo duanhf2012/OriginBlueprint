@@ -66,6 +66,7 @@ export interface ConnectionSnapshot {
   sourceOutput: string
   target: string
   targetInput: string
+  entryConnectionVisible?: boolean
 }
 
 export interface GroupSnapshot {

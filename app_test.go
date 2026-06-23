@@ -104,6 +104,44 @@ func TestGraphContentForObpPathExportsLegacyVGFForExternalParser(t *testing.T) {
 	}
 }
 
+func TestLegacyGraphRoundTripPreservesEntryConnectionVisibility(t *testing.T) {
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		GraphName:     "Entry Visibility",
+		Nodes: []GraphNode{
+			{ID: "add1", TypeID: "origin.math.add-integer", Position: GraphPosition{X: 10, Y: 20}},
+			{ID: "add2", TypeID: "origin.math.add-integer", Position: GraphPosition{X: 200, Y: 20}},
+		},
+		Connections: []GraphConnection{{
+			Source:                 "add1",
+			SourceOutput:           "result",
+			Target:                 "add2",
+			TargetInput:            "a",
+			EntryConnectionVisible: true,
+		}},
+	}
+
+	data, err := exportLegacyGraph(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var legacy legacyGraph
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		t.Fatal(err)
+	}
+	if len(legacy.Edges) != 1 || !legacy.Edges[0].EntryConnectionVisible {
+		t.Fatalf("exported edge visibility was not preserved: %#v", legacy.Edges)
+	}
+
+	roundTrip, err := migrateLegacyGraph(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(roundTrip.Connections) != 1 || !roundTrip.Connections[0].EntryConnectionVisible {
+		t.Fatalf("migrated connection visibility was not preserved: %#v", roundTrip.Connections)
+	}
+}
+
 func TestExportLegacyGraphSynthesizesNewVariableNodes(t *testing.T) {
 	document := GraphDocument{
 		SchemaVersion: GraphSchemaVersion,
@@ -962,7 +1000,7 @@ func TestListWorkspaceFiltersAndSorts(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for _, name := range []string{"b.obp", "a.vgf", "ignored.txt"} {
+	for _, name := range []string{"b.obp", "a.vgf", "ignored.txt", "schema.json"} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte("{}"), 0644); err != nil {
 			t.Fatal(err)
 		}

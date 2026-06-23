@@ -183,7 +183,7 @@ func (a *App) ListWorkspace(root string) ([]WorkspaceEntry, error) {
 			continue
 		}
 		ext := strings.ToLower(filepath.Ext(item.Name()))
-		if !item.IsDir() && ext != ".obp" && ext != ".vgf" && ext != ".json" {
+		if !item.IsDir() && ext != ".obp" && ext != ".vgf" {
 			continue
 		}
 		result = append(result, WorkspaceEntry{Name: item.Name(), Path: filepath.Join(root, item.Name()), IsDir: item.IsDir()})

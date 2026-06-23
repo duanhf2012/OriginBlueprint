@@ -313,7 +313,8 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
         source: item.source,
         sourceOutput: String(item.sourceOutput),
         target: item.target,
-        targetInput: String(item.targetInput)
+        targetInput: String(item.targetInput),
+        ...(visibleEntryConnectionIds.has(item.id) ? { entryConnectionVisible: true } : {})
       })),
       groups: groups.map(item => ({ ...item, nodeIds: [...item.nodeIds] }))
     }
@@ -406,7 +407,12 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
       const source = nodes.get(item.source)
       const target = nodes.get(item.target)
       if (source && target && source.outputs[item.sourceOutput] && target.inputs[item.targetInput]) {
-        await editor.addConnection(createConnection(source, item.sourceOutput, target, item.targetInput))
+        const connection = createConnection(source, item.sourceOutput, target, item.targetInput)
+        if (item.entryConnectionVisible) {
+          visibleEntryConnectionIds.add(connection.id)
+          updateConnectionPresentation(connection)
+        }
+        await editor.addConnection(connection)
       }
     }
     await refreshPortStates(true)
@@ -911,11 +917,13 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   }
 
   async function setEntryConnectionVisible(connectionId: string, visible: boolean) {
-    const item = editor.getConnection(connectionId)
-    if (!item) return
-    if (visible) visibleEntryConnectionIds.add(connectionId); else visibleEntryConnectionIds.delete(connectionId)
-    updateConnectionPresentation(item)
-    await area.update('connection', connectionId)
+    await mutate(visible ? '入口连线显示为普通连线' : '入口连线折叠为标签', async () => {
+      const item = editor.getConnection(connectionId)
+      if (!item) return
+      if (visible) visibleEntryConnectionIds.add(connectionId); else visibleEntryConnectionIds.delete(connectionId)
+      updateConnectionPresentation(item)
+      await area.update('connection', connectionId)
+    })
   }
 
   const entryBindingMenu = document.createElement('div')

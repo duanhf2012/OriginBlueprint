@@ -59,10 +59,11 @@ type GraphPosition struct {
 }
 
 type GraphConnection struct {
-	Source       string `json:"source"`
-	SourceOutput string `json:"sourceOutput"`
-	Target       string `json:"target"`
-	TargetInput  string `json:"targetInput"`
+	Source                 string `json:"source"`
+	SourceOutput           string `json:"sourceOutput"`
+	Target                 string `json:"target"`
+	TargetInput            string `json:"targetInput"`
+	EntryConnectionVisible bool   `json:"entryConnectionVisible,omitempty"`
 }
 
 type GraphGroup struct {

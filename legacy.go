@@ -28,13 +28,14 @@ type legacyNode struct {
 }
 
 type legacyEdge struct {
-	EdgeID       string      `json:"edge_id,omitempty"`
-	SourceNodeID string      `json:"source_node_id"`
-	SourceIndex  int         `json:"source_port_index"`
-	SourcePortID interface{} `json:"source_port_id"`
-	TargetNodeID string      `json:"des_node_id"`
-	TargetIndex  int         `json:"des_port_index"`
-	TargetPortID interface{} `json:"des_port_id"`
+	EdgeID                 string      `json:"edge_id,omitempty"`
+	SourceNodeID           string      `json:"source_node_id"`
+	SourceIndex            int         `json:"source_port_index"`
+	SourcePortID           interface{} `json:"source_port_id"`
+	TargetNodeID           string      `json:"des_node_id"`
+	TargetIndex            int         `json:"des_port_index"`
+	TargetPortID           interface{} `json:"des_port_id"`
+	EntryConnectionVisible bool        `json:"entryConnectionVisible,omitempty"`
 }
 
 type legacyGroup struct {
@@ -255,7 +256,7 @@ func migrateLegacyGraph(data []byte) (GraphDocument, error) {
 		}
 		sourceKey := indexedKey(sourceSpec.Outputs, sourceIndex, "out")
 		targetKey := indexedKey(targetSpec.Inputs, targetIndex, "in")
-		document.Connections = append(document.Connections, GraphConnection{Source: edge.SourceNodeID, SourceOutput: sourceKey, Target: edge.TargetNodeID, TargetInput: targetKey})
+		document.Connections = append(document.Connections, GraphConnection{Source: edge.SourceNodeID, SourceOutput: sourceKey, Target: edge.TargetNodeID, TargetInput: targetKey, EntryConnectionVisible: edge.EntryConnectionVisible})
 	}
 	for _, group := range legacy.Groups {
 		positions := make([]GraphPosition, 0)
@@ -399,13 +400,14 @@ func exportLegacyGraph(document GraphDocument) ([]byte, error) {
 			continue
 		}
 		legacy.Edges = append(legacy.Edges, legacyEdge{
-			EdgeID:       uuid.NewString(),
-			SourceNodeID: connection.Source,
-			SourceIndex:  sourceIndex,
-			SourcePortID: sourceIndex,
-			TargetNodeID: connection.Target,
-			TargetIndex:  targetIndex,
-			TargetPortID: targetIndex,
+			EdgeID:                 uuid.NewString(),
+			SourceNodeID:           connection.Source,
+			SourceIndex:            sourceIndex,
+			SourcePortID:           sourceIndex,
+			TargetNodeID:           connection.Target,
+			TargetIndex:            targetIndex,
+			TargetPortID:           targetIndex,
+			EntryConnectionVisible: connection.EntryConnectionVisible,
 		})
 	}
 	if document.Legacy != nil {
