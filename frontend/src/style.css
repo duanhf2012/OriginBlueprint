@@ -64,12 +64,17 @@ button { font: inherit; color: inherit; }
 .variable-type-dot.type-array { background: #d6ac19; }
 .empty-variable-group { width: calc(100% - 12px); height: 23px; margin: 2px 6px; border: 1px dashed #444; background: transparent; color: #686868; font-size: 10px; }.empty-variable-group:hover { border-color: #63839a; color: #aaa; }
 .editor-column { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: #161616; }
-.tab-strip { height: 36px; display: flex; align-items: flex-end; background: #5a5a5a; border-bottom: 2px solid #151515; }
-.graph-tab { height: 35px; min-width: 175px; max-width: 250px; display: flex; align-items: center; gap: 7px; padding: 0 7px 0 10px; background: #404040; color: #bbb; border-top: 2px solid transparent; border-right: 1px solid #292929; font-size: 13px; cursor: default; }
+.tab-strip-wrap { display: flex; align-items: flex-end; border-bottom: 2px solid #151515; background: #5a5a5a; }
+.tab-scroll-arrow { flex: 0 0 26px; height: 34px; display: flex; align-items: center; justify-content: center; border: 0; background: transparent; color: #888; font-size: 11px; cursor: pointer; user-select: none; }
+.tab-scroll-arrow:hover { color: #ccc; background: #444; }
+.tab-strip { height: 36px; flex: 1; min-width: 0; display: flex; align-items: flex-end; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.tab-strip::-webkit-scrollbar { display: none; }
+.graph-tab { height: 35px; min-width: 175px; max-width: 250px; flex-shrink: 0; display: flex; align-items: center; gap: 7px; padding: 0 7px 0 10px; background: #404040; color: #bbb; border-top: 2px solid transparent; border-right: 1px solid #292929; font-size: 13px; cursor: default; }
+.graph-tab.drag-over { background: #4a4530; border-top-color: #d5a842; }
 .graph-tab.active { background: #292929; color: #eee; border-top-color: #3c82aa; }
 .tab-mark { width: 7px; height: 7px; border-radius: 50%; background: #3c82aa; }
 .dirty-mark { margin-left: auto; color: #d7a443; font-size: 8px; }.tab-close { margin-left: auto; padding: 0; border: 0; background: transparent; color: #888; font-size: 18px; }.tab-close:hover { color: white; }
-.new-tab { height: 34px; width: 34px; border: 0; background: transparent; color: #bbb; font-size: 18px; }
+.new-tab { flex-shrink: 0; height: 34px; width: 34px; border: 0; background: transparent; color: #bbb; font-size: 18px; }
 .canvas-wrap { min-height: 0; flex: 1; position: relative; overflow: hidden; background-color: #1e1e1e; }
 .rete-canvas { position: absolute; inset: 0; overflow: hidden; touch-action: none; background-color: #212121; background-image: linear-gradient(#313131 1px, transparent 1px), linear-gradient(90deg, #313131 1px, transparent 1px), linear-gradient(#151515 2px, transparent 2px), linear-gradient(90deg, #151515 2px, transparent 2px); background-size: 20px 20px, 20px 20px, 200px 200px, 200px 200px; }
 .rete-canvas.is-panning { cursor: grabbing; }

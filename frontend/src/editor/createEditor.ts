@@ -526,6 +526,8 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     if (!nodes.length) return
     await nextFrame()
     await nextFrame()
+    await nextFrame()
+    await nextFrame()
     const zoom = area.area.transform.k || 1
     const entries = nodes.map(node => {
       const view = area.nodeViews.get(node.id)
@@ -533,8 +535,8 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
       const rect = view?.element.getBoundingClientRect()
       return {
         position,
-        width: rect ? rect.width / zoom : node.width ?? 230,
-        height: rect ? rect.height / zoom : 90
+        width: rect ? Math.max(rect.width, 1) / zoom : (node.width || 230),
+        height: rect ? Math.max(rect.height, 1) / zoom : 90
       }
     })
     const left = Math.min(...entries.map(entry => entry.position.x))
@@ -746,6 +748,11 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
       await area.area.zoom(document.view.zoom || 1)
     }
     await refreshPortStates()
+    // Safety: center view on nodes directly from document data (bypasses rete area timing issues)
+    const docNodes = document.nodes
+    if (docNodes?.length) {
+      await centerViewOnDocument(docNodes)
+    }
     callbacks.onStatus('Graph loaded')
   }
 
@@ -755,10 +762,27 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     currentVariables = []; currentVariableGroups = [{ id: 'default', name: 'Default' }]; currentLegacy = undefined; insertionOffset = 0; callbacks.onVariables([]); callbacks.onVariableGroups(currentVariableGroups.map(item => ({ ...item }))); callbacks.onSelection(null)
     restoring = true; await selector.unselectAll(); await editor.clear(); restoring = false; renderGroups(); updateMetrics()
     await area.area.translate(0, 0); await area.area.zoom(1)
-    callbacks.onStatus('New graph')
-  }
+  callbacks.onStatus('New graph')
+}
 
-  function nodeSize(node: BlueprintNode) {
+async function centerViewOnDocument(nodes: Array<{ position?: { x: number; y: number }; width?: number }>) {
+  if (!nodes.length) return
+  const minX = Math.min(...nodes.map(n => n.position?.x ?? 0))
+  const maxX = Math.max(...nodes.map(n => (n.position?.x ?? 0) + (n.width || 230)))
+  const minY = Math.min(...nodes.map(n => n.position?.y ?? 0))
+  const maxY = Math.max(...nodes.map(n => (n.position?.y ?? 0) + 90))
+  const graphW = Math.max(1, maxX - minX)
+  const graphH = Math.max(1, maxY - minY)
+  const canvasRect = container.getBoundingClientRect()
+  const padding = 120
+  const zoom = Math.min(1, Math.max(0.25, Math.min((canvasRect.width - padding) / graphW, (canvasRect.height - padding) / graphH)))
+  const cx = minX + graphW / 2
+  const cy = minY + graphH / 2
+  await area.area.zoom(zoom)
+  await area.area.translate(canvasRect.width / 2 - cx * zoom, canvasRect.height / 2 - cy * zoom)
+}
+
+function nodeSize(node: BlueprintNode) {
     const element = area.nodeViews.get(node.id)?.element
     const zoom = area.area.transform.k || 1
     return element ? { width: element.getBoundingClientRect().width / zoom, height: element.getBoundingClientRect().height / zoom } : { width: node.width ?? 230, height: 90 }

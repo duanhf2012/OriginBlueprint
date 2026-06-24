@@ -251,7 +251,7 @@ function removeBranch(index: number) {
 .blueprint-node.legacy { --accent: #b77b32; border-style: dashed; }
 .legacy-badge { margin-left: 4px; padding: 1px 4px; border: 1px solid #ffe0a455; border-radius: 2px; background: #2a1d0d99; color: #ffe0a4; font-size: 8px; letter-spacing: .5px; }
 .blueprint-node.selected { outline: 2px solid #f5b642; outline-offset: 2px; box-shadow: 0 0 12px #f5b64255; }
-.blueprint-node.reference-highlighted { outline: 3px solid #18d4ff; outline-offset: 3px; box-shadow: 0 0 0 1px #e7fbff88, 0 0 22px #18d4ffcc, 0 5px 13px #0009; }
+ .blueprint-node.reference-highlighted { outline: 3px solid #ffbb33; outline-offset: 3px; box-shadow: 0 0 0 1px #fff3cd88, 0 0 22px #ffbb3388, 0 5px 13px #0009; }
 .blueprint-node.compact { box-shadow: 0 2px 6px #0008; }
 .blueprint-node.compact .blueprint-title { height: 25px; font-size: 12px; }
 .blueprint-node.compact .ports { padding: 3px 0 4px; }

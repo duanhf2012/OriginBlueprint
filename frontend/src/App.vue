@@ -14,6 +14,7 @@ interface NodeReferenceSearchState { visible: boolean; loading: boolean; nodeTit
 interface FileContextMenuState { visible: boolean; x: number; y: number; path: string }
 
 const canvas = ref<HTMLElement | null>(null)
+const tabStrip = ref<HTMLElement | null>(null)
 const zoomLabel = ref('100%')
 const status = ref('Ready')
 const metrics = ref<EditorMetrics>({ nodes: 0, connections: 0 })
@@ -51,6 +52,8 @@ const selectedNode = ref<SelectedNodeInfo | null>(null)
 const validationIssues = ref<ValidationIssue[]>([])
 const unsavedCloseDialog = ref<{ visible: boolean; names: string[]; resolve?: (action: UnsavedCloseAction) => void }>({ visible: false, names: [] })
 let untitledCount = 1
+const tabDragIndex = ref(-1)
+const tabDragOverIndex = ref(-1)
 let editor: BlueprintEditorHandle | null = null
 let unsubscribeCloseRequest = () => {}
 let closingApplication = false
@@ -222,6 +225,7 @@ async function switchTab(id: string) {
   persistActive(); activeTabId.value = id; selectedVariableId.value = null
   const tab = activeTab.value
   if (tab.document) await editor?.loadDocument(tab.document); else await editor?.newDocument()
+  nextTick(() => scrollActiveTabIntoView())
 }
 
 async function closeTab(id: string, event: MouseEvent) {
@@ -232,6 +236,63 @@ async function closeTab(id: string, event: MouseEvent) {
   tabs.value = tabs.value.filter(item => item.id !== id)
   if (!tabs.value.length) { await newGraph(); return }
   if (wasActive) { activeTabId.value = tabs.value[0].id; selectedVariableId.value = null; await editor?.loadDocument(tabs.value[0].document ?? blankDocument(tabs.value[0].title)) }
+}
+
+// --- Tab strip scroll helpers ---
+function scrollActiveTabIntoView() {
+  const strip = tabStrip.value
+  if (!strip) return
+  const activeEl = strip.querySelector('.graph-tab.active') as HTMLElement | null
+  if (!activeEl) return
+  const margin = 8
+  const stripRect = strip.getBoundingClientRect()
+  const elRect = activeEl.getBoundingClientRect()
+  if (elRect.left < stripRect.left + margin) {
+    strip.scrollBy({ left: elRect.left - stripRect.left - margin, behavior: 'smooth' })
+  } else if (elRect.right > stripRect.right - margin) {
+    strip.scrollBy({ left: elRect.right - stripRect.right + margin, behavior: 'smooth' })
+  }
+}
+
+function scrollTabStrip(direction: number) {
+  const strip = tabStrip.value
+  if (!strip) return
+  strip.scrollBy({ left: direction * 220, behavior: 'smooth' })
+}
+
+// --- Tab drag-to-reorder ---
+function onTabDragStart(event: DragEvent, index: number) {
+  tabDragIndex.value = index
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', String(index))
+  }
+}
+
+function onTabDragOver(event: DragEvent, index: number) {
+  event.preventDefault()
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+  tabDragOverIndex.value = index
+}
+
+function onTabDragLeave() {
+  tabDragOverIndex.value = -1
+}
+
+function onTabDrop(event: DragEvent, targetIndex: number) {
+  event.preventDefault()
+  tabDragOverIndex.value = -1
+  const fromIndex = tabDragIndex.value
+  if (fromIndex < 0 || fromIndex === targetIndex) return
+  const arr = [...tabs.value]
+  const [moved] = arr.splice(fromIndex, 1)
+  arr.splice(targetIndex, 0, moved)
+  tabs.value = arr
+}
+
+function onTabDragEnd() {
+  tabDragIndex.value = -1
+  tabDragOverIndex.value = -1
 }
 
 function blankDocument(name: string): GraphDocument {
@@ -935,7 +996,14 @@ function toggleModuleCategory(category: string) {
       </aside>
 
       <section class="editor-column">
-        <div class="tab-strip"><div v-for="tab in tabs" :key="tab.id" class="graph-tab" :class="{ active: tab.id === activeTabId }" @click="switchTab(tab.id)"><span class="tab-mark"></span>{{ tab.title }}<span v-if="tab.dirty" class="dirty-mark">●</span><button class="tab-close" @click="closeTab(tab.id, $event)">×</button></div><button class="new-tab" @click="newGraph">＋</button></div>
+         <div class="tab-strip-wrap">
+           <button class="tab-scroll-arrow left" @click="scrollTabStrip(-1)">◀</button>
+           <div ref="tabStrip" class="tab-strip" @wheel.prevent="(e: WheelEvent) => { const s = e.currentTarget as HTMLElement; s.scrollLeft += e.deltaY; }">
+             <div v-for="(tab, idx) in tabs" :key="tab.id" class="graph-tab" :class="{ active: tab.id === activeTabId, 'drag-over': tabDragOverIndex === idx }" draggable="true" @click="switchTab(tab.id)" @dragstart="onTabDragStart($event, idx)" @dragover="onTabDragOver($event, idx)" @dragleave="onTabDragLeave" @drop="onTabDrop($event, idx)" @dragend="onTabDragEnd"><span class="tab-mark"></span>{{ tab.title }}<span v-if="tab.dirty" class="dirty-mark">●</span><button class="tab-close" @click="closeTab(tab.id, $event)">×</button></div>
+             <button class="new-tab" @click="newGraph">＋</button>
+           </div>
+           <button class="tab-scroll-arrow right" @click="scrollTabStrip(1)">▶</button>
+         </div>
         <div class="canvas-wrap" @contextmenu.prevent @dragenter="allowNodeDrop" @dragover="allowNodeDrop" @drop.prevent="dropNode"><div ref="canvas" class="rete-canvas"></div><div class="canvas-toolbar"><button title="Select">⌖</button><button title="Reset view" @click="editor?.resetView()">⌂</button></div><div class="canvas-hint">Right drag: pan&nbsp;&nbsp; Middle drag: pan&nbsp;&nbsp; Ctrl: multi-select&nbsp;&nbsp; Ctrl + right drag: cut connections&nbsp;&nbsp; Connection: click + Delete</div></div>
         <div v-show="showLogger" class="logger-panel"><div class="logger-title"><span>Test Results</span><button @click="testGraph">Test</button></div><div v-if="!validationIssues.length" class="logger-line">No blueprint issues found.</div><button v-for="issue in validationIssues" :key="`${issue.code}-${issue.nodeId}`" class="logger-issue" :class="issue.severity" @click="focusIssue(issue)"><strong>{{ issue.severity.toUpperCase() }}</strong><span>{{ issue.message }}</span><small>{{ issue.code }}</small></button></div>
         <div v-if="nodeReferenceSearch.visible" class="reference-panel" :class="{ collapsed: referencePanelCollapsed }" :style="referencePanelStyle">
