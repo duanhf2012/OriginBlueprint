@@ -34,8 +34,4 @@ export function RevealInFolder(arg1:string):Promise<void>;
 
 export function SaveGraph(arg1:string,arg2:string):Promise<string>;
 
-export function StartGraph(arg1:string):Promise<string>;
-
-export function StopGraph(arg1:string):Promise<boolean>;
-
 export function ValidateGraph(arg1:string):Promise<Array<main.ValidationIssue>>;

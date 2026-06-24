@@ -13,9 +13,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/google/uuid"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 type RuntimeTable struct {
@@ -60,61 +57,6 @@ type graphExecutor struct {
 	maxSteps  int
 	onBatch   func(ExecutionEvent)
 	sessionID string
-}
-
-func (a *App) StartGraph(content string) (string, error) {
-	var document GraphDocument
-	if err := json.Unmarshal([]byte(content), &document); err != nil {
-		return "", fmt.Errorf("decode graph document: %w", err)
-	}
-	if issues := validateGraph(document); len(issues) > 0 {
-		for _, issue := range issues {
-			if issue.Severity == "error" {
-				return "", errors.New(issue.Message)
-			}
-		}
-	}
-	sessionID := uuid.NewString()
-	ctx, cancel := context.WithCancel(context.Background())
-	a.sessionMu.Lock()
-	if a.sessions == nil {
-		a.sessions = make(map[string]context.CancelFunc)
-	}
-	a.sessions[sessionID] = cancel
-	a.sessionMu.Unlock()
-	emit := func(event ExecutionEvent) {
-		if a.ctx != nil {
-			runtime.EventsEmit(a.ctx, "origin:execution", event)
-		}
-	}
-	emit(ExecutionEvent{SessionID: sessionID, Type: "started", Message: "Graph execution started"})
-	go func() {
-		result, err := executeGraph(ctx, sessionID, document, emit)
-		a.sessionMu.Lock()
-		delete(a.sessions, sessionID)
-		a.sessionMu.Unlock()
-		if err != nil {
-			eventType := "failed"
-			if errors.Is(err, context.Canceled) {
-				eventType = "cancelled"
-			}
-			emit(ExecutionEvent{SessionID: sessionID, Type: eventType, Message: err.Error(), Logs: result.Logs, Results: result.Results, Variables: result.Variables})
-			return
-		}
-		emit(ExecutionEvent{SessionID: sessionID, Type: "completed", Message: "Graph execution completed", Logs: result.Logs, Results: result.Results, Variables: result.Variables})
-	}()
-	return sessionID, nil
-}
-
-func (a *App) StopGraph(sessionID string) bool {
-	a.sessionMu.Lock()
-	cancel := a.sessions[sessionID]
-	a.sessionMu.Unlock()
-	if cancel == nil {
-		return false
-	}
-	cancel()
-	return true
 }
 
 func executeGraph(ctx context.Context, sessionID string, document GraphDocument, onBatch func(ExecutionEvent)) (ExecutionEvent, error) {

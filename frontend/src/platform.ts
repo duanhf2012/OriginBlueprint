@@ -5,7 +5,6 @@ export interface FileResult { path: string; content: string }
 export interface WorkspaceEntry { name: string; path: string; isDir: boolean }
 export interface NodeReferenceResult { name: string; path: string; count: number }
 export interface ValidationIssue { severity: 'error' | 'warning'; code: string; message: string; nodeId?: string }
-export interface ExecutionLog { level: 'debug' | 'info' | 'warning' | 'error'; message: string; nodeId?: string }
 export interface NodeSchemaLoadResult { nodes: NodeSchema[]; errors: Array<{ path: string; message: string }>; documentCount: number }
 interface NodeSchemaDocument { path: string; content: string }
 interface NodeSchemaDocumentLoadResult { documents: NodeSchemaDocument[]; errors: Array<{ path: string; message: string }> }
@@ -13,16 +12,6 @@ type RawNodeSchemaDocumentLoadResult = NodeSchemaDocumentLoadResult & {
   Documents?: NodeSchemaDocument[]
   Errors?: Array<{ path: string; message: string }>
 }
-export interface ExecutionEvent {
-  sessionId: string
-  type: 'started' | 'progress' | 'completed' | 'failed' | 'cancelled'
-  message?: string
-  states?: Array<{ nodeId: string; state: 'idle' | 'running' | 'completed' | 'error' }>
-  logs?: ExecutionLog[]
-  results?: unknown[]
-  variables?: Record<string, unknown>
-}
-
 type DesktopApp = {
   OpenGraph(path: string): Promise<FileResult>
   SaveGraph(path: string, content: string): Promise<string>
@@ -38,8 +27,6 @@ type DesktopApp = {
   ExportPNG(dataURL: string): Promise<string>
   GetRecentFiles(): Promise<string[]>
   ValidateGraph(content: string): Promise<ValidationIssue[]>
-  StartGraph(content: string): Promise<string>
-  StopGraph(sessionId: string): Promise<boolean>
   MigrateLegacyGraph(content: string): Promise<string>
   ExportLegacyGraph(content: string): Promise<string>
   LoadNodeSchemaDocuments(): Promise<RawNodeSchemaDocumentLoadResult>
@@ -159,20 +146,11 @@ export const platform = {
     if (desktop()) return desktop()!.ValidateGraph(content)
     try { JSON.parse(content); return [] } catch { return [{ severity: 'error', code: 'document.invalid-json', message: 'Invalid graph document' }] }
   },
-  async startGraph(content: string) {
-    if (desktop()) return desktop()!.StartGraph(content)
-    throw new Error('Graph execution requires the desktop runtime')
-  },
-  async stopGraph(sessionId: string) { return desktop() ? desktop()!.StopGraph(sessionId) : false },
   async migrateLegacyGraph(content: string) { return desktop() ? desktop()!.MigrateLegacyGraph(content) : '' },
   async exportLegacyGraph(content: string) { return desktop() ? desktop()!.ExportLegacyGraph(content) : content },
   async loadNodeSchemas(): Promise<NodeSchemaLoadResult> {
     const result = normalizeNodeSchemaDocumentLoadResult(desktop() ? await desktop()!.LoadNodeSchemaDocuments() : await loadBrowserNodeSchemaDocuments())
     return parseNodeSchemaDocuments(result.documents, result.errors)
-  },
-  onExecution(callback: (event: ExecutionEvent) => void) {
-    const runtime = (window as unknown as { runtime?: WailsRuntime }).runtime
-    return runtime?.EventsOnMultiple?.('origin:execution', event => callback(event as ExecutionEvent), -1) ?? (() => {})
   },
   onCloseRequest(callback: () => void) {
     const runtime = (window as unknown as { runtime?: WailsRuntime }).runtime

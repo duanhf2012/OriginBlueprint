@@ -127,13 +127,11 @@ Do not move existing code only to match this proposed layout. Refactor into it w
 
 ## Runtime Boundary
 
-Blueprint execution is implemented in Go and operates only on a serialized `GraphDocument` snapshot. The Vue/Rete editor never executes node business logic.
+Blueprint execution semantics are implemented in Go and operate only on a serialized `GraphDocument` snapshot. The Vue/Rete editor does not expose local graph running right now; the toolbar `Test` action validates graph structure and flow reachability instead.
 
-- `StartGraph` creates a cancellable background session.
-- Go evaluates data dependencies on demand and advances control through Exec connections.
-- Execution progress is emitted in batches so loops do not call the frontend once per animation frame.
-- Vue applies node state highlights and renders logs, results, and variable snapshots.
-- `StopGraph` cancels the active Go context; execution also has a hard step limit to contain malformed graphs.
+- The executor code remains covered by Go tests for compatibility and future runtime work.
+- `ValidateGraph` checks schema, variables, ports, connection types, missing entries, unreachable exec nodes, and possible exec cycles.
+- Vue renders validation/test issues in the bottom results panel, and clicking an issue focuses the related node when available.
 
 ## Review Rule
 

@@ -172,7 +172,7 @@ function removeBranch(index: number) {
 </script>
 
 <template>
-  <article class="blueprint-node" :class="[`kind-${data.kind ?? 'function'}`, `execution-${data.executionState ?? 'idle'}`, { selected: data.selected, compact: data.compact, legacy: Boolean(data.legacyClass), 'has-entry-binding': hasEntryBinding }]" :style="{ width: `${nodeWidth}px` }">
+  <article class="blueprint-node" :class="[`kind-${data.kind ?? 'function'}`, { selected: data.selected, compact: data.compact, legacy: Boolean(data.legacyClass), 'has-entry-binding': hasEntryBinding, 'reference-highlighted': data.referenceHighlighted }]" :style="{ width: `${nodeWidth}px` }">
     <header class="blueprint-title">
       <span class="node-icon">&#9670;</span>
       <span class="title-text">{{ data.label }}</span>
@@ -251,11 +251,7 @@ function removeBranch(index: number) {
 .blueprint-node.legacy { --accent: #b77b32; border-style: dashed; }
 .legacy-badge { margin-left: 4px; padding: 1px 4px; border: 1px solid #ffe0a455; border-radius: 2px; background: #2a1d0d99; color: #ffe0a4; font-size: 8px; letter-spacing: .5px; }
 .blueprint-node.selected { outline: 2px solid #f5b642; outline-offset: 2px; box-shadow: 0 0 12px #f5b64255; }
-.blueprint-node.execution-running { outline: 3px solid #f1c232; outline-offset: 3px; box-shadow: 0 0 18px #f1c23299; }
-.blueprint-node.execution-completed { box-shadow: 0 0 13px #3ecf6f88; }
-.blueprint-node.execution-completed::after, .blueprint-node.execution-error::after { content: ""; position: absolute; inset: -3px; border: 2px solid #3ecf6f; border-radius: 6px; pointer-events: none; }
-.blueprint-node.execution-error { box-shadow: 0 0 18px #f0444499; }
-.blueprint-node.execution-error::after { border-color: #f04444; }
+.blueprint-node.reference-highlighted { outline: 3px solid #18d4ff; outline-offset: 3px; box-shadow: 0 0 0 1px #e7fbff88, 0 0 22px #18d4ffcc, 0 5px 13px #0009; }
 .blueprint-node.compact { box-shadow: 0 2px 6px #0008; }
 .blueprint-node.compact .blueprint-title { height: 25px; font-size: 12px; }
 .blueprint-node.compact .ports { padding: 3px 0 4px; }

@@ -1,0 +1,60 @@
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, resolve } from 'node:path'
+
+function assert(value, message) {
+  if (!value) throw new Error(message)
+}
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const app = readFileSync(resolve(__dirname, '../src/App.vue'), 'utf8')
+const style = readFileSync(resolve(__dirname, '../src/style.css'), 'utf8')
+const node = readFileSync(resolve(__dirname, '../src/editor/BlueprintNode.vue'), 'utf8')
+const editor = readFileSync(resolve(__dirname, '../src/editor/createEditor.ts'), 'utf8')
+const types = readFileSync(resolve(__dirname, '../src/editor/types.ts'), 'utf8')
+const platform = readFileSync(resolve(__dirname, '../src/platform.ts'), 'utf8')
+
+assert(app.includes('查找目标：{{ nodeReferenceSearch.nodeTitle }}'), 'reference panel must show the searched node title')
+assert(app.includes('class="test-toolbar"'), 'top-right toolbar should expose Test instead of Run/Stop')
+assert(!app.includes('runGraph'), 'frontend should not keep graph run entrypoints')
+assert(!app.includes('stopGraph'), 'frontend should not keep graph stop entrypoints')
+assert(!app.includes('executionRunning'), 'frontend should not keep execution running state')
+assert(!app.includes('executionLogs'), 'frontend should not keep execution logs')
+assert(app.includes('referencePanelCollapsed'), 'reference panel must support collapsing')
+assert(app.includes('beginReferencePanelResize'), 'reference panel must support height resizing')
+assert(app.includes('beginRightSidebarResize'), 'right sidebar width should be resizable')
+assert(app.includes('beginLeftPanelHeightResize'), 'left sidebar panels should be vertically resizable')
+assert(app.includes('origin-blueprint-right-sidebar-width'), 'right sidebar width should persist locally')
+assert(app.includes('origin-blueprint-function-panel-height'), 'function panel height should persist locally')
+assert(app.includes('origin-blueprint-variable-panel-height'), 'variable panel height should persist locally')
+assert(app.includes('functionPanelStyle'), 'function panel should bind a persisted height style')
+assert(app.includes('variablePanelStyle'), 'variable panel should bind a persisted height style')
+assert(app.includes('openFileContextMenu($event, result.path)'), 'reference results should open a file context menu on right click')
+assert(app.includes('openFileContextMenu($event, row.node.path)'), 'workspace files should open a file context menu on right click')
+assert(app.includes('打开蓝图'), 'file context menu should offer opening the blueprint')
+assert(app.includes('在资源管理器中定位'), 'file context menu should offer revealing the file location')
+assert(!app.includes('@contextmenu.stop.prevent="revealFileInFolder(result.path)"'), 'reference result right click must not directly reveal files')
+assert(!app.includes('@contextmenu.stop.prevent="!row.node.isDir && revealFileInFolder(row.node.path)"'), 'workspace right click must not directly reveal files')
+
+assert(style.includes('.reference-resizer'), 'reference panel needs a resize handle')
+assert(style.includes('.panel-height-splitter'), 'left sidebar panels need visible resize splitters')
+assert(style.includes('.right-sidebar-splitter'), 'right sidebar needs a visible resize splitter')
+assert(style.includes('var(--right-sidebar-width'), 'workspace grid should use the persisted right sidebar width')
+assert(style.includes('.reference-panel.collapsed'), 'reference panel needs collapsed styling')
+assert(style.includes('width: 26px; height: 24px'), 'reference panel controls should be compact but easy to click')
+assert(style.includes('.reference-tool-button.close:hover'), 'close button should have a distinct hover state')
+assert(style.includes('.file-context-menu'), 'file context menu needs styling')
+
+assert(types.includes('referenceHighlighted?: boolean'), 'blueprint nodes need an independent reference highlight state')
+assert(!types.includes('executionState'), 'nodes should not keep UI execution state when local running is disabled')
+assert(node.includes("'reference-highlighted': data.referenceHighlighted"), 'node template must render reference highlight state')
+assert(!node.includes('execution-running'), 'node styles should not keep running highlights when local running is disabled')
+assert(node.includes('#18d4ff'), 'reference highlight should use bright cyan instead of selection yellow or error red')
+assert(!node.includes('.blueprint-node.reference-highlighted { outline: 3px solid #f04444'), 'reference highlight must not reuse the error color')
+assert(editor.includes('node.referenceHighlighted'), 'reference search should mark nodes with the independent highlight state')
+assert(!editor.includes('setExecutionStates'), 'editor handle should not expose execution-state updates when local running is disabled')
+assert(!editor.includes('for (const node of matches) await selectable.select(node.id, true)'), 'reference search should not rely on selection yellow for highlighting')
+assert(!platform.includes('StartGraph'), 'platform wrapper should not expose StartGraph while local running is disabled')
+assert(!platform.includes('StopGraph'), 'platform wrapper should not expose StopGraph while local running is disabled')
+
+console.log('referenceSearchPanel tests passed')

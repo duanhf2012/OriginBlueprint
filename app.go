@@ -19,8 +19,6 @@ import (
 
 type App struct {
 	ctx        context.Context
-	sessions   map[string]context.CancelFunc
-	sessionMu  sync.Mutex
 	closeMu    sync.Mutex
 	allowClose bool
 }
@@ -47,7 +45,7 @@ type appConfig struct {
 	LastGraphDirectory string   `json:"lastGraphDirectory"`
 }
 
-func NewApp() *App { return &App{sessions: make(map[string]context.CancelFunc)} }
+func NewApp() *App { return &App{} }
 
 func (a *App) startup(ctx context.Context) { a.ctx = ctx }
 

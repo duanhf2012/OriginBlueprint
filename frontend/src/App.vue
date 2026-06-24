@@ -3,16 +3,15 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { toPng } from 'html-to-image'
 import { createBlueprintEditor, type BlueprintEditorHandle, type EditorMetrics, type GraphDocument, type GraphVariable, type GraphVariableGroup, type SelectedNodeInfo, type ValidationIssue, type VariableType } from './editor/createEditor'
 import { getNodeDefinitions, registerNodeSchemas, type NodeDefinition } from './editor/nodeRegistry'
-import { platform, type ExecutionEvent, type ExecutionLog, type NodeReferenceResult, type WorkspaceEntry } from './platform'
+import { platform, type NodeReferenceResult, type WorkspaceEntry } from './platform'
 
 interface GraphTab { id: string; title: string; path: string; dirty: boolean; document: GraphDocument | null }
-interface TableValue { columns: string[]; rows: unknown[][] }
-interface TableExecutionResult { kind: 'table'; nodeId: string; table: TableValue }
 interface WorkspaceTreeNode extends WorkspaceEntry { children: WorkspaceTreeNode[]; loaded: boolean; loading: boolean }
 interface VisibleWorkspaceNode { node: WorkspaceTreeNode; depth: number }
 type UnsavedCloseAction = 'save' | 'discard' | 'cancel'
 interface ModuleNodeMenuState { visible: boolean; x: number; y: number; node: NodeDefinition | null }
 interface NodeReferenceSearchState { visible: boolean; loading: boolean; nodeTitle: string; typeId: string; results: NodeReferenceResult[] }
+interface FileContextMenuState { visible: boolean; x: number; y: number; path: string }
 
 const canvas = ref<HTMLElement | null>(null)
 const zoomLabel = ref('100%')
@@ -22,6 +21,9 @@ const activeMenu = ref<string | null>(null)
 const contextMenu = ref({ visible: false, x: 0, y: 0, clientX: 0, clientY: 0, search: '' })
 const moduleNodeMenu = ref<ModuleNodeMenuState>({ visible: false, x: 0, y: 0, node: null })
 const nodeReferenceSearch = ref<NodeReferenceSearchState>({ visible: false, loading: false, nodeTitle: '', typeId: '', results: [] })
+const fileContextMenu = ref<FileContextMenuState>({ visible: false, x: 0, y: 0, path: '' })
+const referencePanelHeight = ref(savedReferencePanelHeight())
+const referencePanelCollapsed = ref(false)
 const tabs = ref<GraphTab[]>([{ id: crypto.randomUUID(), title: 'Untitled-1 Graph', path: '', dirty: false, document: null }])
 const activeTabId = ref(tabs.value[0].id)
 const recentFiles = ref<string[]>([])
@@ -32,6 +34,9 @@ const expandedWorkspacePaths = ref<Set<string>>(new Set())
 const selectedWorkspacePath = ref('')
 const fileBrowserWidth = ref(savedPanelWidth('origin-blueprint-file-browser-width', 210))
 const leftToolsWidth = ref(savedPanelWidth('origin-blueprint-left-tools-width', 210))
+const rightSidebarWidth = ref(savedPanelWidth('origin-blueprint-right-sidebar-width', 230, 160, 460))
+const functionPanelHeight = ref(savedPanelSize('origin-blueprint-function-panel-height', 112, 70, 260))
+const variablePanelHeight = ref(savedPanelSize('origin-blueprint-variable-panel-height', 300, 130, 520))
 const showTools = ref(true)
 const showRight = ref(true)
 const showLogger = ref(false)
@@ -44,19 +49,9 @@ const variableGroups = ref<GraphVariableGroup[]>([{ id: 'default', name: 'Defaul
 const selectedVariableId = ref<string | null>(null)
 const selectedNode = ref<SelectedNodeInfo | null>(null)
 const validationIssues = ref<ValidationIssue[]>([])
-const executionLogs = ref<ExecutionLog[]>([])
-const executionResults = ref<unknown[]>([])
-const executionVariables = ref<Record<string, unknown>>({})
-const executionSessionId = ref('')
-const executionRunning = ref(false)
-const previewTable = ref<TableExecutionResult | null>(null)
-const previewSearch = ref('')
-const previewPage = ref(1)
-const previewPageSize = ref(100)
 const unsavedCloseDialog = ref<{ visible: boolean; names: string[]; resolve?: (action: UnsavedCloseAction) => void }>({ visible: false, names: [] })
 let untitledCount = 1
 let editor: BlueprintEditorHandle | null = null
-let unsubscribeExecution = () => {}
 let unsubscribeCloseRequest = () => {}
 let closingApplication = false
 let nodePointerDrag: { typeId: string; startX: number; startY: number; lastX: number; lastY: number; moved: boolean } | null = null
@@ -82,23 +77,14 @@ const filteredDefinitions = computed(() => {
   return search ? nodeLibrary.value.filter(item => `${item.title} ${item.category}`.toLowerCase().includes(search)) : nodeLibrary.value
 })
 const moduleSearchActive = computed(() => Boolean(moduleSearch.value.trim()))
-const tableResults = computed(() => executionResults.value.filter(isTableExecutionResult))
-const filteredPreviewRows = computed(() => {
-  const rows = previewTable.value?.table.rows ?? []
-  const search = previewSearch.value.trim().toLowerCase()
-  if (!search) return rows
-  return rows.filter(row => row.some(cell => String(cell ?? '').toLowerCase().includes(search)))
-})
-const previewPageCount = computed(() => Math.max(1, Math.ceil(filteredPreviewRows.value.length / previewPageSize.value)))
-const pagedPreviewRows = computed(() => {
-  const page = Math.min(previewPage.value, previewPageCount.value)
-  const start = (page - 1) * previewPageSize.value
-  return filteredPreviewRows.value.slice(start, start + previewPageSize.value)
-})
 const workspaceStyle = computed(() => ({
   '--file-browser-width': `${fileBrowserWidth.value}px`,
-  '--left-tools-width': `${leftToolsWidth.value}px`
+  '--left-tools-width': `${leftToolsWidth.value}px`,
+  '--right-sidebar-width': `${rightSidebarWidth.value}px`
 }))
+const referencePanelStyle = computed(() => ({ height: `${referencePanelCollapsed.value ? 34 : referencePanelHeight.value}px` }))
+const functionPanelStyle = computed(() => ({ flex: `0 0 ${functionPanelHeight.value}px` }))
+const variablePanelStyle = computed(() => ({ flex: `0 0 ${variablePanelHeight.value}px` }))
 const visibleWorkspaceNodes = computed(() => {
   const search = workspaceSearch.value.trim().toLowerCase()
   return flattenWorkspaceNodes(workspaceTree.value, 0, search)
@@ -121,7 +107,6 @@ onMounted(async () => {
   })
   await editor.newDocument()
   if (nodeLoadStatus) status.value = nodeLoadStatus
-  unsubscribeExecution = platform.onExecution(handleExecutionEvent)
   recentFiles.value = await platform.recentFiles()
   const initialWorkspace = await platform.currentWorkingDirectory()
   if (initialWorkspace) await loadWorkspace(initialWorkspace)
@@ -131,9 +116,19 @@ onMounted(async () => {
   window.addEventListener('beforeunload', onBeforeWindowUnload)
 })
 
-function savedPanelWidth(key: string, fallback: number) {
+function savedPanelWidth(key: string, fallback: number, min = 140, max = 360) {
   const value = Number.parseInt(localStorage.getItem(key) ?? '', 10)
-  return Number.isFinite(value) ? Math.min(360, Math.max(140, value)) : fallback
+  return Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback
+}
+
+function savedPanelSize(key: string, fallback: number, min: number, max: number) {
+  const value = Number.parseInt(localStorage.getItem(key) ?? '', 10)
+  return Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback
+}
+
+function savedReferencePanelHeight() {
+  const value = Number.parseInt(localStorage.getItem('origin-blueprint-reference-panel-height') ?? '', 10)
+  return Number.isFinite(value) ? Math.min(360, Math.max(96, value)) : 155
 }
 
 async function loadRuntimeNodeLibrary() {
@@ -156,7 +151,7 @@ async function loadRuntimeNodeLibrary() {
 onBeforeUnmount(() => {
   removeNodePointerListeners()
   unsubscribeCloseRequest()
-  unsubscribeExecution(); window.removeEventListener('keydown', onKeyDown); window.removeEventListener('pointerdown', closeFloatingMenus); window.removeEventListener('beforeunload', onBeforeWindowUnload); editor?.destroy()
+  window.removeEventListener('keydown', onKeyDown); window.removeEventListener('pointerdown', closeFloatingMenus); window.removeEventListener('beforeunload', onBeforeWindowUnload); editor?.destroy()
 })
 
 function hasDirtyTabs() {
@@ -174,6 +169,7 @@ function closeFloatingMenus(event: PointerEvent) {
   const target = event.target as HTMLElement
   if (!target.closest('.menu-root')) activeMenu.value = null
   if (!target.closest('.node-context-menu')) contextMenu.value.visible = false
+  if (!target.closest('.file-context-menu')) fileContextMenu.value.visible = false
 }
 
 function onKeyDown(event: KeyboardEvent) {
@@ -194,8 +190,7 @@ function onKeyDown(event: KeyboardEvent) {
   else if (ctrl && key === 'z') run(() => editor?.undo(), event)
   else if (ctrl && key === 'y') run(() => editor?.redo(), event)
   else if (ctrl && key === 'g') run(() => editor?.groupSelected(), event)
-  else if (event.key === 'F5' && event.shiftKey) run(stopGraph, event)
-  else if (event.key === 'F5') run(runGraph, event)
+  else if (event.key === 'F5') run(testGraph, event)
   else if (event.altKey && event.shiftKey && key === 'b') { showLogger.value = !showLogger.value; event.preventDefault() }
   else if (event.altKey && event.shiftKey && key === 'l') { showTools.value = !showTools.value; event.preventDefault() }
   else if (event.altKey && event.shiftKey && key === 'r') { showRight.value = !showRight.value; event.preventDefault() }
@@ -384,56 +379,6 @@ function normalizeVariableType(value: unknown): VariableType {
   return 'string'
 }
 
-function isTableExecutionResult(value: unknown): value is TableExecutionResult {
-  if (!value || typeof value !== 'object') return false
-  const result = value as Partial<TableExecutionResult>
-  return result.kind === 'table' && Boolean(result.table) && Array.isArray(result.table?.columns) && Array.isArray(result.table?.rows)
-}
-
-function openTablePreview(result: TableExecutionResult) {
-  previewTable.value = result
-  previewSearch.value = ''
-  previewPage.value = 1
-}
-
-function tableAsCSV(table: TableValue) {
-  const escape = (value: unknown) => {
-    const text = String(value ?? '')
-    return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
-  }
-  return [table.columns, ...table.rows].map(row => row.map(escape).join(',')).join('\r\n')
-}
-
-async function copyPreviewCSV() {
-  if (!previewTable.value) return
-  const csv = tableAsCSV(previewTable.value.table)
-  try {
-    await navigator.clipboard.writeText(csv)
-  } catch {
-    const textarea = document.createElement('textarea')
-    textarea.value = csv
-    textarea.style.position = 'fixed'
-    textarea.style.opacity = '0'
-    document.body.appendChild(textarea)
-    textarea.select()
-    document.execCommand('copy')
-    textarea.remove()
-  }
-  status.value = 'Table CSV copied to clipboard'
-}
-
-function exportPreviewCSV() {
-  if (!previewTable.value) return
-  const blob = new Blob([tableAsCSV(previewTable.value.table)], { type: 'text/csv;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = 'table-preview.csv'
-  anchor.click()
-  URL.revokeObjectURL(url)
-  status.value = 'Table preview exported'
-}
-
 function normalizeDocument(value: any): GraphDocument {
   const sourceVariables = Array.isArray(value.variables) ? value.variables : []
   const groups: GraphVariableGroup[] = []
@@ -488,55 +433,17 @@ function isLegacyGraphPath(path: string) {
   return /\.vgf$/i.test(path)
 }
 
-async function validateGraph() {
+async function testGraph() {
   if (!editor) return
   const document = editor.getDocument(activeTab.value.title, variables.value, variableGroups.value)
   validationIssues.value = await platform.validateGraph(JSON.stringify(document))
   showLogger.value = true
-  status.value = validationIssues.value.length ? `Validation found ${validationIssues.value.length} issue(s)` : 'Graph validation passed'
-}
-
-async function runGraph() {
-  if (!editor || executionRunning.value) return
-  const document = editor.getDocument(activeTab.value.title, variables.value, variableGroups.value)
-  validationIssues.value = await platform.validateGraph(JSON.stringify(document))
-  if (validationIssues.value.some(issue => issue.severity === 'error')) {
-    showLogger.value = true; status.value = 'Execution blocked by validation errors'; return
-  }
-  executionLogs.value = []; executionResults.value = []; executionVariables.value = {}
-  await editor.clearExecutionStates()
-  showLogger.value = true; executionRunning.value = true; status.value = 'Starting graph...'
-  try {
-    const sessionId = await platform.startGraph(JSON.stringify(document))
-    if (executionRunning.value) executionSessionId.value = sessionId
-  }
-  catch (error) { executionRunning.value = false; status.value = error instanceof Error ? error.message : String(error) }
-}
-
-async function stopGraph() {
-  if (!executionSessionId.value) return
-  status.value = 'Stopping graph...'
-  await platform.stopGraph(executionSessionId.value)
-}
-
-function handleExecutionEvent(event: ExecutionEvent) {
-  if (!event?.sessionId) return
-  if (event.type === 'started' && !executionSessionId.value) executionSessionId.value = event.sessionId
-  if (event.sessionId !== executionSessionId.value) return
-  if (event.states?.length) void editor?.setExecutionStates(event.states)
-  if (event.type === 'progress') executionLogs.value.push(...(event.logs ?? []))
-  if (event.type === 'completed' || event.type === 'failed' || event.type === 'cancelled') {
-    executionRunning.value = false
-    executionLogs.value = event.logs ?? executionLogs.value
-    executionResults.value = event.results ?? []
-    executionVariables.value = event.variables ?? {}
-    status.value = event.message ?? event.type
-    executionSessionId.value = ''
-  } else status.value = event.message ?? 'Graph running'
+  const errors = validationIssues.value.filter(issue => issue.severity === 'error').length
+  const warnings = validationIssues.value.filter(issue => issue.severity === 'warning').length
+  status.value = validationIssues.value.length ? `Test found ${errors} error(s), ${warnings} warning(s)` : 'Blueprint test passed'
 }
 
 async function focusIssue(issue: ValidationIssue) { if (issue.nodeId) await editor?.focusNode(issue.nodeId) }
-async function focusExecutionLog(log: ExecutionLog) { if (log.nodeId) await editor?.focusNode(log.nodeId) }
 
 async function openGraph(path = '', highlightTypeId = '') {
   const file = await platform.openGraph(path)
@@ -716,6 +623,10 @@ async function workspaceOpen(item: WorkspaceTreeNode) {
   if (item.isDir) await toggleWorkspaceNode(item); else await openGraph(item.path)
 }
 
+function openFileContextMenu(event: MouseEvent, path: string) {
+  fileContextMenu.value = { visible: true, x: event.clientX, y: event.clientY, path }
+}
+
 function workspaceIndent(depth: number) {
   return `${8 + depth * 16}px`
 }
@@ -860,6 +771,60 @@ async function openNodeReference(result: NodeReferenceResult) {
   await openGraph(result.path, nodeReferenceSearch.value.typeId)
 }
 
+function beginRightSidebarResize(event: PointerEvent) {
+  if (event.button !== 0) return
+  event.preventDefault()
+  const startX = event.clientX
+  const startWidth = rightSidebarWidth.value
+  const move = (next: PointerEvent) => {
+    rightSidebarWidth.value = Math.min(460, Math.max(160, Math.round(startWidth + startX - next.clientX)))
+  }
+  const up = () => {
+    localStorage.setItem('origin-blueprint-right-sidebar-width', String(rightSidebarWidth.value))
+    window.removeEventListener('pointermove', move)
+    window.removeEventListener('pointerup', up)
+    window.removeEventListener('pointercancel', up)
+  }
+  window.addEventListener('pointermove', move)
+  window.addEventListener('pointerup', up)
+  window.addEventListener('pointercancel', up)
+}
+
+function beginLeftPanelHeightResize(panel: 'function' | 'variable', event: PointerEvent) {
+  if (event.button !== 0) return
+  event.preventDefault()
+  const startY = event.clientY
+  const state = panel === 'function' ? functionPanelHeight : variablePanelHeight
+  const storageKey = panel === 'function' ? 'origin-blueprint-function-panel-height' : 'origin-blueprint-variable-panel-height'
+  const min = panel === 'function' ? 70 : 130
+  const max = panel === 'function' ? 260 : 520
+  const startHeight = state.value
+  const move = (next: PointerEvent) => {
+    state.value = Math.min(max, Math.max(min, Math.round(startHeight + next.clientY - startY)))
+  }
+  const up = () => {
+    localStorage.setItem(storageKey, String(state.value))
+    window.removeEventListener('pointermove', move)
+    window.removeEventListener('pointerup', up)
+    window.removeEventListener('pointercancel', up)
+  }
+  window.addEventListener('pointermove', move)
+  window.addEventListener('pointerup', up)
+  window.addEventListener('pointercancel', up)
+}
+
+async function openFileContextGraph() {
+  const path = fileContextMenu.value.path
+  fileContextMenu.value.visible = false
+  if (path) await openGraph(path)
+}
+
+async function revealFileContextInFolder() {
+  const path = fileContextMenu.value.path
+  fileContextMenu.value.visible = false
+  if (path) await revealFileInFolder(path)
+}
+
 async function revealFileInFolder(path: string) {
   try {
     await platform.revealInFolder(path)
@@ -867,6 +832,29 @@ async function revealFileInFolder(path: string) {
   } catch (error) {
     status.value = error instanceof Error ? error.message : String(error)
   }
+}
+
+function toggleReferencePanel() {
+  referencePanelCollapsed.value = !referencePanelCollapsed.value
+}
+
+function beginReferencePanelResize(event: PointerEvent) {
+  if (event.button !== 0 || referencePanelCollapsed.value) return
+  event.preventDefault()
+  const startY = event.clientY
+  const startHeight = referencePanelHeight.value
+  const move = (next: PointerEvent) => {
+    referencePanelHeight.value = Math.min(360, Math.max(96, Math.round(startHeight + startY - next.clientY)))
+  }
+  const up = () => {
+    localStorage.setItem('origin-blueprint-reference-panel-height', String(referencePanelHeight.value))
+    window.removeEventListener('pointermove', move)
+    window.removeEventListener('pointerup', up)
+    window.removeEventListener('pointercancel', up)
+  }
+  window.addEventListener('pointermove', move)
+  window.addEventListener('pointerup', up)
+  window.addEventListener('pointercancel', up)
 }
 
 function isModuleCategoryExpanded(category: string) {
@@ -902,8 +890,8 @@ function toggleModuleCategory(category: string) {
         </div></div>
         <div class="menu-root"><button @click.stop="toggleMenu('view')">View</button><div v-if="activeMenu === 'view'" class="dropdown-menu"><button @click="showLogger = !showLogger">Show Logger <kbd>Alt+Shift+B</kbd></button><button @click="showTools = !showTools">Show Tool Sidebar <kbd>Alt+Shift+L</kbd></button><button @click="showRight = !showRight">Show Right Sidebar <kbd>Alt+Shift+R</kbd></button></div></div>
         <div class="menu-root"><button @click.stop="toggleMenu('render')">Render</button><div v-if="activeMenu === 'render'" class="dropdown-menu"><button @click="run(() => exportImage(true))">Render Selected Nodes <kbd>Ctrl+Alt+R</kbd></button><button @click="run(() => exportImage(false))">Render Graph <kbd>Ctrl+Shift+R</kbd></button></div></div>
-        <button @click="run(validateGraph)">Validate</button><button @click="showAbout = true">Help</button>
-      </div><div class="run-toolbar"><button class="run-button" :disabled="executionRunning" title="运行蓝图 (F5)" @click="run(runGraph)">▶ Run</button><button class="stop-button" :disabled="!executionRunning" title="停止运行 (Shift+F5)" @click="run(stopGraph)">■ Stop</button></div><div class="window-title">Origin Blueprint</div>
+        <button @click="run(testGraph)">Test</button><button @click="showAbout = true">Help</button>
+      </div><div class="test-toolbar"><button class="test-button" title="检查蓝图 (F5)" @click="run(testGraph)">Test</button></div><div class="window-title">Origin Blueprint</div>
     </header>
 
     <section class="workspace" :style="workspaceStyle">
@@ -912,7 +900,7 @@ function toggleModuleCategory(category: string) {
           <div class="panel-title"><span class="chevron">⌄</span> 文件浏览器<button class="panel-action" @click="chooseWorkspace">…</button></div>
           <div class="workspace-search"><input v-model="workspaceSearch" placeholder="搜索文件..." /></div>
           <div class="workspace-tree">
-            <button v-for="row in visibleWorkspaceNodes" :key="row.node.path" class="workspace-entry" :class="{ selected: selectedWorkspacePath === row.node.path, folder: row.node.isDir }" :style="{ paddingLeft: workspaceIndent(row.depth) }" :title="row.node.path" @click="toggleWorkspaceNode(row.node)" @contextmenu.stop.prevent="!row.node.isDir && revealFileInFolder(row.node.path)" @dblclick="!row.node.isDir && workspaceOpen(row.node)">
+            <button v-for="row in visibleWorkspaceNodes" :key="row.node.path" class="workspace-entry" :class="{ selected: selectedWorkspacePath === row.node.path, folder: row.node.isDir }" :style="{ paddingLeft: workspaceIndent(row.depth) }" :title="row.node.path" @click="toggleWorkspaceNode(row.node)" @contextmenu.stop.prevent="!row.node.isDir && openFileContextMenu($event, row.node.path)" @dblclick="!row.node.isDir && workspaceOpen(row.node)">
               <span class="workspace-arrow">{{ row.node.loading ? '…' : row.node.isDir ? (workspaceSearch || expandedWorkspacePaths.has(row.node.path) ? '⌄' : '›') : '' }}</span>
               <span class="workspace-icon" :class="{ folder: row.node.isDir }"></span>
               <span class="workspace-name">{{ row.node.name }}</span>
@@ -923,8 +911,9 @@ function toggleModuleCategory(category: string) {
       </aside>
       <div v-show="showTools" class="sidebar-splitter" @pointerdown="beginLeftSidebarResize"></div>
       <aside v-show="showTools" class="sidebar sidebar-left">
-        <div class="panel"><div class="panel-title"><span class="chevron">⌄</span> 函数</div><div class="tree-row"><span class="folder-dot blue"></span>Default</div></div>
-        <div class="panel grow variable-panel"><div class="panel-title"><span class="chevron">⌄</span> 变量 <span class="panel-title-spacer"></span><button class="panel-action" title="添加变量组" @click="addVariableGroup">▣＋</button><button class="panel-action" title="添加变量" @click="addVariable()">＋</button></div>
+        <div class="panel function-panel" :style="functionPanelStyle"><div class="panel-title"><span class="chevron">⌄</span> 函数</div><div class="tree-row"><span class="folder-dot blue"></span>Default</div></div>
+        <div class="panel-height-splitter" @pointerdown="beginLeftPanelHeightResize('function', $event)"></div>
+        <div class="panel grow variable-panel" :style="variablePanelStyle"><div class="panel-title"><span class="chevron">⌄</span> 变量 <span class="panel-title-spacer"></span><button class="panel-action" title="添加变量组" @click="addVariableGroup">▣＋</button><button class="panel-action" title="添加变量" @click="addVariable()">＋</button></div>
           <div v-if="!variables.length" class="empty-panel">尚未创建变量</div>
           <section v-for="entry in groupedVariables" :key="entry.group.id" class="variable-group">
             <div class="variable-group-header">
@@ -941,28 +930,38 @@ function toggleModuleCategory(category: string) {
           </section>
           <button class="add-variable" @click="addVariable()">＋ 添加变量</button>
         </div>
+        <div class="panel-height-splitter" @pointerdown="beginLeftPanelHeightResize('variable', $event)"></div>
         <div class="panel grow detail-panel sidebar-detail-panel"><div class="panel-title"><span class="chevron">⌄</span> 详情</div><div v-if="selectedVariable" class="node-detail variable-detail"><div class="detail-section-title">变量属性</div><label>Variable ID<input :value="selectedVariable.id" disabled /></label><label>名称<input v-model="selectedVariable.name" /></label><label>类型<select v-model="selectedVariable.type" @change="changeVariableType(selectedVariable)"><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="float">Float</option><option value="string">String</option><option value="array">Array</option><option value="file">File</option><option value="table">Table</option><option value="dictionary">Dictionary</option></select></label><label>分组<select v-model="selectedVariable.groupId"><option v-for="group in variableGroups" :key="group.id" :value="group.id">{{ group.name }}</option></select></label><label>说明<textarea v-model="selectedVariable.description" rows="4" placeholder="变量用途和约束"></textarea></label><label>默认值<input v-if="selectedVariable.type === 'boolean'" v-model="selectedVariable.defaultValue" type="checkbox" /><input v-else-if="selectedVariable.type === 'string' || selectedVariable.type === 'file'" v-model="selectedVariable.defaultValue" type="text" /><input v-else-if="selectedVariable.type === 'array'" :value="Array.isArray(selectedVariable.defaultValue) ? selectedVariable.defaultValue.join(', ') : ''" placeholder="1, 2, text" @change="setVariableArrayDefault(selectedVariable, $event)" /><textarea v-else-if="selectedVariable.type === 'table' || selectedVariable.type === 'dictionary'" :value="JSON.stringify(selectedVariable.defaultValue, null, 2)" rows="6" @change="setVariableStructuredDefault(selectedVariable, $event)"></textarea><input v-else v-model.number="selectedVariable.defaultValue" type="number" /></label><button class="apply-properties" @click="updateVariable(selectedVariable)">应用变量属性</button><button class="delete-properties" @click="removeVariable(selectedVariable)">删除变量</button></div><div v-else-if="selectedNode" class="node-detail"><label>Node ID<input :value="selectedNode.id" disabled /></label><label>Type<input :value="selectedNode.typeId" disabled /></label><label>Title<input v-model="selectedNode.label" :disabled="Boolean(selectedNode.variableId)" /></label><label v-if="selectedNode.description">说明<textarea :value="selectedNode.description" rows="4" readonly></textarea></label><div v-if="Object.keys(selectedNode.values).length" class="detail-section-title">Input Defaults</div><label v-for="(value, key) in selectedNode.values" :key="key">{{ key }}<input v-if="Array.isArray(value)" :value="value.join(', ')" type="text" placeholder="Comma-separated values" @input="setSelectedArrayValue(key, $event)" /><input v-else :value="value" :type="typeof value === 'number' ? 'number' : 'text'" @input="setSelectedValue(key, $event)" /></label><button class="apply-properties" @click="applyNodeProperties">Apply</button></div><div v-else class="empty-detail">选择节点或变量以查看属性</div></div>
       </aside>
 
       <section class="editor-column">
         <div class="tab-strip"><div v-for="tab in tabs" :key="tab.id" class="graph-tab" :class="{ active: tab.id === activeTabId }" @click="switchTab(tab.id)"><span class="tab-mark"></span>{{ tab.title }}<span v-if="tab.dirty" class="dirty-mark">●</span><button class="tab-close" @click="closeTab(tab.id, $event)">×</button></div><button class="new-tab" @click="newGraph">＋</button></div>
         <div class="canvas-wrap" @contextmenu.prevent @dragenter="allowNodeDrop" @dragover="allowNodeDrop" @drop.prevent="dropNode"><div ref="canvas" class="rete-canvas"></div><div class="canvas-toolbar"><button title="Select">⌖</button><button title="Reset view" @click="editor?.resetView()">⌂</button></div><div class="canvas-hint">Right drag: pan&nbsp;&nbsp; Middle drag: pan&nbsp;&nbsp; Ctrl: multi-select&nbsp;&nbsp; Ctrl + right drag: cut connections&nbsp;&nbsp; Connection: click + Delete</div></div>
-        <div v-show="showLogger" class="logger-panel"><div class="logger-title"><span :class="{ running: executionRunning }">{{ executionRunning ? 'Running Graph...' : 'Logger' }}</span><button @click="validateGraph">Validate</button><button :disabled="executionRunning" @click="runGraph">Run</button></div><div v-if="!validationIssues.length && !executionLogs.length && !executionResults.length" class="logger-line">No validation or execution messages.</div><button v-for="issue in validationIssues" :key="`${issue.code}-${issue.nodeId}`" class="logger-issue" :class="issue.severity" @click="focusIssue(issue)"><strong>{{ issue.severity.toUpperCase() }}</strong><span>{{ issue.message }}</span><small>{{ issue.code }}</small></button><button v-for="(log, index) in executionLogs" :key="`run-${index}-${log.nodeId}`" class="logger-issue execution-log" :class="log.level" @click="focusExecutionLog(log)"><strong>{{ log.level.toUpperCase() }}</strong><span>{{ log.message }}</span><small>{{ log.nodeId || 'runtime' }}</small></button><button v-for="result in tableResults" :key="result.nodeId" class="table-result" @click="openTablePreview(result)"><strong>TABLE</strong><span>{{ result.table.rows.length }} rows x {{ result.table.columns.length }} columns</span><small>Open preview</small></button><div v-if="executionResults.length && !tableResults.length" class="execution-summary"><strong>Results</strong><code>{{ JSON.stringify(executionResults) }}</code></div><div v-if="Object.keys(executionVariables).length" class="execution-summary"><strong>Variables</strong><code>{{ JSON.stringify(executionVariables) }}</code></div></div>
-        <div v-if="nodeReferenceSearch.visible" class="reference-panel">
-          <div class="reference-title"><span>引用：{{ nodeReferenceSearch.nodeTitle }}</span><small>{{ nodeReferenceSearch.loading ? '扫描中...' : `${nodeReferenceSearch.results.length} 个蓝图` }}</small><button @click="nodeReferenceSearch.visible = false">×</button></div>
-          <div v-if="nodeReferenceSearch.loading" class="reference-empty">正在扫描当前工程下的 .vgf / .obp 文件...</div>
-          <div v-else-if="!nodeReferenceSearch.results.length" class="reference-empty">没有找到引用该结点的蓝图</div>
-          <template v-else>
-            <button v-for="result in nodeReferenceSearch.results" :key="result.path" class="reference-row" :title="result.path" @contextmenu.stop.prevent="revealFileInFolder(result.path)" @dblclick="openNodeReference(result)">
-              <span>{{ result.name }}</span>
-              <small>{{ result.count }} 次</small>
-              <code>{{ result.path }}</code>
-            </button>
-          </template>
+        <div v-show="showLogger" class="logger-panel"><div class="logger-title"><span>Test Results</span><button @click="testGraph">Test</button></div><div v-if="!validationIssues.length" class="logger-line">No blueprint issues found.</div><button v-for="issue in validationIssues" :key="`${issue.code}-${issue.nodeId}`" class="logger-issue" :class="issue.severity" @click="focusIssue(issue)"><strong>{{ issue.severity.toUpperCase() }}</strong><span>{{ issue.message }}</span><small>{{ issue.code }}</small></button></div>
+        <div v-if="nodeReferenceSearch.visible" class="reference-panel" :class="{ collapsed: referencePanelCollapsed }" :style="referencePanelStyle">
+          <div class="reference-resizer" @pointerdown="beginReferencePanelResize"></div>
+          <div class="reference-title">
+            <strong class="reference-target" :title="nodeReferenceSearch.nodeTitle">查找目标：{{ nodeReferenceSearch.nodeTitle }}</strong>
+            <small>{{ nodeReferenceSearch.loading ? '扫描中...' : `${nodeReferenceSearch.results.length} 个蓝图` }}</small>
+            <button class="reference-tool-button" :title="referencePanelCollapsed ? '展开引用结果' : '收起引用结果'" @click="toggleReferencePanel">{{ referencePanelCollapsed ? '▴' : '▾' }}</button>
+            <button class="reference-tool-button close" title="关闭引用结果" @click="nodeReferenceSearch.visible = false">×</button>
+          </div>
+          <div v-show="!referencePanelCollapsed" class="reference-results">
+            <div v-if="nodeReferenceSearch.loading" class="reference-empty">正在扫描当前工程下的 .vgf / .obp 文件...</div>
+            <div v-else-if="!nodeReferenceSearch.results.length" class="reference-empty">没有找到引用该结点的蓝图</div>
+            <template v-else>
+              <button v-for="result in nodeReferenceSearch.results" :key="result.path" class="reference-row" :title="result.path" @contextmenu.stop.prevent="openFileContextMenu($event, result.path)" @dblclick="openNodeReference(result)">
+                <span>{{ result.name }}</span>
+                <small>{{ result.count }} 次</small>
+                <code>{{ result.path }}</code>
+              </button>
+            </template>
+          </div>
         </div>
         <footer class="status-bar"><span>{{ status }}</span><span>Nodes {{ metrics.nodes }} · Connections {{ metrics.connections }}</span><button @click="editor?.resetView()">{{ zoomLabel }}</button></footer>
       </section>
 
+      <div v-show="showRight" class="right-sidebar-splitter" @pointerdown="beginRightSidebarResize"></div>
       <aside v-show="showRight" class="sidebar sidebar-right">
         <div class="panel module-panel">
           <div class="panel-title"><span class="chevron">⌄</span> 模块库</div>
@@ -987,13 +986,9 @@ function toggleModuleCategory(category: string) {
       <div class="module-node-menu-title">{{ moduleNodeMenu.node?.title }}</div>
       <button @click="findModuleNodeReferences()">查找所有引用</button>
     </div>
-    <div v-if="previewTable" class="table-preview-backdrop" @click.self="previewTable = null">
-      <section class="table-preview-dialog">
-        <header><strong>Table Preview</strong><span>{{ previewTable.table.rows.length }} rows x {{ previewTable.table.columns.length }} columns</span><button @click="copyPreviewCSV">Copy CSV</button><button @click="exportPreviewCSV">Export CSV</button><button @click="previewTable = null">Close</button></header>
-        <div class="table-preview-tools"><input v-model="previewSearch" placeholder="Search all cells..." @input="previewPage = 1" /><label>Rows<select v-model.number="previewPageSize" @change="previewPage = 1"><option :value="50">50</option><option :value="100">100</option><option :value="250">250</option><option :value="500">500</option></select></label><span>{{ filteredPreviewRows.length }} matched</span></div>
-        <div class="table-preview-scroll"><table><thead><tr><th class="row-number">#</th><th v-for="column in previewTable.table.columns" :key="column">{{ column }}</th></tr></thead><tbody><tr v-for="(row, rowIndex) in pagedPreviewRows" :key="rowIndex"><td class="row-number">{{ (previewPage - 1) * previewPageSize + rowIndex + 1 }}</td><td v-for="(cell, cellIndex) in row" :key="cellIndex" :title="String(cell ?? '')">{{ cell }}</td></tr></tbody></table><div v-if="!pagedPreviewRows.length" class="table-preview-empty">No matching rows.</div></div>
-        <footer><button :disabled="previewPage <= 1" @click="previewPage--">Previous</button><span>Page {{ Math.min(previewPage, previewPageCount) }} / {{ previewPageCount }}</span><button :disabled="previewPage >= previewPageCount" @click="previewPage++">Next</button></footer>
-      </section>
+    <div v-if="fileContextMenu.visible" class="file-context-menu" :style="{ left: `${fileContextMenu.x}px`, top: `${fileContextMenu.y}px` }" @pointerdown.stop>
+      <button @click="openFileContextGraph">打开蓝图</button>
+      <button @click="revealFileContextInFolder">在资源管理器中定位</button>
     </div>
     <div v-if="unsavedCloseDialog.visible" class="unsaved-close-backdrop">
       <section class="unsaved-close-dialog">
@@ -1006,6 +1001,6 @@ function toggleModuleCategory(category: string) {
         </footer>
       </section>
     </div>
-    <div v-if="showAbout" class="about-backdrop" @click.self="showAbout = false"><section class="about-dialog"><header><strong>Origin Blueprint</strong><button @click="showAbout = false">×</button></header><p>Cross-platform blueprint editor built with Go, Wails, Vue 3 and Rete.js.</p><dl><dt>Canvas</dt><dd>Right drag or middle drag pans, mouse wheel zooms, left drag selects.</dd><dt>Connections</dt><dd>Click a connection then Delete, or Ctrl + right-drag to cut lines.</dd><dt>Editing</dt><dd>Ctrl+C/X/V, Ctrl+Z/Y, Ctrl+G and alignment shortcuts match OriginNodeEditor.</dd><dt>Run</dt><dd>F5 runs the graph; Shift+F5 stops it.</dd></dl><footer><button @click="showAbout = false">Close</button></footer></section></div>
+    <div v-if="showAbout" class="about-backdrop" @click.self="showAbout = false"><section class="about-dialog"><header><strong>Origin Blueprint</strong><button @click="showAbout = false">×</button></header><p>Cross-platform blueprint editor built with Go, Wails, Vue 3 and Rete.js.</p><dl><dt>Canvas</dt><dd>Right drag or middle drag pans, mouse wheel zooms, left drag selects.</dd><dt>Connections</dt><dd>Click a connection then Delete, or Ctrl + right-drag to cut lines.</dd><dt>Editing</dt><dd>Ctrl+C/X/V, Ctrl+Z/Y, Ctrl+G and alignment shortcuts match OriginNodeEditor.</dd><dt>Test</dt><dd>F5 checks structure, unreachable flow nodes, missing entries, and possible execution loops.</dd></dl><footer><button @click="showAbout = false">Close</button></footer></section></div>
   </main>
 </template>

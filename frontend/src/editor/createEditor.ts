@@ -108,8 +108,6 @@ export interface BlueprintEditorHandle {
   updateSelectedNode(label: string, values: Record<string, unknown>): Promise<void>
   focusNode(id: string): Promise<void>
   highlightNodesByType(typeId: string): Promise<number>
-  setExecutionStates(states: Array<{ nodeId: string; state: 'idle' | 'running' | 'completed' | 'error' }>): Promise<void>
-  clearExecutionStates(): Promise<void>
 }
 
 interface Callbacks {
@@ -1078,24 +1076,16 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
 
   async function highlightNodesByType(typeId: string) {
     const matches = editor.getNodes().filter(node => node.typeId === typeId)
-    await selector.unselectAll()
-    for (const node of matches) await selectable.select(node.id, true)
-    callbacks.onSelection(matches.length === 1 ? selectedNodeInfo(matches[0]) : null)
+    for (const node of editor.getNodes()) {
+      const highlighted = matches.includes(node)
+      if (node.referenceHighlighted !== highlighted) {
+        node.referenceHighlighted = highlighted
+        await area.update('node', node.id)
+      }
+    }
+    callbacks.onSelection(null)
     if (matches.length) await AreaExtensions.zoomAt(area, matches, { scale: 0.9 })
     return matches.length
-  }
-
-  async function setExecutionStates(states: Array<{ nodeId: string; state: 'idle' | 'running' | 'completed' | 'error' }>) {
-    for (const item of states) {
-      const node = editor.getNode(item.nodeId)
-      if (!node) continue
-      node.executionState = item.state
-      await area.update('node', node.id)
-    }
-  }
-
-  async function clearExecutionStates() {
-    await setExecutionStates(editor.getNodes().map(node => ({ nodeId: node.id, state: 'idle' as const })))
   }
 
   function setupRubberBandSelection() {
@@ -1334,8 +1324,6 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     setVariables,
     updateSelectedNode,
     focusNode,
-    highlightNodesByType,
-    setExecutionStates,
-    clearExecutionStates
+    highlightNodesByType
   }
 }

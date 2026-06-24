@@ -477,6 +477,101 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 			issues = append(issues, ValidationIssue{Severity: "error", Code: "connection.type-mismatch", Message: fmt.Sprintf("Cannot connect %s to %s", sourceType, targetType), NodeID: target.ID})
 		}
 	}
+	issues = append(issues, validateExecutionFlow(nodes, ports, document.Connections)...)
 
 	return issues
+}
+
+func validateExecutionFlow(nodes map[string]GraphNode, ports map[string]portDefinition, connections []GraphConnection) []ValidationIssue {
+	issues := make([]ValidationIssue, 0)
+	executable := make(map[string]bool)
+	entries := make(map[string]bool)
+	execEdges := make(map[string][]string)
+	for nodeID, definition := range ports {
+		hasExecInput := hasPortType(definition.Inputs, "exec")
+		hasExecOutput := hasPortType(definition.Outputs, "exec")
+		if hasExecInput || hasExecOutput {
+			executable[nodeID] = true
+		}
+		if !hasExecInput && hasExecOutput {
+			entries[nodeID] = true
+		}
+	}
+	if len(executable) == 0 {
+		return issues
+	}
+	for _, connection := range connections {
+		sourceDefinition, sourceKnown := ports[connection.Source]
+		targetDefinition, targetKnown := ports[connection.Target]
+		if !sourceKnown || !targetKnown {
+			continue
+		}
+		if sourceDefinition.Outputs[connection.SourceOutput] == "exec" && targetDefinition.Inputs[connection.TargetInput] == "exec" {
+			execEdges[connection.Source] = append(execEdges[connection.Source], connection.Target)
+		}
+	}
+	if len(entries) == 0 {
+		issues = append(issues, ValidationIssue{Severity: "warning", Code: "flow.missing-entry", Message: "Executable graph has no entry node"})
+		return issues
+	}
+
+	reachable := make(map[string]bool)
+	var visitReachable func(string)
+	visitReachable = func(nodeID string) {
+		if reachable[nodeID] {
+			return
+		}
+		reachable[nodeID] = true
+		for _, next := range execEdges[nodeID] {
+			visitReachable(next)
+		}
+	}
+	for nodeID := range entries {
+		visitReachable(nodeID)
+	}
+	for nodeID := range executable {
+		if !reachable[nodeID] {
+			label := nodes[nodeID].Properties.Label
+			if label == "" {
+				label = nodeID
+			}
+			issues = append(issues, ValidationIssue{Severity: "warning", Code: "flow.unreachable-node", Message: "Node is not reachable from any entry: " + label, NodeID: nodeID})
+		}
+	}
+
+	visiting := make(map[string]bool)
+	visited := make(map[string]bool)
+	cycleReported := make(map[string]bool)
+	var detectCycle func(string)
+	detectCycle = func(nodeID string) {
+		if visiting[nodeID] {
+			if !cycleReported[nodeID] {
+				issues = append(issues, ValidationIssue{Severity: "warning", Code: "flow.possible-cycle", Message: "Potential execution loop detected", NodeID: nodeID})
+				cycleReported[nodeID] = true
+			}
+			return
+		}
+		if visited[nodeID] || !reachable[nodeID] {
+			return
+		}
+		visiting[nodeID] = true
+		for _, next := range execEdges[nodeID] {
+			detectCycle(next)
+		}
+		visiting[nodeID] = false
+		visited[nodeID] = true
+	}
+	for nodeID := range entries {
+		detectCycle(nodeID)
+	}
+	return issues
+}
+
+func hasPortType(ports map[string]string, portType string) bool {
+	for _, value := range ports {
+		if value == portType {
+			return true
+		}
+	}
+	return false
 }

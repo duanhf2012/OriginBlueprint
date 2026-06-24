@@ -245,6 +245,76 @@ func TestValidateGraphReportsMissingVariableAndTypeMismatch(t *testing.T) {
 	}
 }
 
+func TestValidateGraphReportsUnreachableFlowNodesFromEntries(t *testing.T) {
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		Nodes: []GraphNode{
+			{ID: "entry", TypeID: "origin.event.begin"},
+			{ID: "reachable", TypeID: "origin.debug.output"},
+			{ID: "wild", TypeID: "origin.debug.output"},
+		},
+		Connections: []GraphConnection{{Source: "entry", SourceOutput: "exec", Target: "reachable", TargetInput: "exec"}},
+	}
+	issues := validateGraph(document)
+	if !hasIssue(issues, "flow.unreachable-node", "wild") {
+		t.Fatalf("issues = %#v, want unreachable wild node", issues)
+	}
+	if hasIssue(issues, "flow.unreachable-node", "reachable") {
+		t.Fatalf("reachable node should not be reported: %#v", issues)
+	}
+}
+
+func TestValidateGraphReportsPossibleExecCycles(t *testing.T) {
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		Nodes: []GraphNode{
+			{ID: "entry", TypeID: "origin.event.begin"},
+			{ID: "a", TypeID: "origin.debug.output"},
+			{ID: "b", TypeID: "origin.debug.output"},
+		},
+		Connections: []GraphConnection{
+			{Source: "entry", SourceOutput: "exec", Target: "a", TargetInput: "exec"},
+			{Source: "a", SourceOutput: "exec", Target: "b", TargetInput: "exec"},
+			{Source: "b", SourceOutput: "exec", Target: "a", TargetInput: "exec"},
+		},
+	}
+	issues := validateGraph(document)
+	if !hasIssue(issues, "flow.possible-cycle", "a") && !hasIssue(issues, "flow.possible-cycle", "b") {
+		t.Fatalf("issues = %#v, want possible exec cycle", issues)
+	}
+}
+
+func TestValidateGraphWarnsWhenExecutableGraphHasNoEntry(t *testing.T) {
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		Nodes: []GraphNode{
+			{ID: "debug", TypeID: "origin.debug.output"},
+		},
+	}
+	issues := validateGraph(document)
+	if !hasIssue(issues, "flow.missing-entry", "") {
+		t.Fatalf("issues = %#v, want missing entry warning", issues)
+	}
+}
+
+func hasIssue(issues []ValidationIssue, code string, nodeID string) bool {
+	for _, issue := range issues {
+		if issue.Code == code && (nodeID == "" || issue.NodeID == nodeID) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasValidationErrors(issues []ValidationIssue) bool {
+	for _, issue := range issues {
+		if issue.Severity == "error" {
+			return true
+		}
+	}
+	return false
+}
+
 func TestValidateGraphServiceRejectsInvalidJSON(t *testing.T) {
 	app := NewApp()
 	if _, err := app.ValidateGraph("{"); err == nil {
@@ -269,7 +339,7 @@ func TestValidateGraphAcceptsMigratedMathAndFlowNodes(t *testing.T) {
 			{Source: "compare", SourceOutput: "true", Target: "sequence", TargetInput: "exec"},
 		},
 	}
-	if issues := validateGraph(document); len(issues) != 0 {
+	if issues := validateGraph(document); hasValidationErrors(issues) {
 		t.Fatalf("issues = %#v", issues)
 	}
 }
@@ -289,7 +359,7 @@ func TestValidateGraphAcceptsArrayAndDynamicSequence(t *testing.T) {
 			{Source: "sequence", SourceOutput: "then4", Target: "debug", TargetInput: "exec"},
 		},
 	}
-	if issues := validateGraph(document); len(issues) != 0 {
+	if issues := validateGraph(document); hasValidationErrors(issues) {
 		t.Fatalf("issues = %#v", issues)
 	}
 }

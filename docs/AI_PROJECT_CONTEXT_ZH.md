@@ -185,16 +185,14 @@ editor.getDocument
 大致流程：
 
 ```text
-App.vue runGraph
+App.vue testGraph
   -> editor.getDocument
   -> ValidateGraph
-  -> StartGraph
-  -> execution.go executeGraph
-  -> runtime.EventsEmit("origin:execution")
-  -> 前端更新节点状态、日志、结果、变量快照
+  -> graph.go validateGraph / validateExecutionFlow
+  -> 底部 Test Results 面板展示问题，点击问题可定位节点
 ```
 
-运行时只依赖 `GraphDocument`，这让 UI 和执行逻辑保持分离。改运行语义时优先加 Go 测试。
+运行时只依赖 `GraphDocument`，这让 UI 和执行逻辑保持分离。当前前端不暴露本地运行入口；`execution.go` 保留底层执行语义和 Go 测试，便于后续恢复运行能力或验证兼容执行逻辑。
 
 ## 兼容性红线
 

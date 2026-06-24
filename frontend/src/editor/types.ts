@@ -29,7 +29,7 @@ export class BlueprintNode extends ClassicPreset.Node {
   dynamicOutputs?: boolean
   dynamicOutputCount?: number
   dynamicBranch?: DynamicBranchConfig
-  executionState?: 'idle' | 'running' | 'completed' | 'error'
+  referenceHighlighted?: boolean
   legacyClass?: string
   legacyModule?: string
   legacyInputs?: Array<{ key: string; label: string; type: string }>

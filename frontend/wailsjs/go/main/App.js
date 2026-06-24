@@ -66,14 +66,6 @@ export function SaveGraph(arg1, arg2) {
   return window['go']['main']['App']['SaveGraph'](arg1, arg2);
 }
 
-export function StartGraph(arg1) {
-  return window['go']['main']['App']['StartGraph'](arg1);
-}
-
-export function StopGraph(arg1) {
-  return window['go']['main']['App']['StopGraph'](arg1);
-}
-
 export function ValidateGraph(arg1) {
   return window['go']['main']['App']['ValidateGraph'](arg1);
 }

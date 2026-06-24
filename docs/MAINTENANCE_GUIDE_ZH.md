@@ -280,16 +280,13 @@ main.go
 ### 6.4 运行蓝图
 
 ```text
-用户点击 Run/F5
-  -> App.vue runGraph()
-  -> 先 getDocument() 并调用 ValidateGraph()
-  -> platform.startGraph(JSON)
-  -> App.StartGraph()
-  -> 后台 goroutine 执行 executeGraph()
-  -> graphExecutor 沿 Exec 连线运行
-  -> 按需递归计算数据输入
-  -> Wails 事件批量发送进度、日志和结果
-  -> App.vue 更新节点高亮、日志和表格预览
+用户点击 Test/F5
+  -> App.vue testGraph()
+  -> editor.getDocument()
+  -> platform.validateGraph(JSON)
+  -> graph.go validateGraph()
+  -> graph.go validateExecutionFlow()
+  -> App.vue 在底部 Test Results 面板展示问题，点击问题定位节点
 ```
 
 ### 6.5 拖动节点为什么不调用 Go
@@ -327,10 +324,8 @@ main.go
 
 ### 7.4 `execution.go`
 
-这是蓝图解释执行器：
+这是蓝图解释执行器。当前前端不暴露本地运行入口，右上角 `Test` 调用 `ValidateGraph` 做结构与流程可达性检查；`execution.go` 保留底层执行语义和测试覆盖，便于后续恢复运行能力或验证兼容执行逻辑。
 
-- `StartGraph`：解析文档、创建可取消会话并启动 goroutine。
-- `StopGraph`：通过 `context.CancelFunc` 停止会话。
 - `runNode`：执行带 Exec 流程的节点。
 - `follow`：沿指定 Exec 输出继续运行。
 - `input`：取得节点输入，优先读取连线来源，否则读取默认值。
