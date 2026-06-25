@@ -4,7 +4,7 @@ import { parseNodeSchemaDocument } from './editor/runtimeNodeSchemas'
 export interface FileResult { path: string; content: string }
 export interface WorkspaceEntry { name: string; path: string; isDir: boolean }
 export interface NodeReferenceResult { name: string; path: string; count: number }
-export interface ValidationIssue { severity: 'error' | 'warning'; code: string; message: string; nodeId?: string }
+export interface ValidationIssue { severity: 'error' | 'warning'; code: string; message: string; nodeId?: string; nodeIds?: string[] }
 export interface NodeSchemaLoadResult { nodes: NodeSchema[]; errors: Array<{ path: string; message: string }>; documentCount: number }
 interface NodeSchemaDocument { path: string; content: string }
 interface NodeSchemaDocumentLoadResult { documents: NodeSchemaDocument[]; errors: Array<{ path: string; message: string }> }
@@ -30,6 +30,7 @@ type DesktopApp = {
   MigrateLegacyGraph(content: string): Promise<string>
   ExportLegacyGraph(content: string): Promise<string>
   LoadNodeSchemaDocuments(): Promise<RawNodeSchemaDocumentLoadResult>
+  LogClientError(level: string, message: string, stack: string, context: string): Promise<void>
 }
 
 type WailsRuntime = {
@@ -38,6 +39,25 @@ type WailsRuntime = {
 
 function desktop(): DesktopApp | undefined {
   return (window as unknown as { go?: { main?: { App?: DesktopApp } } }).go?.main?.App
+}
+
+async function logDesktopError(level: string, message: string, stack: string, context: string) {
+  try { await desktop()?.LogClientError(level, message, stack, context) } catch { /* logging must never break user actions */ }
+}
+
+function describeError(error: unknown) {
+  if (error instanceof Error) return { message: error.message, stack: error.stack ?? '' }
+  return { message: String(error), stack: '' }
+}
+
+async function withDesktopLogging<T>(context: string, action: () => Promise<T>): Promise<T> {
+  try {
+    return await action()
+  } catch (error) {
+    const detail = describeError(error)
+    await logDesktopError('error', detail.message, detail.stack, context)
+    throw error
+  }
 }
 
 function download(name: string, content: string, type: string) {
@@ -98,8 +118,11 @@ async function loadBrowserNodeSchemaDocuments(): Promise<NodeSchemaDocumentLoadR
 
 export const platform = {
   isDesktop: () => Boolean(desktop()),
+  async logClientError(level: string, message: string, stack = '', context = 'frontend') {
+    await logDesktopError(level, message, stack, context)
+  },
   async openGraph(path = ''): Promise<FileResult | null> {
-    if (desktop()) return desktop()!.OpenGraph(path)
+    if (desktop()) return withDesktopLogging('OpenGraph', () => desktop()!.OpenGraph(path))
     return new Promise(resolve => {
       const input = document.createElement('input')
       input.type = 'file'; input.accept = '.obp,.vgf,.json'
@@ -111,14 +134,14 @@ export const platform = {
     })
   },
   async saveGraph(path: string, content: string) {
-    if (desktop()) return desktop()!.SaveGraph(path, content)
+    if (desktop()) return withDesktopLogging('SaveGraph', () => desktop()!.SaveGraph(path, content))
     download(path || 'Untitled.obp', content, 'application/json')
     return path || 'Untitled.obp'
   },
-  async currentWorkingDirectory() { return desktop() ? desktop()!.CurrentWorkingDirectory() : '' },
-  async chooseWorkspace() { return desktop() ? desktop()!.ChooseWorkspace() : '' },
+  async currentWorkingDirectory() { return desktop() ? withDesktopLogging('CurrentWorkingDirectory', () => desktop()!.CurrentWorkingDirectory()) : '' },
+  async chooseWorkspace() { return desktop() ? withDesktopLogging('ChooseWorkspace', () => desktop()!.ChooseWorkspace()) : '' },
   async chooseDataFile(mode: 'open' | 'save') {
-    if (desktop()) return desktop()!.ChooseDataFile(mode)
+    if (desktop()) return withDesktopLogging('ChooseDataFile', () => desktop()!.ChooseDataFile(mode))
     if (mode === 'save') return window.prompt('Output file name', 'output.csv') ?? ''
     return new Promise<string>(resolve => {
       const input = document.createElement('input')
@@ -128,28 +151,28 @@ export const platform = {
     })
   },
   async newWindow() {
-    if (desktop()) return desktop()!.NewWindow()
+    if (desktop()) return withDesktopLogging('NewWindow', () => desktop()!.NewWindow())
     window.open(window.location.href, '_blank', 'noopener')
   },
   async clearRecentFiles() {
-    if (desktop()) await desktop()!.ClearRecentFiles()
+    if (desktop()) await withDesktopLogging('ClearRecentFiles', () => desktop()!.ClearRecentFiles())
   },
   async quit() {
-    if (desktop()) await desktop()!.Quit()
+    if (desktop()) await withDesktopLogging('Quit', () => desktop()!.Quit())
     else window.close()
   },
-  async listWorkspace(path: string) { return desktop() ? desktop()!.ListWorkspace(path) : [] },
-  async findNodeReferences(root: string, typeId: string) { return desktop() ? desktop()!.FindNodeReferences(root, typeId) : [] },
-  async revealInFolder(path: string) { if (desktop()) await desktop()!.RevealInFolder(path) },
-  async recentFiles() { return desktop() ? desktop()!.GetRecentFiles() : [] },
+  async listWorkspace(path: string) { return desktop() ? withDesktopLogging('ListWorkspace', () => desktop()!.ListWorkspace(path)) : [] },
+  async findNodeReferences(root: string, typeId: string) { return desktop() ? withDesktopLogging('FindNodeReferences', () => desktop()!.FindNodeReferences(root, typeId)) : [] },
+  async revealInFolder(path: string) { if (desktop()) await withDesktopLogging('RevealInFolder', () => desktop()!.RevealInFolder(path)) },
+  async recentFiles() { return desktop() ? withDesktopLogging('GetRecentFiles', () => desktop()!.GetRecentFiles()) : [] },
   async validateGraph(content: string): Promise<ValidationIssue[]> {
-    if (desktop()) return desktop()!.ValidateGraph(content)
+    if (desktop()) return withDesktopLogging('ValidateGraph', () => desktop()!.ValidateGraph(content))
     try { JSON.parse(content); return [] } catch { return [{ severity: 'error', code: 'document.invalid-json', message: 'Invalid graph document' }] }
   },
-  async migrateLegacyGraph(content: string) { return desktop() ? desktop()!.MigrateLegacyGraph(content) : '' },
-  async exportLegacyGraph(content: string) { return desktop() ? desktop()!.ExportLegacyGraph(content) : content },
+  async migrateLegacyGraph(content: string) { return desktop() ? withDesktopLogging('MigrateLegacyGraph', () => desktop()!.MigrateLegacyGraph(content)) : '' },
+  async exportLegacyGraph(content: string) { return desktop() ? withDesktopLogging('ExportLegacyGraph', () => desktop()!.ExportLegacyGraph(content)) : content },
   async loadNodeSchemas(): Promise<NodeSchemaLoadResult> {
-    const result = normalizeNodeSchemaDocumentLoadResult(desktop() ? await desktop()!.LoadNodeSchemaDocuments() : await loadBrowserNodeSchemaDocuments())
+    const result = normalizeNodeSchemaDocumentLoadResult(desktop() ? await withDesktopLogging('LoadNodeSchemaDocuments', () => desktop()!.LoadNodeSchemaDocuments()) : await loadBrowserNodeSchemaDocuments())
     return parseNodeSchemaDocuments(result.documents, result.errors)
   },
   onCloseRequest(callback: () => void) {
@@ -157,7 +180,7 @@ export const platform = {
     return runtime?.EventsOnMultiple?.('origin:before-close', callback, -1) ?? (() => {})
   },
   async exportPNG(dataURL: string) {
-    if (desktop()) return desktop()!.ExportPNG(dataURL)
+    if (desktop()) return withDesktopLogging('ExportPNG', () => desktop()!.ExportPNG(dataURL))
     const anchor = document.createElement('a'); anchor.href = dataURL; anchor.download = 'OriginBlueprint.png'; anchor.click()
     return anchor.download
   }

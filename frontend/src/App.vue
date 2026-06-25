@@ -52,6 +52,7 @@ const variableGroups = ref<GraphVariableGroup[]>([{ id: 'default', name: 'Defaul
 const selectedVariableId = ref<string | null>(null)
 const selectedNode = ref<SelectedNodeInfo | null>(null)
 const validationIssues = ref<ValidationIssue[]>([])
+const selectedValidationIssueKey = ref('')
 const unsavedCloseDialog = ref<{ visible: boolean; names: string[]; resolve?: (action: UnsavedCloseAction) => void }>({ visible: false, names: [] })
 let untitledCount = 1
 const tabDragIndex = ref(-1)
@@ -501,13 +502,38 @@ async function testGraph() {
   if (!editor) return
   const document = editor.getDocument(activeTab.value.title, variables.value, variableGroups.value)
   validationIssues.value = await platform.validateGraph(JSON.stringify(document))
+  selectedValidationIssueKey.value = ''
   showLogger.value = true
   const errors = validationIssues.value.filter(issue => issue.severity === 'error').length
   const warnings = validationIssues.value.filter(issue => issue.severity === 'warning').length
   status.value = validationIssues.value.length ? `检查发现 ${errors} 个错误，${warnings} 个警告` : '蓝图检查通过'
 }
 
-async function focusIssue(issue: ValidationIssue) { if (issue.nodeId) await editor?.focusNode(issue.nodeId) }
+function validationIssueKey(issue: ValidationIssue, index: number) {
+  return `${index}:${issue.severity}:${issue.code}:${issueNodeIds(issue).join(',')}:${issue.message}`
+}
+
+function issueNodeIds(issue: ValidationIssue) {
+  const ids = issue.nodeIds?.length ? issue.nodeIds : issue.nodeId ? [issue.nodeId] : []
+  return [...new Set(ids.filter(Boolean))]
+}
+
+async function selectIssue(issue: ValidationIssue, index: number) {
+  selectedValidationIssueKey.value = validationIssueKey(issue, index)
+  const ids = issueNodeIds(issue)
+  if (ids.length === 1) await editor?.focusNode(ids[0])
+}
+
+async function highlightIssue(issue: ValidationIssue, index: number) {
+  selectedValidationIssueKey.value = validationIssueKey(issue, index)
+  const ids = issueNodeIds(issue)
+  if (!ids.length) {
+    status.value = '该问题没有对应结点'
+    return
+  }
+  const count = await editor?.highlightIssueNodes(ids) ?? 0
+  status.value = count ? `已用红色警示框标出 ${count} 个问题结点` : '未找到对应结点'
+}
 
 async function openGraph(path = '', highlightTypeId = '') {
   const file = await platform.openGraph(path)
@@ -1042,7 +1068,7 @@ function toggleModuleCategory(category: string) {
           </div>
           <div v-show="!testPanelCollapsed" class="logger-results">
             <div v-if="!validationIssues.length" class="logger-line">没有发现蓝图问题。</div>
-            <button v-for="issue in validationIssues" :key="`${issue.code}-${issue.nodeId}`" class="logger-issue" :class="issue.severity" @click="focusIssue(issue)"><strong>{{ issue.severity === 'error' ? '错误' : '警告' }}</strong><span>{{ issue.message }}</span><small>{{ issue.code }}</small></button>
+            <button v-for="(issue, index) in validationIssues" :key="validationIssueKey(issue, index)" class="logger-issue" :class="[issue.severity, { selected: selectedValidationIssueKey === validationIssueKey(issue, index) }]" @click="selectIssue(issue, index)" @dblclick.stop.prevent="highlightIssue(issue, index)"><strong>{{ issue.severity === 'error' ? '错误' : '警告' }}</strong><span>{{ issue.message }}</span><small>{{ issue.code }}</small></button>
           </div>
         </div>
         <div v-if="nodeReferenceSearch.visible" class="reference-panel bottom-panel" :class="{ collapsed: referencePanelCollapsed }" :style="referencePanelStyle">

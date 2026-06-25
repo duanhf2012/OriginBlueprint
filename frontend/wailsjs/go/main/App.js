@@ -42,6 +42,10 @@ export function LoadNodeSchemaDocuments() {
   return window['go']['main']['App']['LoadNodeSchemaDocuments']();
 }
 
+export function LogClientError(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['LogClientError'](arg1, arg2, arg3, arg4);
+}
+
 export function MigrateLegacyGraph(arg1) {
   return window['go']['main']['App']['MigrateLegacyGraph'](arg1);
 }

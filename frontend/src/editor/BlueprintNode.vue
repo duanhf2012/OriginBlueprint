@@ -172,7 +172,7 @@ function removeBranch(index: number) {
 </script>
 
 <template>
-  <article class="blueprint-node" :class="[`kind-${data.kind ?? 'function'}`, { selected: data.selected, compact: data.compact, legacy: Boolean(data.legacyClass), 'has-entry-binding': hasEntryBinding, 'reference-highlighted': data.referenceHighlighted }]" :style="{ width: `${nodeWidth}px` }">
+  <article class="blueprint-node" :class="[`kind-${data.kind ?? 'function'}`, { selected: data.selected, compact: data.compact, legacy: Boolean(data.legacyClass), 'has-entry-binding': hasEntryBinding, 'reference-highlighted': data.referenceHighlighted, 'issue-highlighted': data.issueHighlighted }]" :style="{ width: `${nodeWidth}px` }">
     <header class="blueprint-title">
       <span class="node-icon">&#9670;</span>
       <span class="title-text">{{ data.label }}</span>
@@ -251,7 +251,8 @@ function removeBranch(index: number) {
 .blueprint-node.legacy { --accent: #b77b32; border-style: dashed; }
 .legacy-badge { margin-left: 4px; padding: 1px 4px; border: 1px solid #ffe0a455; border-radius: 2px; background: #2a1d0d99; color: #ffe0a4; font-size: 8px; letter-spacing: .5px; }
 .blueprint-node.selected { outline: 2px solid #f5b642; outline-offset: 2px; box-shadow: 0 0 12px #f5b64255; }
- .blueprint-node.reference-highlighted { outline: 3px solid #ffbb33; outline-offset: 3px; box-shadow: 0 0 0 1px #fff3cd88, 0 0 22px #ffbb3388, 0 5px 13px #0009; }
+.blueprint-node.reference-highlighted { outline: 3px solid #ffbb33; outline-offset: 3px; box-shadow: 0 0 0 1px #fff3cd88, 0 0 22px #ffbb3388, 0 5px 13px #0009; }
+.blueprint-node.issue-highlighted { outline: 3px solid #ff3b3b; outline-offset: 3px; box-shadow: 0 0 0 1px #ffe2e288, 0 0 22px #ff3b3b99, 0 5px 13px #0009; }
 .blueprint-node.compact { box-shadow: 0 2px 6px #0008; }
 .blueprint-node.compact .blueprint-title { height: 25px; font-size: 12px; }
 .blueprint-node.compact .ports { padding: 3px 0 4px; }

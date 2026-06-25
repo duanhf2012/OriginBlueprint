@@ -95,6 +95,7 @@ export namespace main {
 	    code: string;
 	    message: string;
 	    nodeId?: string;
+	    nodeIds?: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new ValidationIssue(source);
@@ -106,6 +107,7 @@ export namespace main {
 	        this.code = source["code"];
 	        this.message = source["message"];
 	        this.nodeId = source["nodeId"];
+	        this.nodeIds = source["nodeIds"];
 	    }
 	}
 	export class WorkspaceEntry {

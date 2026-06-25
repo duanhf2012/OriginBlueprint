@@ -99,4 +99,5 @@ export interface ValidationIssue {
   code: string
   message: string
   nodeId?: string
+  nodeIds?: string[]
 }

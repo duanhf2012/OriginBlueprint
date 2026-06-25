@@ -22,6 +22,8 @@ export function ListWorkspace(arg1:string):Promise<Array<main.WorkspaceEntry>>;
 
 export function LoadNodeSchemaDocuments():Promise<main.RuntimeNodeSchemaDocumentLoadResult>;
 
+export function LogClientError(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
+
 export function MigrateLegacyGraph(arg1:string):Promise<string>;
 
 export function NewWindow():Promise<void>;

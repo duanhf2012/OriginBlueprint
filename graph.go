@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 )
 
 const GraphSchemaVersion = 1
@@ -98,10 +99,11 @@ type GraphView struct {
 }
 
 type ValidationIssue struct {
-	Severity string `json:"severity"`
-	Code     string `json:"code"`
-	Message  string `json:"message"`
-	NodeID   string `json:"nodeId,omitempty"`
+	Severity string   `json:"severity"`
+	Code     string   `json:"code"`
+	Message  string   `json:"message"`
+	NodeID   string   `json:"nodeId,omitempty"`
+	NodeIDs  []string `json:"nodeIds,omitempty"`
 }
 
 type portDefinition struct {
@@ -516,7 +518,7 @@ func validateExecutionFlow(nodes map[string]GraphNode, ports map[string]portDefi
 		}
 	}
 	if len(entries) == 0 {
-		issues = append(issues, ValidationIssue{Severity: "warning", Code: "flow.missing-entry", Message: "蓝图存在可执行结点，但没有入口结点"})
+		issues = append(issues, ValidationIssue{Severity: "warning", Code: "flow.missing-entry", Message: "蓝图存在可执行结点，但没有入口结点", NodeIDs: sortedMapKeys(executable)})
 		return issues
 	}
 
@@ -618,6 +620,15 @@ func entrySetsOverlap(a, b map[string]bool) bool {
 		}
 	}
 	return false
+}
+
+func sortedMapKeys(values map[string]bool) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func hasPortType(ports map[string]string, portType string) bool {

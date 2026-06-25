@@ -108,6 +108,8 @@ export interface BlueprintEditorHandle {
   updateSelectedNode(label: string, values: Record<string, unknown>): Promise<void>
   focusNode(id: string): Promise<void>
   highlightNodesByType(typeId: string): Promise<number>
+  highlightIssueNode(id: string): Promise<number>
+  highlightIssueNodes(ids: string[]): Promise<number>
 }
 
 interface Callbacks {
@@ -1112,6 +1114,34 @@ function nodeSize(node: BlueprintNode) {
     return matches.length
   }
 
+  async function highlightIssueNodes(ids: string[]) {
+    const idSet = new Set(ids.filter(Boolean))
+    const matches = editor.getNodes().filter(node => idSet.has(node.id))
+    await selector.unselectAll()
+    for (const item of editor.getNodes()) {
+      const highlighted = idSet.has(item.id)
+      if (item.issueHighlighted !== highlighted) {
+        item.issueHighlighted = highlighted
+        await area.update('node', item.id)
+      }
+    }
+    for (const node of matches) {
+      await selectable.select(node.id, true)
+      node.issueHighlighted = true
+      await area.update('node', node.id)
+    }
+    callbacks.onSelection(matches.length === 1 ? selectedNodeInfo(matches[0]) : null)
+    if (matches.length) {
+      await nextFrame()
+      await AreaExtensions.zoomAt(area, matches, { scale: 0.9 })
+    }
+    return matches.length
+  }
+
+  async function highlightIssueNode(id: string) {
+    return highlightIssueNodes([id])
+  }
+
   function setupRubberBandSelection() {
     const rectangle = document.createElement('div')
     rectangle.className = 'selection-rectangle'
@@ -1348,6 +1378,8 @@ function nodeSize(node: BlueprintNode) {
     setVariables,
     updateSelectedNode,
     focusNode,
-    highlightNodesByType
+    highlightNodesByType,
+    highlightIssueNode,
+    highlightIssueNodes
   }
 }

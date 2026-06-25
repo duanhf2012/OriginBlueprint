@@ -289,11 +289,50 @@ func TestValidateGraphWarnsWhenExecutableGraphHasNoEntry(t *testing.T) {
 		SchemaVersion: GraphSchemaVersion,
 		Nodes: []GraphNode{
 			{ID: "debug", TypeID: "origin.debug.output"},
+			{ID: "other", TypeID: "origin.debug.output"},
 		},
 	}
 	issues := validateGraph(document)
 	if !hasIssue(issues, "flow.missing-entry", "") {
 		t.Fatalf("issues = %#v, want missing entry warning", issues)
+	}
+	for _, issue := range issues {
+		if issue.Code != "flow.missing-entry" {
+			continue
+		}
+		if len(issue.NodeIDs) != 2 || issue.NodeIDs[0] != "debug" || issue.NodeIDs[1] != "other" {
+			t.Fatalf("missing entry warning should include related node ids: %#v", issue)
+		}
+	}
+}
+
+func TestValidateGraphFollowsRuntimeJsonExecPorts(t *testing.T) {
+	legacy := legacyGraph{
+		GraphName: "runtime-json-exec",
+		Nodes: []legacyNode{
+			{ID: "entry", Class: "Entrance_AutoChoiceSkill_40301"},
+			{ID: "skill", Class: "GetObjLeftMinHpPercent"},
+			{ID: "switch", Class: "EqualSwitch"},
+		},
+		Edges: []legacyEdge{
+			{SourceNodeID: "entry", SourceIndex: 0, SourcePortID: 0, TargetNodeID: "skill", TargetIndex: 0, TargetPortID: 0},
+			{SourceNodeID: "skill", SourceIndex: 0, SourcePortID: 0, TargetNodeID: "switch", TargetIndex: 0, TargetPortID: 0},
+		},
+	}
+	data, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document, err := migrateLegacyGraph(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	issues := validateGraph(document)
+	if hasIssue(issues, "flow.missing-entry", "") {
+		t.Fatalf("runtime JSON exec entry should be recognized: %#v", issues)
+	}
+	if hasIssue(issues, "flow.unreachable-node", "skill") || hasIssue(issues, "flow.unreachable-node", "switch") {
+		t.Fatalf("runtime JSON exec chain should be reachable: %#v", issues)
 	}
 }
 

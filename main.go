@@ -12,6 +12,13 @@ import (
 var assets embed.FS
 
 func main() {
+	initAppLogger()
+	defer func() {
+		if value := recover(); value != nil {
+			logPanic("main", value)
+			panic(value)
+		}
+	}()
 	// Create an instance of the app structure
 	app := NewApp()
 
@@ -34,6 +41,7 @@ func main() {
 	})
 
 	if err != nil {
+		logError("wails.Run", err)
 		println("Error:", err.Error())
 	}
 }

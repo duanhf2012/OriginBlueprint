@@ -47,6 +47,11 @@ type legacyNodeSpec struct {
 	Inputs, Outputs []string
 }
 
+type runtimeLegacySpec struct {
+	legacyNodeSpec
+	InputPorts, OutputPorts []GraphLegacyPort
+}
+
 type legacyRuntimeNodeDefinition struct {
 	Name    string                 `json:"name"`
 	ID      string                 `json:"id"`
@@ -55,7 +60,10 @@ type legacyRuntimeNodeDefinition struct {
 }
 
 type legacyPortDefinition struct {
-	PortID interface{} `json:"port_id"`
+	PortID   interface{} `json:"port_id"`
+	Name     string      `json:"name"`
+	Type     string      `json:"type"`
+	DataType string      `json:"data_type"`
 }
 
 var legacyNodeSpecs = map[string]legacyNodeSpec{
@@ -179,7 +187,7 @@ func migrateLegacyGraph(data []byte) (GraphDocument, error) {
 		document.Variables = append(document.Variables, GraphVariable{ID: id, Name: name, Type: legacyVariableType(item["type"]), DefaultValue: item["value"], GroupID: groupID})
 	}
 	nodeByID := map[string]int{}
-	nodeSpecs := map[string]legacyNodeSpec{}
+	nodeSpecs := map[string]runtimeLegacySpec{}
 	maxInputs, maxOutputs := map[string]int{}, map[string]int{}
 	for _, edge := range legacy.Edges {
 		sourceIndex := legacyPortIndex(edge.SourcePortID, edge.SourceIndex)
@@ -222,8 +230,8 @@ func migrateLegacyGraph(data []byte) (GraphDocument, error) {
 			continue
 		}
 		if _, staticallyKnown := graphNodePorts[spec.TypeID]; !staticallyKnown {
-			properties.LegacyInputs = legacyPortsFromKeys(spec.Inputs)
-			properties.LegacyOutputs = legacyPortsFromKeys(spec.Outputs)
+			properties.LegacyInputs = legacyPortsFromRuntimeSpec(spec.Inputs, spec.InputPorts, "in")
+			properties.LegacyOutputs = legacyPortsFromRuntimeSpec(spec.Outputs, spec.OutputPorts, "out")
 		}
 		nodeSpecs[item.ID] = spec
 		position := GraphPosition{}
@@ -291,7 +299,7 @@ func migrateLegacyGraph(data []byte) (GraphDocument, error) {
 
 func exportLegacyGraph(document GraphDocument) ([]byte, error) {
 	runtimeSpecs := runtimeLegacyNodeSpecs()
-	specByType := map[string]legacyNodeSpec{}
+	specByType := map[string]runtimeLegacySpec{}
 	classByType := map[string]string{}
 	for class, spec := range runtimeSpecs {
 		if _, exists := specByType[spec.TypeID]; !exists {
@@ -309,23 +317,23 @@ func exportLegacyGraph(document GraphDocument) ([]byte, error) {
 		legacy.Time = document.Legacy.Time
 	}
 
-	nodeSpecs := map[string]legacyNodeSpec{}
+	nodeSpecs := map[string]runtimeLegacySpec{}
 	nodeIDs := map[string]bool{}
 	for _, node := range document.Nodes {
 		class := node.Properties.LegacyClass
 		module := node.Properties.LegacyModule
-		spec := legacyNodeSpec{}
+		spec := runtimeLegacySpec{}
 		if node.TypeID == "origin.flow.equal-switch-new" {
 			class = "EqualSwitch"
-			spec = legacyNodeSpecs[class]
+			spec = runtimeLegacySpec{legacyNodeSpec: legacyNodeSpecs[class]}
 		}
 		if node.TypeID == "origin.array.create-integer-new" {
 			class = "CreateIntArray"
-			spec = legacyNodeSpecs[class]
+			spec = runtimeLegacySpec{legacyNodeSpec: legacyNodeSpecs[class]}
 		}
 		if node.TypeID == "origin.array.create-string-new" {
 			class = "CreateStringArray"
-			spec = legacyNodeSpecs[class]
+			spec = runtimeLegacySpec{legacyNodeSpec: legacyNodeSpecs[class]}
 		}
 		if node.TypeID == "origin.variable.get" || node.TypeID == "origin.variable.set" {
 			variable, exists := variablesByID[node.Properties.VariableID]
@@ -336,12 +344,12 @@ func exportLegacyGraph(document GraphDocument) ([]byte, error) {
 				if class == "" {
 					class = "Get_" + variable.Name
 				}
-				spec = legacyNodeSpec{TypeID: node.TypeID, Outputs: []string{"value"}}
+				spec = runtimeLegacySpec{legacyNodeSpec: legacyNodeSpec{TypeID: node.TypeID, Outputs: []string{"value"}}}
 			} else {
 				if class == "" {
 					class = "Set_" + variable.Name
 				}
-				spec = legacyNodeSpec{TypeID: node.TypeID, Inputs: []string{"exec", "value"}, Outputs: []string{"exec", "value"}}
+				spec = runtimeLegacySpec{legacyNodeSpec: legacyNodeSpec{TypeID: node.TypeID, Inputs: []string{"exec", "value"}, Outputs: []string{"exec", "value"}}}
 			}
 			if module == "" {
 				module = "nodes.VariableNode"
@@ -421,8 +429,8 @@ func exportLegacyGraph(document GraphDocument) ([]byte, error) {
 	return json.MarshalIndent(legacy, "", "  ")
 }
 
-func runtimeLegacyNodeSpecs() map[string]legacyNodeSpec {
-	result := map[string]legacyNodeSpec{}
+func runtimeLegacyNodeSpecs() map[string]runtimeLegacySpec {
+	result := map[string]runtimeLegacySpec{}
 	loadResult := loadRuntimeNodeSchemaDocuments(runtimeNodeDirectories())
 	for _, document := range loadResult.Documents {
 		for _, definition := range parseLegacyRuntimeNodeDefinitions([]byte(document.Content)) {
@@ -431,13 +439,19 @@ func runtimeLegacyNodeSpecs() map[string]legacyNodeSpec {
 				continue
 			}
 			if spec, exists := legacyNodeSpecs[name]; exists {
-				result[name] = spec
+				result[name] = runtimeLegacySpec{legacyNodeSpec: spec}
 				continue
 			}
-			result[name] = legacyNodeSpec{
-				TypeID:  legacyRuntimeTypeID(definition, name),
-				Inputs:  generatedLegacyPortKeys(definition.Inputs, "in"),
-				Outputs: generatedLegacyPortKeys(definition.Outputs, "out"),
+			inputs := generatedLegacyPorts(definition.Inputs, "in")
+			outputs := generatedLegacyPorts(definition.Outputs, "out")
+			result[name] = runtimeLegacySpec{
+				legacyNodeSpec: legacyNodeSpec{
+					TypeID:  legacyRuntimeTypeID(definition, name),
+					Inputs:  legacyPortKeysFromPorts(inputs),
+					Outputs: legacyPortKeysFromPorts(outputs),
+				},
+				InputPorts:  inputs,
+				OutputPorts: outputs,
 			}
 		}
 	}
@@ -462,17 +476,56 @@ func parseLegacyRuntimeNodeDefinitions(data []byte) []legacyRuntimeNodeDefinitio
 	return nil
 }
 
-func generatedLegacyPortKeys(ports []legacyPortDefinition, prefix string) []string {
-	indexes := make([]int, 0, len(ports))
+func generatedLegacyPorts(ports []legacyPortDefinition, prefix string) []GraphLegacyPort {
+	type indexedPort struct {
+		index int
+		port  legacyPortDefinition
+	}
+	indexed := make([]indexedPort, 0, len(ports))
 	for fallback, port := range ports {
-		indexes = append(indexes, legacyPortIndex(port.PortID, fallback))
+		indexed = append(indexed, indexedPort{index: legacyPortIndex(port.PortID, fallback), port: port})
 	}
-	sort.Ints(indexes)
-	keys := make([]string, 0, len(indexes))
-	for _, index := range indexes {
-		keys = append(keys, fmt.Sprintf("%s%d", prefix, index))
+	sort.Slice(indexed, func(i, j int) bool { return indexed[i].index < indexed[j].index })
+	result := make([]GraphLegacyPort, 0, len(indexed))
+	for _, item := range indexed {
+		result = append(result, GraphLegacyPort{
+			Key:   fmt.Sprintf("%s%d", prefix, item.index),
+			Label: item.port.Name,
+			Type:  legacyRuntimePortType(item.port),
+		})
 	}
-	return keys
+	return result
+}
+
+func legacyPortKeysFromPorts(ports []GraphLegacyPort) []string {
+	result := make([]string, 0, len(ports))
+	for _, port := range ports {
+		result = append(result, port.Key)
+	}
+	return result
+}
+
+func legacyPortTypesFromPorts(ports []GraphLegacyPort) []string {
+	result := make([]string, 0, len(ports))
+	for _, port := range ports {
+		result = append(result, port.Type)
+	}
+	return result
+}
+
+func legacyPortLabelsFromPorts(ports []GraphLegacyPort) []string {
+	result := make([]string, 0, len(ports))
+	for _, port := range ports {
+		result = append(result, port.Label)
+	}
+	return result
+}
+
+func legacyRuntimePortType(port legacyPortDefinition) string {
+	if strings.EqualFold(strings.TrimSpace(port.Type), "exec") {
+		return "exec"
+	}
+	return legacyVariableType(port.DataType)
 }
 
 func legacyKeyIndex(keys []string, key, prefix string) (int, bool) {
@@ -488,10 +541,21 @@ func legacyKeyIndex(keys []string, key, prefix string) (int, bool) {
 	return 0, false
 }
 
-func legacyPortsFromKeys(keys []string) []GraphLegacyPort {
+func legacyPortsFromRuntimeSpec(keys []string, ports []GraphLegacyPort, prefix string) []GraphLegacyPort {
+	byKey := make(map[string]GraphLegacyPort, len(ports))
+	for _, port := range ports {
+		byKey[port.Key] = port
+	}
 	result := make([]GraphLegacyPort, 0, len(keys))
-	for _, key := range keys {
+	for index, key := range keys {
+		if port, exists := byKey[key]; exists {
+			result = append(result, port)
+			continue
+		}
 		result = append(result, GraphLegacyPort{Key: key, Label: key, Type: "any"})
+		if key == fmt.Sprintf("%s%d", prefix, index) {
+			result[len(result)-1].Label = ""
+		}
 	}
 	return result
 }
