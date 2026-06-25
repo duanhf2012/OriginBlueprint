@@ -297,6 +297,57 @@ func TestValidateGraphWarnsWhenExecutableGraphHasNoEntry(t *testing.T) {
 	}
 }
 
+func TestValidateGraphDoesNotReportUnknownNodeType(t *testing.T) {
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		Nodes:         []GraphNode{{ID: "unknown", TypeID: "origin.missing.node"}},
+	}
+	issues := validateGraph(document)
+	if hasIssue(issues, "node.unknown-type", "unknown") {
+		t.Fatalf("unknown node type should be ignored in test results: %#v", issues)
+	}
+}
+
+func TestValidateGraphUsesChineseMessagesForExecutionIssues(t *testing.T) {
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		Nodes: []GraphNode{
+			{ID: "entry", TypeID: "origin.event.begin"},
+			{ID: "wild", TypeID: "origin.debug.output"},
+		},
+	}
+	issues := validateGraph(document)
+	if !hasIssue(issues, "flow.unreachable-node", "wild") {
+		t.Fatalf("issues = %#v, want unreachable wild node", issues)
+	}
+	for _, issue := range issues {
+		if issue.Code == "flow.unreachable-node" && !strings.Contains(issue.Message, "不可达") {
+			t.Fatalf("unreachable message should be Chinese: %#v", issue)
+		}
+	}
+}
+
+func TestValidateGraphReportsCrossEntryDataConnections(t *testing.T) {
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		Nodes: []GraphNode{
+			{ID: "entry-a", TypeID: "origin.event.entry-two-integers"},
+			{ID: "entry-b", TypeID: "origin.event.entry-array"},
+			{ID: "debug-a", TypeID: "origin.debug.output"},
+			{ID: "debug-b", TypeID: "origin.debug.output"},
+		},
+		Connections: []GraphConnection{
+			{Source: "entry-a", SourceOutput: "exec", Target: "debug-a", TargetInput: "exec"},
+			{Source: "entry-b", SourceOutput: "exec", Target: "debug-b", TargetInput: "exec"},
+			{Source: "entry-a", SourceOutput: "objectId", Target: "debug-b", TargetInput: "integer"},
+		},
+	}
+	issues := validateGraph(document)
+	if !hasIssue(issues, "flow.cross-entry-data", "debug-b") {
+		t.Fatalf("issues = %#v, want cross-entry data issue", issues)
+	}
+}
+
 func hasIssue(issues []ValidationIssue, code string, nodeID string) bool {
 	for _, issue := range issues {
 		if issue.Code == code && (nodeID == "" || issue.NodeID == nodeID) {
@@ -355,6 +406,7 @@ func TestValidateGraphAcceptsArrayAndDynamicSequence(t *testing.T) {
 			{ID: "debug", TypeID: "origin.debug.output"},
 		},
 		Connections: []GraphConnection{
+			{Source: "entry", SourceOutput: "exec", Target: "sequence", TargetInput: "exec"},
 			{Source: "entry", SourceOutput: "params", Target: "length", TargetInput: "array"},
 			{Source: "sequence", SourceOutput: "then4", Target: "debug", TargetInput: "exec"},
 		},

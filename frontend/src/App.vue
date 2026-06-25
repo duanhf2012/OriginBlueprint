@@ -23,6 +23,8 @@ const contextMenu = ref({ visible: false, x: 0, y: 0, clientX: 0, clientY: 0, se
 const moduleNodeMenu = ref<ModuleNodeMenuState>({ visible: false, x: 0, y: 0, node: null })
 const nodeReferenceSearch = ref<NodeReferenceSearchState>({ visible: false, loading: false, nodeTitle: '', typeId: '', results: [] })
 const fileContextMenu = ref<FileContextMenuState>({ visible: false, x: 0, y: 0, path: '' })
+const testPanelHeight = ref(savedPanelSize('origin-blueprint-test-panel-height', 155, 96, 360))
+const testPanelCollapsed = ref(false)
 const referencePanelHeight = ref(savedReferencePanelHeight())
 const referencePanelCollapsed = ref(false)
 const tabs = ref<GraphTab[]>([{ id: crypto.randomUUID(), title: 'Untitled-1 Graph', path: '', dirty: false, document: null }])
@@ -86,6 +88,7 @@ const workspaceStyle = computed(() => ({
   '--right-sidebar-width': `${rightSidebarWidth.value}px`
 }))
 const referencePanelStyle = computed(() => ({ height: `${referencePanelCollapsed.value ? 34 : referencePanelHeight.value}px` }))
+const testPanelStyle = computed(() => ({ height: `${testPanelCollapsed.value ? 34 : testPanelHeight.value}px` }))
 const functionPanelStyle = computed(() => ({ flex: `0 0 ${functionPanelHeight.value}px` }))
 const variablePanelStyle = computed(() => ({ flex: `0 0 ${variablePanelHeight.value}px` }))
 const visibleWorkspaceNodes = computed(() => {
@@ -501,7 +504,7 @@ async function testGraph() {
   showLogger.value = true
   const errors = validationIssues.value.filter(issue => issue.severity === 'error').length
   const warnings = validationIssues.value.filter(issue => issue.severity === 'warning').length
-  status.value = validationIssues.value.length ? `Test found ${errors} error(s), ${warnings} warning(s)` : 'Blueprint test passed'
+  status.value = validationIssues.value.length ? `检查发现 ${errors} 个错误，${warnings} 个警告` : '蓝图检查通过'
 }
 
 async function focusIssue(issue: ValidationIssue) { if (issue.nodeId) await editor?.focusNode(issue.nodeId) }
@@ -899,6 +902,29 @@ function toggleReferencePanel() {
   referencePanelCollapsed.value = !referencePanelCollapsed.value
 }
 
+function toggleTestPanel() {
+  testPanelCollapsed.value = !testPanelCollapsed.value
+}
+
+function beginTestPanelResize(event: PointerEvent) {
+  if (event.button !== 0 || testPanelCollapsed.value) return
+  event.preventDefault()
+  const startY = event.clientY
+  const startHeight = testPanelHeight.value
+  const move = (next: PointerEvent) => {
+    testPanelHeight.value = Math.min(360, Math.max(96, Math.round(startHeight + startY - next.clientY)))
+  }
+  const up = () => {
+    localStorage.setItem('origin-blueprint-test-panel-height', String(testPanelHeight.value))
+    window.removeEventListener('pointermove', move)
+    window.removeEventListener('pointerup', up)
+    window.removeEventListener('pointercancel', up)
+  }
+  window.addEventListener('pointermove', move)
+  window.addEventListener('pointerup', up)
+  window.addEventListener('pointercancel', up)
+}
+
 function beginReferencePanelResize(event: PointerEvent) {
   if (event.button !== 0 || referencePanelCollapsed.value) return
   event.preventDefault()
@@ -1005,14 +1031,27 @@ function toggleModuleCategory(category: string) {
            <button class="tab-scroll-arrow right" @click="scrollTabStrip(1)">▶</button>
          </div>
         <div class="canvas-wrap" @contextmenu.prevent @dragenter="allowNodeDrop" @dragover="allowNodeDrop" @drop.prevent="dropNode"><div ref="canvas" class="rete-canvas"></div><div class="canvas-toolbar"><button title="Select">⌖</button><button title="Reset view" @click="editor?.resetView()">⌂</button></div><div class="canvas-hint">Right drag: pan&nbsp;&nbsp; Middle drag: pan&nbsp;&nbsp; Ctrl: multi-select&nbsp;&nbsp; Ctrl + right drag: cut connections&nbsp;&nbsp; Connection: click + Delete</div></div>
-        <div v-show="showLogger" class="logger-panel"><div class="logger-title"><span>Test Results</span><button @click="testGraph">Test</button></div><div v-if="!validationIssues.length" class="logger-line">No blueprint issues found.</div><button v-for="issue in validationIssues" :key="`${issue.code}-${issue.nodeId}`" class="logger-issue" :class="issue.severity" @click="focusIssue(issue)"><strong>{{ issue.severity.toUpperCase() }}</strong><span>{{ issue.message }}</span><small>{{ issue.code }}</small></button></div>
-        <div v-if="nodeReferenceSearch.visible" class="reference-panel" :class="{ collapsed: referencePanelCollapsed }" :style="referencePanelStyle">
-          <div class="reference-resizer" @pointerdown="beginReferencePanelResize"></div>
-          <div class="reference-title">
-            <strong class="reference-target" :title="nodeReferenceSearch.nodeTitle">查找目标：{{ nodeReferenceSearch.nodeTitle }}</strong>
+        <div v-show="showLogger" class="logger-panel bottom-panel" :class="{ collapsed: testPanelCollapsed }" :style="testPanelStyle">
+          <div class="bottom-panel-resizer" @pointerdown="beginTestPanelResize"></div>
+          <div class="bottom-panel-title">
+            <strong class="bottom-panel-target">Test Results</strong>
+            <small>{{ validationIssues.length ? `${validationIssues.length} 条问题` : '无问题' }}</small>
+            <button class="bottom-panel-action" title="重新检查蓝图" @click="testGraph">Test</button>
+            <button class="bottom-panel-tool-button" :title="testPanelCollapsed ? '展开 Test Results' : '收起 Test Results'" @click="toggleTestPanel">{{ testPanelCollapsed ? '▴' : '▾' }}</button>
+            <button class="bottom-panel-tool-button close" title="关闭 Test Results" @click="showLogger = false">×</button>
+          </div>
+          <div v-show="!testPanelCollapsed" class="logger-results">
+            <div v-if="!validationIssues.length" class="logger-line">没有发现蓝图问题。</div>
+            <button v-for="issue in validationIssues" :key="`${issue.code}-${issue.nodeId}`" class="logger-issue" :class="issue.severity" @click="focusIssue(issue)"><strong>{{ issue.severity === 'error' ? '错误' : '警告' }}</strong><span>{{ issue.message }}</span><small>{{ issue.code }}</small></button>
+          </div>
+        </div>
+        <div v-if="nodeReferenceSearch.visible" class="reference-panel bottom-panel" :class="{ collapsed: referencePanelCollapsed }" :style="referencePanelStyle">
+          <div class="bottom-panel-resizer" @pointerdown="beginReferencePanelResize"></div>
+          <div class="bottom-panel-title">
+            <strong class="bottom-panel-target" :title="nodeReferenceSearch.nodeTitle">查找目标：{{ nodeReferenceSearch.nodeTitle }}</strong>
             <small>{{ nodeReferenceSearch.loading ? '扫描中...' : `${nodeReferenceSearch.results.length} 个蓝图` }}</small>
-            <button class="reference-tool-button" :title="referencePanelCollapsed ? '展开引用结果' : '收起引用结果'" @click="toggleReferencePanel">{{ referencePanelCollapsed ? '▴' : '▾' }}</button>
-            <button class="reference-tool-button close" title="关闭引用结果" @click="nodeReferenceSearch.visible = false">×</button>
+            <button class="bottom-panel-tool-button" :title="referencePanelCollapsed ? '展开引用结果' : '收起引用结果'" @click="toggleReferencePanel">{{ referencePanelCollapsed ? '▴' : '▾' }}</button>
+            <button class="bottom-panel-tool-button close" title="关闭引用结果" @click="nodeReferenceSearch.visible = false">×</button>
           </div>
           <div v-show="!referencePanelCollapsed" class="reference-results">
             <div v-if="nodeReferenceSearch.loading" class="reference-empty">正在扫描当前工程下的 .vgf / .obp 文件...</div>

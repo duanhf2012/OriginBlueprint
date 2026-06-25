@@ -343,7 +343,7 @@ func (a *App) ValidateGraph(content string) ([]ValidationIssue, error) {
 func validateGraph(document GraphDocument) []ValidationIssue {
 	issues := make([]ValidationIssue, 0)
 	if document.SchemaVersion != GraphSchemaVersion {
-		issues = append(issues, ValidationIssue{Severity: "error", Code: "schema.unsupported", Message: fmt.Sprintf("Unsupported schema version %d", document.SchemaVersion)})
+		issues = append(issues, ValidationIssue{Severity: "error", Code: "schema.unsupported", Message: fmt.Sprintf("不支持的蓝图版本：%d", document.SchemaVersion)})
 	}
 
 	variables := make(map[string]GraphVariable, len(document.Variables))
@@ -353,38 +353,38 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 	variableGroupNames := map[string]bool{"Default": true}
 	for _, group := range document.VariableGroups {
 		if group.ID == "" || group.Name == "" {
-			issues = append(issues, ValidationIssue{Severity: "error", Code: "variable-group.invalid", Message: "Variable group ID and name are required"})
+			issues = append(issues, ValidationIssue{Severity: "error", Code: "variable-group.invalid", Message: "变量分组缺少 ID 或名称"})
 			continue
 		}
 		if variableGroups[group.ID] && group.ID != "default" {
-			issues = append(issues, ValidationIssue{Severity: "error", Code: "variable-group.duplicate-id", Message: "Duplicate variable group ID: " + group.ID})
+			issues = append(issues, ValidationIssue{Severity: "error", Code: "variable-group.duplicate-id", Message: "变量分组 ID 重复：" + group.ID})
 		}
 		if variableGroupNames[group.Name] && !(group.ID == "default" && group.Name == "Default") {
-			issues = append(issues, ValidationIssue{Severity: "error", Code: "variable-group.duplicate-name", Message: "Duplicate variable group name: " + group.Name})
+			issues = append(issues, ValidationIssue{Severity: "error", Code: "variable-group.duplicate-name", Message: "变量分组名称重复：" + group.Name})
 		}
 		variableGroups[group.ID] = true
 		variableGroupNames[group.Name] = true
 	}
 	for _, variable := range document.Variables {
 		if variable.ID == "" || variable.Name == "" {
-			issues = append(issues, ValidationIssue{Severity: "error", Code: "variable.invalid", Message: "Variable ID and name are required"})
+			issues = append(issues, ValidationIssue{Severity: "error", Code: "variable.invalid", Message: "变量缺少 ID 或名称"})
 			continue
 		}
 		if _, exists := variables[variable.ID]; exists {
-			issues = append(issues, ValidationIssue{Severity: "error", Code: "variable.duplicate-id", Message: "Duplicate variable ID: " + variable.ID})
+			issues = append(issues, ValidationIssue{Severity: "error", Code: "variable.duplicate-id", Message: "变量 ID 重复：" + variable.ID})
 		}
 		if variableNames[variable.Name] {
-			issues = append(issues, ValidationIssue{Severity: "error", Code: "variable.duplicate-name", Message: "Duplicate variable name: " + variable.Name})
+			issues = append(issues, ValidationIssue{Severity: "error", Code: "variable.duplicate-name", Message: "变量名称重复：" + variable.Name})
 		}
 		if !variableTypes[variable.Type] {
-			issues = append(issues, ValidationIssue{Severity: "error", Code: "variable.unknown-type", Message: "Unknown variable type: " + variable.Type})
+			issues = append(issues, ValidationIssue{Severity: "error", Code: "variable.unknown-type", Message: "未知变量类型：" + variable.Type})
 		}
 		groupID := variable.GroupID
 		if groupID == "" {
 			groupID = "default"
 		}
 		if !variableGroups[groupID] {
-			issues = append(issues, ValidationIssue{Severity: "error", Code: "variable.missing-group", Message: "Variable references a missing group: " + groupID})
+			issues = append(issues, ValidationIssue{Severity: "error", Code: "variable.missing-group", Message: "变量引用了不存在的分组：" + groupID})
 		}
 		variables[variable.ID] = variable
 		variableNames[variable.Name] = true
@@ -394,11 +394,11 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 	ports := make(map[string]portDefinition, len(document.Nodes))
 	for _, node := range document.Nodes {
 		if node.ID == "" {
-			issues = append(issues, ValidationIssue{Severity: "error", Code: "node.missing-id", Message: "A node has no ID"})
+			issues = append(issues, ValidationIssue{Severity: "error", Code: "node.missing-id", Message: "存在缺少 ID 的结点"})
 			continue
 		}
 		if _, exists := nodes[node.ID]; exists {
-			issues = append(issues, ValidationIssue{Severity: "error", Code: "node.duplicate-id", Message: "Duplicate node ID: " + node.ID, NodeID: node.ID})
+			issues = append(issues, ValidationIssue{Severity: "error", Code: "node.duplicate-id", Message: "结点 ID 重复：" + node.ID, NodeID: node.ID})
 			continue
 		}
 		nodes[node.ID] = node
@@ -418,7 +418,7 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 		if node.TypeID == "origin.variable.get" || node.TypeID == "origin.variable.set" {
 			variable, exists := variables[node.Properties.VariableID]
 			if !exists {
-				issues = append(issues, ValidationIssue{Severity: "error", Code: "variable.missing", Message: "Variable node references a missing variable", NodeID: node.ID})
+				issues = append(issues, ValidationIssue{Severity: "error", Code: "variable.missing", Message: "变量结点引用了不存在的变量", NodeID: node.ID})
 				continue
 			}
 			if node.TypeID == "origin.variable.get" {
@@ -439,7 +439,7 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 			}
 			definition = portDefinition{Inputs: inputs, Outputs: outputs}
 			known = true
-			issues = append(issues, ValidationIssue{Severity: "warning", Code: "node.legacy-placeholder", Message: "Legacy node is preserved but not executable: " + node.Properties.LegacyClass, NodeID: node.ID})
+			issues = append(issues, ValidationIssue{Severity: "warning", Code: "node.legacy-placeholder", Message: "老版本结点已保留，但当前不可执行：" + node.Properties.LegacyClass, NodeID: node.ID})
 		}
 		if !known && (len(node.Properties.LegacyInputs) > 0 || len(node.Properties.LegacyOutputs) > 0) {
 			inputs := make(map[string]string, len(node.Properties.LegacyInputs))
@@ -454,7 +454,6 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 			known = true
 		}
 		if !known {
-			issues = append(issues, ValidationIssue{Severity: "error", Code: "node.unknown-type", Message: "Unknown node type: " + node.TypeID, NodeID: node.ID})
 			continue
 		}
 		ports[node.ID] = definition
@@ -464,17 +463,23 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 		source, sourceExists := nodes[connection.Source]
 		target, targetExists := nodes[connection.Target]
 		if !sourceExists || !targetExists {
-			issues = append(issues, ValidationIssue{Severity: "error", Code: "connection.dangling", Message: "Connection references a missing node"})
+			issues = append(issues, ValidationIssue{Severity: "error", Code: "connection.dangling", Message: "连线引用了不存在的结点"})
+			continue
+		}
+		if _, sourceKnown := ports[source.ID]; !sourceKnown {
+			continue
+		}
+		if _, targetKnown := ports[target.ID]; !targetKnown {
 			continue
 		}
 		sourceType, sourcePortExists := ports[source.ID].Outputs[connection.SourceOutput]
 		targetType, targetPortExists := ports[target.ID].Inputs[connection.TargetInput]
 		if !sourcePortExists || !targetPortExists {
-			issues = append(issues, ValidationIssue{Severity: "error", Code: "connection.missing-port", Message: "Connection references a missing port", NodeID: target.ID})
+			issues = append(issues, ValidationIssue{Severity: "error", Code: "connection.missing-port", Message: "连线引用了不存在的端口", NodeID: target.ID})
 			continue
 		}
 		if sourceType != targetType && sourceType != "any" && targetType != "any" {
-			issues = append(issues, ValidationIssue{Severity: "error", Code: "connection.type-mismatch", Message: fmt.Sprintf("Cannot connect %s to %s", sourceType, targetType), NodeID: target.ID})
+			issues = append(issues, ValidationIssue{Severity: "error", Code: "connection.type-mismatch", Message: fmt.Sprintf("端口类型不匹配：%s 不能连接到 %s", sourceType, targetType), NodeID: target.ID})
 		}
 	}
 	issues = append(issues, validateExecutionFlow(nodes, ports, document.Connections)...)
@@ -511,11 +516,12 @@ func validateExecutionFlow(nodes map[string]GraphNode, ports map[string]portDefi
 		}
 	}
 	if len(entries) == 0 {
-		issues = append(issues, ValidationIssue{Severity: "warning", Code: "flow.missing-entry", Message: "Executable graph has no entry node"})
+		issues = append(issues, ValidationIssue{Severity: "warning", Code: "flow.missing-entry", Message: "蓝图存在可执行结点，但没有入口结点"})
 		return issues
 	}
 
 	reachable := make(map[string]bool)
+	entryReachable := make(map[string]map[string]bool)
 	var visitReachable func(string)
 	visitReachable = func(nodeID string) {
 		if reachable[nodeID] {
@@ -529,13 +535,48 @@ func validateExecutionFlow(nodes map[string]GraphNode, ports map[string]portDefi
 	for nodeID := range entries {
 		visitReachable(nodeID)
 	}
+	for entryID := range entries {
+		owned := make(map[string]bool)
+		var visitEntry func(string)
+		visitEntry = func(nodeID string) {
+			if owned[nodeID] {
+				return
+			}
+			owned[nodeID] = true
+			for _, next := range execEdges[nodeID] {
+				visitEntry(next)
+			}
+		}
+		visitEntry(entryID)
+		for nodeID := range owned {
+			if entryReachable[nodeID] == nil {
+				entryReachable[nodeID] = make(map[string]bool)
+			}
+			entryReachable[nodeID][entryID] = true
+		}
+	}
 	for nodeID := range executable {
 		if !reachable[nodeID] {
 			label := nodes[nodeID].Properties.Label
 			if label == "" {
 				label = nodeID
 			}
-			issues = append(issues, ValidationIssue{Severity: "warning", Code: "flow.unreachable-node", Message: "Node is not reachable from any entry: " + label, NodeID: nodeID})
+			issues = append(issues, ValidationIssue{Severity: "error", Code: "flow.unreachable-node", Message: "结点不可达，不可能从任何入口执行到：" + label, NodeID: nodeID})
+		}
+	}
+	for _, connection := range connections {
+		sourceDefinition, sourceKnown := ports[connection.Source]
+		targetDefinition, targetKnown := ports[connection.Target]
+		if !sourceKnown || !targetKnown {
+			continue
+		}
+		sourceType := sourceDefinition.Outputs[connection.SourceOutput]
+		targetType := targetDefinition.Inputs[connection.TargetInput]
+		if sourceType == "" || targetType == "" || sourceType == "exec" || targetType == "exec" {
+			continue
+		}
+		if !entrySetsOverlap(entryReachable[connection.Source], entryReachable[connection.Target]) {
+			issues = append(issues, ValidationIssue{Severity: "error", Code: "flow.cross-entry-data", Message: "不同入口分支之间存在参数交叉连接", NodeID: connection.Target})
 		}
 	}
 
@@ -546,7 +587,7 @@ func validateExecutionFlow(nodes map[string]GraphNode, ports map[string]portDefi
 	detectCycle = func(nodeID string) {
 		if visiting[nodeID] {
 			if !cycleReported[nodeID] {
-				issues = append(issues, ValidationIssue{Severity: "warning", Code: "flow.possible-cycle", Message: "Potential execution loop detected", NodeID: nodeID})
+				issues = append(issues, ValidationIssue{Severity: "error", Code: "flow.possible-cycle", Message: "从入口开始可能产生直接或间接死循环", NodeID: nodeID})
 				cycleReported[nodeID] = true
 			}
 			return
@@ -565,6 +606,18 @@ func validateExecutionFlow(nodes map[string]GraphNode, ports map[string]portDefi
 		detectCycle(nodeID)
 	}
 	return issues
+}
+
+func entrySetsOverlap(a, b map[string]bool) bool {
+	if len(a) == 0 || len(b) == 0 {
+		return true
+	}
+	for key := range a {
+		if b[key] {
+			return true
+		}
+	}
+	return false
 }
 
 func hasPortType(ports map[string]string, portType string) bool {
