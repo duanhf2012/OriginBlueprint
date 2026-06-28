@@ -36,7 +36,7 @@ const workspaceSearch = ref('')
 const expandedWorkspacePaths = ref<Set<string>>(new Set())
 const selectedWorkspacePath = ref('')
 const fileBrowserWidth = ref(savedPanelWidth('origin-blueprint-file-browser-width', 210))
-const leftToolsWidth = ref(savedPanelWidth('origin-blueprint-left-tools-width', 210))
+const leftToolsWidth = ref(savedPanelWidth('origin-blueprint-left-tools-width', 210, 160, 520))
 const rightSidebarWidth = ref(savedPanelWidth('origin-blueprint-right-sidebar-width', 230, 160, 460))
 const functionPanelHeight = ref(savedPanelSize('origin-blueprint-function-panel-height', 112, 70, 260))
 const variablePanelHeight = ref(savedPanelSize('origin-blueprint-variable-panel-height', 300, 130, 520))
@@ -63,6 +63,7 @@ let closingApplication = false
 let nodePointerDrag: { typeId: string; startX: number; startY: number; lastX: number; lastY: number; moved: boolean } | null = null
 let removeNodePointerListeners = () => {}
 let workspaceLoadToken = 0
+let validationIssueClickTimer: ReturnType<typeof window.setTimeout> | undefined
 
 const activeTab = computed(() => tabs.value.find(tab => tab.id === activeTabId.value)!)
 const selectedVariable = computed(() => variables.value.find(variable => variable.id === selectedVariableId.value) ?? null)
@@ -156,6 +157,7 @@ async function loadRuntimeNodeLibrary() {
 }
 
 onBeforeUnmount(() => {
+  clearValidationIssueClickTimer()
   removeNodePointerListeners()
   unsubscribeCloseRequest()
   window.removeEventListener('keydown', onKeyDown); window.removeEventListener('pointerdown', closeFloatingMenus); window.removeEventListener('beforeunload', onBeforeWindowUnload); editor?.destroy()
@@ -500,6 +502,7 @@ function isLegacyGraphPath(path: string) {
 
 async function testGraph() {
   if (!editor) return
+  await editor.highlightIssueNodes([])
   const document = editor.getDocument(activeTab.value.title, variables.value, variableGroups.value)
   validationIssues.value = await platform.validateGraph(JSON.stringify(document))
   selectedValidationIssueKey.value = ''
@@ -518,6 +521,19 @@ function issueNodeIds(issue: ValidationIssue) {
   return [...new Set(ids.filter(Boolean))]
 }
 
+function clearValidationIssueClickTimer() {
+  if (validationIssueClickTimer) window.clearTimeout(validationIssueClickTimer)
+  validationIssueClickTimer = undefined
+}
+
+function queueSelectIssue(issue: ValidationIssue, index: number) {
+  clearValidationIssueClickTimer()
+  validationIssueClickTimer = window.setTimeout(() => {
+    void selectIssue(issue, index)
+    validationIssueClickTimer = undefined
+  }, 180)
+}
+
 async function selectIssue(issue: ValidationIssue, index: number) {
   selectedValidationIssueKey.value = validationIssueKey(issue, index)
   const ids = issueNodeIds(issue)
@@ -525,6 +541,7 @@ async function selectIssue(issue: ValidationIssue, index: number) {
 }
 
 async function highlightIssue(issue: ValidationIssue, index: number) {
+  clearValidationIssueClickTimer()
   selectedValidationIssueKey.value = validationIssueKey(issue, index)
   const ids = issueNodeIds(issue)
   if (!ids.length) {
@@ -737,6 +754,25 @@ function beginLeftSidebarResize(event: PointerEvent) {
   }
   const up = () => {
     localStorage.setItem('origin-blueprint-file-browser-width', String(fileBrowserWidth.value))
+    localStorage.setItem('origin-blueprint-left-tools-width', String(leftToolsWidth.value))
+    window.removeEventListener('pointermove', move)
+    window.removeEventListener('pointerup', up)
+    window.removeEventListener('pointercancel', up)
+  }
+  window.addEventListener('pointermove', move)
+  window.addEventListener('pointerup', up)
+  window.addEventListener('pointercancel', up)
+}
+
+function beginLeftToolsResize(event: PointerEvent) {
+  if (event.button !== 0) return
+  event.preventDefault()
+  const startX = event.clientX
+  const startWidth = leftToolsWidth.value
+  const move = (next: PointerEvent) => {
+    leftToolsWidth.value = Math.min(520, Math.max(160, Math.round(startWidth + next.clientX - startX)))
+  }
+  const up = () => {
     localStorage.setItem('origin-blueprint-left-tools-width', String(leftToolsWidth.value))
     window.removeEventListener('pointermove', move)
     window.removeEventListener('pointerup', up)
@@ -1044,8 +1080,9 @@ function toggleModuleCategory(category: string) {
           <button class="add-variable" @click="addVariable()">＋ 添加变量</button>
         </div>
         <div class="panel-height-splitter" @pointerdown="beginLeftPanelHeightResize('variable', $event)"></div>
-        <div class="panel grow detail-panel sidebar-detail-panel"><div class="panel-title"><span class="chevron">⌄</span> 详情</div><div v-if="selectedVariable" class="node-detail variable-detail"><div class="detail-section-title">变量属性</div><label>Variable ID<input :value="selectedVariable.id" disabled /></label><label>名称<input v-model="selectedVariable.name" /></label><label>类型<select v-model="selectedVariable.type" @change="changeVariableType(selectedVariable)"><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="float">Float</option><option value="string">String</option><option value="array">Array</option><option value="file">File</option><option value="table">Table</option><option value="dictionary">Dictionary</option></select></label><label>分组<select v-model="selectedVariable.groupId"><option v-for="group in variableGroups" :key="group.id" :value="group.id">{{ group.name }}</option></select></label><label>说明<textarea v-model="selectedVariable.description" rows="4" placeholder="变量用途和约束"></textarea></label><label>默认值<input v-if="selectedVariable.type === 'boolean'" v-model="selectedVariable.defaultValue" type="checkbox" /><input v-else-if="selectedVariable.type === 'string' || selectedVariable.type === 'file'" v-model="selectedVariable.defaultValue" type="text" /><input v-else-if="selectedVariable.type === 'array'" :value="Array.isArray(selectedVariable.defaultValue) ? selectedVariable.defaultValue.join(', ') : ''" placeholder="1, 2, text" @change="setVariableArrayDefault(selectedVariable, $event)" /><textarea v-else-if="selectedVariable.type === 'table' || selectedVariable.type === 'dictionary'" :value="JSON.stringify(selectedVariable.defaultValue, null, 2)" rows="6" @change="setVariableStructuredDefault(selectedVariable, $event)"></textarea><input v-else v-model.number="selectedVariable.defaultValue" type="number" /></label><button class="apply-properties" @click="updateVariable(selectedVariable)">应用变量属性</button><button class="delete-properties" @click="removeVariable(selectedVariable)">删除变量</button></div><div v-else-if="selectedNode" class="node-detail"><label>Node ID<input :value="selectedNode.id" disabled /></label><label>Type<input :value="selectedNode.typeId" disabled /></label><label>Title<input v-model="selectedNode.label" :disabled="Boolean(selectedNode.variableId)" /></label><label v-if="selectedNode.description">说明<textarea :value="selectedNode.description" rows="4" readonly></textarea></label><div v-if="Object.keys(selectedNode.values).length" class="detail-section-title">Input Defaults</div><label v-for="(value, key) in selectedNode.values" :key="key">{{ key }}<input v-if="Array.isArray(value)" :value="value.join(', ')" type="text" placeholder="Comma-separated values" @input="setSelectedArrayValue(key, $event)" /><input v-else :value="value" :type="typeof value === 'number' ? 'number' : 'text'" @input="setSelectedValue(key, $event)" /></label><button class="apply-properties" @click="applyNodeProperties">Apply</button></div><div v-else class="empty-detail">选择节点或变量以查看属性</div></div>
+        <div class="panel grow detail-panel sidebar-detail-panel"><div class="panel-title"><span class="chevron">⌄</span> 详情</div><div v-if="selectedVariable" class="node-detail variable-detail"><div class="detail-section-title">变量属性</div><label>Variable ID<input :value="selectedVariable.id" disabled /></label><label>名称<input v-model="selectedVariable.name" /></label><label>类型<select v-model="selectedVariable.type" @change="changeVariableType(selectedVariable)"><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="float">Float</option><option value="string">String</option><option value="array">Array</option><option value="file">File</option><option value="table">Table</option><option value="dictionary">Dictionary</option></select></label><label>分组<select v-model="selectedVariable.groupId"><option v-for="group in variableGroups" :key="group.id" :value="group.id">{{ group.name }}</option></select></label><label>说明<textarea v-model="selectedVariable.description" rows="4" placeholder="变量用途和约束"></textarea></label><label>默认值<input v-if="selectedVariable.type === 'boolean'" v-model="selectedVariable.defaultValue" type="checkbox" /><input v-else-if="selectedVariable.type === 'string' || selectedVariable.type === 'file'" v-model="selectedVariable.defaultValue" type="text" /><input v-else-if="selectedVariable.type === 'array'" :value="Array.isArray(selectedVariable.defaultValue) ? selectedVariable.defaultValue.join(', ') : ''" placeholder="1, 2, text" @change="setVariableArrayDefault(selectedVariable, $event)" /><textarea v-else-if="selectedVariable.type === 'table' || selectedVariable.type === 'dictionary'" :value="JSON.stringify(selectedVariable.defaultValue, null, 2)" rows="6" @change="setVariableStructuredDefault(selectedVariable, $event)"></textarea><input v-else v-model.number="selectedVariable.defaultValue" type="number" /></label><button class="apply-properties" @click="updateVariable(selectedVariable)">应用变量属性</button><button class="delete-properties" @click="removeVariable(selectedVariable)">删除变量</button></div><div v-else-if="selectedNode" class="node-detail"><label>Node ID<input :value="selectedNode.id" disabled /></label><label>Type<input :value="selectedNode.typeId" disabled /></label><label>Title<input v-model="selectedNode.label" :disabled="Boolean(selectedNode.variableId)" /></label><label v-if="selectedNode.description">说明<textarea :value="selectedNode.description" rows="4" readonly></textarea></label><button class="apply-properties" @click="applyNodeProperties">Apply</button></div><div v-else class="empty-detail">选择节点或变量以查看属性</div></div>
       </aside>
+      <div v-show="showTools" class="left-tools-splitter" @pointerdown="beginLeftToolsResize"></div>
 
       <section class="editor-column">
          <div class="tab-strip-wrap">
@@ -1068,7 +1105,7 @@ function toggleModuleCategory(category: string) {
           </div>
           <div v-show="!testPanelCollapsed" class="logger-results">
             <div v-if="!validationIssues.length" class="logger-line">没有发现蓝图问题。</div>
-            <button v-for="(issue, index) in validationIssues" :key="validationIssueKey(issue, index)" class="logger-issue" :class="[issue.severity, { selected: selectedValidationIssueKey === validationIssueKey(issue, index) }]" @click="selectIssue(issue, index)" @dblclick.stop.prevent="highlightIssue(issue, index)"><strong>{{ issue.severity === 'error' ? '错误' : '警告' }}</strong><span>{{ issue.message }}</span><small>{{ issue.code }}</small></button>
+            <button v-for="(issue, index) in validationIssues" :key="validationIssueKey(issue, index)" class="logger-issue" :class="[issue.severity, { selected: selectedValidationIssueKey === validationIssueKey(issue, index) }]" @click="queueSelectIssue(issue, index)" @dblclick.stop.prevent="highlightIssue(issue, index)"><strong>{{ issue.severity === 'error' ? '错误' : '警告' }}</strong><span>{{ issue.message }}</span><small>{{ issue.code }}</small></button>
           </div>
         </div>
         <div v-if="nodeReferenceSearch.visible" class="reference-panel bottom-panel" :class="{ collapsed: referencePanelCollapsed }" :style="referencePanelStyle">

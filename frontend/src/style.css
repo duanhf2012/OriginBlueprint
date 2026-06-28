@@ -20,14 +20,14 @@ button { font: inherit; color: inherit; }
 .dropdown-menu button:disabled { color: #666; }.dropdown-menu kbd { color: #888; font: 11px "Segoe UI"; }.menu-separator { height: 1px; margin: 4px 6px; background: #444; }
 .window-title { position: absolute; left: 50%; transform: translateX(-50%); color: #888; font-size: 12px; }
 .test-toolbar { position: absolute; right: 10px; display: flex; height: 26px; }.test-toolbar button { min-width: 72px; border: 1px solid #4f7184; border-radius: 3px; background: #2f4652; color: #d8edf6; font-size: 11px; }.test-toolbar button:hover { border-color: #6aa6c4; background: #3a5a69; color: white; }
-.workspace { min-height: 0; flex: 1; display: grid; grid-template-columns: var(--file-browser-width, 210px) 3px var(--left-tools-width, 210px) minmax(520px, 1fr) 3px var(--right-sidebar-width, 230px); }
+.workspace { min-height: 0; flex: 1; display: grid; grid-template-columns: var(--file-browser-width, 210px) 3px var(--left-tools-width, 210px) 3px minmax(520px, 1fr) 3px var(--right-sidebar-width, 230px); }
 .application-shell.tools-hidden .workspace { grid-template-columns: var(--file-browser-width, 210px) minmax(520px, 1fr) 3px var(--right-sidebar-width, 230px); }
-.application-shell.right-hidden .workspace { grid-template-columns: var(--file-browser-width, 210px) 3px var(--left-tools-width, 210px) minmax(520px, 1fr); }
+.application-shell.right-hidden .workspace { grid-template-columns: var(--file-browser-width, 210px) 3px var(--left-tools-width, 210px) 3px minmax(520px, 1fr); }
 .application-shell.tools-hidden.right-hidden .workspace { grid-template-columns: var(--file-browser-width, 210px) minmax(520px, 1fr); }
 .sidebar { min-width: 0; display: flex; flex-direction: column; background: #2c2c2c; border-color: #111; }
 .sidebar-file-browser { border-right: 1px solid #151515; }
-.sidebar-splitter, .right-sidebar-splitter { width: 3px; min-width: 3px; background: #151515; cursor: col-resize; }
-.sidebar-splitter:hover, .right-sidebar-splitter:hover { background: #2f5f7b; }
+.sidebar-splitter, .left-tools-splitter, .right-sidebar-splitter { width: 3px; min-width: 3px; background: #151515; cursor: col-resize; }
+.sidebar-splitter:hover, .left-tools-splitter:hover, .right-sidebar-splitter:hover { background: #2f5f7b; }
 .sidebar-left { border-right: 2px solid #151515; }
 .function-panel { flex: 0 0 auto; overflow: hidden; }
 .panel-height-splitter { height: 4px; flex: 0 0 4px; background: #151515; cursor: row-resize; }
@@ -186,8 +186,8 @@ button { font: inherit; color: inherit; }
 .about-backdrop { position: fixed; z-index: 3200; inset: 0; display: grid; place-items: center; background: #0009; }.about-dialog { width: 480px; max-width: calc(100vw - 40px); border: 1px solid #4b6272; border-radius: 4px; background: #242728; box-shadow: 0 18px 55px #000; color: #bbb; }.about-dialog header { height: 42px; display: flex; align-items: center; padding: 0 13px; border-bottom: 1px solid #3b4449; background: #30383c; }.about-dialog header strong { color: #dceaf1; font-size: 16px; }.about-dialog header button { margin-left: auto; border: 0; background: transparent; color: #aaa; font-size: 20px; }.about-dialog p { margin: 14px; color: #91afbe; }.about-dialog dl { display: grid; grid-template-columns: 90px 1fr; gap: 8px 12px; margin: 14px; font-size: 12px; }.about-dialog dt { color: #73a8c4; font-weight: 600; }.about-dialog dd { margin: 0; color: #aaa; }.about-dialog footer { padding: 10px 14px; border-top: 1px solid #363d40; text-align: right; }.about-dialog footer button { min-width: 72px; height: 25px; border: 1px solid #4f7184; background: #315267; }
 
 @media (max-width: 900px) {
-  .workspace { grid-template-columns: minmax(140px, var(--file-browser-width, 150px)) 3px minmax(140px, var(--left-tools-width, 165px)) minmax(420px, 1fr) 190px; }
+  .workspace { grid-template-columns: minmax(140px, var(--file-browser-width, 150px)) 3px minmax(160px, var(--left-tools-width, 165px)) 3px minmax(420px, 1fr) 190px; }
   .application-shell.tools-hidden .workspace { grid-template-columns: minmax(140px, var(--file-browser-width, 150px)) minmax(420px, 1fr) 190px; }
-  .application-shell.right-hidden .workspace { grid-template-columns: minmax(140px, var(--file-browser-width, 150px)) 3px minmax(140px, var(--left-tools-width, 165px)) minmax(420px, 1fr); }
+  .application-shell.right-hidden .workspace { grid-template-columns: minmax(140px, var(--file-browser-width, 150px)) 3px minmax(160px, var(--left-tools-width, 165px)) 3px minmax(420px, 1fr); }
   .application-shell.tools-hidden.right-hidden .workspace { grid-template-columns: minmax(140px, var(--file-browser-width, 150px)) minmax(420px, 1fr); }
 }

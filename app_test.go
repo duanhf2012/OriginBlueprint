@@ -264,6 +264,25 @@ func TestValidateGraphReportsUnreachableFlowNodesFromEntries(t *testing.T) {
 	}
 }
 
+func TestValidateGraphTreatsDataDependenciesAsEntryReachable(t *testing.T) {
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		Nodes: []GraphNode{
+			{ID: "entry", TypeID: "origin.event.begin"},
+			{ID: "debug", TypeID: "origin.debug.output"},
+			{ID: "row-count", TypeID: "origin.table.row-count"},
+		},
+		Connections: []GraphConnection{
+			{Source: "entry", SourceOutput: "exec", Target: "debug", TargetInput: "exec"},
+			{Source: "row-count", SourceOutput: "count", Target: "debug", TargetInput: "integer"},
+		},
+	}
+	issues := validateGraph(document)
+	if hasIssue(issues, "flow.unreachable-node", "row-count") {
+		t.Fatalf("data dependency should be attributed to the entry path: %#v", issues)
+	}
+}
+
 func TestValidateGraphReportsPossibleExecCycles(t *testing.T) {
 	document := GraphDocument{
 		SchemaVersion: GraphSchemaVersion,
@@ -1043,6 +1062,25 @@ func TestChoiceskillEqualSwitchRoundTripKeepsLegacyBranchPorts(t *testing.T) {
 	}
 	if sourcePorts[1] {
 		t.Fatalf("round-trip unexpectedly connected hidden legacy source port 1")
+	}
+}
+
+func TestValidateChoiceskillEasyRecognizesMonsterChoiceSkillEntry(t *testing.T) {
+	path := filepath.Join("build", "bin", "vgf", "monsterChoiceskill", "choiceskill_easy.vgf")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Skip("choiceskill_easy.vgf sample not available")
+	}
+	document, err := migrateLegacyGraph(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	issues := validateGraph(document)
+	if hasIssue(issues, "flow.missing-entry", "") {
+		t.Fatalf("monster choice skill entry should be recognized: %#v", issues)
+	}
+	if !hasIssue(issues, "flow.unreachable-node", "c18c0e9d88fd385f") {
+		t.Fatalf("detached EqualSwitch should still be reported: %#v", issues)
 	}
 }
 

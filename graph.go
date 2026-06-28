@@ -524,38 +524,67 @@ func validateExecutionFlow(nodes map[string]GraphNode, ports map[string]portDefi
 
 	reachable := make(map[string]bool)
 	entryReachable := make(map[string]map[string]bool)
-	var visitReachable func(string)
-	visitReachable = func(nodeID string) {
-		if reachable[nodeID] {
+	dataInputs := make(map[string][]GraphConnection)
+	for _, connection := range connections {
+		sourceDefinition, sourceKnown := ports[connection.Source]
+		targetDefinition, targetKnown := ports[connection.Target]
+		if !sourceKnown || !targetKnown {
+			continue
+		}
+		sourceType := sourceDefinition.Outputs[connection.SourceOutput]
+		targetType := targetDefinition.Inputs[connection.TargetInput]
+		if sourceType == "" || targetType == "" || sourceType == "exec" || targetType == "exec" {
+			continue
+		}
+		dataInputs[connection.Target] = append(dataInputs[connection.Target], connection)
+	}
+	markReachable := func(nodeID, entryID string) bool {
+		reachable[nodeID] = true
+		if entryReachable[nodeID] == nil {
+			entryReachable[nodeID] = make(map[string]bool)
+		}
+		if entryReachable[nodeID][entryID] {
+			return false
+		}
+		entryReachable[nodeID][entryID] = true
+		return true
+	}
+	execVisited := make(map[string]bool)
+	dataVisited := make(map[string]bool)
+	var visitDataInputs func(string, string)
+	var visitDataNode func(string, string)
+	var visitExecNode func(string, string)
+	visitDataNode = func(nodeID, entryID string) {
+		if entries[nodeID] && nodeID != entryID {
 			return
 		}
-		reachable[nodeID] = true
-		for _, next := range execEdges[nodeID] {
-			visitReachable(next)
+		key := entryID + "\x00" + nodeID
+		if dataVisited[key] {
+			return
+		}
+		dataVisited[key] = true
+		markReachable(nodeID, entryID)
+		visitDataInputs(nodeID, entryID)
+	}
+	visitDataInputs = func(nodeID, entryID string) {
+		for _, connection := range dataInputs[nodeID] {
+			visitDataNode(connection.Source, entryID)
 		}
 	}
-	for nodeID := range entries {
-		visitReachable(nodeID)
+	visitExecNode = func(nodeID, entryID string) {
+		markReachable(nodeID, entryID)
+		key := entryID + "\x00" + nodeID
+		if execVisited[key] {
+			return
+		}
+		execVisited[key] = true
+		visitDataInputs(nodeID, entryID)
+		for _, next := range execEdges[nodeID] {
+			visitExecNode(next, entryID)
+		}
 	}
 	for entryID := range entries {
-		owned := make(map[string]bool)
-		var visitEntry func(string)
-		visitEntry = func(nodeID string) {
-			if owned[nodeID] {
-				return
-			}
-			owned[nodeID] = true
-			for _, next := range execEdges[nodeID] {
-				visitEntry(next)
-			}
-		}
-		visitEntry(entryID)
-		for nodeID := range owned {
-			if entryReachable[nodeID] == nil {
-				entryReachable[nodeID] = make(map[string]bool)
-			}
-			entryReachable[nodeID][entryID] = true
-		}
+		visitExecNode(entryID, entryID)
 	}
 	for nodeID := range executable {
 		if !reachable[nodeID] {

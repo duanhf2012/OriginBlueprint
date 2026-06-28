@@ -31,6 +31,7 @@ export class BlueprintNode extends ClassicPreset.Node {
   dynamicBranch?: DynamicBranchConfig
   referenceHighlighted?: boolean
   issueHighlighted?: boolean
+  legacyStyle?: boolean
   legacyClass?: string
   legacyModule?: string
   legacyInputs?: Array<{ key: string; label: string; type: string }>

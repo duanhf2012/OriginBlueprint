@@ -199,6 +199,7 @@ export function createVariableNode(variable: GraphVariable, access: 'get' | 'set
 
 export function createLegacyNode(properties: NodeProperties) {
   const result = node('origin.legacy.placeholder', properties.label || properties.legacyClass || 'Legacy Node', 'function', `Legacy: ${properties.legacyModule || 'unknown'}`, 245)
+  result.legacyStyle = true
   result.legacyClass = properties.legacyClass
   result.legacyModule = properties.legacyModule
   result.legacyInputs = properties.legacyInputs?.map(port => ({ ...port })) ?? []

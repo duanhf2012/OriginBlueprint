@@ -13,18 +13,24 @@ import { BlueprintNode, type Schemes } from './types'
 import { describeEntryBinding, entryBindingCandidateGroups, isEntryOutputConnection, type EntryBindingNode } from './implicitEntryLinks'
 import { refreshNodePortStates } from './portVisualState'
 import { pathIntersectsRect, rectsIntersect, type Rect } from './selectionGeometry'
-import type { ConnectionSnapshot, GraphDocument, GraphSnapshot, GraphVariable, GraphVariableGroup, GroupSnapshot, LegacyGraphState, NodeSnapshot } from './document'
+import type { ConnectionSnapshot, GraphDocument, GraphSnapshot, GraphVariable, GraphVariableGroup, GroupSnapshot, LegacyGraphState, NodeProperties, NodeSnapshot } from './document'
 
 export type { GraphDocument, GraphVariable, GraphVariableGroup, ValidationIssue, VariableType } from './document'
 
 type AreaExtra = import('rete-vue-plugin').VueArea2D<Schemes>
 type Position = { x: number; y: number }
 type SocketWatcher = SocketPositionWatcher<Scope<never, [AreaExtra]>>
+const nodeLocateZoomScale = 0.48
+const nodeLocateMinZoomScale = 0.34
+const nodeLocateViewportAnchor = { x: 0.5, y: 0.28 }
+const issueHighlightZoomScale = nodeLocateZoomScale
 
 interface ClipboardGraph {
   nodes: Omit<NodeSnapshot, 'id'>[]
   connections: Array<Omit<ConnectionSnapshot, 'source' | 'target'> & { sourceIndex: number; targetIndex: number }>
 }
+
+type SnapshotPort = ClassicPreset.Input<ClassicPreset.Socket> | ClassicPreset.Output<ClassicPreset.Socket> | undefined
 
 function createFrameSocketPositionWatcher(): SocketWatcher {
   const base = getDOMSocketPosition<Schemes, AreaExtra>()
@@ -292,6 +298,38 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     return value ? JSON.parse(JSON.stringify(value)) as LegacyGraphState : undefined
   }
 
+  function applyNodeProperties(node: BlueprintNode, properties?: NodeProperties) {
+    node.legacyClass = properties?.legacyClass
+    node.legacyModule = properties?.legacyModule
+    node.legacyInputs = properties?.legacyInputs?.map(port => ({ ...port }))
+    node.legacyOutputs = properties?.legacyOutputs?.map(port => ({ ...port }))
+  }
+
+  function legacyPortType(port?: SnapshotPort) {
+    const type = normalizeSocketName(port?.socket?.name)
+    return type === 'number' ? 'integer' : type
+  }
+
+  function legacyPortsFromNodePorts(ports: Record<string, SnapshotPort>) {
+    return Object.entries(ports).map(([key, port]) => ({
+      key,
+      label: String(port?.label ?? ''),
+      type: legacyPortType(port)
+    }))
+  }
+
+  function shouldSnapshotLegacyPorts(node: BlueprintNode) {
+    return Boolean(node.legacyClass) || String(node.typeId ?? '').startsWith('origin.custom.')
+  }
+
+  function legacyInputsForSnapshot(node: BlueprintNode) {
+    return node.legacyInputs ?? (shouldSnapshotLegacyPorts(node) ? legacyPortsFromNodePorts(node.inputs) : undefined)
+  }
+
+  function legacyOutputsForSnapshot(node: BlueprintNode) {
+    return node.legacyOutputs ?? (shouldSnapshotLegacyPorts(node) ? legacyPortsFromNodePorts(node.outputs) : undefined)
+  }
+
   function snapshot(): GraphSnapshot {
     return {
       nodes: editor.getNodes().map(node => ({
@@ -306,8 +344,8 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
           dynamicOutputCount: node.dynamicOutputCount,
           legacyClass: node.legacyClass,
           legacyModule: node.legacyModule,
-          legacyInputs: node.legacyInputs,
-          legacyOutputs: node.legacyOutputs
+          legacyInputs: legacyInputsForSnapshot(node),
+          legacyOutputs: legacyOutputsForSnapshot(node)
         }
       })),
       connections: editor.getConnections().map(item => ({
@@ -393,6 +431,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
         : item.typeId === 'origin.legacy.placeholder'
           ? createLegacyNode(item.properties ?? {})
         : createNode(item.typeId)
+      applyNodeProperties(node, item.properties)
       if (node.dynamicOutputs) setDynamicOutputCount(node, item.properties?.dynamicOutputCount ?? 3)
       node.id = item.id
       if (item.properties?.label && !item.typeId.startsWith('origin.variable.') && !item.properties.legacyClass) {
@@ -652,7 +691,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
         typeId: node.typeId ?? '',
         position: { x: positions[index].x - minX, y: positions[index].y - minY },
         values: controlValues(node),
-        properties: { label: node.label, variableId: node.variableId, variableAccess: node.variableAccess, dynamicOutputCount: node.dynamicOutputCount, legacyClass: node.legacyClass, legacyModule: node.legacyModule, legacyInputs: node.legacyInputs, legacyOutputs: node.legacyOutputs }
+        properties: { label: node.label, variableId: node.variableId, variableAccess: node.variableAccess, dynamicOutputCount: node.dynamicOutputCount, legacyClass: node.legacyClass, legacyModule: node.legacyModule, legacyInputs: legacyInputsForSnapshot(node), legacyOutputs: legacyOutputsForSnapshot(node) }
       })),
       connections: editor.getConnections().flatMap(item => {
         const sourceIndex = ids.get(item.source)
@@ -687,6 +726,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
           : item.typeId === 'origin.legacy.placeholder'
             ? createLegacyNode(item.properties ?? {})
           : createNode(item.typeId)
+        applyNodeProperties(node, item.properties)
         if (node.dynamicOutputs) setDynamicOutputCount(node, item.properties?.dynamicOutputCount ?? 3)
         if (item.properties?.label && !item.typeId.startsWith('origin.variable.') && !item.properties.legacyClass) {
           node.label = item.properties.label
@@ -1097,7 +1137,28 @@ function nodeSize(node: BlueprintNode) {
     await selector.unselectAll()
     await selectable.select(id, false)
     callbacks.onSelection(selectedNodeInfo(node))
-    await AreaExtensions.zoomAt(area, [node], { scale: 0.9 })
+    await centerNodesForReading([node])
+  }
+
+  async function centerNodesForReading(nodes: BlueprintNode[]) {
+    if (!nodes.length) return
+    const entries = nodes.map(node => {
+      const position = area.nodeViews.get(node.id)?.position ?? { x: 0, y: 0 }
+      return { position, size: nodeSize(node) }
+    })
+    const minX = Math.min(...entries.map(item => item.position.x))
+    const minY = Math.min(...entries.map(item => item.position.y))
+    const maxX = Math.max(...entries.map(item => item.position.x + item.size.width))
+    const maxY = Math.max(...entries.map(item => item.position.y + item.size.height))
+    const rect = container.getBoundingClientRect()
+    const boxWidth = Math.max(1, maxX - minX)
+    const boxHeight = Math.max(1, maxY - minY)
+    const fitZoom = Math.min((rect.width * 0.72) / boxWidth, (rect.height * 0.58) / boxHeight)
+    const nextZoom = Math.max(nodeLocateMinZoomScale, Math.min(nodeLocateZoomScale, fitZoom))
+    const centerX = (minX + maxX) / 2
+    const centerY = (minY + maxY) / 2
+    await area.area.zoom(nextZoom, 0, 0)
+    await area.area.translate(rect.width * nodeLocateViewportAnchor.x - centerX * nextZoom, rect.height * nodeLocateViewportAnchor.y - centerY * nextZoom)
   }
 
   async function highlightNodesByType(typeId: string) {
@@ -1110,7 +1171,7 @@ function nodeSize(node: BlueprintNode) {
       }
     }
     callbacks.onSelection(null)
-    if (matches.length) await AreaExtensions.zoomAt(area, matches, { scale: 0.9 })
+    if (matches.length) await centerNodesForReading(matches)
     return matches.length
   }
 
@@ -1125,15 +1186,10 @@ function nodeSize(node: BlueprintNode) {
         await area.update('node', item.id)
       }
     }
-    for (const node of matches) {
-      await selectable.select(node.id, true)
-      node.issueHighlighted = true
-      await area.update('node', node.id)
-    }
-    callbacks.onSelection(matches.length === 1 ? selectedNodeInfo(matches[0]) : null)
+    callbacks.onSelection(null)
     if (matches.length) {
       await nextFrame()
-      await AreaExtensions.zoomAt(area, matches, { scale: 0.9 })
+      await centerNodesForReading(matches)
     }
     return matches.length
   }
