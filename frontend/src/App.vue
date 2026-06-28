@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { toPng } from 'html-to-image'
 import { createBlueprintEditor, type BlueprintEditorHandle, type EditorMetrics, type GraphDocument, type GraphVariable, type GraphVariableGroup, type SelectedNodeInfo, type ValidationIssue, type VariableType } from './editor/createEditor'
 import { getNodeDefinitions, registerNodeSchemas, type NodeDefinition } from './editor/nodeRegistry'
+import { menuLocales, normalizeLocale, type LocaleId } from './i18n'
 import { platform, type NodeReferenceResult, type WorkspaceEntry } from './platform'
 
 interface GraphTab { id: string; title: string; path: string; dirty: boolean; document: GraphDocument | null }
@@ -27,6 +28,7 @@ const testPanelHeight = ref(savedPanelSize('origin-blueprint-test-panel-height',
 const testPanelCollapsed = ref(false)
 const referencePanelHeight = ref(savedReferencePanelHeight())
 const referencePanelCollapsed = ref(false)
+const currentLocale = ref<LocaleId>(normalizeLocale(localStorage.getItem('origin-blueprint-locale')))
 const tabs = ref<GraphTab[]>([{ id: crypto.randomUUID(), title: 'Untitled-1 Graph', path: '', dirty: false, document: null }])
 const activeTabId = ref(tabs.value[0].id)
 const recentFiles = ref<string[]>([])
@@ -84,6 +86,7 @@ const filteredDefinitions = computed(() => {
   return search ? nodeLibrary.value.filter(item => `${item.title} ${item.category}`.toLowerCase().includes(search)) : nodeLibrary.value
 })
 const moduleSearchActive = computed(() => Boolean(moduleSearch.value.trim()))
+const menuText = computed(() => menuLocales[currentLocale.value])
 const workspaceStyle = computed(() => ({
   '--file-browser-width': `${fileBrowserWidth.value}px`,
   '--left-tools-width': `${leftToolsWidth.value}px`,
@@ -137,6 +140,11 @@ function savedPanelSize(key: string, fallback: number, min: number, max: number)
 function savedReferencePanelHeight() {
   const value = Number.parseInt(localStorage.getItem('origin-blueprint-reference-panel-height') ?? '', 10)
   return Number.isFinite(value) ? Math.min(360, Math.max(96, value)) : 155
+}
+
+function setLocale(locale: LocaleId) {
+  currentLocale.value = locale
+  localStorage.setItem('origin-blueprint-locale', locale)
 }
 
 async function loadRuntimeNodeLibrary() {
@@ -1021,26 +1029,26 @@ function toggleModuleCategory(category: string) {
   <main class="application-shell" :class="{ 'tools-hidden': !showTools, 'right-hidden': !showRight }" @pointerdown="closeModuleNodeMenu">
     <header class="menu-bar">
       <div class="menu-items">
-        <div class="menu-root"><button @click.stop="toggleMenu('file')">File</button><div v-if="activeMenu === 'file'" class="dropdown-menu">
-          <button @click="run(newGraph)">New Graph <kbd>Ctrl+N</kbd></button><button @click="run(() => platform.newWindow())">New Window <kbd>Ctrl+Shift+N</kbd></button><div class="menu-separator"></div><button @click="run(() => openGraph())">Open <kbd>Ctrl+O</kbd></button>
-          <div v-if="recentFiles.length" class="menu-subtitle">Recent</div><button v-for="file in recentFiles" :key="file" class="recent-item" @click="run(() => openGraph(file))">{{ file.split(/[\\/]/).pop() }}</button>
-          <button :disabled="!recentFiles.length" @click="run(clearRecentFiles)">Clear Recent Files</button><div class="menu-separator"></div><button @click="run(chooseWorkspace)">Set Workspace Path</button><div class="menu-separator"></div><button @click="run(() => saveGraph(false))">Save <kbd>Ctrl+S</kbd></button><button @click="run(() => saveGraph(true))">Save As <kbd>Ctrl+Shift+S</kbd></button><button @click="run(saveAll)">Save All <kbd>Ctrl+Alt+S</kbd></button><div class="menu-separator"></div><button @click="run(quitApplication)">Quit <kbd>Alt+F4</kbd></button>
+        <div class="menu-root"><button @click.stop="toggleMenu('file')">{{ menuText.menu.file.title }}</button><div v-if="activeMenu === 'file'" class="dropdown-menu">
+          <button @click="run(newGraph)">{{ menuText.menu.file.newGraph }} <kbd>Ctrl+N</kbd></button><button @click="run(() => platform.newWindow())">{{ menuText.menu.file.newWindow }} <kbd>Ctrl+Shift+N</kbd></button><div class="menu-separator"></div><button @click="run(() => openGraph())">{{ menuText.menu.file.open }} <kbd>Ctrl+O</kbd></button>
+          <div v-if="recentFiles.length" class="menu-subtitle">{{ menuText.menu.file.recent }}</div><button v-for="file in recentFiles" :key="file" class="recent-item" @click="run(() => openGraph(file))">{{ file.split(/[\\/]/).pop() }}</button>
+          <button :disabled="!recentFiles.length" @click="run(clearRecentFiles)">{{ menuText.menu.file.clearRecent }}</button><div class="menu-separator"></div><button @click="run(chooseWorkspace)">{{ menuText.menu.file.setWorkspace }}</button><div class="menu-separator"></div><button @click="run(() => saveGraph(false))">{{ menuText.menu.file.save }} <kbd>Ctrl+S</kbd></button><button @click="run(() => saveGraph(true))">{{ menuText.menu.file.saveAs }} <kbd>Ctrl+Shift+S</kbd></button><button @click="run(saveAll)">{{ menuText.menu.file.saveAll }} <kbd>Ctrl+Alt+S</kbd></button><div class="menu-separator"></div><button @click="run(quitApplication)">{{ menuText.menu.file.quit }} <kbd>Alt+F4</kbd></button>
         </div></div>
-        <div class="menu-root"><button @click.stop="toggleMenu('edit')">Edit</button><div v-if="activeMenu === 'edit'" class="dropdown-menu">
-          <button @click="run(() => editor?.undo())">Undo <kbd>Ctrl+Z</kbd></button><button @click="run(() => editor?.redo())">Redo <kbd>Ctrl+Y</kbd></button><div class="menu-separator"></div>
-          <button @click="run(() => editor?.cut())">Cut <kbd>Ctrl+X</kbd></button><button @click="run(() => editor?.copy())">Copy <kbd>Ctrl+C</kbd></button><button @click="run(() => editor?.paste())">Paste <kbd>Ctrl+V</kbd></button><button @click="run(() => editor?.deleteSelected())">Delete <kbd>Delete</kbd></button>
-          <button @click="run(() => editor?.groupSelected())">Group Nodes <kbd>Ctrl+G</kbd></button><button @click="run(() => editor?.ungroupSelected())">UnGroup <kbd>Alt+G</kbd></button><div class="menu-separator"></div>
-          <button @click="run(() => editor?.selectAll())">Select All <kbd>Ctrl+A</kbd></button><button @click="run(() => editor?.deselectAll())">Deselect All <kbd>Ctrl+D</kbd></button>
+        <div class="menu-root"><button @click.stop="toggleMenu('edit')">{{ menuText.menu.edit.title }}</button><div v-if="activeMenu === 'edit'" class="dropdown-menu">
+          <button @click="run(() => editor?.undo())">{{ menuText.menu.edit.undo }} <kbd>Ctrl+Z</kbd></button><button @click="run(() => editor?.redo())">{{ menuText.menu.edit.redo }} <kbd>Ctrl+Y</kbd></button><div class="menu-separator"></div>
+          <button @click="run(() => editor?.cut())">{{ menuText.menu.edit.cut }} <kbd>Ctrl+X</kbd></button><button @click="run(() => editor?.copy())">{{ menuText.menu.edit.copy }} <kbd>Ctrl+C</kbd></button><button @click="run(() => editor?.paste())">{{ menuText.menu.edit.paste }} <kbd>Ctrl+V</kbd></button><button @click="run(() => editor?.deleteSelected())">{{ menuText.menu.edit.delete }} <kbd>Delete</kbd></button>
+          <button @click="run(() => editor?.groupSelected())">{{ menuText.menu.edit.group }} <kbd>Ctrl+G</kbd></button><button @click="run(() => editor?.ungroupSelected())">{{ menuText.menu.edit.ungroup }} <kbd>Alt+G</kbd></button><div class="menu-separator"></div>
+          <button @click="run(() => editor?.selectAll())">{{ menuText.menu.edit.selectAll }} <kbd>Ctrl+A</kbd></button><button @click="run(() => editor?.deselectAll())">{{ menuText.menu.edit.deselectAll }} <kbd>Ctrl+D</kbd></button>
         </div></div>
-        <div class="menu-root"><button @click.stop="toggleMenu('align')">Alignment</button><div v-if="activeMenu === 'align'" class="dropdown-menu">
-          <button @click="run(() => editor?.align('vertical-center'))">Align Vertical Center <kbd>V</kbd></button><button @click="run(() => editor?.align('horizontal-center'))">Align Horizontal Center <kbd>H</kbd></button>
-          <button @click="run(() => editor?.align('vertical-distribute'))">Vertical Distribution <kbd>Shift+V</kbd></button><button @click="run(() => editor?.align('horizontal-distribute'))">Horizontal Distribution <kbd>Shift+H</kbd></button>
-          <button @click="run(() => editor?.align('left'))">Align Left <kbd>Shift+L</kbd></button><button @click="run(() => editor?.align('right'))">Align Right <kbd>Shift+R</kbd></button><button @click="run(() => editor?.align('top'))">Align Top <kbd>Shift+T</kbd></button><button @click="run(() => editor?.align('bottom'))">Align Bottom <kbd>Shift+B</kbd></button><button @click="run(() => editor?.align('straighten'))">Straighten Edge <kbd>Q</kbd></button>
+        <div class="menu-root"><button @click.stop="toggleMenu('align')">{{ menuText.menu.align.title }}</button><div v-if="activeMenu === 'align'" class="dropdown-menu">
+          <button @click="run(() => editor?.align('vertical-center'))">{{ menuText.menu.align.verticalCenter }} <kbd>V</kbd></button><button @click="run(() => editor?.align('horizontal-center'))">{{ menuText.menu.align.horizontalCenter }} <kbd>H</kbd></button>
+          <button @click="run(() => editor?.align('vertical-distribute'))">{{ menuText.menu.align.verticalDistribute }} <kbd>Shift+V</kbd></button><button @click="run(() => editor?.align('horizontal-distribute'))">{{ menuText.menu.align.horizontalDistribute }} <kbd>Shift+H</kbd></button>
+          <button @click="run(() => editor?.align('left'))">{{ menuText.menu.align.left }} <kbd>Shift+L</kbd></button><button @click="run(() => editor?.align('right'))">{{ menuText.menu.align.right }} <kbd>Shift+R</kbd></button><button @click="run(() => editor?.align('top'))">{{ menuText.menu.align.top }} <kbd>Shift+T</kbd></button><button @click="run(() => editor?.align('bottom'))">{{ menuText.menu.align.bottom }} <kbd>Shift+B</kbd></button><button @click="run(() => editor?.align('straighten'))">{{ menuText.menu.align.straighten }} <kbd>Q</kbd></button>
         </div></div>
-        <div class="menu-root"><button @click.stop="toggleMenu('view')">View</button><div v-if="activeMenu === 'view'" class="dropdown-menu"><button @click="showLogger = !showLogger">Show Logger <kbd>Alt+Shift+B</kbd></button><button @click="showTools = !showTools">Show Tool Sidebar <kbd>Alt+Shift+L</kbd></button><button @click="showRight = !showRight">Show Right Sidebar <kbd>Alt+Shift+R</kbd></button></div></div>
-        <div class="menu-root"><button @click.stop="toggleMenu('render')">Render</button><div v-if="activeMenu === 'render'" class="dropdown-menu"><button @click="run(() => exportImage(true))">Render Selected Nodes <kbd>Ctrl+Alt+R</kbd></button><button @click="run(() => exportImage(false))">Render Graph <kbd>Ctrl+Shift+R</kbd></button></div></div>
-        <button @click="run(testGraph)">Test</button><button @click="showAbout = true">Help</button>
-      </div><div class="test-toolbar"><button class="test-button" title="检查蓝图 (F5)" @click="run(testGraph)">Test</button></div><div class="window-title">Origin Blueprint</div>
+        <div class="menu-root"><button @click.stop="toggleMenu('view')">{{ menuText.menu.view.title }}</button><div v-if="activeMenu === 'view'" class="dropdown-menu"><button @click="showLogger = !showLogger">{{ menuText.menu.view.showTestResults }} <kbd>Alt+Shift+B</kbd></button><button @click="showTools = !showTools">{{ menuText.menu.view.showLeftSidebar }} <kbd>Alt+Shift+L</kbd></button><button @click="showRight = !showRight">{{ menuText.menu.view.showModuleLibrary }} <kbd>Alt+Shift+R</kbd></button><div class="menu-separator"></div><div class="menu-subtitle">{{ menuText.menu.view.language }}</div><button @click="setLocale('zh-CN')">{{ currentLocale === 'zh-CN' ? '✓ ' : '' }}{{ menuText.menu.view.chinese }}</button><button @click="setLocale('en-US')">{{ currentLocale === 'en-US' ? '✓ ' : '' }}{{ menuText.menu.view.english }}</button></div></div>
+        <div class="menu-root"><button @click.stop="toggleMenu('render')">{{ menuText.menu.render.title }}</button><div v-if="activeMenu === 'render'" class="dropdown-menu"><button @click="run(() => exportImage(true))">{{ menuText.menu.render.selectedNodes }} <kbd>Ctrl+Alt+R</kbd></button><button @click="run(() => exportImage(false))">{{ menuText.menu.render.graph }} <kbd>Ctrl+Shift+R</kbd></button></div></div>
+        <button @click="run(testGraph)">{{ menuText.menu.test }}</button><button @click="showAbout = true">{{ menuText.menu.help }}</button>
+      </div><div class="test-toolbar"><button class="test-button" :title="menuText.toolbar.testTitle" @click="run(testGraph)">{{ menuText.toolbar.test }}</button></div><div class="window-title">Origin Blueprint</div>
     </header>
 
     <section class="workspace" :style="workspaceStyle">

@@ -168,6 +168,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   const groupElements = new Map<string, HTMLElement>()
   const selectedConnectionIds = new Set<string>()
   let selectedGroupId: string | null = null
+  let preservedMultiNodeSelection: string[] = []
   let dragSnapshot: GraphSnapshot | null = null
   let clipboard: ClipboardGraph | null = null
   let restoring = false
@@ -229,6 +230,39 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
       window.removeEventListener('pointerup', stop)
       window.removeEventListener('pointercancel', stop)
     }
+  }
+
+  function setupMultiSelectionDragPreserver() {
+    const rememberSelection = (event: PointerEvent) => {
+      if (event.button !== 0) return
+      const target = event.target as HTMLElement
+      if (!target.closest('.blueprint-node')) {
+        preservedMultiNodeSelection = []
+        return
+      }
+      const pickedNodeId = nodeIdFromEventTarget(target)
+      const ids = selectedNodes().map(node => node.id)
+      preservedMultiNodeSelection = pickedNodeId && ids.length > 1 && ids.includes(pickedNodeId) ? ids : []
+    }
+    container.addEventListener('pointerdown', rememberSelection, true)
+    return () => container.removeEventListener('pointerdown', rememberSelection, true)
+  }
+
+  function nodeIdFromEventTarget(target: HTMLElement) {
+    for (const [id, view] of area.nodeViews) {
+      if (view.element.contains(target)) return id
+    }
+    return ''
+  }
+
+  async function restoreMultiSelectionAfterNodePick(pickedId: string) {
+    const ids = preservedMultiNodeSelection
+    preservedMultiNodeSelection = []
+    if (ids.length < 2 || !ids.includes(pickedId)) return
+    for (const id of ids) {
+      if (editor.getNode(id)) await selectable.select(id, true)
+    }
+    callbacks.onStatus(`Selected ${ids.length} node(s)`)
   }
 
   const stopNodeDragFeedback = () => setInteractionClass('is-dragging-node', false)
@@ -1107,6 +1141,7 @@ function nodeSize(node: BlueprintNode) {
   document.addEventListener('origin-control-change', controlChangeListener)
   window.addEventListener('pointerdown', hideEntryBindingMenu)
   const destroyPanFeedback = setupCanvasPanFeedback()
+  const destroyMultiSelectionDragPreserver = setupMultiSelectionDragPreserver()
 
   async function updateSelectedNode(label: string, values: Record<string, unknown>) {
     const node = selectedNodes()[0]
@@ -1350,7 +1385,7 @@ function nodeSize(node: BlueprintNode) {
     }
   }
 
-  area.addPipe(context => {
+  area.addPipe(async context => {
     if (context.type === 'zoomed') callbacks.onZoom(context.data.zoom)
     if ((context.type === 'connectioncreate' || context.type === 'connectionremove') && !restoring && !transactionActive && !initializing) pendingConnectionSnapshot = snapshot()
     if (context.type === 'connectioncreated' || context.type === 'connectionremoved') {
@@ -1373,6 +1408,7 @@ function nodeSize(node: BlueprintNode) {
       void clearConnectionSelection()
       startNodeDragFeedback()
       dragSnapshot = snapshot()
+      await restoreMultiSelectionAfterNodePick(context.data.id)
       requestAnimationFrame(() => {
         const node = editor.getNode(context.data.id)
         callbacks.onSelection(node ? selectedNodeInfo(node) : null)
@@ -1409,6 +1445,7 @@ function nodeSize(node: BlueprintNode) {
       window.removeEventListener('pointerup', stopNodeDragFeedback)
       window.removeEventListener('pointercancel', stopNodeDragFeedback)
       destroyPanFeedback()
+      destroyMultiSelectionDragPreserver()
       destroyCuttingLine()
       entryBindingMenu.remove()
       area.destroy()
