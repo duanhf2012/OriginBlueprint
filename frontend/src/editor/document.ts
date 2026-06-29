@@ -26,11 +26,29 @@ export interface FunctionSignature {
   outputs: FunctionSignaturePort[]
 }
 
+export type FunctionNodeRole = 'call' | 'entry' | 'return'
+export type FunctionNodeSource = 'current' | 'workspace'
+
+export interface FunctionNodeMetadata {
+  functionRole: FunctionNodeRole
+  functionId: string
+  functionName: string
+  functionSource?: FunctionNodeSource
+  functionPath?: string
+  functionSignature?: FunctionSignature
+}
+
 export interface NodeProperties {
   label?: string
   variableId?: string
   variableAccess?: 'get' | 'set'
   dynamicOutputCount?: number
+  functionRole?: FunctionNodeRole
+  functionId?: string
+  functionName?: string
+  functionSource?: FunctionNodeSource
+  functionPath?: string
+  functionSignature?: FunctionSignature
   legacyClass?: string
   legacyModule?: string
   legacyInputs?: Array<{ key: string; label: string; type: string }>

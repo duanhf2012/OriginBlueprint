@@ -1,6 +1,6 @@
 import { ClassicPreset } from 'rete'
 import { ArrayControl, BlueprintNode, FileControl, type DynamicBranchConfig, type NodeKind } from './types'
-import type { GraphVariable, NodeProperties } from './document'
+import type { FunctionNodeMetadata, FunctionSignature, FunctionSignaturePort, GraphVariable, NodeProperties } from './document'
 
 export interface NodeDefinition {
   id: string
@@ -176,6 +176,77 @@ export function createNode(typeId: string) {
 
 function variableSocket(type: GraphVariable['type']) {
   return sockets[type]
+}
+
+function cloneFunctionSignature(signature?: FunctionSignature): FunctionSignature {
+  return {
+    inputs: signature?.inputs?.map(port => ({ ...port })) ?? [],
+    outputs: signature?.outputs?.map(port => ({ ...port })) ?? []
+  }
+}
+
+function functionSocket(type: FunctionSignaturePort['type']) {
+  return sockets[type] ?? sockets.any
+}
+
+function functionPortKey(prefix: 'input' | 'output', port: FunctionSignaturePort, index: number) {
+  const key = String(port.id || port.name || `${index + 1}`).trim().replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-+|-+$/g, '')
+  return `${prefix}_${key || index + 1}`
+}
+
+function applyFunctionMetadata(node: BlueprintNode, metadata: FunctionNodeMetadata) {
+  node.functionRole = metadata.functionRole
+  node.functionId = metadata.functionId
+  node.functionName = metadata.functionName
+  node.functionSource = metadata.functionSource
+  node.functionPath = metadata.functionPath
+  node.functionSignature = cloneFunctionSignature(metadata.functionSignature)
+}
+
+function normalizedFunctionMetadata(metadata: FunctionNodeMetadata): FunctionNodeMetadata {
+  return {
+    ...metadata,
+    functionId: metadata.functionId || metadata.functionPath || metadata.functionName || 'function',
+    functionName: metadata.functionName || 'Function',
+    functionSignature: cloneFunctionSignature(metadata.functionSignature)
+  }
+}
+
+export function createFunctionCallNode(metadata: FunctionNodeMetadata) {
+  const spec = normalizedFunctionMetadata({ ...metadata, functionRole: 'call' })
+  const result = node('origin.function.call', spec.functionName, 'function', 'Function call', 245)
+  result.addInput('exec', input(sockets.exec, ''))
+  for (const [index, port] of spec.functionSignature?.inputs.entries() ?? []) {
+    result.addInput(functionPortKey('input', port, index), input(functionSocket(port.type), port.name))
+  }
+  result.addOutput('exec', new ClassicPreset.Output(sockets.exec, ''))
+  for (const [index, port] of spec.functionSignature?.outputs.entries() ?? []) {
+    result.addOutput(functionPortKey('output', port, index), new ClassicPreset.Output(functionSocket(port.type), port.name))
+  }
+  applyFunctionMetadata(result, spec)
+  return result
+}
+
+export function createFunctionEntryNode(metadata: FunctionNodeMetadata) {
+  const spec = normalizedFunctionMetadata({ ...metadata, functionRole: 'entry' })
+  const result = node('origin.function.entry', `${spec.functionName} Entry`, 'event', 'Function entry', 245)
+  result.addOutput('exec', new ClassicPreset.Output(sockets.exec, ''))
+  for (const [index, port] of spec.functionSignature?.inputs.entries() ?? []) {
+    result.addOutput(functionPortKey('input', port, index), new ClassicPreset.Output(functionSocket(port.type), port.name))
+  }
+  applyFunctionMetadata(result, spec)
+  return result
+}
+
+export function createFunctionReturnNode(metadata: FunctionNodeMetadata) {
+  const spec = normalizedFunctionMetadata({ ...metadata, functionRole: 'return' })
+  const result = node('origin.function.return', `${spec.functionName} Return`, 'flow', 'Function return', 245)
+  result.addInput('exec', input(sockets.exec, ''))
+  for (const [index, port] of spec.functionSignature?.outputs.entries() ?? []) {
+    result.addInput(functionPortKey('output', port, index), input(functionSocket(port.type), port.name))
+  }
+  applyFunctionMetadata(result, spec)
+  return result
 }
 
 export function createVariableNode(variable: GraphVariable, access: 'get' | 'set') {

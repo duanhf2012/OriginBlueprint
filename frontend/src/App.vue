@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { toPng } from 'html-to-image'
 import { createBlueprintEditor, type BlueprintEditorHandle, type EditorMetrics, type FunctionSignature, type FunctionSignaturePort, type GraphDocument, type GraphVariable, type GraphVariableGroup, type SelectedNodeInfo, type ValidationIssue, type VariableType } from './editor/createEditor'
+import type { FunctionNodeMetadata, NodeSnapshot } from './editor/document'
 import { getNodeDefinitions, registerNodeSchemas, type NodeDefinition } from './editor/nodeRegistry'
 import { menuLocales, normalizeLocale, type LocaleId } from './i18n'
 import { platform, type NodeReferenceResult, type WorkspaceEntry } from './platform'
@@ -15,7 +16,7 @@ interface NodeReferenceSearchState { visible: boolean; loading: boolean; nodeTit
 interface FileContextMenuState { visible: boolean; x: number; y: number; path: string }
 interface BlueprintFunction { id: string; name: string; readonly?: boolean }
 interface FunctionLibraryItem { id: string; name: string; path: string; source: 'current' | 'workspace' }
-interface ModuleLibraryItem extends NodeDefinition { functionPlaceholder?: boolean; functionSource?: FunctionLibraryItem['source']; path?: string }
+interface ModuleLibraryItem extends NodeDefinition { functionPlaceholder?: boolean; functionSource?: FunctionLibraryItem['source']; functionItem?: FunctionLibraryItem; path?: string }
 
 const canvas = ref<HTMLElement | null>(null)
 const tabStrip = ref<HTMLElement | null>(null)
@@ -68,7 +69,7 @@ const tabDragOverIndex = ref(-1)
 let editor: BlueprintEditorHandle | null = null
 let unsubscribeCloseRequest = () => {}
 let closingApplication = false
-let nodePointerDrag: { typeId: string; startX: number; startY: number; lastX: number; lastY: number; moved: boolean } | null = null
+let nodePointerDrag: { item: ModuleLibraryItem; startX: number; startY: number; lastX: number; lastY: number; moved: boolean } | null = null
 let removeNodePointerListeners = () => {}
 let workspaceLoadToken = 0
 let validationIssueClickTimer: ReturnType<typeof window.setTimeout> | undefined
@@ -92,6 +93,7 @@ const functionModuleItems = computed<ModuleLibraryItem[]>(() => callableFunction
   kind: 'function',
   functionPlaceholder: true,
   functionSource: item.source,
+  functionItem: item,
   path: item.path,
   create() {
     throw new Error('Function call nodes are not implemented yet')
@@ -341,6 +343,37 @@ function blankDocument(name: string): GraphDocument {
   return { schemaVersion: 1, graphName: name, nodes: [], connections: [], groups: [], variables: [], variableGroups: [{ id: 'default', name: 'Default' }], view: { x: 0, y: 0, zoom: 1 } }
 }
 
+function functionTerminalNodes(name: string, signature = emptyFunctionSignature()) {
+  const entryId = crypto.randomUUID()
+  const returnId = crypto.randomUUID()
+  const metadata = (role: FunctionNodeMetadata['functionRole']) => ({
+    functionRole: role,
+    functionId: name,
+    functionName: name,
+    functionSource: 'workspace' as const,
+    functionPath: workspaceFunctionPath(name),
+    functionSignature: normalizeFunctionSignature(signature)
+  })
+  const entry: NodeSnapshot = {
+    id: entryId,
+    typeId: 'origin.function.entry',
+    position: { x: -320, y: 0 },
+    values: {},
+    properties: { label: `${name} Entry`, ...metadata('entry') }
+  }
+  const exit: NodeSnapshot = {
+    id: returnId,
+    typeId: 'origin.function.return',
+    position: { x: 120, y: 0 },
+    values: {},
+    properties: { label: `${name} Return`, ...metadata('return') }
+  }
+  return {
+    nodes: [entry, exit],
+    connections: [{ source: entryId, sourceOutput: 'exec', target: returnId, targetInput: 'exec' }]
+  }
+}
+
 function emptyFunctionSignature(): FunctionSignature {
   return { inputs: [], outputs: [] }
 }
@@ -473,6 +506,9 @@ async function createWorkspaceFunction() {
   const path = workspaceFunctionPath(graphName)
   const document = blankDocument(graphName)
   document.functionSignature = emptyFunctionSignature()
+  const terminals = functionTerminalNodes(graphName, document.functionSignature)
+  document.nodes = terminals.nodes
+  document.connections = terminals.connections
   const saved = await platform.saveGraph(path, JSON.stringify(document, null, 2))
   if (!saved) return
   await loadWorkspace(workspaceRoot.value)
@@ -589,15 +625,33 @@ function touchFunctionSignature() {
   if (isFunctionBlueprintTab.value) activeTab.value.dirty = true
 }
 
+function activeFunctionMetadata(role: FunctionNodeMetadata['functionRole']): FunctionNodeMetadata {
+  const functionName = activeTab.value.title.replace(/\.(obpf|obp|vgf)$/i, '')
+  return {
+    functionRole: role,
+    functionId: activeTab.value.path || activeTab.value.title,
+    functionName,
+    functionSource: 'workspace',
+    functionPath: activeTab.value.path,
+    functionSignature: normalizeFunctionSignature(functionSignature.value)
+  }
+}
+
+async function syncFunctionSignatureToGraph() {
+  touchFunctionSignature()
+  if (!isFunctionBlueprintTab.value) return
+  await editor?.syncFunctionSignature(activeFunctionMetadata('entry'))
+}
+
 function addFunctionSignaturePort(direction: 'inputs' | 'outputs') {
   const label = direction === 'inputs' ? 'Input' : 'Output'
   functionSignature.value[direction].push({ id: crypto.randomUUID(), name: `${label}${functionSignature.value[direction].length + 1}`, type: 'integer' })
-  touchFunctionSignature()
+  void syncFunctionSignatureToGraph()
 }
 
 function removeFunctionSignaturePort(direction: 'inputs' | 'outputs', port: FunctionSignaturePort) {
   functionSignature.value[direction] = functionSignature.value[direction].filter(item => item.id !== port.id)
-  touchFunctionSignature()
+  void syncFunctionSignatureToGraph()
 }
 
 function normalizeVariableType(value: unknown): VariableType {
@@ -661,6 +715,12 @@ function normalizeDocument(value: any): GraphDocument {
     view: value.view ?? { x: 0, y: 0, zoom: 1 },
     legacy: value.legacy
   }
+}
+
+function isNativeGraphDocument(value: any) {
+  if (value?.schemaVersion !== 1) return false
+  if (!Array.isArray(value.nodes)) return true
+  return value.nodes.every((node: any) => typeof node?.typeId === 'string')
 }
 
 function isLegacyGraphPath(path: string) {
@@ -729,7 +789,7 @@ async function openGraph(path = '', highlightTypeId = '') {
   let parsed: any
   try { parsed = JSON.parse(file.content) } catch { status.value = 'Invalid graph file'; return }
   let document: GraphDocument
-  if (parsed.schemaVersion === 1) document = normalizeDocument(parsed)
+  if (isNativeGraphDocument(parsed)) document = normalizeDocument(parsed)
   else if (platform.isDesktop()) {
     try { document = normalizeDocument(JSON.parse(await platform.migrateLegacyGraph(file.content))) }
     catch (error) { status.value = error instanceof Error ? error.message : 'Legacy graph migration failed'; return }
@@ -737,8 +797,13 @@ async function openGraph(path = '', highlightTypeId = '') {
   persistActive()
   const existing = tabs.value.find(tab => tab.path === file.path)
   if (existing) {
-    await switchTab(existing.id)
-    functionSignature.value = normalizeFunctionSignature(existing.document?.functionSignature)
+    persistActive()
+    existing.document = document
+    existing.dirty = false
+    activeTabId.value = existing.id
+    selectedVariableId.value = null
+    functionSignature.value = normalizeFunctionSignature(document.functionSignature)
+    await editor?.loadDocument(document)
     if (highlightTypeId) {
       const count = await editor?.highlightNodesByType(highlightTypeId) ?? 0
       status.value = count ? `已高亮 ${count} 个引用结点` : '该蓝图中未找到引用结点'
@@ -999,17 +1064,66 @@ async function addNodeAt(typeId: string, position?: { x: number; y: number }) {
   }
 }
 
+async function loadFunctionSignatureForModuleItem(item: ModuleLibraryItem) {
+  if (item.functionSource !== 'workspace' || !item.path) return normalizeFunctionSignature(functionSignature.value)
+  const opened = tabs.value.find(tab => tab.path === item.path)
+  if (opened?.document) return normalizeFunctionSignature(opened.document.functionSignature)
+  try {
+    const file = await platform.openGraph(item.path)
+    if (!file) return emptyFunctionSignature()
+    const parsed = JSON.parse(file.content) as Partial<GraphDocument>
+    return normalizeFunctionSignature(parsed.functionSignature)
+  } catch (error) {
+    status.value = `读取函数签名失败: ${error instanceof Error ? error.message : String(error)}`
+    return emptyFunctionSignature()
+  }
+}
+
+async function functionMetadataForModuleItem(item: ModuleLibraryItem): Promise<FunctionNodeMetadata> {
+  const source = item.functionSource ?? 'current'
+  return {
+    functionRole: 'call',
+    functionId: item.functionItem?.id ?? item.id,
+    functionName: item.title,
+    functionSource: source,
+    functionPath: item.path,
+    functionSignature: source === 'current' ? normalizeFunctionSignature(functionSignature.value) : await loadFunctionSignatureForModuleItem(item)
+  }
+}
+
+async function addModuleItemAt(item: ModuleLibraryItem, position?: { x: number; y: number }) {
+  if (item.functionPlaceholder) {
+    try {
+      await editor?.addFunctionCallNode(await functionMetadataForModuleItem(item), position ?? visibleCanvasInsertPosition())
+    } catch (error) {
+      status.value = error instanceof Error ? error.message : String(error)
+    }
+    return
+  }
+  await addNodeAt(item.id, position)
+}
+
+async function addFunctionEntryNodeToGraph() {
+  if (!isFunctionBlueprintTab.value) return
+  await editor?.addFunctionEntryNode(activeFunctionMetadata('entry'), visibleCanvasInsertPosition())
+}
+
+async function addFunctionReturnNodeToGraph() {
+  if (!isFunctionBlueprintTab.value) return
+  await editor?.addFunctionReturnNode(activeFunctionMetadata('return'), visibleCanvasInsertPosition())
+}
+
 function visibleCanvasInsertPosition() {
   const rect = canvas.value?.getBoundingClientRect()
   if (!rect) return undefined
   return { x: rect.left + rect.width * 0.42, y: rect.top + rect.height * 0.36 }
 }
 
-function beginNodePointerDrag(event: PointerEvent, typeId: string) {
+function beginModuleItemPointerDrag(event: PointerEvent, item: ModuleLibraryItem) {
   if (event.button !== 0) return
   removeNodePointerListeners()
-  nodePointerDrag = { typeId, startX: event.clientX, startY: event.clientY, lastX: event.clientX, lastY: event.clientY, moved: false }
-  status.value = `Dragging ${typeId}`
+  nodePointerDrag = { item, startX: event.clientX, startY: event.clientY, lastX: event.clientX, lastY: event.clientY, moved: false }
+  status.value = `Dragging ${item.title}`
 
   const move = (next: PointerEvent) => {
     if (!nodePointerDrag) return
@@ -1026,7 +1140,7 @@ function beginNodePointerDrag(event: PointerEvent, typeId: string) {
     nodePointerDrag = null
     if (!drag?.moved) return
     const position = { x: next.clientX || drag.lastX, y: next.clientY || drag.lastY }
-    if (isInsideCanvas(position.x, position.y)) void addNodeAt(drag.typeId, position)
+    if (isInsideCanvas(position.x, position.y)) void addModuleItemAt(drag.item, position)
     else status.value = 'Node drag cancelled'
   }
 
@@ -1316,11 +1430,12 @@ function toggleModuleCategory(category: string) {
           <div class="panel-title"><span class="chevron">⌄</span> 详情</div>
           <div v-if="isFunctionBlueprintTab && !selectedNode && !selectedVariable" class="node-detail function-signature-editor">
             <div class="detail-section-title">函数签名</div>
+            <div class="function-terminal-actions"><button @click="addFunctionEntryNodeToGraph">＋ 入口节点</button><button @click="addFunctionReturnNodeToGraph">＋ 出口节点</button></div>
             <section class="signature-port-section">
               <header><span>输入参数</span><button @click="addFunctionSignaturePort('inputs')">＋</button></header>
               <div v-for="port in functionSignature.inputs" :key="port.id" class="signature-port-row">
-                <input v-model="port.name" placeholder="参数名" @change="touchFunctionSignature" />
-                <select v-model="port.type" @change="touchFunctionSignature"><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="float">Float</option><option value="string">String</option><option value="array">Array</option><option value="file">File</option><option value="table">Table</option><option value="dictionary">Dictionary</option></select>
+                <input v-model="port.name" placeholder="参数名" @change="syncFunctionSignatureToGraph" />
+                <select v-model="port.type" @change="syncFunctionSignatureToGraph"><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="float">Float</option><option value="string">String</option><option value="array">Array</option><option value="file">File</option><option value="table">Table</option><option value="dictionary">Dictionary</option></select>
                 <button title="删除参数" @click="removeFunctionSignaturePort('inputs', port)">×</button>
               </div>
               <button v-if="!functionSignature.inputs.length" class="empty-signature-port" @click="addFunctionSignaturePort('inputs')">＋ 添加输入参数</button>
@@ -1328,8 +1443,8 @@ function toggleModuleCategory(category: string) {
             <section class="signature-port-section">
               <header><span>输出参数</span><button @click="addFunctionSignaturePort('outputs')">＋</button></header>
               <div v-for="port in functionSignature.outputs" :key="port.id" class="signature-port-row">
-                <input v-model="port.name" placeholder="参数名" @change="touchFunctionSignature" />
-                <select v-model="port.type" @change="touchFunctionSignature"><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="float">Float</option><option value="string">String</option><option value="array">Array</option><option value="file">File</option><option value="table">Table</option><option value="dictionary">Dictionary</option></select>
+                <input v-model="port.name" placeholder="参数名" @change="syncFunctionSignatureToGraph" />
+                <select v-model="port.type" @change="syncFunctionSignatureToGraph"><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="float">Float</option><option value="string">String</option><option value="array">Array</option><option value="file">File</option><option value="table">Table</option><option value="dictionary">Dictionary</option></select>
                 <button title="删除参数" @click="removeFunctionSignaturePort('outputs', port)">×</button>
               </div>
               <button v-if="!functionSignature.outputs.length" class="empty-signature-port" @click="addFunctionSignaturePort('outputs')">＋ 添加输出参数</button>
@@ -1402,7 +1517,7 @@ function toggleModuleCategory(category: string) {
                 <small>{{ items.length }}</small>
               </button>
               <div v-if="isModuleCategoryExpanded(category)" class="module-items">
-                <button v-for="item in items" :key="item.id" class="module-item" :class="{ 'function-placeholder': item.functionPlaceholder }" :title="item.path || item.title" @click="selectFunctionLibraryItem(item)" @pointerdown.stop="!item.functionPlaceholder && beginNodePointerDrag($event, item.id)" @contextmenu.stop.prevent="!item.functionPlaceholder && openModuleNodeMenu($event, item)" @dblclick="!item.functionPlaceholder && addNodeAt(item.id)"><span>{{ item.title }}</span><small v-if="item.functionPlaceholder">{{ item.functionSource === 'workspace' ? menuText.module.workspaceFunctionLibrary : menuText.module.currentBlueprintFunctions }}</small></button>
+                <button v-for="item in items" :key="item.id" class="module-item" :class="{ 'function-placeholder': item.functionPlaceholder }" :title="item.path || item.title" @click="selectFunctionLibraryItem(item)" @pointerdown.stop="beginModuleItemPointerDrag($event, item)" @contextmenu.stop.prevent="!item.functionPlaceholder && openModuleNodeMenu($event, item)" @dblclick="addModuleItemAt(item)"><span>{{ item.title }}</span><small v-if="item.functionPlaceholder">{{ item.functionSource === 'workspace' ? menuText.module.workspaceFunctionLibrary : menuText.module.currentBlueprintFunctions }}</small></button>
               </div>
             </section>
             <div v-if="!functionLibraryItems.length" class="function-library-empty">{{ menuText.module.noFunctionLibrary }}</div>

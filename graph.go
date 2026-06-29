@@ -4,20 +4,22 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 )
 
 const GraphSchemaVersion = 1
 
 type GraphDocument struct {
-	SchemaVersion  int                  `json:"schemaVersion"`
-	GraphName      string               `json:"graphName"`
-	Nodes          []GraphNode          `json:"nodes"`
-	Connections    []GraphConnection    `json:"connections"`
-	Groups         []GraphGroup         `json:"groups"`
-	Variables      []GraphVariable      `json:"variables"`
-	VariableGroups []GraphVariableGroup `json:"variableGroups"`
-	View           GraphView            `json:"view"`
-	Legacy         *GraphLegacyState    `json:"legacy,omitempty"`
+	SchemaVersion     int                    `json:"schemaVersion"`
+	GraphName         string                 `json:"graphName"`
+	Nodes             []GraphNode            `json:"nodes"`
+	Connections       []GraphConnection      `json:"connections"`
+	Groups            []GraphGroup           `json:"groups"`
+	Variables         []GraphVariable        `json:"variables"`
+	VariableGroups    []GraphVariableGroup   `json:"variableGroups"`
+	FunctionSignature GraphFunctionSignature `json:"functionSignature,omitempty"`
+	View              GraphView              `json:"view"`
+	Legacy            *GraphLegacyState      `json:"legacy,omitempty"`
 }
 
 type GraphNode struct {
@@ -29,14 +31,31 @@ type GraphNode struct {
 }
 
 type GraphNodeProperties struct {
-	Label              string            `json:"label,omitempty"`
-	VariableID         string            `json:"variableId,omitempty"`
-	VariableAccess     string            `json:"variableAccess,omitempty"`
-	DynamicOutputCount int               `json:"dynamicOutputCount,omitempty"`
-	LegacyClass        string            `json:"legacyClass,omitempty"`
-	LegacyModule       string            `json:"legacyModule,omitempty"`
-	LegacyInputs       []GraphLegacyPort `json:"legacyInputs,omitempty"`
-	LegacyOutputs      []GraphLegacyPort `json:"legacyOutputs,omitempty"`
+	Label              string                 `json:"label,omitempty"`
+	VariableID         string                 `json:"variableId,omitempty"`
+	VariableAccess     string                 `json:"variableAccess,omitempty"`
+	DynamicOutputCount int                    `json:"dynamicOutputCount,omitempty"`
+	FunctionRole       string                 `json:"functionRole,omitempty"`
+	FunctionID         string                 `json:"functionId,omitempty"`
+	FunctionName       string                 `json:"functionName,omitempty"`
+	FunctionSource     string                 `json:"functionSource,omitempty"`
+	FunctionPath       string                 `json:"functionPath,omitempty"`
+	FunctionSignature  GraphFunctionSignature `json:"functionSignature,omitempty"`
+	LegacyClass        string                 `json:"legacyClass,omitempty"`
+	LegacyModule       string                 `json:"legacyModule,omitempty"`
+	LegacyInputs       []GraphLegacyPort      `json:"legacyInputs,omitempty"`
+	LegacyOutputs      []GraphLegacyPort      `json:"legacyOutputs,omitempty"`
+}
+
+type GraphFunctionSignature struct {
+	Inputs  []GraphFunctionSignaturePort `json:"inputs,omitempty"`
+	Outputs []GraphFunctionSignaturePort `json:"outputs,omitempty"`
+}
+
+type GraphFunctionSignaturePort struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Type string `json:"type"`
 }
 
 type GraphLegacyState struct {
@@ -109,6 +128,57 @@ type ValidationIssue struct {
 type portDefinition struct {
 	Inputs  map[string]string
 	Outputs map[string]string
+}
+
+func functionPortKey(prefix string, port GraphFunctionSignaturePort, index int) string {
+	source := strings.TrimSpace(port.ID)
+	if source == "" {
+		source = strings.TrimSpace(port.Name)
+	}
+	if source == "" {
+		source = fmt.Sprintf("%d", index+1)
+	}
+	var builder strings.Builder
+	for _, char := range source {
+		if (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9') || char == '_' || char == '-' {
+			builder.WriteRune(char)
+		} else if builder.Len() > 0 && !strings.HasSuffix(builder.String(), "-") {
+			builder.WriteRune('-')
+		}
+	}
+	key := strings.Trim(builder.String(), "-")
+	if key == "" {
+		key = fmt.Sprintf("%d", index+1)
+	}
+	return prefix + "_" + key
+}
+
+func functionNodePortDefinition(node GraphNode) portDefinition {
+	signature := node.Properties.FunctionSignature
+	inputs := map[string]string{}
+	outputs := map[string]string{}
+	switch node.TypeID {
+	case "origin.function.entry":
+		outputs["exec"] = "exec"
+		for index, port := range signature.Inputs {
+			outputs[functionPortKey("input", port, index)] = port.Type
+		}
+	case "origin.function.return":
+		inputs["exec"] = "exec"
+		for index, port := range signature.Outputs {
+			inputs[functionPortKey("output", port, index)] = port.Type
+		}
+	case "origin.function.call":
+		inputs["exec"] = "exec"
+		outputs["exec"] = "exec"
+		for index, port := range signature.Inputs {
+			inputs[functionPortKey("input", port, index)] = port.Type
+		}
+		for index, port := range signature.Outputs {
+			outputs[functionPortKey("output", port, index)] = port.Type
+		}
+	}
+	return portDefinition{Inputs: inputs, Outputs: outputs}
 }
 
 var graphNodePorts = map[string]portDefinition{
@@ -415,6 +485,10 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 				outputs[fmt.Sprintf("then%d", index)] = "exec"
 			}
 			definition = portDefinition{Inputs: map[string]string{"exec": "exec"}, Outputs: outputs}
+			known = true
+		}
+		if strings.HasPrefix(node.TypeID, "origin.function.") {
+			definition = functionNodePortDefinition(node)
 			known = true
 		}
 		if node.TypeID == "origin.variable.get" || node.TypeID == "origin.variable.set" {

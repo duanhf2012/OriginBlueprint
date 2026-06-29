@@ -138,6 +138,49 @@ func TestFunctionBlueprintPreservesSignatureMetadata(t *testing.T) {
 	}
 }
 
+func TestValidateFunctionEntryAndReturnUsesSignaturePorts(t *testing.T) {
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		GraphName:     "CalculateDamage",
+		Nodes: []GraphNode{
+			{
+				ID:     "entry",
+				TypeID: "origin.function.entry",
+				Properties: GraphNodeProperties{
+					Label:        "CalculateDamage Entry",
+					FunctionRole: "entry",
+					FunctionName: "CalculateDamage",
+					FunctionSignature: GraphFunctionSignature{
+						Inputs:  []GraphFunctionSignaturePort{{ID: "target", Name: "TargetId", Type: "integer"}},
+						Outputs: []GraphFunctionSignaturePort{{ID: "damage", Name: "Damage", Type: "integer"}},
+					},
+				},
+			},
+			{
+				ID:     "return",
+				TypeID: "origin.function.return",
+				Properties: GraphNodeProperties{
+					Label:        "CalculateDamage Return",
+					FunctionRole: "return",
+					FunctionName: "CalculateDamage",
+					FunctionSignature: GraphFunctionSignature{
+						Inputs:  []GraphFunctionSignaturePort{{ID: "target", Name: "TargetId", Type: "integer"}},
+						Outputs: []GraphFunctionSignaturePort{{ID: "damage", Name: "Damage", Type: "integer"}},
+					},
+				},
+			},
+		},
+		Connections: []GraphConnection{
+			{Source: "entry", SourceOutput: "exec", Target: "return", TargetInput: "exec"},
+			{Source: "entry", SourceOutput: "input_target", Target: "return", TargetInput: "output_damage"},
+		},
+	}
+	issues := validateGraph(document)
+	if len(issues) != 0 {
+		t.Fatalf("validateGraph issues = %#v, want none", issues)
+	}
+}
+
 func TestWorkspaceListsFunctionBlueprintFiles(t *testing.T) {
 	app := NewApp()
 	dir := t.TempDir()

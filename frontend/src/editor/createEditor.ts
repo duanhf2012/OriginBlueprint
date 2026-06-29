@@ -7,13 +7,13 @@ import BlueprintControl from './BlueprintControl.vue'
 import BlueprintConnectionComponent from './BlueprintConnection.vue'
 import BlueprintNodeComponent from './BlueprintNode.vue'
 import BlueprintSocket from './BlueprintSocket.vue'
-import { createLegacyNode, createNode, createVariableNode, hasNodeDefinition, nodeTitleWidth } from './nodeRegistry'
+import { createFunctionCallNode, createFunctionEntryNode as createFunctionEntryNodeFromSpec, createFunctionReturnNode as createFunctionReturnNodeFromSpec, createLegacyNode, createNode, createVariableNode, hasNodeDefinition, nodeTitleWidth } from './nodeRegistry'
 import { normalizeSocketName } from './socketTheme'
 import { BlueprintNode, type Schemes } from './types'
 import { describeEntryBinding, entryBindingCandidateGroups, isEntryOutputConnection, type EntryBindingNode } from './implicitEntryLinks'
 import { refreshNodePortStates } from './portVisualState'
 import { pathIntersectsRect, rectsIntersect, type Rect } from './selectionGeometry'
-import type { ConnectionSnapshot, GraphDocument, GraphSnapshot, GraphVariable, GraphVariableGroup, GroupSnapshot, LegacyGraphState, NodeProperties, NodeSnapshot } from './document'
+import type { ConnectionSnapshot, FunctionNodeMetadata, FunctionSignature, GraphDocument, GraphSnapshot, GraphVariable, GraphVariableGroup, GroupSnapshot, LegacyGraphState, NodeProperties, NodeSnapshot } from './document'
 
 export type { FunctionSignature, FunctionSignaturePort, GraphDocument, GraphVariable, GraphVariableGroup, ValidationIssue, VariableType } from './document'
 
@@ -94,6 +94,10 @@ export interface BlueprintEditorHandle {
   destroy(): void
   resetView(): void
   addNode(typeId: string, clientPosition?: Position): Promise<void>
+  addFunctionCallNode(spec: FunctionNodeMetadata, clientPosition?: Position): Promise<void>
+  addFunctionEntryNode(spec: FunctionNodeMetadata, clientPosition?: Position): Promise<void>
+  addFunctionReturnNode(spec: FunctionNodeMetadata, clientPosition?: Position): Promise<void>
+  syncFunctionSignature(spec: FunctionNodeMetadata): Promise<void>
   addVariableNode(variable: GraphVariable, access: 'get' | 'set', clientPosition?: Position): Promise<void>
   deleteSelected(): Promise<void>
   selectAll(): Promise<void>
@@ -332,11 +336,58 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     return value ? JSON.parse(JSON.stringify(value)) as LegacyGraphState : undefined
   }
 
+  function cloneFunctionSignatureFromProperties(signature?: Partial<FunctionSignature>): FunctionSignature | undefined {
+    if (!signature) return undefined
+    const inputs = Array.isArray(signature.inputs) ? signature.inputs.map(port => ({ ...port })) : []
+    const outputs = Array.isArray(signature.outputs) ? signature.outputs.map(port => ({ ...port })) : []
+    return inputs.length || outputs.length ? { inputs, outputs } : undefined
+  }
+
   function applyNodeProperties(node: BlueprintNode, properties?: NodeProperties) {
+    node.functionRole = properties?.functionRole
+    node.functionId = properties?.functionId
+    node.functionName = properties?.functionName
+    node.functionSource = properties?.functionSource
+    node.functionPath = properties?.functionPath
+    node.functionSignature = cloneFunctionSignatureFromProperties(properties?.functionSignature)
     node.legacyClass = properties?.legacyClass
     node.legacyModule = properties?.legacyModule
     node.legacyInputs = properties?.legacyInputs?.map(port => ({ ...port }))
     node.legacyOutputs = properties?.legacyOutputs?.map(port => ({ ...port }))
+  }
+
+  function functionMetadataFromProperties(properties?: NodeProperties): FunctionNodeMetadata {
+    return {
+      functionRole: properties?.functionRole ?? 'call',
+      functionId: properties?.functionId ?? properties?.functionPath ?? properties?.functionName ?? 'function',
+      functionName: properties?.functionName ?? properties?.label ?? 'Function',
+      functionSource: properties?.functionSource,
+      functionPath: properties?.functionPath,
+      functionSignature: properties?.functionSignature
+    }
+  }
+
+  function createFunctionNodeFromProperties(properties?: NodeProperties) {
+    const metadata = functionMetadataFromProperties(properties)
+    if (metadata.functionRole === 'entry') return createFunctionEntryNodeFromSpec(metadata)
+    if (metadata.functionRole === 'return') return createFunctionReturnNodeFromSpec(metadata)
+    return createFunctionCallNode(metadata)
+  }
+
+  function createRestoredNode(item: Pick<NodeSnapshot, 'typeId' | 'properties'>, typeId: string) {
+    const variableAccess = item.properties?.variableAccess ?? (typeId === 'origin.variable.set' ? 'set' : 'get')
+    const variable = currentVariables.find(entry => entry.id === item.properties?.variableId)
+    if (typeId.startsWith('origin.variable.')) {
+      return createVariableNode(
+        variable ?? { id: item.properties?.variableId ?? '', name: 'Missing Variable', type: 'string', defaultValue: '', groupId: 'default' },
+        variableAccess
+      )
+    }
+    if (typeId.startsWith('origin.function.')) return createFunctionNodeFromProperties(item.properties)
+    if (typeId === 'origin.legacy.placeholder') return createLegacyNode(item.properties ?? {})
+    if (hasNodeDefinition(typeId)) return createNode(typeId)
+    if (item.properties?.legacyClass) return createLegacyNode(item.properties)
+    return null
   }
 
   function legacyPortType(port?: SnapshotPort) {
@@ -364,6 +415,17 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     return node.legacyOutputs ?? (shouldSnapshotLegacyPorts(node) ? legacyPortsFromNodePorts(node.outputs) : undefined)
   }
 
+  function functionPropertiesForSnapshot(node: BlueprintNode): Pick<NodeProperties, 'functionRole' | 'functionId' | 'functionName' | 'functionSource' | 'functionPath' | 'functionSignature'> {
+    return {
+      functionRole: node.functionRole,
+      functionId: node.functionId,
+      functionName: node.functionName,
+      functionSource: node.functionSource,
+      functionPath: node.functionPath,
+      functionSignature: node.functionSignature
+    }
+  }
+
   function snapshot(): GraphSnapshot {
     return {
       nodes: editor.getNodes().map(node => ({
@@ -376,6 +438,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
           variableId: node.variableId,
           variableAccess: node.variableAccess,
           dynamicOutputCount: node.dynamicOutputCount,
+          ...functionPropertiesForSnapshot(node),
           legacyClass: node.legacyClass,
           legacyModule: node.legacyModule,
           legacyInputs: legacyInputsForSnapshot(node),
@@ -457,18 +520,14 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     groups.splice(0, groups.length, ...(data.groups ?? []).map(item => ({ ...item, nodeIds: [...item.nodeIds] })))
     const nodes = new Map<string, BlueprintNode>()
     for (const item of data.nodes) {
-      const variableAccess = item.properties?.variableAccess ?? (item.typeId === 'origin.variable.set' ? 'set' : 'get')
-      const variable = currentVariables.find(entry => entry.id === item.properties?.variableId)
-      if (!item.typeId.startsWith('origin.variable.') && item.typeId !== 'origin.legacy.placeholder' && !hasNodeDefinition(item.typeId)) continue
-      const node = item.typeId.startsWith('origin.variable.')
-        ? createVariableNode(variable ?? { id: item.properties?.variableId ?? '', name: 'Missing Variable', type: 'string', defaultValue: '', groupId: 'default' }, variableAccess)
-        : item.typeId === 'origin.legacy.placeholder'
-          ? createLegacyNode(item.properties ?? {})
-        : createNode(item.typeId)
+      const typeId = typeof item.typeId === 'string' ? item.typeId : ''
+      if (!typeId) continue
+      const node = createRestoredNode(item, typeId)
+      if (!node) continue
       applyNodeProperties(node, item.properties)
       if (node.dynamicOutputs) setDynamicOutputCount(node, item.properties?.dynamicOutputCount ?? 3)
       node.id = item.id
-      if (item.properties?.label && !item.typeId.startsWith('origin.variable.') && !item.properties.legacyClass) {
+      if (item.properties?.label && !typeId.startsWith('origin.variable.') && !item.properties.legacyClass) {
         node.label = item.properties.label
         node.width = Math.max(node.width ?? 230, nodeTitleWidth(node.label))
       }
@@ -684,6 +743,81 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     })
   }
 
+  async function addFunctionCallNode(spec: FunctionNodeMetadata, clientPosition?: Position) {
+    await mutate('Function call node created', async () => {
+      await clearConnectionSelection()
+      const node = createFunctionCallNode(spec)
+      await editor.addNode(node)
+      await area.translate(node.id, graphPosition(clientPosition))
+      await refreshPortStates(true)
+      await selector.unselectAll()
+      await selectable.select(node.id, false)
+      callbacks.onSelection(selectedNodeInfo(node))
+    })
+  }
+
+  async function addFunctionEntryNode(spec: FunctionNodeMetadata, clientPosition?: Position) {
+    await mutate('Function entry node created', async () => {
+      await clearConnectionSelection()
+      const node = createFunctionEntryNodeFromSpec(spec)
+      await editor.addNode(node)
+      await area.translate(node.id, graphPosition(clientPosition))
+      await refreshPortStates(true)
+      await selector.unselectAll()
+      await selectable.select(node.id, false)
+      callbacks.onSelection(selectedNodeInfo(node))
+    })
+  }
+
+  async function addFunctionReturnNode(spec: FunctionNodeMetadata, clientPosition?: Position) {
+    await mutate('Function return node created', async () => {
+      await clearConnectionSelection()
+      const node = createFunctionReturnNodeFromSpec(spec)
+      await editor.addNode(node)
+      await area.translate(node.id, graphPosition(clientPosition))
+      await refreshPortStates(true)
+      await selector.unselectAll()
+      await selectable.select(node.id, false)
+      callbacks.onSelection(selectedNodeInfo(node))
+    })
+  }
+
+  function sameFunctionReference(properties: NodeProperties | undefined, spec: FunctionNodeMetadata) {
+    if (!properties) return false
+    if (spec.functionPath && properties.functionPath === spec.functionPath) return true
+    if (spec.functionId && properties.functionId === spec.functionId) return true
+    return Boolean(spec.functionName && properties.functionName === spec.functionName)
+  }
+
+  async function syncFunctionSignature(spec: FunctionNodeMetadata) {
+    await mutate('Function signature synchronized', async () => {
+      const data = snapshot()
+      let changed = false
+      for (const node of data.nodes) {
+        if (!node.typeId.startsWith('origin.function.')) continue
+        const role = node.properties?.functionRole
+        const isTerminal = role === 'entry' || role === 'return'
+        const isMatchingCall = role === 'call' && sameFunctionReference(node.properties, spec)
+        if (!isTerminal && !isMatchingCall) continue
+        node.properties = {
+          ...node.properties,
+          functionId: spec.functionId,
+          functionName: spec.functionName,
+          functionSource: spec.functionSource,
+          functionPath: spec.functionPath,
+          functionSignature: spec.functionSignature,
+          label: role === 'entry'
+            ? `${spec.functionName} Entry`
+            : role === 'return'
+              ? `${spec.functionName} Return`
+              : node.properties?.label
+        }
+        changed = true
+      }
+      if (changed) await restore(data)
+    })
+  }
+
   async function addVariableNode(variable: GraphVariable, access: 'get' | 'set', clientPosition?: Position) {
     await mutate(`${access === 'get' ? 'Get' : 'Set'} variable node created`, async () => {
       await clearConnectionSelection()
@@ -725,7 +859,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
         typeId: node.typeId ?? '',
         position: { x: positions[index].x - minX, y: positions[index].y - minY },
         values: controlValues(node),
-        properties: { label: node.label, variableId: node.variableId, variableAccess: node.variableAccess, dynamicOutputCount: node.dynamicOutputCount, legacyClass: node.legacyClass, legacyModule: node.legacyModule, legacyInputs: legacyInputsForSnapshot(node), legacyOutputs: legacyOutputsForSnapshot(node) }
+        properties: { label: node.label, variableId: node.variableId, variableAccess: node.variableAccess, dynamicOutputCount: node.dynamicOutputCount, ...functionPropertiesForSnapshot(node), legacyClass: node.legacyClass, legacyModule: node.legacyModule, legacyInputs: legacyInputsForSnapshot(node), legacyOutputs: legacyOutputsForSnapshot(node) }
       })),
       connections: editor.getConnections().flatMap(item => {
         const sourceIndex = ids.get(item.source)
@@ -753,16 +887,13 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
       const nodes: BlueprintNode[] = []
       await selector.unselectAll()
       for (const item of clipboard!.nodes) {
-        const variableAccess = item.properties?.variableAccess ?? (item.typeId === 'origin.variable.set' ? 'set' : 'get')
-        const variable = currentVariables.find(entry => entry.id === item.properties?.variableId)
-        const node = item.typeId.startsWith('origin.variable.')
-          ? createVariableNode(variable ?? { id: item.properties?.variableId ?? '', name: 'Missing Variable', type: 'string', defaultValue: '', groupId: 'default' }, variableAccess)
-          : item.typeId === 'origin.legacy.placeholder'
-            ? createLegacyNode(item.properties ?? {})
-          : createNode(item.typeId)
+        const typeId = typeof item.typeId === 'string' ? item.typeId : ''
+        if (!typeId) continue
+        const node = createRestoredNode(item, typeId)
+        if (!node) continue
         applyNodeProperties(node, item.properties)
         if (node.dynamicOutputs) setDynamicOutputCount(node, item.properties?.dynamicOutputCount ?? 3)
-        if (item.properties?.label && !item.typeId.startsWith('origin.variable.') && !item.properties.legacyClass) {
+        if (item.properties?.label && !typeId.startsWith('origin.variable.') && !item.properties.legacyClass) {
           node.label = item.properties.label
           node.width = Math.max(node.width ?? 230, nodeTitleWidth(node.label))
         }
@@ -1452,6 +1583,10 @@ function nodeSize(node: BlueprintNode) {
     },
     resetView,
     addNode,
+    addFunctionCallNode,
+    addFunctionEntryNode,
+    addFunctionReturnNode,
+    syncFunctionSignature,
     addVariableNode,
     deleteSelected,
     selectAll,

@@ -1,19 +1,146 @@
 {
   "schemaVersion": 1,
-  "graphName": "NewFunction",
-  "nodes": [],
-  "connections": [],
+  "graphName": "NewFunction.obpf",
+  "nodes": [
+    {
+      "id": "a90131405a987b64",
+      "typeId": "origin.function.entry",
+      "position": {
+        "x": 130.29999999999995,
+        "y": 271.84
+      },
+      "values": {},
+      "properties": {
+        "label": "NewFunction Entry",
+        "functionRole": "entry",
+        "functionId": "E:\\Develop\\OriginNodeEditor\\OriginBlueprint\\functions\\NewFunction.obpf",
+        "functionName": "NewFunction",
+        "functionSource": "workspace",
+        "functionPath": "E:\\Develop\\OriginNodeEditor\\OriginBlueprint\\functions\\NewFunction.obpf",
+        "functionSignature": {
+          "inputs": [
+            {
+              "id": "a9db30eb-ea98-4068-b2fc-d66ca3b72f26",
+              "name": "Input1",
+              "type": "integer"
+            },
+            {
+              "id": "69293f85-5f91-4af6-a443-92a9fce04ae6",
+              "name": "Input2",
+              "type": "integer"
+            }
+          ],
+          "outputs": [
+            {
+              "id": "1e0251b3-58b6-4f4d-a657-ae012e791460",
+              "name": "Output1",
+              "type": "integer"
+            },
+            {
+              "id": "18541ab6-03bc-41fc-a4e8-3eaa7db7a1d3",
+              "name": "Output2",
+              "type": "integer"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "3af1ba3f67a199cc",
+      "typeId": "origin.function.return",
+      "position": {
+        "x": 492.79999999999995,
+        "y": 283.84
+      },
+      "values": {},
+      "properties": {
+        "label": "NewFunction Return",
+        "functionRole": "return",
+        "functionId": "E:\\Develop\\OriginNodeEditor\\OriginBlueprint\\functions\\NewFunction.obpf",
+        "functionName": "NewFunction",
+        "functionSource": "workspace",
+        "functionPath": "E:\\Develop\\OriginNodeEditor\\OriginBlueprint\\functions\\NewFunction.obpf",
+        "functionSignature": {
+          "inputs": [
+            {
+              "id": "a9db30eb-ea98-4068-b2fc-d66ca3b72f26",
+              "name": "Input1",
+              "type": "integer"
+            },
+            {
+              "id": "69293f85-5f91-4af6-a443-92a9fce04ae6",
+              "name": "Input2",
+              "type": "integer"
+            }
+          ],
+          "outputs": [
+            {
+              "id": "1e0251b3-58b6-4f4d-a657-ae012e791460",
+              "name": "Output1",
+              "type": "integer"
+            },
+            {
+              "id": "18541ab6-03bc-41fc-a4e8-3eaa7db7a1d3",
+              "name": "Output2",
+              "type": "integer"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "connections": [
+    {
+      "source": "a90131405a987b64",
+      "sourceOutput": "exec",
+      "target": "3af1ba3f67a199cc",
+      "targetInput": "exec"
+    },
+    {
+      "source": "a90131405a987b64",
+      "sourceOutput": "input_a9db30eb-ea98-4068-b2fc-d66ca3b72f26",
+      "target": "3af1ba3f67a199cc",
+      "targetInput": "output_1e0251b3-58b6-4f4d-a657-ae012e791460"
+    }
+  ],
   "groups": [],
   "variables": [],
   "variableGroups": [
     {
       "id": "default",
-      "name": "Default"
+      "name": "Default",
+      "collapsed": false
     }
   ],
   "view": {
-    "x": 0,
-    "y": 0,
+    "x": -12.549999999999955,
+    "y": -10.839999999999975,
     "zoom": 1
+  },
+  "functionSignature": {
+    "inputs": [
+      {
+        "id": "a9db30eb-ea98-4068-b2fc-d66ca3b72f26",
+        "name": "Input1",
+        "type": "integer"
+      },
+      {
+        "id": "69293f85-5f91-4af6-a443-92a9fce04ae6",
+        "name": "Input2",
+        "type": "integer"
+      }
+    ],
+    "outputs": [
+      {
+        "id": "1e0251b3-58b6-4f4d-a657-ae012e791460",
+        "name": "Output1",
+        "type": "integer"
+      },
+      {
+        "id": "18541ab6-03bc-41fc-a4e8-3eaa7db7a1d3",
+        "name": "Output2",
+        "type": "integer"
+      }
+    ]
   }
 }
