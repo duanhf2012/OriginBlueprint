@@ -125,7 +125,7 @@ export const platform = {
     if (desktop()) return withDesktopLogging('OpenGraph', () => desktop()!.OpenGraph(path))
     return new Promise(resolve => {
       const input = document.createElement('input')
-      input.type = 'file'; input.accept = '.obp,.vgf,.json'
+      input.type = 'file'; input.accept = '.obp,.vgf,.obpf,.json'
       input.onchange = async () => {
         const file = input.files?.[0]
         resolve(file ? { path: file.name, content: await file.text() } : null)

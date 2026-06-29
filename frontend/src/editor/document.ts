@@ -15,6 +15,17 @@ export interface GraphVariableGroup {
   collapsed?: boolean
 }
 
+export interface FunctionSignaturePort {
+  id: string
+  name: string
+  type: VariableType
+}
+
+export interface FunctionSignature {
+  inputs: FunctionSignaturePort[]
+  outputs: FunctionSignaturePort[]
+}
+
 export interface NodeProperties {
   label?: string
   variableId?: string
@@ -90,6 +101,7 @@ export interface GraphDocument extends GraphSnapshot {
   graphName: string
   variables: GraphVariable[]
   variableGroups: GraphVariableGroup[]
+  functionSignature?: FunctionSignature
   view: { x: number; y: number; zoom: number }
   legacy?: LegacyGraphState
 }

@@ -63,6 +63,7 @@ func (a *App) beforeClose(ctx context.Context) bool {
 func graphFilters() []runtime.FileFilter {
 	return []runtime.FileFilter{
 		{DisplayName: "Origin Blueprint (*.obp)", Pattern: "*.obp"},
+		{DisplayName: "Origin Blueprint Function (*.obpf)", Pattern: "*.obpf"},
 		{DisplayName: "Legacy Visual Graph (*.vgf)", Pattern: "*.vgf"},
 		{DisplayName: "JSON (*.json)", Pattern: "*.json"},
 	}
@@ -101,6 +102,11 @@ func (a *App) SaveGraph(path, content string) (string, error) {
 	data, err := graphContentForPath(path, content)
 	if err != nil {
 		return "", err
+	}
+	if dir := filepath.Dir(path); dir != "." && dir != "" {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return "", err
+		}
 	}
 	if err := os.WriteFile(path, data, 0644); err != nil {
 		return "", err
@@ -189,7 +195,7 @@ func (a *App) ListWorkspace(root string) ([]WorkspaceEntry, error) {
 			continue
 		}
 		ext := strings.ToLower(filepath.Ext(item.Name()))
-		if !item.IsDir() && ext != ".obp" && ext != ".vgf" {
+		if !item.IsDir() && ext != ".obp" && ext != ".vgf" && ext != ".obpf" {
 			continue
 		}
 		result = append(result, WorkspaceEntry{Name: item.Name(), Path: filepath.Join(root, item.Name()), IsDir: item.IsDir()})

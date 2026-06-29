@@ -60,6 +60,12 @@ export interface MenuLocaleText {
     test: string
     testTitle: string
   }
+  module: {
+    functionCategory: string
+    currentBlueprintFunctions: string
+    workspaceFunctionLibrary: string
+    noFunctionLibrary: string
+  }
 }
 
 export const zhCN: MenuLocaleText = {
@@ -123,5 +129,11 @@ export const zhCN: MenuLocaleText = {
   toolbar: {
     test: '测试',
     testTitle: '检查蓝图 (F5)'
+  },
+  module: {
+    functionCategory: '函数',
+    currentBlueprintFunctions: '当前蓝图函数',
+    workspaceFunctionLibrary: '工程函数库',
+    noFunctionLibrary: '未发现工程函数库资源'
   }
 }

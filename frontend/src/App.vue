@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { toPng } from 'html-to-image'
-import { createBlueprintEditor, type BlueprintEditorHandle, type EditorMetrics, type GraphDocument, type GraphVariable, type GraphVariableGroup, type SelectedNodeInfo, type ValidationIssue, type VariableType } from './editor/createEditor'
+import { createBlueprintEditor, type BlueprintEditorHandle, type EditorMetrics, type FunctionSignature, type FunctionSignaturePort, type GraphDocument, type GraphVariable, type GraphVariableGroup, type SelectedNodeInfo, type ValidationIssue, type VariableType } from './editor/createEditor'
 import { getNodeDefinitions, registerNodeSchemas, type NodeDefinition } from './editor/nodeRegistry'
 import { menuLocales, normalizeLocale, type LocaleId } from './i18n'
 import { platform, type NodeReferenceResult, type WorkspaceEntry } from './platform'
@@ -13,6 +13,9 @@ type UnsavedCloseAction = 'save' | 'discard' | 'cancel'
 interface ModuleNodeMenuState { visible: boolean; x: number; y: number; node: NodeDefinition | null }
 interface NodeReferenceSearchState { visible: boolean; loading: boolean; nodeTitle: string; typeId: string; results: NodeReferenceResult[] }
 interface FileContextMenuState { visible: boolean; x: number; y: number; path: string }
+interface BlueprintFunction { id: string; name: string; readonly?: boolean }
+interface FunctionLibraryItem { id: string; name: string; path: string; source: 'current' | 'workspace' }
+interface ModuleLibraryItem extends NodeDefinition { functionPlaceholder?: boolean; functionSource?: FunctionLibraryItem['source']; path?: string }
 
 const canvas = ref<HTMLElement | null>(null)
 const tabStrip = ref<HTMLElement | null>(null)
@@ -40,7 +43,7 @@ const selectedWorkspacePath = ref('')
 const fileBrowserWidth = ref(savedPanelWidth('origin-blueprint-file-browser-width', 210))
 const leftToolsWidth = ref(savedPanelWidth('origin-blueprint-left-tools-width', 210, 160, 520))
 const rightSidebarWidth = ref(savedPanelWidth('origin-blueprint-right-sidebar-width', 230, 160, 460))
-const functionPanelHeight = ref(savedPanelSize('origin-blueprint-function-panel-height', 112, 70, 260))
+const functionPanelHeight = ref(savedPanelSize('origin-blueprint-function-panel-height', 190, 150, 360))
 const variablePanelHeight = ref(savedPanelSize('origin-blueprint-variable-panel-height', 300, 130, 520))
 const showTools = ref(true)
 const showRight = ref(true)
@@ -51,6 +54,9 @@ const moduleSearch = ref('')
 const expandedModuleCategories = ref<Set<string>>(new Set())
 const variables = ref<GraphVariable[]>([])
 const variableGroups = ref<GraphVariableGroup[]>([{ id: 'default', name: 'Default' }])
+const functionSignature = ref<FunctionSignature>(emptyFunctionSignature())
+const blueprintFunctions = ref<BlueprintFunction[]>([{ id: 'default', name: 'Default', readonly: true }])
+const selectedFunctionId = ref('default')
 const selectedVariableId = ref<string | null>(null)
 const selectedNode = ref<SelectedNodeInfo | null>(null)
 const validationIssues = ref<ValidationIssue[]>([])
@@ -69,14 +75,35 @@ let validationIssueClickTimer: ReturnType<typeof window.setTimeout> | undefined
 
 const activeTab = computed(() => tabs.value.find(tab => tab.id === activeTabId.value)!)
 const selectedVariable = computed(() => variables.value.find(variable => variable.id === selectedVariableId.value) ?? null)
+const isFunctionBlueprintTab = computed(() => isFunctionBlueprintPath(activeTab.value?.path || activeTab.value?.title || ''))
 const groupedVariables = computed(() => variableGroups.value.map(group => ({
   group,
   variables: variables.value.filter(variable => variable.groupId === group.id)
 })))
+const functionLibraryItems = computed(() => collectFunctionLibraryItems(workspaceTree.value))
+const callableFunctionItems = computed<FunctionLibraryItem[]>(() => [
+  ...blueprintFunctions.value.map(item => ({ id: item.id, name: item.name, path: activeTab.value?.path || activeTab.value?.title || '', source: 'current' as const })),
+  ...functionLibraryItems.value
+])
+const functionModuleItems = computed<ModuleLibraryItem[]>(() => callableFunctionItems.value.map(item => ({
+  id: `origin.function.${item.source}.${item.id}`,
+  title: item.name,
+  category: menuText.value.module.functionCategory,
+  kind: 'function',
+  functionPlaceholder: true,
+  functionSource: item.source,
+  path: item.path,
+  create() {
+    throw new Error('Function call nodes are not implemented yet')
+  }
+})))
 const categories = computed(() => {
-  const result = new Map<string, NodeDefinition[]>()
+  const result = new Map<string, ModuleLibraryItem[]>()
   const search = moduleSearch.value.trim().toLowerCase()
   for (const definition of nodeLibrary.value.filter(item => !search || `${item.title} ${item.category} ${item.id}`.toLowerCase().includes(search))) {
+    const items = result.get(definition.category) ?? []; items.push(definition); result.set(definition.category, items)
+  }
+  for (const definition of functionModuleItems.value.filter(item => !search || `${item.title} ${item.category} ${item.id} ${item.path ?? ''}`.toLowerCase().includes(search))) {
     const items = result.get(definition.category) ?? []; items.push(definition); result.set(definition.category, items)
   }
   return Array.from(result.entries())
@@ -226,12 +253,12 @@ function onKeyDown(event: KeyboardEvent) {
 
 function run(action: () => void | Promise<void>, event?: Event) { event?.preventDefault(); activeMenu.value = null; void action() }
 function toggleMenu(name: string) { activeMenu.value = activeMenu.value === name ? null : name }
-function persistActive() { if (editor && activeTab.value) activeTab.value.document = editor.getDocument(activeTab.value.title, variables.value, variableGroups.value) }
+function persistActive() { if (editor && activeTab.value) activeTab.value.document = documentWithFunctionSignature(editor.getDocument(activeTab.value.title, variables.value, variableGroups.value)) }
 
 async function newGraph() {
   persistActive(); untitledCount++
   const tab: GraphTab = { id: crypto.randomUUID(), title: `Untitled-${untitledCount} Graph`, path: '', dirty: false, document: null }
-  tabs.value.push(tab); activeTabId.value = tab.id; selectedVariableId.value = null; await editor?.newDocument()
+  tabs.value.push(tab); activeTabId.value = tab.id; selectedVariableId.value = null; functionSignature.value = emptyFunctionSignature(); await editor?.newDocument()
 }
 
 async function switchTab(id: string) {
@@ -239,6 +266,7 @@ async function switchTab(id: string) {
   persistActive(); activeTabId.value = id; selectedVariableId.value = null
   const tab = activeTab.value
   if (tab.document) await editor?.loadDocument(tab.document); else await editor?.newDocument()
+  functionSignature.value = normalizeFunctionSignature(tab.document?.functionSignature)
   nextTick(() => scrollActiveTabIntoView())
 }
 
@@ -249,7 +277,7 @@ async function closeTab(id: string, event: MouseEvent) {
   const wasActive = id === activeTabId.value
   tabs.value = tabs.value.filter(item => item.id !== id)
   if (!tabs.value.length) { await newGraph(); return }
-  if (wasActive) { activeTabId.value = tabs.value[0].id; selectedVariableId.value = null; await editor?.loadDocument(tabs.value[0].document ?? blankDocument(tabs.value[0].title)) }
+  if (wasActive) { activeTabId.value = tabs.value[0].id; selectedVariableId.value = null; functionSignature.value = normalizeFunctionSignature(tabs.value[0].document?.functionSignature); await editor?.loadDocument(tabs.value[0].document ?? blankDocument(tabs.value[0].title)) }
 }
 
 // --- Tab strip scroll helpers ---
@@ -313,6 +341,35 @@ function blankDocument(name: string): GraphDocument {
   return { schemaVersion: 1, graphName: name, nodes: [], connections: [], groups: [], variables: [], variableGroups: [{ id: 'default', name: 'Default' }], view: { x: 0, y: 0, zoom: 1 } }
 }
 
+function emptyFunctionSignature(): FunctionSignature {
+  return { inputs: [], outputs: [] }
+}
+
+function normalizeFunctionSignature(value: unknown): FunctionSignature {
+  const source = value as Partial<FunctionSignature> | undefined
+  return {
+    inputs: normalizeFunctionSignaturePorts(source?.inputs),
+    outputs: normalizeFunctionSignaturePorts(source?.outputs)
+  }
+}
+
+function normalizeFunctionSignaturePorts(value: unknown) {
+  if (!Array.isArray(value)) return []
+  return value.map((port, index): FunctionSignaturePort => {
+    const item = port as Partial<FunctionSignaturePort>
+    return {
+      id: String(item.id ?? crypto.randomUUID()),
+      name: String(item.name ?? `Param${index + 1}`).trim() || `Param${index + 1}`,
+      type: normalizeVariableType(item.type)
+    }
+  })
+}
+
+function documentWithFunctionSignature(document: GraphDocument, tab = activeTab.value) {
+  if (isFunctionBlueprintPath(tab.path || tab.title)) document.functionSignature = normalizeFunctionSignature(functionSignature.value)
+  return document
+}
+
 function defaultVariableValue(type: VariableType) {
   if (type === 'boolean') return false
   if (type === 'integer' || type === 'float') return 0
@@ -371,9 +428,95 @@ async function removeVariable(variable: GraphVariable) {
   await syncVariables(true)
 }
 
+function selectBlueprintFunction(item: BlueprintFunction) {
+  selectedFunctionId.value = item.id
+  selectedVariableId.value = null
+  status.value = `Selected function ${item.name}`
+}
+
+function selectWorkspaceFunction(item: FunctionLibraryItem) {
+  selectedFunctionId.value = ''
+  selectedVariableId.value = null
+  status.value = `${menuText.value.module.workspaceFunctionLibrary}: ${item.name}`
+}
+
+async function openWorkspaceFunction(item: FunctionLibraryItem) {
+  await openGraph(item.path)
+}
+
+async function revealWorkspaceFunction(item: FunctionLibraryItem) {
+  try {
+    await platform.revealInFolder(item.path)
+  } catch (error) {
+    status.value = error instanceof Error ? error.message : String(error)
+  }
+}
+
+function sanitizeFunctionFileName(value: string) {
+  return value.trim().replace(/\.(obpf|obp|vgf)$/i, '').replace(/[<>:"/\\|?*\x00-\x1f]+/g, '_').replace(/\s+/g, '_').replace(/^_+|_+$/g, '') || 'NewFunction'
+}
+
+function workspaceFunctionPath(name: string) {
+  const root = workspaceRoot.value.replace(/[\\/]+$/, '')
+  const separator = root.includes('\\') ? '\\' : '/'
+  return `${root}${separator}functions${separator}${sanitizeFunctionFileName(name)}.obpf`
+}
+
+async function createWorkspaceFunction() {
+  const rawName = window.prompt('工程函数名称', 'NewFunction')
+  if (!rawName) return
+  if (!workspaceRoot.value) {
+    status.value = '请先选择工程目录'
+    return
+  }
+  const graphName = sanitizeFunctionFileName(rawName)
+  const path = workspaceFunctionPath(graphName)
+  const document = blankDocument(graphName)
+  document.functionSignature = emptyFunctionSignature()
+  const saved = await platform.saveGraph(path, JSON.stringify(document, null, 2))
+  if (!saved) return
+  await loadWorkspace(workspaceRoot.value)
+  await openGraph(saved)
+  status.value = `Created function ${graphName}`
+}
+
+function uniqueBlueprintFunctionName(base = 'New Function') {
+  const names = new Set(blueprintFunctions.value.map(item => item.name.toLowerCase()))
+  if (!names.has(base.toLowerCase())) return base
+  let index = 2
+  while (names.has(`${base} ${index}`.toLowerCase())) index++
+  return `${base} ${index}`
+}
+
+function addBlueprintFunction() {
+  const fallback = uniqueBlueprintFunctionName()
+  const name = window.prompt('函数名称', fallback)?.trim()
+  if (!name) return
+  const item = { id: crypto.randomUUID(), name: uniqueBlueprintFunctionName(name) }
+  blueprintFunctions.value.push(item)
+  selectBlueprintFunction(item)
+}
+
+function renameBlueprintFunction(item: BlueprintFunction) {
+  if (item.readonly) return
+  const name = window.prompt('重命名函数', item.name)?.trim()
+  if (!name || name === item.name) return
+  item.name = uniqueBlueprintFunctionName(name)
+  selectBlueprintFunction(item)
+}
+
+function removeBlueprintFunction(item: BlueprintFunction) {
+  if (item.readonly) return
+  if (!window.confirm(`删除函数 ${item.name}？`)) return
+  blueprintFunctions.value = blueprintFunctions.value.filter(entry => entry.id !== item.id)
+  if (selectedFunctionId.value === item.id) selectedFunctionId.value = blueprintFunctions.value[0]?.id ?? ''
+  status.value = `Deleted function ${item.name}`
+}
+
 async function selectVariable(variable: GraphVariable) {
   await editor?.deselectAll()
   selectedVariableId.value = variable.id
+  selectedFunctionId.value = ''
 }
 
 async function addVariableGroup() {
@@ -442,6 +585,21 @@ function setSelectedArrayValue(key: string, event: Event) {
   selectedNode.value.values[key] = (event.target as HTMLInputElement).value.split(',').map(item => item.trim()).filter(Boolean).map(item => /^-?\d+(\.\d+)?$/.test(item) ? Number(item) : item)
 }
 
+function touchFunctionSignature() {
+  if (isFunctionBlueprintTab.value) activeTab.value.dirty = true
+}
+
+function addFunctionSignaturePort(direction: 'inputs' | 'outputs') {
+  const label = direction === 'inputs' ? 'Input' : 'Output'
+  functionSignature.value[direction].push({ id: crypto.randomUUID(), name: `${label}${functionSignature.value[direction].length + 1}`, type: 'integer' })
+  touchFunctionSignature()
+}
+
+function removeFunctionSignaturePort(direction: 'inputs' | 'outputs', port: FunctionSignaturePort) {
+  functionSignature.value[direction] = functionSignature.value[direction].filter(item => item.id !== port.id)
+  touchFunctionSignature()
+}
+
 function normalizeVariableType(value: unknown): VariableType {
   const type = String(value ?? '').toLowerCase()
   if (type === 'bool' || type === 'boolean') return 'boolean'
@@ -499,6 +657,7 @@ function normalizeDocument(value: any): GraphDocument {
     groups: Array.isArray(value.groups) ? value.groups : [],
     variables,
     variableGroups: groups,
+    functionSignature: normalizeFunctionSignature(value.functionSignature),
     view: value.view ?? { x: 0, y: 0, zoom: 1 },
     legacy: value.legacy
   }
@@ -506,6 +665,10 @@ function normalizeDocument(value: any): GraphDocument {
 
 function isLegacyGraphPath(path: string) {
   return /\.vgf$/i.test(path)
+}
+
+function isFunctionBlueprintPath(path: string) {
+  return /\.obpf$/i.test(path)
 }
 
 async function testGraph() {
@@ -575,6 +738,7 @@ async function openGraph(path = '', highlightTypeId = '') {
   const existing = tabs.value.find(tab => tab.path === file.path)
   if (existing) {
     await switchTab(existing.id)
+    functionSignature.value = normalizeFunctionSignature(existing.document?.functionSignature)
     if (highlightTypeId) {
       const count = await editor?.highlightNodesByType(highlightTypeId) ?? 0
       status.value = count ? `已高亮 ${count} 个引用结点` : '该蓝图中未找到引用结点'
@@ -583,7 +747,7 @@ async function openGraph(path = '', highlightTypeId = '') {
   }
   const title = file.path.split(/[\\/]/).pop() ?? document.graphName
   const tab: GraphTab = { id: crypto.randomUUID(), title, path: file.path, dirty: false, document }
-  tabs.value.push(tab); activeTabId.value = tab.id; selectedVariableId.value = null; await editor?.loadDocument(document)
+  tabs.value.push(tab); activeTabId.value = tab.id; selectedVariableId.value = null; functionSignature.value = normalizeFunctionSignature(document.functionSignature); await editor?.loadDocument(document)
   if (document.legacy?.format === 'vgf') {
     const hiddenCount = document.legacy.hiddenNodes?.length ?? 0
     status.value = `Loaded ${document.nodes.length} visible node(s), ${hiddenCount} hidden undefined node(s)`
@@ -598,7 +762,7 @@ async function openGraph(path = '', highlightTypeId = '') {
 async function saveGraph(saveAs: boolean) {
   if (!editor) return
   const tab = activeTab.value
-  const document = editor.getDocument(tab.title, variables.value, variableGroups.value)
+  const document = documentWithFunctionSignature(editor.getDocument(tab.title, variables.value, variableGroups.value), tab)
   const shouldSaveLegacy = !saveAs && isLegacyGraphPath(tab.path)
   const content = shouldSaveLegacy ? await platform.exportLegacyGraph(JSON.stringify(document)) : JSON.stringify(document, null, 2)
   const path = await platform.saveGraph(saveAs ? '' : tab.path, content)
@@ -720,6 +884,34 @@ function flattenWorkspaceNodes(nodes: WorkspaceTreeNode[], depth: number, search
     if (node.isDir && expandedWorkspacePaths.value.has(node.path)) rows.push(...childRows)
   }
   return rows
+}
+
+function isFunctionResource(node: WorkspaceEntry) {
+  const normalizedPath = node.path.replace(/\\/g, '/').toLowerCase()
+  const name = node.name.toLowerCase()
+  if (node.isDir) return name === 'functions' || name === 'function'
+  return name.endsWith('.obpf') || normalizedPath.includes('/functions/') || normalizedPath.includes('/function/')
+}
+
+function functionResourceName(node: WorkspaceEntry) {
+  return node.name.replace(/\.(obpf|obp|vgf)$/i, '')
+}
+
+function collectFunctionLibraryItems(nodes: WorkspaceTreeNode[]) {
+  const items: FunctionLibraryItem[] = []
+  const visit = (entry: WorkspaceTreeNode) => {
+    if (!entry.isDir && isFunctionResource(entry)) {
+      items.push({
+        id: encodeURIComponent(entry.path).replace(/%/g, '_'),
+        name: functionResourceName(entry),
+        path: entry.path,
+        source: 'workspace'
+      })
+    }
+    for (const child of entry.children) visit(child)
+  }
+  for (const node of nodes) visit(node)
+  return items
 }
 
 async function toggleWorkspaceNode(node: WorkspaceTreeNode) {
@@ -877,6 +1069,11 @@ function createFromContext(typeId: string) { void addNodeAt(typeId, { x: context
 
 function openModuleNodeMenu(event: MouseEvent, node: NodeDefinition) {
   moduleNodeMenu.value = { visible: true, x: event.clientX, y: event.clientY, node }
+}
+
+function selectFunctionLibraryItem(item: ModuleLibraryItem) {
+  if (!item.functionPlaceholder) return
+  status.value = item.functionSource === 'workspace' ? `${menuText.value.module.workspaceFunctionLibrary}: ${item.title}` : `${menuText.value.module.currentBlueprintFunctions}: ${item.title}`
 }
 
 function closeModuleNodeMenu() {
@@ -1059,7 +1256,8 @@ function toggleModuleCategory(category: string) {
           <div class="workspace-tree">
             <button v-for="row in visibleWorkspaceNodes" :key="row.node.path" class="workspace-entry" :class="{ selected: selectedWorkspacePath === row.node.path, folder: row.node.isDir }" :style="{ paddingLeft: workspaceIndent(row.depth) }" :title="row.node.path" @click="toggleWorkspaceNode(row.node)" @contextmenu.stop.prevent="!row.node.isDir && openFileContextMenu($event, row.node.path)" @dblclick="!row.node.isDir && workspaceOpen(row.node)">
               <span class="workspace-arrow">{{ row.node.loading ? '…' : row.node.isDir ? (workspaceSearch || expandedWorkspacePaths.has(row.node.path) ? '⌄' : '›') : '' }}</span>
-              <span class="workspace-icon" :class="{ folder: row.node.isDir }"></span>
+              <span v-if="isFunctionResource(row.node)" class="workspace-icon function" :class="{ folder: row.node.isDir }"></span>
+              <span v-else class="workspace-icon" :class="{ folder: row.node.isDir }"></span>
               <span class="workspace-name">{{ row.node.name }}</span>
             </button>
             <div v-if="!visibleWorkspaceNodes.length" class="empty-panel">{{ workspaceSearch ? '没有匹配的文件' : '没有可显示的文件' }}</div>
@@ -1068,7 +1266,33 @@ function toggleModuleCategory(category: string) {
       </aside>
       <div v-show="showTools" class="sidebar-splitter" @pointerdown="beginLeftSidebarResize"></div>
       <aside v-show="showTools" class="sidebar sidebar-left">
-        <div class="panel function-panel" :style="functionPanelStyle"><div class="panel-title"><span class="chevron">⌄</span> 函数</div><div class="tree-row"><span class="folder-dot blue"></span>Default</div></div>
+        <div class="panel function-panel" :style="functionPanelStyle">
+          <div class="panel-title"><span class="chevron">⌄</span> 当前蓝图函数 <span class="panel-title-spacer"></span><button class="panel-action" title="添加函数" @click="addBlueprintFunction">＋</button></div>
+          <div class="function-list">
+            <div v-for="item in blueprintFunctions" :key="item.id" class="function-row" :class="{ selected: selectedFunctionId === item.id }" @click="selectBlueprintFunction(item)" @dblclick="renameBlueprintFunction(item)">
+              <span class="folder-dot blue"></span>
+              <span class="function-name">{{ item.name }}</span>
+              <button v-if="!item.readonly" title="重命名函数" @click.stop="renameBlueprintFunction(item)">✎</button>
+              <button v-if="!item.readonly" title="删除函数" @click.stop="removeBlueprintFunction(item)">×</button>
+            </div>
+            <button class="add-function" @click="addBlueprintFunction">＋ 添加函数</button>
+            <div class="function-library-section">
+              <div class="function-section-title"><span>{{ menuText.module.workspaceFunctionLibrary }}</span><small>{{ functionLibraryItems.length }}</small></div>
+              <button class="create-workspace-function" @click="createWorkspaceFunction">＋ 新建工程函数</button>
+              <div v-if="functionLibraryItems.length" class="function-library-list">
+                <div v-for="item in functionLibraryItems" :key="item.id" class="function-library-row" :title="item.path" @click="selectWorkspaceFunction(item)" @dblclick="openWorkspaceFunction(item)">
+                  <span class="workspace-icon function"></span>
+                  <span class="function-library-name">{{ item.name }}</span>
+                  <span class="function-library-actions">
+                    <button title="打开函数" @click.stop="openWorkspaceFunction(item)">打开</button>
+                    <button title="定位文件" @click.stop="revealWorkspaceFunction(item)">定位</button>
+                  </span>
+                </div>
+              </div>
+              <div v-else class="function-library-panel-empty">未发现 .obpf 或 functions 目录函数</div>
+            </div>
+          </div>
+        </div>
         <div class="panel-height-splitter" @pointerdown="beginLeftPanelHeightResize('function', $event)"></div>
         <div class="panel grow variable-panel" :style="variablePanelStyle"><div class="panel-title"><span class="chevron">⌄</span> 变量 <span class="panel-title-spacer"></span><button class="panel-action" title="添加变量组" @click="addVariableGroup">▣＋</button><button class="panel-action" title="添加变量" @click="addVariable()">＋</button></div>
           <div v-if="!variables.length" class="empty-panel">尚未创建变量</div>
@@ -1088,7 +1312,33 @@ function toggleModuleCategory(category: string) {
           <button class="add-variable" @click="addVariable()">＋ 添加变量</button>
         </div>
         <div class="panel-height-splitter" @pointerdown="beginLeftPanelHeightResize('variable', $event)"></div>
-        <div class="panel grow detail-panel sidebar-detail-panel"><div class="panel-title"><span class="chevron">⌄</span> 详情</div><div v-if="selectedVariable" class="node-detail variable-detail"><div class="detail-section-title">变量属性</div><label>Variable ID<input :value="selectedVariable.id" disabled /></label><label>名称<input v-model="selectedVariable.name" /></label><label>类型<select v-model="selectedVariable.type" @change="changeVariableType(selectedVariable)"><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="float">Float</option><option value="string">String</option><option value="array">Array</option><option value="file">File</option><option value="table">Table</option><option value="dictionary">Dictionary</option></select></label><label>分组<select v-model="selectedVariable.groupId"><option v-for="group in variableGroups" :key="group.id" :value="group.id">{{ group.name }}</option></select></label><label>说明<textarea v-model="selectedVariable.description" rows="4" placeholder="变量用途和约束"></textarea></label><label>默认值<input v-if="selectedVariable.type === 'boolean'" v-model="selectedVariable.defaultValue" type="checkbox" /><input v-else-if="selectedVariable.type === 'string' || selectedVariable.type === 'file'" v-model="selectedVariable.defaultValue" type="text" /><input v-else-if="selectedVariable.type === 'array'" :value="Array.isArray(selectedVariable.defaultValue) ? selectedVariable.defaultValue.join(', ') : ''" placeholder="1, 2, text" @change="setVariableArrayDefault(selectedVariable, $event)" /><textarea v-else-if="selectedVariable.type === 'table' || selectedVariable.type === 'dictionary'" :value="JSON.stringify(selectedVariable.defaultValue, null, 2)" rows="6" @change="setVariableStructuredDefault(selectedVariable, $event)"></textarea><input v-else v-model.number="selectedVariable.defaultValue" type="number" /></label><button class="apply-properties" @click="updateVariable(selectedVariable)">应用变量属性</button><button class="delete-properties" @click="removeVariable(selectedVariable)">删除变量</button></div><div v-else-if="selectedNode" class="node-detail"><label>Node ID<input :value="selectedNode.id" disabled /></label><label>Type<input :value="selectedNode.typeId" disabled /></label><label>Title<input v-model="selectedNode.label" :disabled="Boolean(selectedNode.variableId)" /></label><label v-if="selectedNode.description">说明<textarea :value="selectedNode.description" rows="4" readonly></textarea></label><button class="apply-properties" @click="applyNodeProperties">Apply</button></div><div v-else class="empty-detail">选择节点或变量以查看属性</div></div>
+        <div class="panel grow detail-panel sidebar-detail-panel">
+          <div class="panel-title"><span class="chevron">⌄</span> 详情</div>
+          <div v-if="isFunctionBlueprintTab && !selectedNode && !selectedVariable" class="node-detail function-signature-editor">
+            <div class="detail-section-title">函数签名</div>
+            <section class="signature-port-section">
+              <header><span>输入参数</span><button @click="addFunctionSignaturePort('inputs')">＋</button></header>
+              <div v-for="port in functionSignature.inputs" :key="port.id" class="signature-port-row">
+                <input v-model="port.name" placeholder="参数名" @change="touchFunctionSignature" />
+                <select v-model="port.type" @change="touchFunctionSignature"><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="float">Float</option><option value="string">String</option><option value="array">Array</option><option value="file">File</option><option value="table">Table</option><option value="dictionary">Dictionary</option></select>
+                <button title="删除参数" @click="removeFunctionSignaturePort('inputs', port)">×</button>
+              </div>
+              <button v-if="!functionSignature.inputs.length" class="empty-signature-port" @click="addFunctionSignaturePort('inputs')">＋ 添加输入参数</button>
+            </section>
+            <section class="signature-port-section">
+              <header><span>输出参数</span><button @click="addFunctionSignaturePort('outputs')">＋</button></header>
+              <div v-for="port in functionSignature.outputs" :key="port.id" class="signature-port-row">
+                <input v-model="port.name" placeholder="参数名" @change="touchFunctionSignature" />
+                <select v-model="port.type" @change="touchFunctionSignature"><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="float">Float</option><option value="string">String</option><option value="array">Array</option><option value="file">File</option><option value="table">Table</option><option value="dictionary">Dictionary</option></select>
+                <button title="删除参数" @click="removeFunctionSignaturePort('outputs', port)">×</button>
+              </div>
+              <button v-if="!functionSignature.outputs.length" class="empty-signature-port" @click="addFunctionSignaturePort('outputs')">＋ 添加输出参数</button>
+            </section>
+          </div>
+          <div v-else-if="selectedVariable" class="node-detail variable-detail"><div class="detail-section-title">变量属性</div><label>Variable ID<input :value="selectedVariable.id" disabled /></label><label>名称<input v-model="selectedVariable.name" /></label><label>类型<select v-model="selectedVariable.type" @change="changeVariableType(selectedVariable)"><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="float">Float</option><option value="string">String</option><option value="array">Array</option><option value="file">File</option><option value="table">Table</option><option value="dictionary">Dictionary</option></select></label><label>分组<select v-model="selectedVariable.groupId"><option v-for="group in variableGroups" :key="group.id" :value="group.id">{{ group.name }}</option></select></label><label>说明<textarea v-model="selectedVariable.description" rows="4" placeholder="变量用途和约束"></textarea></label><label>默认值<input v-if="selectedVariable.type === 'boolean'" v-model="selectedVariable.defaultValue" type="checkbox" /><input v-else-if="selectedVariable.type === 'string' || selectedVariable.type === 'file'" v-model="selectedVariable.defaultValue" type="text" /><input v-else-if="selectedVariable.type === 'array'" :value="Array.isArray(selectedVariable.defaultValue) ? selectedVariable.defaultValue.join(', ') : ''" placeholder="1, 2, text" @change="setVariableArrayDefault(selectedVariable, $event)" /><textarea v-else-if="selectedVariable.type === 'table' || selectedVariable.type === 'dictionary'" :value="JSON.stringify(selectedVariable.defaultValue, null, 2)" rows="6" @change="setVariableStructuredDefault(selectedVariable, $event)"></textarea><input v-else v-model.number="selectedVariable.defaultValue" type="number" /></label><button class="apply-properties" @click="updateVariable(selectedVariable)">应用变量属性</button><button class="delete-properties" @click="removeVariable(selectedVariable)">删除变量</button></div>
+          <div v-else-if="selectedNode" class="node-detail"><label>Node ID<input :value="selectedNode.id" disabled /></label><label>Type<input :value="selectedNode.typeId" disabled /></label><label>Title<input v-model="selectedNode.label" :disabled="Boolean(selectedNode.variableId)" /></label><label v-if="selectedNode.description">说明<textarea :value="selectedNode.description" rows="4" readonly></textarea></label><button class="apply-properties" @click="applyNodeProperties">Apply</button></div>
+          <div v-else class="empty-detail">选择节点或变量以查看属性</div>
+        </div>
       </aside>
       <div v-show="showTools" class="left-tools-splitter" @pointerdown="beginLeftToolsResize"></div>
 
@@ -1152,9 +1402,10 @@ function toggleModuleCategory(category: string) {
                 <small>{{ items.length }}</small>
               </button>
               <div v-if="isModuleCategoryExpanded(category)" class="module-items">
-                <button v-for="item in items" :key="item.id" class="module-item" :title="item.title" @pointerdown.stop="beginNodePointerDrag($event, item.id)" @contextmenu.stop.prevent="openModuleNodeMenu($event, item)" @dblclick="addNodeAt(item.id)">{{ item.title }}</button>
+                <button v-for="item in items" :key="item.id" class="module-item" :class="{ 'function-placeholder': item.functionPlaceholder }" :title="item.path || item.title" @click="selectFunctionLibraryItem(item)" @pointerdown.stop="!item.functionPlaceholder && beginNodePointerDrag($event, item.id)" @contextmenu.stop.prevent="!item.functionPlaceholder && openModuleNodeMenu($event, item)" @dblclick="!item.functionPlaceholder && addNodeAt(item.id)"><span>{{ item.title }}</span><small v-if="item.functionPlaceholder">{{ item.functionSource === 'workspace' ? menuText.module.workspaceFunctionLibrary : menuText.module.currentBlueprintFunctions }}</small></button>
               </div>
             </section>
+            <div v-if="!functionLibraryItems.length" class="function-library-empty">{{ menuText.module.noFunctionLibrary }}</div>
             <div v-if="!categories.length" class="empty-panel">{{ status || '没有匹配的模块' }}</div>
           </div>
         </div>

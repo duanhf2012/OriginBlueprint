@@ -61,5 +61,11 @@ export const enUS: MenuLocaleText = {
   toolbar: {
     test: 'Test',
     testTitle: 'Validate blueprint (F5)'
+  },
+  module: {
+    functionCategory: 'Functions',
+    currentBlueprintFunctions: 'Current Blueprint Functions',
+    workspaceFunctionLibrary: 'Workspace Function Library',
+    noFunctionLibrary: 'No workspace function library resources found'
   }
 }

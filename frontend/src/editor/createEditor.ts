@@ -15,7 +15,7 @@ import { refreshNodePortStates } from './portVisualState'
 import { pathIntersectsRect, rectsIntersect, type Rect } from './selectionGeometry'
 import type { ConnectionSnapshot, GraphDocument, GraphSnapshot, GraphVariable, GraphVariableGroup, GroupSnapshot, LegacyGraphState, NodeProperties, NodeSnapshot } from './document'
 
-export type { GraphDocument, GraphVariable, GraphVariableGroup, ValidationIssue, VariableType } from './document'
+export type { FunctionSignature, FunctionSignaturePort, GraphDocument, GraphVariable, GraphVariableGroup, ValidationIssue, VariableType } from './document'
 
 type AreaExtra = import('rete-vue-plugin').VueArea2D<Schemes>
 type Position = { x: number; y: number }

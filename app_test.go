@@ -104,6 +104,70 @@ func TestGraphContentForObpPathExportsLegacyVGFForExternalParser(t *testing.T) {
 	}
 }
 
+func TestFunctionBlueprintPathStaysNativeAndCreatesParentDirectory(t *testing.T) {
+	t.Setenv("ORIGIN_BLUEPRINT_CONFIG_PATH", filepath.Join(t.TempDir(), "config.json"))
+	app := NewApp()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "functions", "CalculateDamage.obpf")
+	content := `{"schemaVersion":1,"graphName":"CalculateDamage","nodes":[],"connections":[],"groups":[],"variables":[],"variableGroups":[],"view":{"x":0,"y":0,"zoom":1}}`
+
+	saved, err := app.SaveGraph(path, content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved != path {
+		t.Fatalf("saved path = %q, want %q", saved, path)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != content {
+		t.Fatalf("function blueprint content = %s, want native graph JSON", data)
+	}
+}
+
+func TestFunctionBlueprintPreservesSignatureMetadata(t *testing.T) {
+	content := `{"schemaVersion":1,"graphName":"CalculateDamage","nodes":[],"connections":[],"groups":[],"variables":[],"variableGroups":[],"view":{"x":0,"y":0,"zoom":1},"functionSignature":{"inputs":[{"id":"target","name":"TargetId","type":"integer"}],"outputs":[{"id":"damage","name":"Damage","type":"integer"}]}}`
+	data, err := graphContentForPath("CalculateDamage.obpf", content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != content {
+		t.Fatalf("function blueprint signature should stay in native JSON: %s", data)
+	}
+}
+
+func TestWorkspaceListsFunctionBlueprintFiles(t *testing.T) {
+	app := NewApp()
+	dir := t.TempDir()
+	functionDir := filepath.Join(dir, "functions")
+	if err := os.MkdirAll(functionDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(functionDir, "CalculateDamage.obpf"), []byte(`{"schemaVersion":1}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := app.ListWorkspace(functionDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name != "CalculateDamage.obpf" {
+		t.Fatalf("workspace entries = %#v, want function blueprint file", entries)
+	}
+}
+
+func TestGraphFiltersIncludeFunctionBlueprintFiles(t *testing.T) {
+	filters := graphFilters()
+	for _, filter := range filters {
+		if strings.Contains(filter.Pattern, "*.obpf") {
+			return
+		}
+	}
+	t.Fatalf("graph filters = %#v, want *.obpf support", filters)
+}
+
 func TestLegacyGraphRoundTripPreservesEntryConnectionVisibility(t *testing.T) {
 	document := GraphDocument{
 		SchemaVersion: GraphSchemaVersion,
