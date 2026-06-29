@@ -1048,7 +1048,7 @@ function toggleModuleCategory(category: string) {
         <div class="menu-root"><button @click.stop="toggleMenu('view')">{{ menuText.menu.view.title }}</button><div v-if="activeMenu === 'view'" class="dropdown-menu"><button @click="showLogger = !showLogger">{{ menuText.menu.view.showTestResults }} <kbd>Alt+Shift+B</kbd></button><button @click="showTools = !showTools">{{ menuText.menu.view.showLeftSidebar }} <kbd>Alt+Shift+L</kbd></button><button @click="showRight = !showRight">{{ menuText.menu.view.showModuleLibrary }} <kbd>Alt+Shift+R</kbd></button><div class="menu-separator"></div><div class="menu-subtitle">{{ menuText.menu.view.language }}</div><button @click="setLocale('zh-CN')">{{ currentLocale === 'zh-CN' ? '✓ ' : '' }}{{ menuText.menu.view.chinese }}</button><button @click="setLocale('en-US')">{{ currentLocale === 'en-US' ? '✓ ' : '' }}{{ menuText.menu.view.english }}</button></div></div>
         <div class="menu-root"><button @click.stop="toggleMenu('render')">{{ menuText.menu.render.title }}</button><div v-if="activeMenu === 'render'" class="dropdown-menu"><button @click="run(() => exportImage(true))">{{ menuText.menu.render.selectedNodes }} <kbd>Ctrl+Alt+R</kbd></button><button @click="run(() => exportImage(false))">{{ menuText.menu.render.graph }} <kbd>Ctrl+Shift+R</kbd></button></div></div>
         <button @click="run(testGraph)">{{ menuText.menu.test }}</button><button @click="showAbout = true">{{ menuText.menu.help }}</button>
-      </div><div class="test-toolbar"><button class="test-button" :title="menuText.toolbar.testTitle" @click="run(testGraph)">{{ menuText.toolbar.test }}</button></div><div class="window-title">Origin Blueprint</div>
+      </div>
     </header>
 
     <section class="workspace" :style="workspaceStyle">

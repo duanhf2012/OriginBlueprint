@@ -18,8 +18,6 @@ button { font: inherit; color: inherit; }
 .dropdown-menu { position: absolute; z-index: 1000; top: 33px; left: 0; width: 230px; padding: 5px 0; border: 1px solid #111; background: #292929; box-shadow: 0 7px 18px #000a; }
 .dropdown-menu button { width: 100%; height: 27px; display: flex; align-items: center; justify-content: space-between; padding: 0 10px; text-align: left; }
 .dropdown-menu button:disabled { color: #666; }.dropdown-menu kbd { color: #888; font: 11px "Segoe UI"; }.menu-separator { height: 1px; margin: 4px 6px; background: #444; }
-.window-title { position: absolute; left: 50%; transform: translateX(-50%); color: #888; font-size: 12px; }
-.test-toolbar { position: absolute; right: 10px; display: flex; height: 26px; }.test-toolbar button { min-width: 72px; border: 1px solid #4f7184; border-radius: 3px; background: #2f4652; color: #d8edf6; font-size: 11px; }.test-toolbar button:hover { border-color: #6aa6c4; background: #3a5a69; color: white; }
 .workspace { min-height: 0; flex: 1; display: grid; grid-template-columns: var(--file-browser-width, 210px) 3px var(--left-tools-width, 210px) 3px minmax(520px, 1fr) 3px var(--right-sidebar-width, 230px); }
 .application-shell.tools-hidden .workspace { grid-template-columns: var(--file-browser-width, 210px) minmax(520px, 1fr) 3px var(--right-sidebar-width, 230px); }
 .application-shell.right-hidden .workspace { grid-template-columns: var(--file-browser-width, 210px) 3px var(--left-tools-width, 210px) 3px minmax(520px, 1fr); }

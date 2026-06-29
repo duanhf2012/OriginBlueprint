@@ -20,7 +20,8 @@ const issueHighlightEnd = editor.indexOf('async function highlightIssueNode', is
 const issueHighlight = issueHighlightStart >= 0 && issueHighlightEnd > issueHighlightStart ? editor.slice(issueHighlightStart, issueHighlightEnd) : ''
 
 assert(app.includes('查找目标：{{ nodeReferenceSearch.nodeTitle }}'), 'reference panel must show the searched node title')
-assert(app.includes('class="test-toolbar"'), 'top-right toolbar should expose Test instead of Run/Stop')
+assert(!app.includes('class="test-toolbar"'), 'top-right toolbar should not show a duplicate Test button')
+assert(!app.includes('class="window-title"'), 'top menu bar should not show the centered Origin Blueprint title')
 assert(!app.includes('runGraph'), 'frontend should not keep graph run entrypoints')
 assert(!app.includes('stopGraph'), 'frontend should not keep graph stop entrypoints')
 assert(!app.includes('executionRunning'), 'frontend should not keep execution running state')
