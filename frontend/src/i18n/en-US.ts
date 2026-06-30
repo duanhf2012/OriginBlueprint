@@ -67,5 +67,9 @@ export const enUS: MenuLocaleText = {
     currentBlueprintFunctions: 'Current Blueprint Functions',
     workspaceFunctionLibrary: 'Workspace Function Library',
     noFunctionLibrary: 'No workspace function library resources found'
+  },
+  detail: {
+    functionTitle: 'Function Title',
+    functionTitlePlaceholder: 'Function display name'
   }
 }

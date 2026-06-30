@@ -1677,7 +1677,7 @@ function toggleModuleCategory(category: string) {
         <div class="panel grow detail-panel sidebar-detail-panel">
           <div class="panel-title"><span class="chevron">⌄</span> 详情</div>
           <div v-if="isFunctionBlueprintTab && !selectedNode && !selectedVariable" class="node-detail function-signature-editor">
-            <label>Title<input v-model="functionTitle" placeholder="函数显示名" @change="syncFunctionTitleToGraph" /></label>
+            <label>{{ menuText.detail.functionTitle }}<input v-model="functionTitle" :placeholder="menuText.detail.functionTitlePlaceholder" @change="syncFunctionTitleToGraph" /></label>
             <div class="detail-section-title">函数签名</div>
             <div class="function-terminal-actions"><button @click="addFunctionEntryNodeToGraph">＋ 入口节点</button><button @click="addFunctionReturnNodeToGraph">＋ 出口节点</button></div>
             <section class="signature-port-section">

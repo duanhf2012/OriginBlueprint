@@ -66,6 +66,10 @@ export interface MenuLocaleText {
     workspaceFunctionLibrary: string
     noFunctionLibrary: string
   }
+  detail: {
+    functionTitle: string
+    functionTitlePlaceholder: string
+  }
 }
 
 export const zhCN: MenuLocaleText = {
@@ -135,5 +139,9 @@ export const zhCN: MenuLocaleText = {
     currentBlueprintFunctions: '当前蓝图函数',
     workspaceFunctionLibrary: '工程函数库',
     noFunctionLibrary: '未发现工程函数库资源'
+  },
+  detail: {
+    functionTitle: '函数名',
+    functionTitlePlaceholder: '函数显示名'
   }
 }
