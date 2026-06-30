@@ -199,14 +199,13 @@ function applyFunctionMetadata(node: BlueprintNode, metadata: FunctionNodeMetada
   node.functionId = metadata.functionId
   node.functionName = metadata.functionName
   node.functionSource = metadata.functionSource
-  node.functionPath = metadata.functionPath
   node.functionSignature = cloneFunctionSignature(metadata.functionSignature)
 }
 
 function normalizedFunctionMetadata(metadata: FunctionNodeMetadata): FunctionNodeMetadata {
   return {
     ...metadata,
-    functionId: metadata.functionId || metadata.functionPath || metadata.functionName || 'function',
+    functionId: metadata.functionId || metadata.functionName || 'function',
     functionName: metadata.functionName || 'Function',
     functionSignature: cloneFunctionSignature(metadata.functionSignature)
   }

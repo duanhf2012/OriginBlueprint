@@ -12,6 +12,7 @@ const GraphSchemaVersion = 1
 type GraphDocument struct {
 	SchemaVersion     int                    `json:"schemaVersion"`
 	GraphName         string                 `json:"graphName"`
+	FunctionID        string                 `json:"functionId,omitempty"`
 	Nodes             []GraphNode            `json:"nodes"`
 	Connections       []GraphConnection      `json:"connections"`
 	Groups            []GraphGroup           `json:"groups"`
@@ -39,7 +40,6 @@ type GraphNodeProperties struct {
 	FunctionID         string                 `json:"functionId,omitempty"`
 	FunctionName       string                 `json:"functionName,omitempty"`
 	FunctionSource     string                 `json:"functionSource,omitempty"`
-	FunctionPath       string                 `json:"functionPath,omitempty"`
 	FunctionSignature  GraphFunctionSignature `json:"functionSignature,omitempty"`
 	LegacyClass        string                 `json:"legacyClass,omitempty"`
 	LegacyModule       string                 `json:"legacyModule,omitempty"`

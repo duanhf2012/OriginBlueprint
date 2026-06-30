@@ -15,7 +15,7 @@ interface ModuleNodeMenuState { visible: boolean; x: number; y: number; node: No
 interface NodeReferenceSearchState { visible: boolean; loading: boolean; nodeTitle: string; typeId: string; results: NodeReferenceResult[] }
 interface FileContextMenuState { visible: boolean; x: number; y: number; path: string; isDir: boolean; isFunction: boolean }
 interface BlueprintFunction { id: string; name: string; readonly?: boolean }
-interface FunctionLibraryItem { id: string; name: string; path: string; source: 'current' | 'workspace' }
+interface FunctionLibraryItem { id: string; functionId: string; name: string; path: string; source: 'current' | 'workspace' }
 interface ModuleLibraryItem extends NodeDefinition { functionPlaceholder?: boolean; functionSource?: FunctionLibraryItem['source']; functionItem?: FunctionLibraryItem; path?: string }
 
 const canvas = ref<HTMLElement | null>(null)
@@ -42,6 +42,7 @@ const workspaceSearch = ref('')
 const expandedWorkspacePaths = ref<Set<string>>(new Set())
 const selectedWorkspacePath = ref('')
 const functionTitleByPath = ref<Record<string, string>>({})
+const functionIdByPath = ref<Record<string, string>>({})
 const fileBrowserWidth = ref(savedPanelWidth('origin-blueprint-file-browser-width', 210))
 const leftToolsWidth = ref(savedPanelWidth('origin-blueprint-left-tools-width', 210, 160, 520))
 const rightSidebarWidth = ref(savedPanelWidth('origin-blueprint-right-sidebar-width', 230, 160, 460))
@@ -57,6 +58,7 @@ const variables = ref<GraphVariable[]>([])
 const variableGroups = ref<GraphVariableGroup[]>([{ id: 'default', name: 'Default' }])
 const functionSignature = ref<FunctionSignature>(emptyFunctionSignature())
 const functionTitle = ref('')
+const functionId = ref('')
 const functionSignatureTypeOptions: Array<{ value: VariableType; label: string }> = [
   { value: 'boolean', label: 'Boolean' },
   { value: 'integer', label: 'Integer' },
@@ -80,8 +82,12 @@ let closingApplication = false
 let nodePointerDrag: { item: ModuleLibraryItem; startX: number; startY: number; lastX: number; lastY: number; moved: boolean } | null = null
 let removeNodePointerListeners = () => {}
 let workspaceLoadToken = 0
+let workspaceRefreshInFlight = false
+let workspaceRefreshTimer: ReturnType<typeof window.setInterval> | undefined
 let validationIssueClickTimer: ReturnType<typeof window.setTimeout> | undefined
 const loadingFunctionTitles = new Set<string>()
+const workspaceRefreshIntervalKey = 'origin-blueprint-workspace-refresh-interval'
+const workspaceRefreshIntervalMs = Math.max(1000, Number.parseInt(localStorage.getItem(workspaceRefreshIntervalKey) ?? '1500', 10) || 1500)
 
 const activeTab = computed(() => tabs.value.find(tab => tab.id === activeTabId.value)!)
 const selectedVariable = computed(() => variables.value.find(variable => variable.id === selectedVariableId.value) ?? null)
@@ -92,11 +98,11 @@ const groupedVariables = computed(() => variableGroups.value.map(group => ({
 })))
 const functionLibraryItems = computed(() => collectFunctionLibraryItems(workspaceTree.value))
 const callableFunctionItems = computed<FunctionLibraryItem[]>(() => [
-  ...blueprintFunctions.value.map(item => ({ id: item.id, name: item.name, path: activeTab.value?.path || activeTab.value?.title || '', source: 'current' as const })),
+  ...blueprintFunctions.value.map(item => ({ id: item.id, functionId: item.id, name: item.name, path: activeTab.value?.path || activeTab.value?.title || '', source: 'current' as const })),
   ...functionLibraryItems.value
 ])
 const functionModuleItems = computed<ModuleLibraryItem[]>(() => callableFunctionItems.value.map(item => ({
-  id: `origin.function.${item.source}.${item.id}`,
+  id: `origin.function.${item.source}.${item.functionId || item.id}`,
   title: item.name,
   category: menuText.value.module.functionCategory,
   kind: 'function',
@@ -162,6 +168,8 @@ onMounted(async () => {
   const initialWorkspace = await platform.currentWorkingDirectory()
   if (initialWorkspace) await loadWorkspace(initialWorkspace)
   unsubscribeCloseRequest = platform.onCloseRequest(() => { void handleCloseRequest() })
+  workspaceRefreshTimer = window.setInterval(() => { void refreshWorkspaceVisibleDirectories() }, workspaceRefreshIntervalMs)
+  window.addEventListener('focus', refreshWorkspaceOnFocus)
   window.addEventListener('keydown', onKeyDown)
   window.addEventListener('pointerdown', closeFloatingMenus)
   window.addEventListener('beforeunload', onBeforeWindowUnload)
@@ -206,8 +214,10 @@ async function loadRuntimeNodeLibrary() {
 
 onBeforeUnmount(() => {
   clearValidationIssueClickTimer()
+  if (workspaceRefreshTimer) window.clearInterval(workspaceRefreshTimer)
   removeNodePointerListeners()
   unsubscribeCloseRequest()
+  window.removeEventListener('focus', refreshWorkspaceOnFocus)
   window.removeEventListener('keydown', onKeyDown); window.removeEventListener('pointerdown', closeFloatingMenus); window.removeEventListener('beforeunload', onBeforeWindowUnload); editor?.destroy()
 })
 
@@ -271,7 +281,7 @@ function persistActive() { if (editor && activeTab.value) activeTab.value.docume
 async function newGraph() {
   persistActive(); untitledCount++
   const tab: GraphTab = { id: crypto.randomUUID(), title: `Untitled-${untitledCount} Graph`, path: '', dirty: false, document: null }
-  tabs.value.push(tab); activeTabId.value = tab.id; selectedVariableId.value = null; functionSignature.value = emptyFunctionSignature(); functionTitle.value = ''; await editor?.newDocument()
+  tabs.value.push(tab); activeTabId.value = tab.id; selectedVariableId.value = null; functionSignature.value = emptyFunctionSignature(); functionTitle.value = ''; functionId.value = ''; await editor?.newDocument()
 }
 
 async function switchTab(id: string) {
@@ -281,6 +291,7 @@ async function switchTab(id: string) {
   if (tab.document) await editor?.loadDocument(tab.document); else await editor?.newDocument()
   functionSignature.value = normalizeFunctionSignature(tab.document?.functionSignature)
   functionTitle.value = isFunctionBlueprintPath(tab.path || tab.title) ? functionTitleFromDocument(tab.document, tab.path || tab.title, tab.title) : ''
+  functionId.value = isFunctionBlueprintPath(tab.path || tab.title) ? functionIdFromDocument(tab.document) : ''
   nextTick(() => scrollActiveTabIntoView())
 }
 
@@ -296,6 +307,7 @@ async function closeTab(id: string, event: MouseEvent) {
     selectedVariableId.value = null
     functionSignature.value = normalizeFunctionSignature(tabs.value[0].document?.functionSignature)
     functionTitle.value = isFunctionBlueprintPath(tabs.value[0].path || tabs.value[0].title) ? functionTitleFromDocument(tabs.value[0].document, tabs.value[0].path || tabs.value[0].title, tabs.value[0].title) : ''
+    functionId.value = isFunctionBlueprintPath(tabs.value[0].path || tabs.value[0].title) ? functionIdFromDocument(tabs.value[0].document) : ''
     await editor?.loadDocument(tabs.value[0].document ?? blankDocument(tabs.value[0].title))
   }
 }
@@ -361,15 +373,27 @@ function blankDocument(name: string): GraphDocument {
   return { schemaVersion: 1, graphName: name, nodes: [], connections: [], groups: [], variables: [], variableGroups: [{ id: 'default', name: 'Default' }], view: { x: 0, y: 0, zoom: 1 } }
 }
 
-function functionTerminalNodes(name: string, signature = emptyFunctionSignature(), functionPath = workspaceFunctionPath(name)) {
+function newFunctionId() {
+  return `fn_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`
+}
+
+function functionIdFromDocument(document: GraphDocument | null | undefined) {
+  return String(document?.functionId ?? '').trim()
+}
+
+function activeFunctionId() {
+  if (!functionId.value.trim()) functionId.value = newFunctionId()
+  return functionId.value.trim()
+}
+
+function functionTerminalNodes(name: string, signature = emptyFunctionSignature(), id = newFunctionId()) {
   const entryId = crypto.randomUUID()
   const returnId = crypto.randomUUID()
   const metadata = (role: FunctionNodeMetadata['functionRole']) => ({
     functionRole: role,
-    functionId: name,
+    functionId: id,
     functionName: name,
     functionSource: 'workspace' as const,
-    functionPath,
     functionSignature: normalizeFunctionSignature(signature)
   })
   const entry: NodeSnapshot = {
@@ -433,6 +457,7 @@ function activeFunctionTitle() {
 function documentWithFunctionSignature(document: GraphDocument, tab = activeTab.value) {
   if (isFunctionBlueprintPath(tab.path || tab.title)) {
     document.graphName = activeFunctionTitle()
+    document.functionId = activeFunctionId()
     document.functionSignature = normalizeFunctionSignature(functionSignature.value)
   }
   return document
@@ -473,9 +498,7 @@ function functionNodePorts(node: NodeSnapshot) {
 
 function sameFunctionReference(properties: NodeSnapshot['properties'] | undefined, metadata: FunctionNodeMetadata) {
   if (!properties) return false
-  if (metadata.functionPath && properties.functionPath === metadata.functionPath) return true
-  if (metadata.functionId && properties.functionId === metadata.functionId) return true
-  return Boolean(metadata.functionName && properties.functionName === metadata.functionName)
+  return Boolean(metadata.functionId && properties.functionId === metadata.functionId)
 }
 
 function syncDocumentFunctionReferences(document: GraphDocument, metadata: FunctionNodeMetadata) {
@@ -490,7 +513,6 @@ function syncDocumentFunctionReferences(document: GraphDocument, metadata: Funct
       functionId: metadata.functionId,
       functionName: metadata.functionName,
       functionSource: metadata.functionSource,
-      functionPath: metadata.functionPath,
       functionSignature: signature
     }
     updatedPorts.set(node.id, functionNodePorts(node))
@@ -508,7 +530,9 @@ function syncDocumentFunctionReferences(document: GraphDocument, metadata: Funct
 
 function syncFunctionTerminalsFromDocumentSignature(document: GraphDocument, path: string) {
   const signature = normalizeFunctionSignature(document.functionSignature)
-  const functionName = functionNameFromPath(path, document.graphName)
+  const functionName = functionTitleFromDocument(document, path, document.graphName)
+  const id = String(document.functionId ?? '').trim()
+  if (!id) return false
   const changedPorts = new Map<string, ReturnType<typeof functionNodePorts>>()
   for (const node of document.nodes ?? []) {
     if (node.typeId !== 'origin.function.entry' && node.typeId !== 'origin.function.return') continue
@@ -517,10 +541,9 @@ function syncFunctionTerminalsFromDocumentSignature(document: GraphDocument, pat
       ...node.properties,
       label: role === 'entry' ? `${functionName} Entry` : `${functionName} Return`,
       functionRole: role,
-      functionId: path || document.graphName,
+      functionId: id,
       functionName,
       functionSource: 'workspace',
-      functionPath: path,
       functionSignature: signature
     }
     changedPorts.set(node.id, functionNodePorts(node))
@@ -536,11 +559,19 @@ function syncFunctionTerminalsFromDocumentSignature(document: GraphDocument, pat
   return true
 }
 
-async function loadFunctionSignatureForPath(path: string) {
-  const opened = tabs.value.find(tab => tab.path === path)
+function functionLibraryItemById(id: string) {
+  const cleanId = id.trim()
+  if (!cleanId) return undefined
+  return functionLibraryItems.value.find(item => item.functionId === cleanId)
+}
+
+async function loadFunctionSignatureForId(id: string) {
+  const item = functionLibraryItemById(id)
+  if (!item?.path) return emptyFunctionSignature()
+  const opened = tabs.value.find(tab => tab.path === item.path)
   if (opened?.document) return normalizeFunctionSignature(opened.document.functionSignature)
   try {
-    const file = await platform.openGraph(path)
+    const file = await platform.openGraph(item.path)
     if (!file) return emptyFunctionSignature()
     const parsed = JSON.parse(file.content) as Partial<GraphDocument>
     return normalizeFunctionSignature(parsed.functionSignature)
@@ -561,20 +592,21 @@ async function refreshDocumentFunctionReferencesOnOpen(document: GraphDocument, 
     changed = syncFunctionTerminalsFromDocumentSignature(document, path) || changed
   }
 
-  const functionCalls = new Map<string, string>()
+  const functionCalls = new Set<string>()
   for (const node of document.nodes ?? []) {
-    if (node.typeId !== 'origin.function.call' || !node.properties?.functionPath) continue
-    if (node.properties.functionPath === path) continue
-    functionCalls.set(node.properties.functionPath, node.properties.functionName || node.properties.label || 'Function')
+    const id = String(node.properties?.functionId ?? '').trim()
+    if (node.typeId !== 'origin.function.call' || !id || id === document.functionId) continue
+    functionCalls.add(id)
   }
-  for (const [functionPath, fallbackName] of functionCalls) {
-    const signature = await loadFunctionSignatureForPath(functionPath)
+  for (const id of functionCalls) {
+    const item = functionLibraryItemById(id)
+    if (!item) continue
+    const signature = await loadFunctionSignatureForId(id)
     const metadata: FunctionNodeMetadata = {
       functionRole: 'call',
-      functionId: functionPath,
-      functionName: functionNameFromPath(functionPath, fallbackName),
+      functionId: id,
+      functionName: item.name,
       functionSource: 'workspace',
-      functionPath,
       functionSignature: signature
     }
     changed = syncDocumentFunctionReferences(document, metadata) || changed
@@ -671,12 +703,6 @@ function sanitizeFunctionFileName(value: string) {
   return value.trim().replace(/\.(obpf|obp|vgf)$/i, '').replace(/[<>:"/\\|?*\x00-\x1f]+/g, '_').replace(/\s+/g, '_').replace(/^_+|_+$/g, '') || 'NewFunction'
 }
 
-function workspaceFunctionPath(name: string) {
-  const root = workspaceRoot.value.replace(/[\\/]+$/, '')
-  const separator = root.includes('\\') ? '\\' : '/'
-  return `${root}${separator}functions${separator}${sanitizeFunctionFileName(name)}.obpf`
-}
-
 function joinWorkspacePath(directory: string, fileName: string) {
   const base = (directory || workspaceRoot.value).replace(/[\\/]+$/, '')
   const separator = base.includes('\\') ? '\\' : '/'
@@ -705,8 +731,9 @@ async function createFunctionAtDirectory(directory: string) {
   const graphName = sanitizeFunctionFileName(rawName)
   const path = joinWorkspacePath(directory, `${graphName}.obpf`)
   const document = blankDocument(graphName)
+  document.functionId = newFunctionId()
   document.functionSignature = emptyFunctionSignature()
-  const terminals = functionTerminalNodes(graphName, document.functionSignature, path)
+  const terminals = functionTerminalNodes(graphName, document.functionSignature, document.functionId)
   document.nodes = terminals.nodes
   document.connections = terminals.connections
   const saved = await platform.saveGraph(path, JSON.stringify(document, null, 2))
@@ -827,8 +854,12 @@ function touchFunctionSignature() {
 async function syncFunctionTitleToGraph() {
   if (!isFunctionBlueprintTab.value) return
   functionTitle.value = activeFunctionTitle()
-  if (activeTab.value.document) activeTab.value.document.graphName = functionTitle.value
+  if (activeTab.value.document) {
+    activeTab.value.document.graphName = functionTitle.value
+    activeTab.value.document.functionId = activeFunctionId()
+  }
   if (activeTab.value.path) functionTitleByPath.value = { ...functionTitleByPath.value, [activeTab.value.path]: functionTitle.value }
+  if (activeTab.value.path) functionIdByPath.value = { ...functionIdByPath.value, [activeTab.value.path]: activeFunctionId() }
   await syncFunctionSignatureToGraph()
 }
 
@@ -836,10 +867,9 @@ function activeFunctionMetadata(role: FunctionNodeMetadata['functionRole']): Fun
   const functionName = activeFunctionTitle()
   return {
     functionRole: role,
-    functionId: activeTab.value.path || activeTab.value.title,
+    functionId: activeFunctionId(),
     functionName,
     functionSource: 'workspace',
-    functionPath: activeTab.value.path,
     functionSignature: normalizeFunctionSignature(functionSignature.value)
   }
 }
@@ -914,6 +944,7 @@ function normalizeDocument(value: any): GraphDocument {
   return {
     schemaVersion: 1,
     graphName: String(value.graphName ?? value.graph_name ?? 'Imported Graph'),
+    functionId: String(value.functionId ?? '').trim() || undefined,
     nodes: Array.isArray(value.nodes) ? value.nodes : [],
     connections: Array.isArray(value.connections) ? value.connections : [],
     groups: Array.isArray(value.groups) ? value.groups : [],
@@ -1002,6 +1033,8 @@ async function openGraph(path = '', highlightTypeId = '') {
     try { document = normalizeDocument(JSON.parse(await platform.migrateLegacyGraph(file.content))) }
     catch (error) { status.value = error instanceof Error ? error.message : 'Legacy graph migration failed'; return }
   } else { status.value = 'Legacy graph migration requires the desktop runtime'; return }
+  if (isFunctionBlueprintPath(file.path) && !document.functionId) document.functionId = newFunctionId()
+  await loadFunctionLibraryTitles(functionLibraryItems.value)
   await refreshDocumentFunctionReferencesOnOpen(document, file.path)
   persistActive()
   const existing = tabs.value.find(tab => tab.path === file.path)
@@ -1013,7 +1046,9 @@ async function openGraph(path = '', highlightTypeId = '') {
     selectedVariableId.value = null
     functionSignature.value = normalizeFunctionSignature(document.functionSignature)
     functionTitle.value = isFunctionBlueprintPath(file.path) ? functionTitleFromDocument(document, file.path, existing.title) : ''
+    functionId.value = isFunctionBlueprintPath(file.path) ? functionIdFromDocument(document) : ''
     if (isFunctionBlueprintPath(file.path)) functionTitleByPath.value = { ...functionTitleByPath.value, [file.path]: functionTitle.value }
+    if (isFunctionBlueprintPath(file.path) && functionId.value) functionIdByPath.value = { ...functionIdByPath.value, [file.path]: functionId.value }
     await editor?.loadDocument(document)
     if (highlightTypeId) {
       const count = await editor?.highlightNodesByType(highlightTypeId) ?? 0
@@ -1028,7 +1063,9 @@ async function openGraph(path = '', highlightTypeId = '') {
   selectedVariableId.value = null
   functionSignature.value = normalizeFunctionSignature(document.functionSignature)
   functionTitle.value = isFunctionBlueprintPath(file.path) ? functionTitleFromDocument(document, file.path, title) : ''
+  functionId.value = isFunctionBlueprintPath(file.path) ? functionIdFromDocument(document) : ''
   if (isFunctionBlueprintPath(file.path)) functionTitleByPath.value = { ...functionTitleByPath.value, [file.path]: functionTitle.value }
+  if (isFunctionBlueprintPath(file.path) && functionId.value) functionIdByPath.value = { ...functionIdByPath.value, [file.path]: functionId.value }
   await editor?.loadDocument(document)
   if (document.legacy?.format === 'vgf') {
     const hiddenCount = document.legacy.hiddenNodes?.length ?? 0
@@ -1053,6 +1090,8 @@ async function saveGraph(saveAs: boolean) {
   if (isFunctionBlueprintPath(path)) {
     functionTitle.value = activeFunctionTitle()
     functionTitleByPath.value = { ...functionTitleByPath.value, [path]: functionTitle.value }
+    functionId.value = activeFunctionId()
+    functionIdByPath.value = { ...functionIdByPath.value, [path]: functionId.value }
     await syncOpenFunctionReferences(activeFunctionMetadata('call'))
   }
   recentFiles.value = await platform.recentFiles(); status.value = `Saved ${tab.title}`
@@ -1125,11 +1164,20 @@ async function loadWorkspaceTree(path: string, depth = 0): Promise<WorkspaceTree
   return entries.map(entry => ({ ...entry, children: [], loaded: !entry.isDir, loading: false }))
 }
 
-async function ensureWorkspaceChildren(node: WorkspaceTreeNode, depth: number) {
-  if (!node.isDir || node.loaded || node.loading) return
+function mergeWorkspaceChildren(previous: WorkspaceTreeNode[], next: WorkspaceTreeNode[]) {
+  const previousByPath = new Map(previous.map(node => [node.path, node]))
+  return next.map(node => {
+    const old = previousByPath.get(node.path)
+    return old && old.isDir === node.isDir ? { ...node, children: old.children, loaded: old.loaded, loading: false } : node
+  })
+}
+
+async function ensureWorkspaceChildren(node: WorkspaceTreeNode, depth: number, force = false) {
+  if (!node.isDir || node.loading || (node.loaded && !force)) return
   node.loading = true
   try {
-    node.children = await loadWorkspaceTree(node.path, depth)
+    const children = await loadWorkspaceTree(node.path, depth)
+    node.children = force ? mergeWorkspaceChildren(node.children, children) : children
     node.loaded = true
   } catch (error) {
     status.value = `Workspace load failed: ${error instanceof Error ? error.message : String(error)}`
@@ -1195,12 +1243,20 @@ function functionResourceTitle(node: WorkspaceEntry) {
   return openedTitle || functionTitleByPath.value[node.path] || functionResourceName(node)
 }
 
+function functionResourceId(node: WorkspaceEntry) {
+  const opened = tabs.value.find(tab => tab.path === node.path)
+  const openedId = functionIdFromDocument(opened?.document)
+  return openedId || functionIdByPath.value[node.path] || ''
+}
+
 function collectFunctionLibraryItems(nodes: WorkspaceTreeNode[]) {
   const items: FunctionLibraryItem[] = []
   const visit = (entry: WorkspaceTreeNode) => {
     if (!entry.isDir && isFunctionResource(entry)) {
+      const id = functionResourceId(entry)
       items.push({
-        id: encodeURIComponent(entry.path).replace(/%/g, '_'),
+        id: id || encodeURIComponent(entry.path).replace(/%/g, '_'),
+        functionId: id,
         name: functionResourceTitle(entry),
         path: entry.path,
         source: 'workspace'
@@ -1214,10 +1270,13 @@ function collectFunctionLibraryItems(nodes: WorkspaceTreeNode[]) {
 
 async function loadFunctionLibraryTitles(items: FunctionLibraryItem[]) {
   for (const item of items) {
-    if (!item.path || functionTitleByPath.value[item.path] || loadingFunctionTitles.has(item.path)) continue
+    if (!item.path || (functionTitleByPath.value[item.path] && functionIdByPath.value[item.path]) || loadingFunctionTitles.has(item.path)) continue
     const opened = tabs.value.find(tab => tab.path === item.path)
-    if (opened?.document?.graphName) {
-      functionTitleByPath.value = { ...functionTitleByPath.value, [item.path]: opened.document.graphName }
+    if (opened?.document) {
+      const title = String(opened.document.graphName ?? '').trim()
+      const id = functionIdFromDocument(opened.document)
+      if (title) functionTitleByPath.value = { ...functionTitleByPath.value, [item.path]: title }
+      if (id) functionIdByPath.value = { ...functionIdByPath.value, [item.path]: id }
       continue
     }
     loadingFunctionTitles.add(item.path)
@@ -1226,7 +1285,9 @@ async function loadFunctionLibraryTitles(items: FunctionLibraryItem[]) {
       if (!file) continue
       const parsed = JSON.parse(file.content) as Partial<GraphDocument>
       const title = String(parsed.graphName ?? '').trim()
+      const id = String(parsed.functionId ?? '').trim()
       if (title) functionTitleByPath.value = { ...functionTitleByPath.value, [item.path]: title }
+      if (id) functionIdByPath.value = { ...functionIdByPath.value, [item.path]: id }
     } catch {
       // Function title loading is best-effort; fall back to the file name.
     } finally {
@@ -1241,9 +1302,61 @@ async function toggleWorkspaceNode(node: WorkspaceTreeNode) {
   const next = new Set(expandedWorkspacePaths.value)
   if (next.has(node.path)) next.delete(node.path); else {
     next.add(node.path)
-    await ensureWorkspaceChildren(node, workspaceNodeDepth(node.path) + 1)
+    await ensureWorkspaceChildren(node, workspaceNodeDepth(node.path) + 1, true)
   }
   expandedWorkspacePaths.value = next
+}
+
+function findWorkspaceNodeByPath(path: string, nodes = workspaceTree.value): WorkspaceTreeNode | null {
+  for (const node of nodes) {
+    if (node.path === path) return node
+    const found = findWorkspaceNodeByPath(path, node.children)
+    if (found) return found
+  }
+  return null
+}
+
+function pruneWorkspaceCaches() {
+  const nextExpanded = new Set<string>()
+  for (const path of expandedWorkspacePaths.value) if (findWorkspaceNodeByPath(path)?.isDir) nextExpanded.add(path)
+  expandedWorkspacePaths.value = nextExpanded
+  if (selectedWorkspacePath.value && !findWorkspaceNodeByPath(selectedWorkspacePath.value)) selectedWorkspacePath.value = ''
+}
+
+async function refreshWorkspaceVisibleDirectories(silent = true) {
+  if (!workspaceRoot.value || workspaceRefreshInFlight) return
+  const token = workspaceLoadToken
+  workspaceRefreshInFlight = true
+  try {
+    const rootChildren = await loadWorkspaceTree(workspaceRoot.value)
+    if (token !== workspaceLoadToken) return
+    workspaceTree.value = mergeWorkspaceChildren(workspaceTree.value, rootChildren)
+    pruneWorkspaceCaches()
+    for (const path of expandedWorkspacePaths.value) {
+      if (token !== workspaceLoadToken) return
+      const node = findWorkspaceNodeByPath(path)
+      if (node?.isDir) await ensureWorkspaceChildren(node, workspaceNodeDepth(node.path) + 1, true)
+    }
+    pruneWorkspaceCaches()
+  } catch (error) {
+    if (!silent) status.value = `Workspace refresh failed: ${error instanceof Error ? error.message : String(error)}`
+  } finally {
+    workspaceRefreshInFlight = false
+  }
+}
+
+function refreshWorkspaceOnFocus() {
+  void refreshWorkspaceVisibleDirectories()
+}
+
+async function refreshWorkspaceDirectory(path: string) {
+  const node = findWorkspaceNodeByPath(path)
+  if (!node?.isDir) return
+  await ensureWorkspaceChildren(node, workspaceNodeDepth(node.path) + 1, true)
+  const next = new Set(expandedWorkspacePaths.value)
+  next.add(node.path)
+  expandedWorkspacePaths.value = next
+  status.value = `Refreshed ${node.name}`
 }
 
 async function workspaceOpen(item: WorkspaceTreeNode) {
@@ -1338,19 +1451,20 @@ async function loadFunctionSignatureForModuleItem(item: ModuleLibraryItem) {
 
 async function functionMetadataForModuleItem(item: ModuleLibraryItem): Promise<FunctionNodeMetadata> {
   const source = item.functionSource ?? 'current'
+  const id = source === 'workspace' ? item.functionItem?.functionId : item.functionItem?.id
+  if (!id) throw new Error('函数信息尚未加载完成')
   return {
     functionRole: 'call',
-    functionId: item.functionItem?.id ?? item.id,
+    functionId: id,
     functionName: item.title,
     functionSource: source,
-    functionPath: item.path,
     functionSignature: source === 'current' ? normalizeFunctionSignature(functionSignature.value) : await loadFunctionSignatureForModuleItem(item)
   }
 }
 
 function isSelfFunctionReference(item: ModuleLibraryItem) {
-  if (!item.functionPlaceholder || !isFunctionBlueprintTab.value || !item.path || !activeTab.value.path) return false
-  return item.path.replace(/\\/g, '/').toLowerCase() === activeTab.value.path.replace(/\\/g, '/').toLowerCase()
+  if (!item.functionPlaceholder || !isFunctionBlueprintTab.value) return false
+  return Boolean(item.functionItem?.functionId && item.functionItem.functionId === activeFunctionId())
 }
 
 async function addModuleItemAt(item: ModuleLibraryItem, position?: { x: number; y: number }) {
@@ -1538,6 +1652,13 @@ async function createFunctionInFileContext() {
   fileContextMenu.value.visible = false
   if (!directory || !fileContextMenu.value.isDir) return
   await createFunctionAtDirectory(directory)
+}
+
+async function refreshFileContextDirectory() {
+  const directory = fileContextMenu.value.path
+  fileContextMenu.value.visible = false
+  if (!directory || !fileContextMenu.value.isDir) return
+  await refreshWorkspaceDirectory(directory)
 }
 
 async function revealFileContextInFolder() {
@@ -1781,6 +1902,7 @@ function toggleModuleCategory(category: string) {
     </div>
     <div v-if="fileContextMenu.visible" class="file-context-menu" :style="{ left: `${fileContextMenu.x}px`, top: `${fileContextMenu.y}px` }" @pointerdown.stop>
       <button v-if="!fileContextMenu.isDir" @click="openFileContextGraph">{{ fileContextMenu.isFunction ? '打开函数' : '打开蓝图' }}</button>
+      <button v-if="fileContextMenu.isDir" @click="refreshFileContextDirectory">刷新目录</button>
       <button v-if="fileContextMenu.isDir" @click="createBlueprintInFileContext">新建蓝图</button>
       <button v-if="fileContextMenu.isDir" @click="createFunctionInFileContext">新建函数</button>
       <button @click="revealFileContextInFolder">在资源管理器中定位</button>

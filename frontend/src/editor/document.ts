@@ -34,7 +34,6 @@ export interface FunctionNodeMetadata {
   functionId: string
   functionName: string
   functionSource?: FunctionNodeSource
-  functionPath?: string
   functionSignature?: FunctionSignature
 }
 
@@ -47,7 +46,6 @@ export interface NodeProperties {
   functionId?: string
   functionName?: string
   functionSource?: FunctionNodeSource
-  functionPath?: string
   functionSignature?: FunctionSignature
   legacyClass?: string
   legacyModule?: string
@@ -117,6 +115,7 @@ export interface GraphSnapshot {
 export interface GraphDocument extends GraphSnapshot {
   schemaVersion: 1
   graphName: string
+  functionId?: string
   variables: GraphVariable[]
   variableGroups: GraphVariableGroup[]
   functionSignature?: FunctionSignature

@@ -1,89 +1,67 @@
 {
   "schemaVersion": 1,
-  "graphName": "加法计算",
+  "graphName": "NewFunction",
   "nodes": [
     {
-      "id": "a90131405a987b64",
+      "id": "d84503c3-c4a6-45b8-a481-92cd5ee0d478",
       "typeId": "origin.function.entry",
       "position": {
-        "x": -97.70000000000005,
-        "y": 169.83999999999997
+        "x": -379,
+        "y": -20
       },
       "values": {},
       "properties": {
-        "label": "加法计算 Entry",
+        "label": "NewFunction Entry",
         "functionRole": "entry",
-        "functionId": "E:\\NewWork\\OriginBlueprint\\OriginBlueprint\\functions\\NewFunction.obpf",
-        "functionName": "加法计算",
+        "functionId": "functions/NewFunction.obpf",
+        "functionName": "NewFunction",
         "functionSource": "workspace",
-        "functionPath": "E:\\NewWork\\OriginBlueprint\\OriginBlueprint\\functions\\NewFunction.obpf",
+        "functionPath": "functions/NewFunction.obpf",
         "functionSignature": {
           "inputs": [
             {
-              "id": "a9db30eb-ea98-4068-b2fc-d66ca3b72f26",
+              "id": "fa2343a3-8e27-4fa4-bd13-7ac0ee77faf9",
               "name": "Input1",
-              "type": "integer"
-            },
-            {
-              "id": "69293f85-5f91-4af6-a443-92a9fce04ae6",
-              "name": "Input2",
               "type": "integer"
             }
           ],
-          "outputs": [
-            {
-              "id": "02e5a2ea-5fde-4461-ac07-933369ebb49f",
-              "name": "Output1",
-              "type": "integer"
-            }
-          ]
+          "outputs": []
         }
       }
     },
     {
-      "id": "3af1ba3f67a199cc",
+      "id": "49143c0c-a30c-4a2c-a300-37d89bba444c",
       "typeId": "origin.function.return",
       "position": {
-        "x": 377.79999999999995,
-        "y": 251.83999999999997
+        "x": 120,
+        "y": 0
       },
       "values": {},
       "properties": {
-        "label": "加法计算 Return",
+        "label": "NewFunction Return",
         "functionRole": "return",
-        "functionId": "E:\\NewWork\\OriginBlueprint\\OriginBlueprint\\functions\\NewFunction.obpf",
-        "functionName": "加法计算",
+        "functionId": "functions/NewFunction.obpf",
+        "functionName": "NewFunction",
         "functionSource": "workspace",
-        "functionPath": "E:\\NewWork\\OriginBlueprint\\OriginBlueprint\\functions\\NewFunction.obpf",
+        "functionPath": "functions/NewFunction.obpf",
         "functionSignature": {
           "inputs": [
             {
-              "id": "a9db30eb-ea98-4068-b2fc-d66ca3b72f26",
+              "id": "fa2343a3-8e27-4fa4-bd13-7ac0ee77faf9",
               "name": "Input1",
-              "type": "integer"
-            },
-            {
-              "id": "69293f85-5f91-4af6-a443-92a9fce04ae6",
-              "name": "Input2",
               "type": "integer"
             }
           ],
-          "outputs": [
-            {
-              "id": "02e5a2ea-5fde-4461-ac07-933369ebb49f",
-              "name": "Output1",
-              "type": "integer"
-            }
-          ]
+          "outputs": []
         }
       }
     }
   ],
   "connections": [
     {
-      "source": "a90131405a987b64",
+      "source": "d84503c3-c4a6-45b8-a481-92cd5ee0d478",
       "sourceOutput": "exec",
-      "target": "3af1ba3f67a199cc",
+      "target": "49143c0c-a30c-4a2c-a300-37d89bba444c",
       "targetInput": "exec"
     }
   ],
@@ -97,29 +75,18 @@
     }
   ],
   "view": {
-    "x": 314.45000000000005,
-    "y": 200.66000000000003,
+    "x": 554.5,
+    "y": 411.5,
     "zoom": 1
   },
   "functionSignature": {
     "inputs": [
       {
-        "id": "a9db30eb-ea98-4068-b2fc-d66ca3b72f26",
+        "id": "fa2343a3-8e27-4fa4-bd13-7ac0ee77faf9",
         "name": "Input1",
-        "type": "integer"
-      },
-      {
-        "id": "69293f85-5f91-4af6-a443-92a9fce04ae6",
-        "name": "Input2",
         "type": "integer"
       }
     ],
-    "outputs": [
-      {
-        "id": "02e5a2ea-5fde-4461-ac07-933369ebb49f",
-        "name": "Output1",
-        "type": "integer"
-      }
-    ]
+    "outputs": []
   }
 }

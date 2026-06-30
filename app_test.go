@@ -85,9 +85,8 @@ func TestGraphContentForLegacyPathKeepsNativeWhenFunctionNodesExist(t *testing.T
 			Properties: GraphNodeProperties{
 				Label:        "CalculateDamage",
 				FunctionRole: "call",
-				FunctionID:   "functions/CalculateDamage.obpf",
+				FunctionID:   "fn_calculate",
 				FunctionName: "CalculateDamage",
-				FunctionPath: "functions/CalculateDamage.obpf",
 				FunctionSignature: GraphFunctionSignature{
 					Inputs:  []GraphFunctionSignaturePort{{ID: "target", Name: "Target", Type: "integer"}},
 					Outputs: []GraphFunctionSignaturePort{{ID: "damage", Name: "Damage", Type: "integer"}},

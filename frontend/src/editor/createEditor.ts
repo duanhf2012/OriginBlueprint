@@ -363,7 +363,6 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     node.functionId = properties?.functionId
     node.functionName = properties?.functionName
     node.functionSource = properties?.functionSource
-    node.functionPath = properties?.functionPath
     node.functionSignature = cloneFunctionSignatureFromProperties(properties?.functionSignature)
     node.legacyClass = properties?.legacyClass
     node.legacyModule = properties?.legacyModule
@@ -374,10 +373,9 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   function functionMetadataFromProperties(properties?: NodeProperties): FunctionNodeMetadata {
     return {
       functionRole: properties?.functionRole ?? 'call',
-      functionId: properties?.functionId ?? properties?.functionPath ?? properties?.functionName ?? 'function',
+      functionId: properties?.functionId ?? properties?.functionName ?? 'function',
       functionName: properties?.functionName ?? properties?.label ?? 'Function',
       functionSource: properties?.functionSource,
-      functionPath: properties?.functionPath,
       functionSignature: properties?.functionSignature
     }
   }
@@ -465,13 +463,12 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     return node.legacyOutputs ?? (shouldSnapshotLegacyPorts(node) ? legacyPortsFromNodePorts(node.outputs) : undefined)
   }
 
-  function functionPropertiesForSnapshot(node: BlueprintNode): Pick<NodeProperties, 'functionRole' | 'functionId' | 'functionName' | 'functionSource' | 'functionPath' | 'functionSignature'> {
+  function functionPropertiesForSnapshot(node: BlueprintNode): Pick<NodeProperties, 'functionRole' | 'functionId' | 'functionName' | 'functionSource' | 'functionSignature'> {
     return {
       functionRole: node.functionRole,
       functionId: node.functionId,
       functionName: node.functionName,
       functionSource: node.functionSource,
-      functionPath: node.functionPath,
       functionSignature: node.functionSignature
     }
   }
@@ -835,9 +832,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
 
   function sameFunctionReference(properties: NodeProperties | undefined, spec: FunctionNodeMetadata) {
     if (!properties) return false
-    if (spec.functionPath && properties.functionPath === spec.functionPath) return true
-    if (spec.functionId && properties.functionId === spec.functionId) return true
-    return Boolean(spec.functionName && properties.functionName === spec.functionName)
+    return Boolean(spec.functionId && properties.functionId === spec.functionId)
   }
 
   async function syncFunctionSignature(spec: FunctionNodeMetadata) {
@@ -856,7 +851,6 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
           functionId: spec.functionId,
           functionName: spec.functionName,
           functionSource: spec.functionSource,
-          functionPath: spec.functionPath,
           functionSignature: spec.functionSignature,
           label: role === 'entry'
             ? `${spec.functionName} Entry`

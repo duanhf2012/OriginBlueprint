@@ -34,7 +34,6 @@ export class BlueprintNode extends ClassicPreset.Node {
   functionId?: string
   functionName?: string
   functionSource?: FunctionNodeMetadata['functionSource']
-  functionPath?: string
   functionSignature?: FunctionNodeMetadata['functionSignature']
   referenceHighlighted?: boolean
   issueHighlighted?: boolean
