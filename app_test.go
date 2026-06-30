@@ -74,6 +74,47 @@ func TestGraphContentForLegacyPathExportsVGF(t *testing.T) {
 	}
 }
 
+func TestGraphContentForLegacyPathKeepsNativeWhenFunctionNodesExist(t *testing.T) {
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		GraphName:     "Function Calls",
+		Nodes: []GraphNode{{
+			ID:       "call",
+			TypeID:   "origin.function.call",
+			Position: GraphPosition{X: 12, Y: 34},
+			Properties: GraphNodeProperties{
+				Label:        "CalculateDamage",
+				FunctionRole: "call",
+				FunctionID:   "functions/CalculateDamage.obpf",
+				FunctionName: "CalculateDamage",
+				FunctionPath: "functions/CalculateDamage.obpf",
+				FunctionSignature: GraphFunctionSignature{
+					Inputs:  []GraphFunctionSignaturePort{{ID: "target", Name: "Target", Type: "integer"}},
+					Outputs: []GraphFunctionSignaturePort{{ID: "damage", Name: "Damage", Type: "integer"}},
+				},
+			},
+		}},
+	}
+	content, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := graphContentForPath("choiceskill_dead.vgf", string(content))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved GraphDocument
+	if err := json.Unmarshal(data, &saved); err != nil {
+		t.Fatal(err)
+	}
+	if saved.SchemaVersion != GraphSchemaVersion || len(saved.Nodes) != 1 || saved.Nodes[0].TypeID != "origin.function.call" {
+		t.Fatalf("function node was not preserved in native graph JSON: %s", data)
+	}
+	if !strings.Contains(string(data), "functionSignature") {
+		t.Fatalf("function metadata was not preserved: %s", data)
+	}
+}
+
 func TestGraphContentForObpPathExportsLegacyVGFForExternalParser(t *testing.T) {
 	document := GraphDocument{
 		SchemaVersion: GraphSchemaVersion,

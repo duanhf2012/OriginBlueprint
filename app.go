@@ -119,10 +119,25 @@ func graphContentForPath(path, content string) ([]byte, error) {
 	if exportsLegacyGraph(filepath.Ext(path)) {
 		var document GraphDocument
 		if err := json.Unmarshal([]byte(content), &document); err == nil && document.SchemaVersion == GraphSchemaVersion {
+			if graphDocumentRequiresNativePersistence(document) {
+				return []byte(content), nil
+			}
 			return exportLegacyGraph(document)
 		}
 	}
 	return []byte(content), nil
+}
+
+func graphDocumentRequiresNativePersistence(document GraphDocument) bool {
+	if len(document.FunctionSignature.Inputs) > 0 || len(document.FunctionSignature.Outputs) > 0 {
+		return true
+	}
+	for _, node := range document.Nodes {
+		if strings.HasPrefix(node.TypeID, "origin.function.") {
+			return true
+		}
+	}
+	return false
 }
 
 func exportsLegacyGraph(ext string) bool {

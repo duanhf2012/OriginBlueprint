@@ -127,6 +127,7 @@ interface Callbacks {
   onStatus(value: string): void
   onMetrics(metrics: EditorMetrics): void
   onDirty(): void
+  onFunctionSignature(value: FunctionSignature): void
   onVariables(variables: GraphVariable[]): void
   onVariableGroups(groups: GraphVariableGroup[]): void
   onSelection(node: SelectedNodeInfo | null): void
@@ -343,6 +344,20 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     return inputs.length || outputs.length ? { inputs, outputs } : undefined
   }
 
+  function emitFunctionSignatureFromSnapshot(data: GraphSnapshot) {
+    for (const node of data.nodes) {
+      if (node.typeId !== 'origin.function.entry' && node.typeId !== 'origin.function.return') continue
+      const signature = node.properties?.functionSignature
+      const inputs = signature?.inputs
+      const outputs = signature?.outputs
+      callbacks.onFunctionSignature({
+        inputs: Array.isArray(inputs) ? inputs.map(port => ({ ...port })) : [],
+        outputs: Array.isArray(outputs) ? outputs.map(port => ({ ...port })) : []
+      })
+      return
+    }
+  }
+
   function applyNodeProperties(node: BlueprintNode, properties?: NodeProperties) {
     node.functionRole = properties?.functionRole
     node.functionId = properties?.functionId
@@ -388,6 +403,41 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     if (hasNodeDefinition(typeId)) return createNode(typeId)
     if (item.properties?.legacyClass) return createLegacyNode(item.properties)
     return null
+  }
+
+  function functionPortKey(prefix: 'input' | 'output', port: NonNullable<FunctionSignature['inputs']>[number], index: number) {
+    const key = String(port.id || port.name || `${index + 1}`).trim().replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-+|-+$/g, '')
+    return `${prefix}_${key || index + 1}`
+  }
+
+  function functionNodePortsFromSnapshot(node: NodeSnapshot) {
+    const signature = cloneFunctionSignatureFromProperties(node.properties?.functionSignature) ?? { inputs: [], outputs: [] }
+    const inputs = new Set<string>()
+    const outputs = new Set<string>()
+    if (node.typeId === 'origin.function.entry') {
+      outputs.add('exec')
+      signature.inputs.forEach((port, index) => outputs.add(functionPortKey('input', port, index)))
+    } else if (node.typeId === 'origin.function.return') {
+      inputs.add('exec')
+      signature.outputs.forEach((port, index) => inputs.add(functionPortKey('output', port, index)))
+    } else if (node.typeId === 'origin.function.call') {
+      inputs.add('exec')
+      outputs.add('exec')
+      signature.inputs.forEach((port, index) => inputs.add(functionPortKey('input', port, index)))
+      signature.outputs.forEach((port, index) => outputs.add(functionPortKey('output', port, index)))
+    }
+    return { inputs, outputs }
+  }
+
+  function pruneFunctionSignatureConnections(data: GraphSnapshot, changedNodeIds: Set<string>) {
+    const portsByNode = new Map(data.nodes.filter(node => changedNodeIds.has(node.id)).map(node => [node.id, functionNodePortsFromSnapshot(node)]))
+    return data.connections.filter(connection => {
+      const sourcePorts = portsByNode.get(connection.source)
+      if (sourcePorts && !sourcePorts.outputs.has(connection.sourceOutput)) return false
+      const targetPorts = portsByNode.get(connection.target)
+      if (targetPorts && !targetPorts.inputs.has(connection.targetInput)) return false
+      return true
+    })
   }
 
   function legacyPortType(port?: SnapshotPort) {
@@ -553,6 +603,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     renderGroups()
     updateMetrics()
     callbacks.onSelection(null)
+    emitFunctionSignatureFromSnapshot(data)
   }
 
   async function mutate(label: string, operation: () => Promise<void>) {
@@ -792,6 +843,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   async function syncFunctionSignature(spec: FunctionNodeMetadata) {
     await mutate('Function signature synchronized', async () => {
       const data = snapshot()
+      const changedNodeIds = new Set<string>()
       let changed = false
       for (const node of data.nodes) {
         if (!node.typeId.startsWith('origin.function.')) continue
@@ -812,8 +864,10 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
               ? `${spec.functionName} Return`
               : node.properties?.label
         }
+        changedNodeIds.add(node.id)
         changed = true
       }
+      data.connections = pruneFunctionSignatureConnections(data, changedNodeIds)
       if (changed) await restore(data)
     })
   }

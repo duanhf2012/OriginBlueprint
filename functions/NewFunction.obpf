@@ -1,22 +1,22 @@
 {
   "schemaVersion": 1,
-  "graphName": "NewFunction.obpf",
+  "graphName": "加法计算",
   "nodes": [
     {
       "id": "a90131405a987b64",
       "typeId": "origin.function.entry",
       "position": {
-        "x": 130.29999999999995,
-        "y": 271.84
+        "x": -97.70000000000005,
+        "y": 169.83999999999997
       },
       "values": {},
       "properties": {
-        "label": "NewFunction Entry",
+        "label": "加法计算 Entry",
         "functionRole": "entry",
-        "functionId": "E:\\Develop\\OriginNodeEditor\\OriginBlueprint\\functions\\NewFunction.obpf",
-        "functionName": "NewFunction",
+        "functionId": "E:\\NewWork\\OriginBlueprint\\OriginBlueprint\\functions\\NewFunction.obpf",
+        "functionName": "加法计算",
         "functionSource": "workspace",
-        "functionPath": "E:\\Develop\\OriginNodeEditor\\OriginBlueprint\\functions\\NewFunction.obpf",
+        "functionPath": "E:\\NewWork\\OriginBlueprint\\OriginBlueprint\\functions\\NewFunction.obpf",
         "functionSignature": {
           "inputs": [
             {
@@ -32,13 +32,8 @@
           ],
           "outputs": [
             {
-              "id": "1e0251b3-58b6-4f4d-a657-ae012e791460",
+              "id": "02e5a2ea-5fde-4461-ac07-933369ebb49f",
               "name": "Output1",
-              "type": "integer"
-            },
-            {
-              "id": "18541ab6-03bc-41fc-a4e8-3eaa7db7a1d3",
-              "name": "Output2",
               "type": "integer"
             }
           ]
@@ -49,17 +44,17 @@
       "id": "3af1ba3f67a199cc",
       "typeId": "origin.function.return",
       "position": {
-        "x": 492.79999999999995,
-        "y": 283.84
+        "x": 377.79999999999995,
+        "y": 251.83999999999997
       },
       "values": {},
       "properties": {
-        "label": "NewFunction Return",
+        "label": "加法计算 Return",
         "functionRole": "return",
-        "functionId": "E:\\Develop\\OriginNodeEditor\\OriginBlueprint\\functions\\NewFunction.obpf",
-        "functionName": "NewFunction",
+        "functionId": "E:\\NewWork\\OriginBlueprint\\OriginBlueprint\\functions\\NewFunction.obpf",
+        "functionName": "加法计算",
         "functionSource": "workspace",
-        "functionPath": "E:\\Develop\\OriginNodeEditor\\OriginBlueprint\\functions\\NewFunction.obpf",
+        "functionPath": "E:\\NewWork\\OriginBlueprint\\OriginBlueprint\\functions\\NewFunction.obpf",
         "functionSignature": {
           "inputs": [
             {
@@ -75,13 +70,8 @@
           ],
           "outputs": [
             {
-              "id": "1e0251b3-58b6-4f4d-a657-ae012e791460",
+              "id": "02e5a2ea-5fde-4461-ac07-933369ebb49f",
               "name": "Output1",
-              "type": "integer"
-            },
-            {
-              "id": "18541ab6-03bc-41fc-a4e8-3eaa7db7a1d3",
-              "name": "Output2",
               "type": "integer"
             }
           ]
@@ -95,12 +85,6 @@
       "sourceOutput": "exec",
       "target": "3af1ba3f67a199cc",
       "targetInput": "exec"
-    },
-    {
-      "source": "a90131405a987b64",
-      "sourceOutput": "input_a9db30eb-ea98-4068-b2fc-d66ca3b72f26",
-      "target": "3af1ba3f67a199cc",
-      "targetInput": "output_1e0251b3-58b6-4f4d-a657-ae012e791460"
     }
   ],
   "groups": [],
@@ -113,8 +97,8 @@
     }
   ],
   "view": {
-    "x": -12.549999999999955,
-    "y": -10.839999999999975,
+    "x": 314.45000000000005,
+    "y": 200.66000000000003,
     "zoom": 1
   },
   "functionSignature": {
@@ -132,13 +116,8 @@
     ],
     "outputs": [
       {
-        "id": "1e0251b3-58b6-4f4d-a657-ae012e791460",
+        "id": "02e5a2ea-5fde-4461-ac07-933369ebb49f",
         "name": "Output1",
-        "type": "integer"
-      },
-      {
-        "id": "18541ab6-03bc-41fc-a4e8-3eaa7db7a1d3",
-        "name": "Output2",
         "type": "integer"
       }
     ]

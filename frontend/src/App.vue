@@ -13,7 +13,7 @@ interface VisibleWorkspaceNode { node: WorkspaceTreeNode; depth: number }
 type UnsavedCloseAction = 'save' | 'discard' | 'cancel'
 interface ModuleNodeMenuState { visible: boolean; x: number; y: number; node: NodeDefinition | null }
 interface NodeReferenceSearchState { visible: boolean; loading: boolean; nodeTitle: string; typeId: string; results: NodeReferenceResult[] }
-interface FileContextMenuState { visible: boolean; x: number; y: number; path: string }
+interface FileContextMenuState { visible: boolean; x: number; y: number; path: string; isDir: boolean; isFunction: boolean }
 interface BlueprintFunction { id: string; name: string; readonly?: boolean }
 interface FunctionLibraryItem { id: string; name: string; path: string; source: 'current' | 'workspace' }
 interface ModuleLibraryItem extends NodeDefinition { functionPlaceholder?: boolean; functionSource?: FunctionLibraryItem['source']; functionItem?: FunctionLibraryItem; path?: string }
@@ -27,7 +27,7 @@ const activeMenu = ref<string | null>(null)
 const contextMenu = ref({ visible: false, x: 0, y: 0, clientX: 0, clientY: 0, search: '' })
 const moduleNodeMenu = ref<ModuleNodeMenuState>({ visible: false, x: 0, y: 0, node: null })
 const nodeReferenceSearch = ref<NodeReferenceSearchState>({ visible: false, loading: false, nodeTitle: '', typeId: '', results: [] })
-const fileContextMenu = ref<FileContextMenuState>({ visible: false, x: 0, y: 0, path: '' })
+const fileContextMenu = ref<FileContextMenuState>({ visible: false, x: 0, y: 0, path: '', isDir: false, isFunction: false })
 const testPanelHeight = ref(savedPanelSize('origin-blueprint-test-panel-height', 155, 96, 360))
 const testPanelCollapsed = ref(false)
 const referencePanelHeight = ref(savedReferencePanelHeight())
@@ -41,10 +41,10 @@ const workspaceTree = ref<WorkspaceTreeNode[]>([])
 const workspaceSearch = ref('')
 const expandedWorkspacePaths = ref<Set<string>>(new Set())
 const selectedWorkspacePath = ref('')
+const functionTitleByPath = ref<Record<string, string>>({})
 const fileBrowserWidth = ref(savedPanelWidth('origin-blueprint-file-browser-width', 210))
 const leftToolsWidth = ref(savedPanelWidth('origin-blueprint-left-tools-width', 210, 160, 520))
 const rightSidebarWidth = ref(savedPanelWidth('origin-blueprint-right-sidebar-width', 230, 160, 460))
-const functionPanelHeight = ref(savedPanelSize('origin-blueprint-function-panel-height', 190, 150, 360))
 const variablePanelHeight = ref(savedPanelSize('origin-blueprint-variable-panel-height', 300, 130, 520))
 const showTools = ref(true)
 const showRight = ref(true)
@@ -56,8 +56,16 @@ const expandedModuleCategories = ref<Set<string>>(new Set())
 const variables = ref<GraphVariable[]>([])
 const variableGroups = ref<GraphVariableGroup[]>([{ id: 'default', name: 'Default' }])
 const functionSignature = ref<FunctionSignature>(emptyFunctionSignature())
-const blueprintFunctions = ref<BlueprintFunction[]>([{ id: 'default', name: 'Default', readonly: true }])
-const selectedFunctionId = ref('default')
+const functionTitle = ref('')
+const functionSignatureTypeOptions: Array<{ value: VariableType; label: string }> = [
+  { value: 'boolean', label: 'Boolean' },
+  { value: 'integer', label: 'Integer' },
+  { value: 'float', label: 'Float' },
+  { value: 'string', label: 'String' },
+  { value: 'array', label: 'Array' }
+]
+const blueprintFunctions = ref<BlueprintFunction[]>([])
+const selectedFunctionId = ref('')
 const selectedVariableId = ref<string | null>(null)
 const selectedNode = ref<SelectedNodeInfo | null>(null)
 const validationIssues = ref<ValidationIssue[]>([])
@@ -73,6 +81,7 @@ let nodePointerDrag: { item: ModuleLibraryItem; startX: number; startY: number; 
 let removeNodePointerListeners = () => {}
 let workspaceLoadToken = 0
 let validationIssueClickTimer: ReturnType<typeof window.setTimeout> | undefined
+const loadingFunctionTitles = new Set<string>()
 
 const activeTab = computed(() => tabs.value.find(tab => tab.id === activeTabId.value)!)
 const selectedVariable = computed(() => variables.value.find(variable => variable.id === selectedVariableId.value) ?? null)
@@ -123,7 +132,6 @@ const workspaceStyle = computed(() => ({
 }))
 const referencePanelStyle = computed(() => ({ height: `${referencePanelCollapsed.value ? 34 : referencePanelHeight.value}px` }))
 const testPanelStyle = computed(() => ({ height: `${testPanelCollapsed.value ? 34 : testPanelHeight.value}px` }))
-const functionPanelStyle = computed(() => ({ flex: `0 0 ${functionPanelHeight.value}px` }))
 const variablePanelStyle = computed(() => ({ flex: `0 0 ${variablePanelHeight.value}px` }))
 const visibleWorkspaceNodes = computed(() => {
   const search = workspaceSearch.value.trim().toLowerCase()
@@ -138,6 +146,9 @@ onMounted(async () => {
     onStatus(value) { status.value = value },
     onMetrics(value) { metrics.value = value },
     onDirty() { if (activeTab.value) activeTab.value.dirty = true },
+    onFunctionSignature(value) {
+      if (isFunctionBlueprintTab.value) functionSignature.value = normalizeFunctionSignature(value)
+    },
     onVariables(value) { variables.value = value },
     onVariableGroups(value) { variableGroups.value = value.length ? value : [{ id: 'default', name: 'Default' }] },
     onSelection(value) {
@@ -260,7 +271,7 @@ function persistActive() { if (editor && activeTab.value) activeTab.value.docume
 async function newGraph() {
   persistActive(); untitledCount++
   const tab: GraphTab = { id: crypto.randomUUID(), title: `Untitled-${untitledCount} Graph`, path: '', dirty: false, document: null }
-  tabs.value.push(tab); activeTabId.value = tab.id; selectedVariableId.value = null; functionSignature.value = emptyFunctionSignature(); await editor?.newDocument()
+  tabs.value.push(tab); activeTabId.value = tab.id; selectedVariableId.value = null; functionSignature.value = emptyFunctionSignature(); functionTitle.value = ''; await editor?.newDocument()
 }
 
 async function switchTab(id: string) {
@@ -269,6 +280,7 @@ async function switchTab(id: string) {
   const tab = activeTab.value
   if (tab.document) await editor?.loadDocument(tab.document); else await editor?.newDocument()
   functionSignature.value = normalizeFunctionSignature(tab.document?.functionSignature)
+  functionTitle.value = isFunctionBlueprintPath(tab.path || tab.title) ? functionTitleFromDocument(tab.document, tab.path || tab.title, tab.title) : ''
   nextTick(() => scrollActiveTabIntoView())
 }
 
@@ -279,7 +291,13 @@ async function closeTab(id: string, event: MouseEvent) {
   const wasActive = id === activeTabId.value
   tabs.value = tabs.value.filter(item => item.id !== id)
   if (!tabs.value.length) { await newGraph(); return }
-  if (wasActive) { activeTabId.value = tabs.value[0].id; selectedVariableId.value = null; functionSignature.value = normalizeFunctionSignature(tabs.value[0].document?.functionSignature); await editor?.loadDocument(tabs.value[0].document ?? blankDocument(tabs.value[0].title)) }
+  if (wasActive) {
+    activeTabId.value = tabs.value[0].id
+    selectedVariableId.value = null
+    functionSignature.value = normalizeFunctionSignature(tabs.value[0].document?.functionSignature)
+    functionTitle.value = isFunctionBlueprintPath(tabs.value[0].path || tabs.value[0].title) ? functionTitleFromDocument(tabs.value[0].document, tabs.value[0].path || tabs.value[0].title, tabs.value[0].title) : ''
+    await editor?.loadDocument(tabs.value[0].document ?? blankDocument(tabs.value[0].title))
+  }
 }
 
 // --- Tab strip scroll helpers ---
@@ -343,7 +361,7 @@ function blankDocument(name: string): GraphDocument {
   return { schemaVersion: 1, graphName: name, nodes: [], connections: [], groups: [], variables: [], variableGroups: [{ id: 'default', name: 'Default' }], view: { x: 0, y: 0, zoom: 1 } }
 }
 
-function functionTerminalNodes(name: string, signature = emptyFunctionSignature()) {
+function functionTerminalNodes(name: string, signature = emptyFunctionSignature(), functionPath = workspaceFunctionPath(name)) {
   const entryId = crypto.randomUUID()
   const returnId = crypto.randomUUID()
   const metadata = (role: FunctionNodeMetadata['functionRole']) => ({
@@ -351,7 +369,7 @@ function functionTerminalNodes(name: string, signature = emptyFunctionSignature(
     functionId: name,
     functionName: name,
     functionSource: 'workspace' as const,
-    functionPath: workspaceFunctionPath(name),
+    functionPath,
     functionSignature: normalizeFunctionSignature(signature)
   })
   const entry: NodeSnapshot = {
@@ -393,14 +411,196 @@ function normalizeFunctionSignaturePorts(value: unknown) {
     return {
       id: String(item.id ?? crypto.randomUUID()),
       name: String(item.name ?? `Param${index + 1}`).trim() || `Param${index + 1}`,
-      type: normalizeVariableType(item.type)
+      type: normalizeFunctionSignaturePortType(item.type)
     }
   })
 }
 
+function normalizeFunctionSignaturePortType(value: unknown): VariableType {
+  const type = normalizeVariableType(value)
+  return functionSignatureTypeOptions.some(option => option.value === type) ? type : 'string'
+}
+
+function functionTitleFromDocument(document: GraphDocument | null | undefined, path: string, fallback = 'Function') {
+  const title = String(document?.graphName ?? '').trim()
+  return title || functionNameFromPath(path, fallback)
+}
+
+function activeFunctionTitle() {
+  return functionTitle.value.trim() || functionNameFromPath(activeTab.value.path || activeTab.value.title, activeTab.value.title)
+}
+
 function documentWithFunctionSignature(document: GraphDocument, tab = activeTab.value) {
-  if (isFunctionBlueprintPath(tab.path || tab.title)) document.functionSignature = normalizeFunctionSignature(functionSignature.value)
+  if (isFunctionBlueprintPath(tab.path || tab.title)) {
+    document.graphName = activeFunctionTitle()
+    document.functionSignature = normalizeFunctionSignature(functionSignature.value)
+  }
   return document
+}
+
+function hasFunctionNodes(document: GraphDocument) {
+  return (document.nodes ?? []).some(node => String(node.typeId ?? '').startsWith('origin.function.'))
+}
+
+function documentRequiresNativePersistence(document: GraphDocument) {
+  const signature = normalizeFunctionSignature(document.functionSignature)
+  return hasFunctionNodes(document) || signature.inputs.length > 0 || signature.outputs.length > 0
+}
+
+function functionPortKey(prefix: 'input' | 'output', port: FunctionSignaturePort, index: number) {
+  const key = String(port.id || port.name || `${index + 1}`).trim().replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-+|-+$/g, '')
+  return `${prefix}_${key || index + 1}`
+}
+
+function functionNodePorts(node: NodeSnapshot) {
+  const signature = normalizeFunctionSignature(node.properties?.functionSignature)
+  const inputs = new Set<string>()
+  const outputs = new Set<string>()
+  if (node.typeId === 'origin.function.entry') {
+    outputs.add('exec')
+    signature.inputs.forEach((port, index) => outputs.add(functionPortKey('input', port, index)))
+  } else if (node.typeId === 'origin.function.return') {
+    inputs.add('exec')
+    signature.outputs.forEach((port, index) => inputs.add(functionPortKey('output', port, index)))
+  } else if (node.typeId === 'origin.function.call') {
+    inputs.add('exec')
+    outputs.add('exec')
+    signature.inputs.forEach((port, index) => inputs.add(functionPortKey('input', port, index)))
+    signature.outputs.forEach((port, index) => outputs.add(functionPortKey('output', port, index)))
+  }
+  return { inputs, outputs }
+}
+
+function sameFunctionReference(properties: NodeSnapshot['properties'] | undefined, metadata: FunctionNodeMetadata) {
+  if (!properties) return false
+  if (metadata.functionPath && properties.functionPath === metadata.functionPath) return true
+  if (metadata.functionId && properties.functionId === metadata.functionId) return true
+  return Boolean(metadata.functionName && properties.functionName === metadata.functionName)
+}
+
+function syncDocumentFunctionReferences(document: GraphDocument, metadata: FunctionNodeMetadata) {
+  const signature = normalizeFunctionSignature(metadata.functionSignature)
+  const updatedPorts = new Map<string, ReturnType<typeof functionNodePorts>>()
+  for (const node of document.nodes ?? []) {
+    if (node.typeId !== 'origin.function.call' || !sameFunctionReference(node.properties, metadata)) continue
+    node.properties = {
+      ...node.properties,
+      label: metadata.functionName,
+      functionRole: 'call',
+      functionId: metadata.functionId,
+      functionName: metadata.functionName,
+      functionSource: metadata.functionSource,
+      functionPath: metadata.functionPath,
+      functionSignature: signature
+    }
+    updatedPorts.set(node.id, functionNodePorts(node))
+  }
+  if (!updatedPorts.size) return false
+  document.connections = (document.connections ?? []).filter(connection => {
+    const sourcePorts = updatedPorts.get(connection.source)
+    if (sourcePorts && !sourcePorts.outputs.has(connection.sourceOutput)) return false
+    const targetPorts = updatedPorts.get(connection.target)
+    if (targetPorts && !targetPorts.inputs.has(connection.targetInput)) return false
+    return true
+  })
+  return true
+}
+
+function syncFunctionTerminalsFromDocumentSignature(document: GraphDocument, path: string) {
+  const signature = normalizeFunctionSignature(document.functionSignature)
+  const functionName = functionNameFromPath(path, document.graphName)
+  const changedPorts = new Map<string, ReturnType<typeof functionNodePorts>>()
+  for (const node of document.nodes ?? []) {
+    if (node.typeId !== 'origin.function.entry' && node.typeId !== 'origin.function.return') continue
+    const role = node.typeId === 'origin.function.entry' ? 'entry' : 'return'
+    node.properties = {
+      ...node.properties,
+      label: role === 'entry' ? `${functionName} Entry` : `${functionName} Return`,
+      functionRole: role,
+      functionId: path || document.graphName,
+      functionName,
+      functionSource: 'workspace',
+      functionPath: path,
+      functionSignature: signature
+    }
+    changedPorts.set(node.id, functionNodePorts(node))
+  }
+  if (!changedPorts.size) return false
+  document.connections = (document.connections ?? []).filter(connection => {
+    const sourcePorts = changedPorts.get(connection.source)
+    if (sourcePorts && !sourcePorts.outputs.has(connection.sourceOutput)) return false
+    const targetPorts = changedPorts.get(connection.target)
+    if (targetPorts && !targetPorts.inputs.has(connection.targetInput)) return false
+    return true
+  })
+  return true
+}
+
+async function loadFunctionSignatureForPath(path: string) {
+  const opened = tabs.value.find(tab => tab.path === path)
+  if (opened?.document) return normalizeFunctionSignature(opened.document.functionSignature)
+  try {
+    const file = await platform.openGraph(path)
+    if (!file) return emptyFunctionSignature()
+    const parsed = JSON.parse(file.content) as Partial<GraphDocument>
+    return normalizeFunctionSignature(parsed.functionSignature)
+  } catch (error) {
+    status.value = `读取函数签名失败: ${error instanceof Error ? error.message : String(error)}`
+    return emptyFunctionSignature()
+  }
+}
+
+function functionNameFromPath(path: string, fallback = 'Function') {
+  const name = (path || fallback).split(/[\\/]/).pop()?.replace(/\.(obpf|obp|vgf)$/i, '')
+  return name?.trim() || fallback
+}
+
+async function refreshDocumentFunctionReferencesOnOpen(document: GraphDocument, path: string) {
+  let changed = false
+  if (isFunctionBlueprintPath(path || document.graphName)) {
+    changed = syncFunctionTerminalsFromDocumentSignature(document, path) || changed
+  }
+
+  const functionCalls = new Map<string, string>()
+  for (const node of document.nodes ?? []) {
+    if (node.typeId !== 'origin.function.call' || !node.properties?.functionPath) continue
+    if (node.properties.functionPath === path) continue
+    functionCalls.set(node.properties.functionPath, node.properties.functionName || node.properties.label || 'Function')
+  }
+  for (const [functionPath, fallbackName] of functionCalls) {
+    const signature = await loadFunctionSignatureForPath(functionPath)
+    const metadata: FunctionNodeMetadata = {
+      functionRole: 'call',
+      functionId: functionPath,
+      functionName: functionNameFromPath(functionPath, fallbackName),
+      functionSource: 'workspace',
+      functionPath,
+      functionSignature: signature
+    }
+    changed = syncDocumentFunctionReferences(document, metadata) || changed
+  }
+  return changed
+}
+
+async function syncOpenFunctionReferences(metadata: FunctionNodeMetadata) {
+  const normalizedMetadata: FunctionNodeMetadata = {
+    ...metadata,
+    functionRole: 'call',
+    functionSignature: normalizeFunctionSignature(metadata.functionSignature)
+  }
+  for (const tab of tabs.value) {
+    if (tab.id === activeTabId.value) {
+      if (isFunctionBlueprintPath(tab.path || tab.title) || !editor) continue
+      const activeDocument = editor.getDocument(tab.title, variables.value, variableGroups.value)
+      if (!syncDocumentFunctionReferences(activeDocument, normalizedMetadata)) continue
+      await editor?.syncFunctionSignature(normalizedMetadata)
+      tab.document = editor.getDocument(tab.title, variables.value, variableGroups.value)
+      tab.dirty = true
+      continue
+    }
+    if (!tab.document) continue
+    if (syncDocumentFunctionReferences(tab.document, normalizedMetadata)) tab.dirty = true
+  }
 }
 
 function defaultVariableValue(type: VariableType) {
@@ -467,24 +667,6 @@ function selectBlueprintFunction(item: BlueprintFunction) {
   status.value = `Selected function ${item.name}`
 }
 
-function selectWorkspaceFunction(item: FunctionLibraryItem) {
-  selectedFunctionId.value = ''
-  selectedVariableId.value = null
-  status.value = `${menuText.value.module.workspaceFunctionLibrary}: ${item.name}`
-}
-
-async function openWorkspaceFunction(item: FunctionLibraryItem) {
-  await openGraph(item.path)
-}
-
-async function revealWorkspaceFunction(item: FunctionLibraryItem) {
-  try {
-    await platform.revealInFolder(item.path)
-  } catch (error) {
-    status.value = error instanceof Error ? error.message : String(error)
-  }
-}
-
 function sanitizeFunctionFileName(value: string) {
   return value.trim().replace(/\.(obpf|obp|vgf)$/i, '').replace(/[<>:"/\\|?*\x00-\x1f]+/g, '_').replace(/\s+/g, '_').replace(/^_+|_+$/g, '') || 'NewFunction'
 }
@@ -495,24 +677,41 @@ function workspaceFunctionPath(name: string) {
   return `${root}${separator}functions${separator}${sanitizeFunctionFileName(name)}.obpf`
 }
 
-async function createWorkspaceFunction() {
+function joinWorkspacePath(directory: string, fileName: string) {
+  const base = (directory || workspaceRoot.value).replace(/[\\/]+$/, '')
+  const separator = base.includes('\\') ? '\\' : '/'
+  return `${base}${separator}${fileName}`
+}
+
+async function refreshWorkspaceAfterFileCreate(savedPath: string) {
+  if (workspaceRoot.value) await loadWorkspace(workspaceRoot.value)
+  await openGraph(savedPath)
+}
+
+async function createBlueprintAtDirectory(directory: string) {
+  const rawName = window.prompt('蓝图名称', 'NewBlueprint')
+  if (!rawName) return
+  const graphName = sanitizeFunctionFileName(rawName)
+  const path = joinWorkspacePath(directory, `${graphName}.vgf`)
+  const saved = await platform.saveGraph(path, JSON.stringify(blankDocument(graphName), null, 2))
+  if (!saved) return
+  await refreshWorkspaceAfterFileCreate(saved)
+  status.value = `Created blueprint ${graphName}`
+}
+
+async function createFunctionAtDirectory(directory: string) {
   const rawName = window.prompt('工程函数名称', 'NewFunction')
   if (!rawName) return
-  if (!workspaceRoot.value) {
-    status.value = '请先选择工程目录'
-    return
-  }
   const graphName = sanitizeFunctionFileName(rawName)
-  const path = workspaceFunctionPath(graphName)
+  const path = joinWorkspacePath(directory, `${graphName}.obpf`)
   const document = blankDocument(graphName)
   document.functionSignature = emptyFunctionSignature()
-  const terminals = functionTerminalNodes(graphName, document.functionSignature)
+  const terminals = functionTerminalNodes(graphName, document.functionSignature, path)
   document.nodes = terminals.nodes
   document.connections = terminals.connections
   const saved = await platform.saveGraph(path, JSON.stringify(document, null, 2))
   if (!saved) return
-  await loadWorkspace(workspaceRoot.value)
-  await openGraph(saved)
+  await refreshWorkspaceAfterFileCreate(saved)
   status.value = `Created function ${graphName}`
 }
 
@@ -625,8 +824,16 @@ function touchFunctionSignature() {
   if (isFunctionBlueprintTab.value) activeTab.value.dirty = true
 }
 
+async function syncFunctionTitleToGraph() {
+  if (!isFunctionBlueprintTab.value) return
+  functionTitle.value = activeFunctionTitle()
+  if (activeTab.value.document) activeTab.value.document.graphName = functionTitle.value
+  if (activeTab.value.path) functionTitleByPath.value = { ...functionTitleByPath.value, [activeTab.value.path]: functionTitle.value }
+  await syncFunctionSignatureToGraph()
+}
+
 function activeFunctionMetadata(role: FunctionNodeMetadata['functionRole']): FunctionNodeMetadata {
-  const functionName = activeTab.value.title.replace(/\.(obpf|obp|vgf)$/i, '')
+  const functionName = activeFunctionTitle()
   return {
     functionRole: role,
     functionId: activeTab.value.path || activeTab.value.title,
@@ -641,6 +848,7 @@ async function syncFunctionSignatureToGraph() {
   touchFunctionSignature()
   if (!isFunctionBlueprintTab.value) return
   await editor?.syncFunctionSignature(activeFunctionMetadata('entry'))
+  await syncOpenFunctionReferences(activeFunctionMetadata('call'))
 }
 
 function addFunctionSignaturePort(direction: 'inputs' | 'outputs') {
@@ -794,6 +1002,7 @@ async function openGraph(path = '', highlightTypeId = '') {
     try { document = normalizeDocument(JSON.parse(await platform.migrateLegacyGraph(file.content))) }
     catch (error) { status.value = error instanceof Error ? error.message : 'Legacy graph migration failed'; return }
   } else { status.value = 'Legacy graph migration requires the desktop runtime'; return }
+  await refreshDocumentFunctionReferencesOnOpen(document, file.path)
   persistActive()
   const existing = tabs.value.find(tab => tab.path === file.path)
   if (existing) {
@@ -803,6 +1012,8 @@ async function openGraph(path = '', highlightTypeId = '') {
     activeTabId.value = existing.id
     selectedVariableId.value = null
     functionSignature.value = normalizeFunctionSignature(document.functionSignature)
+    functionTitle.value = isFunctionBlueprintPath(file.path) ? functionTitleFromDocument(document, file.path, existing.title) : ''
+    if (isFunctionBlueprintPath(file.path)) functionTitleByPath.value = { ...functionTitleByPath.value, [file.path]: functionTitle.value }
     await editor?.loadDocument(document)
     if (highlightTypeId) {
       const count = await editor?.highlightNodesByType(highlightTypeId) ?? 0
@@ -812,7 +1023,13 @@ async function openGraph(path = '', highlightTypeId = '') {
   }
   const title = file.path.split(/[\\/]/).pop() ?? document.graphName
   const tab: GraphTab = { id: crypto.randomUUID(), title, path: file.path, dirty: false, document }
-  tabs.value.push(tab); activeTabId.value = tab.id; selectedVariableId.value = null; functionSignature.value = normalizeFunctionSignature(document.functionSignature); await editor?.loadDocument(document)
+  tabs.value.push(tab)
+  activeTabId.value = tab.id
+  selectedVariableId.value = null
+  functionSignature.value = normalizeFunctionSignature(document.functionSignature)
+  functionTitle.value = isFunctionBlueprintPath(file.path) ? functionTitleFromDocument(document, file.path, title) : ''
+  if (isFunctionBlueprintPath(file.path)) functionTitleByPath.value = { ...functionTitleByPath.value, [file.path]: functionTitle.value }
+  await editor?.loadDocument(document)
   if (document.legacy?.format === 'vgf') {
     const hiddenCount = document.legacy.hiddenNodes?.length ?? 0
     status.value = `Loaded ${document.nodes.length} visible node(s), ${hiddenCount} hidden undefined node(s)`
@@ -828,11 +1045,16 @@ async function saveGraph(saveAs: boolean) {
   if (!editor) return
   const tab = activeTab.value
   const document = documentWithFunctionSignature(editor.getDocument(tab.title, variables.value, variableGroups.value), tab)
-  const shouldSaveLegacy = !saveAs && isLegacyGraphPath(tab.path)
+  const shouldSaveLegacy = !saveAs && isLegacyGraphPath(tab.path) && !documentRequiresNativePersistence(document)
   const content = shouldSaveLegacy ? await platform.exportLegacyGraph(JSON.stringify(document)) : JSON.stringify(document, null, 2)
   const path = await platform.saveGraph(saveAs ? '' : tab.path, content)
   if (!path) return
   tab.path = path; tab.title = path.split(/[\\/]/).pop() ?? tab.title; tab.document = document; tab.dirty = false
+  if (isFunctionBlueprintPath(path)) {
+    functionTitle.value = activeFunctionTitle()
+    functionTitleByPath.value = { ...functionTitleByPath.value, [path]: functionTitle.value }
+    await syncOpenFunctionReferences(activeFunctionMetadata('call'))
+  }
   recentFiles.value = await platform.recentFiles(); status.value = `Saved ${tab.title}`
 }
 
@@ -936,6 +1158,10 @@ watch(workspaceSearch, value => {
   if (value.trim()) void hydrateWorkspaceTree(workspaceTree.value, 1, workspaceLoadToken)
 })
 
+watch(functionLibraryItems, items => {
+  void loadFunctionLibraryTitles(items)
+}, { immediate: true })
+
 function flattenWorkspaceNodes(nodes: WorkspaceTreeNode[], depth: number, search: string): VisibleWorkspaceNode[] {
   const rows: VisibleWorkspaceNode[] = []
   for (const node of nodes) {
@@ -962,13 +1188,20 @@ function functionResourceName(node: WorkspaceEntry) {
   return node.name.replace(/\.(obpf|obp|vgf)$/i, '')
 }
 
+function functionResourceTitle(node: WorkspaceEntry) {
+  const opened = tabs.value.find(tab => tab.path === node.path)
+  if (opened?.id === activeTabId.value && isFunctionBlueprintPath(opened.path || opened.title)) return activeFunctionTitle()
+  const openedTitle = String(opened?.document?.graphName ?? '').trim()
+  return openedTitle || functionTitleByPath.value[node.path] || functionResourceName(node)
+}
+
 function collectFunctionLibraryItems(nodes: WorkspaceTreeNode[]) {
   const items: FunctionLibraryItem[] = []
   const visit = (entry: WorkspaceTreeNode) => {
     if (!entry.isDir && isFunctionResource(entry)) {
       items.push({
         id: encodeURIComponent(entry.path).replace(/%/g, '_'),
-        name: functionResourceName(entry),
+        name: functionResourceTitle(entry),
         path: entry.path,
         source: 'workspace'
       })
@@ -977,6 +1210,29 @@ function collectFunctionLibraryItems(nodes: WorkspaceTreeNode[]) {
   }
   for (const node of nodes) visit(node)
   return items
+}
+
+async function loadFunctionLibraryTitles(items: FunctionLibraryItem[]) {
+  for (const item of items) {
+    if (!item.path || functionTitleByPath.value[item.path] || loadingFunctionTitles.has(item.path)) continue
+    const opened = tabs.value.find(tab => tab.path === item.path)
+    if (opened?.document?.graphName) {
+      functionTitleByPath.value = { ...functionTitleByPath.value, [item.path]: opened.document.graphName }
+      continue
+    }
+    loadingFunctionTitles.add(item.path)
+    try {
+      const file = await platform.openGraph(item.path)
+      if (!file) continue
+      const parsed = JSON.parse(file.content) as Partial<GraphDocument>
+      const title = String(parsed.graphName ?? '').trim()
+      if (title) functionTitleByPath.value = { ...functionTitleByPath.value, [item.path]: title }
+    } catch {
+      // Function title loading is best-effort; fall back to the file name.
+    } finally {
+      loadingFunctionTitles.delete(item.path)
+    }
+  }
 }
 
 async function toggleWorkspaceNode(node: WorkspaceTreeNode) {
@@ -995,8 +1251,9 @@ async function workspaceOpen(item: WorkspaceTreeNode) {
   if (item.isDir) await toggleWorkspaceNode(item); else await openGraph(item.path)
 }
 
-function openFileContextMenu(event: MouseEvent, path: string) {
-  fileContextMenu.value = { visible: true, x: event.clientX, y: event.clientY, path }
+function openFileContextMenu(event: MouseEvent, node: WorkspaceTreeNode | WorkspaceEntry | NodeReferenceResult) {
+  const isDir = 'isDir' in node ? node.isDir : false
+  fileContextMenu.value = { visible: true, x: event.clientX, y: event.clientY, path: node.path, isDir, isFunction: isFunctionBlueprintPath(node.path) }
 }
 
 function workspaceIndent(depth: number) {
@@ -1091,8 +1348,17 @@ async function functionMetadataForModuleItem(item: ModuleLibraryItem): Promise<F
   }
 }
 
+function isSelfFunctionReference(item: ModuleLibraryItem) {
+  if (!item.functionPlaceholder || !isFunctionBlueprintTab.value || !item.path || !activeTab.value.path) return false
+  return item.path.replace(/\\/g, '/').toLowerCase() === activeTab.value.path.replace(/\\/g, '/').toLowerCase()
+}
+
 async function addModuleItemAt(item: ModuleLibraryItem, position?: { x: number; y: number }) {
   if (item.functionPlaceholder) {
+    if (isSelfFunctionReference(item)) {
+      status.value = '函数不能引用自身'
+      return
+    }
     try {
       await editor?.addFunctionCallNode(await functionMetadataForModuleItem(item), position ?? visibleCanvasInsertPosition())
     } catch (error) {
@@ -1235,20 +1501,16 @@ function beginRightSidebarResize(event: PointerEvent) {
   window.addEventListener('pointercancel', up)
 }
 
-function beginLeftPanelHeightResize(panel: 'function' | 'variable', event: PointerEvent) {
+function beginVariablePanelHeightResize(event: PointerEvent) {
   if (event.button !== 0) return
   event.preventDefault()
   const startY = event.clientY
-  const state = panel === 'function' ? functionPanelHeight : variablePanelHeight
-  const storageKey = panel === 'function' ? 'origin-blueprint-function-panel-height' : 'origin-blueprint-variable-panel-height'
-  const min = panel === 'function' ? 70 : 130
-  const max = panel === 'function' ? 260 : 520
-  const startHeight = state.value
+  const startHeight = variablePanelHeight.value
   const move = (next: PointerEvent) => {
-    state.value = Math.min(max, Math.max(min, Math.round(startHeight + next.clientY - startY)))
+    variablePanelHeight.value = Math.min(520, Math.max(130, Math.round(startHeight + next.clientY - startY)))
   }
   const up = () => {
-    localStorage.setItem(storageKey, String(state.value))
+    localStorage.setItem('origin-blueprint-variable-panel-height', String(variablePanelHeight.value))
     window.removeEventListener('pointermove', move)
     window.removeEventListener('pointerup', up)
     window.removeEventListener('pointercancel', up)
@@ -1261,7 +1523,21 @@ function beginLeftPanelHeightResize(panel: 'function' | 'variable', event: Point
 async function openFileContextGraph() {
   const path = fileContextMenu.value.path
   fileContextMenu.value.visible = false
-  if (path) await openGraph(path)
+  if (path && !fileContextMenu.value.isDir) await openGraph(path)
+}
+
+async function createBlueprintInFileContext() {
+  const directory = fileContextMenu.value.path
+  fileContextMenu.value.visible = false
+  if (!directory || !fileContextMenu.value.isDir) return
+  await createBlueprintAtDirectory(directory)
+}
+
+async function createFunctionInFileContext() {
+  const directory = fileContextMenu.value.path
+  fileContextMenu.value.visible = false
+  if (!directory || !fileContextMenu.value.isDir) return
+  await createFunctionAtDirectory(directory)
 }
 
 async function revealFileContextInFolder() {
@@ -1368,7 +1644,7 @@ function toggleModuleCategory(category: string) {
           <div class="panel-title"><span class="chevron">⌄</span> 文件浏览器<button class="panel-action" @click="chooseWorkspace">…</button></div>
           <div class="workspace-search"><input v-model="workspaceSearch" placeholder="搜索文件..." /></div>
           <div class="workspace-tree">
-            <button v-for="row in visibleWorkspaceNodes" :key="row.node.path" class="workspace-entry" :class="{ selected: selectedWorkspacePath === row.node.path, folder: row.node.isDir }" :style="{ paddingLeft: workspaceIndent(row.depth) }" :title="row.node.path" @click="toggleWorkspaceNode(row.node)" @contextmenu.stop.prevent="!row.node.isDir && openFileContextMenu($event, row.node.path)" @dblclick="!row.node.isDir && workspaceOpen(row.node)">
+            <button v-for="row in visibleWorkspaceNodes" :key="row.node.path" class="workspace-entry" :class="{ selected: selectedWorkspacePath === row.node.path, folder: row.node.isDir }" :style="{ paddingLeft: workspaceIndent(row.depth) }" :title="row.node.path" @click="toggleWorkspaceNode(row.node)" @contextmenu.stop.prevent="openFileContextMenu($event, row.node)" @dblclick="!row.node.isDir && workspaceOpen(row.node)">
               <span class="workspace-arrow">{{ row.node.loading ? '…' : row.node.isDir ? (workspaceSearch || expandedWorkspacePaths.has(row.node.path) ? '⌄' : '›') : '' }}</span>
               <span v-if="isFunctionResource(row.node)" class="workspace-icon function" :class="{ folder: row.node.isDir }"></span>
               <span v-else class="workspace-icon" :class="{ folder: row.node.isDir }"></span>
@@ -1380,34 +1656,6 @@ function toggleModuleCategory(category: string) {
       </aside>
       <div v-show="showTools" class="sidebar-splitter" @pointerdown="beginLeftSidebarResize"></div>
       <aside v-show="showTools" class="sidebar sidebar-left">
-        <div class="panel function-panel" :style="functionPanelStyle">
-          <div class="panel-title"><span class="chevron">⌄</span> 当前蓝图函数 <span class="panel-title-spacer"></span><button class="panel-action" title="添加函数" @click="addBlueprintFunction">＋</button></div>
-          <div class="function-list">
-            <div v-for="item in blueprintFunctions" :key="item.id" class="function-row" :class="{ selected: selectedFunctionId === item.id }" @click="selectBlueprintFunction(item)" @dblclick="renameBlueprintFunction(item)">
-              <span class="folder-dot blue"></span>
-              <span class="function-name">{{ item.name }}</span>
-              <button v-if="!item.readonly" title="重命名函数" @click.stop="renameBlueprintFunction(item)">✎</button>
-              <button v-if="!item.readonly" title="删除函数" @click.stop="removeBlueprintFunction(item)">×</button>
-            </div>
-            <button class="add-function" @click="addBlueprintFunction">＋ 添加函数</button>
-            <div class="function-library-section">
-              <div class="function-section-title"><span>{{ menuText.module.workspaceFunctionLibrary }}</span><small>{{ functionLibraryItems.length }}</small></div>
-              <button class="create-workspace-function" @click="createWorkspaceFunction">＋ 新建工程函数</button>
-              <div v-if="functionLibraryItems.length" class="function-library-list">
-                <div v-for="item in functionLibraryItems" :key="item.id" class="function-library-row" :title="item.path" @click="selectWorkspaceFunction(item)" @dblclick="openWorkspaceFunction(item)">
-                  <span class="workspace-icon function"></span>
-                  <span class="function-library-name">{{ item.name }}</span>
-                  <span class="function-library-actions">
-                    <button title="打开函数" @click.stop="openWorkspaceFunction(item)">打开</button>
-                    <button title="定位文件" @click.stop="revealWorkspaceFunction(item)">定位</button>
-                  </span>
-                </div>
-              </div>
-              <div v-else class="function-library-panel-empty">未发现 .obpf 或 functions 目录函数</div>
-            </div>
-          </div>
-        </div>
-        <div class="panel-height-splitter" @pointerdown="beginLeftPanelHeightResize('function', $event)"></div>
         <div class="panel grow variable-panel" :style="variablePanelStyle"><div class="panel-title"><span class="chevron">⌄</span> 变量 <span class="panel-title-spacer"></span><button class="panel-action" title="添加变量组" @click="addVariableGroup">▣＋</button><button class="panel-action" title="添加变量" @click="addVariable()">＋</button></div>
           <div v-if="!variables.length" class="empty-panel">尚未创建变量</div>
           <section v-for="entry in groupedVariables" :key="entry.group.id" class="variable-group">
@@ -1425,17 +1673,18 @@ function toggleModuleCategory(category: string) {
           </section>
           <button class="add-variable" @click="addVariable()">＋ 添加变量</button>
         </div>
-        <div class="panel-height-splitter" @pointerdown="beginLeftPanelHeightResize('variable', $event)"></div>
+        <div class="panel-height-splitter" @pointerdown="beginVariablePanelHeightResize"></div>
         <div class="panel grow detail-panel sidebar-detail-panel">
           <div class="panel-title"><span class="chevron">⌄</span> 详情</div>
           <div v-if="isFunctionBlueprintTab && !selectedNode && !selectedVariable" class="node-detail function-signature-editor">
+            <label>Title<input v-model="functionTitle" placeholder="函数显示名" @change="syncFunctionTitleToGraph" /></label>
             <div class="detail-section-title">函数签名</div>
             <div class="function-terminal-actions"><button @click="addFunctionEntryNodeToGraph">＋ 入口节点</button><button @click="addFunctionReturnNodeToGraph">＋ 出口节点</button></div>
             <section class="signature-port-section">
               <header><span>输入参数</span><button @click="addFunctionSignaturePort('inputs')">＋</button></header>
               <div v-for="port in functionSignature.inputs" :key="port.id" class="signature-port-row">
                 <input v-model="port.name" placeholder="参数名" @change="syncFunctionSignatureToGraph" />
-                <select v-model="port.type" @change="syncFunctionSignatureToGraph"><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="float">Float</option><option value="string">String</option><option value="array">Array</option><option value="file">File</option><option value="table">Table</option><option value="dictionary">Dictionary</option></select>
+                <select v-model="port.type" @change="syncFunctionSignatureToGraph"><option v-for="option in functionSignatureTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select>
                 <button title="删除参数" @click="removeFunctionSignaturePort('inputs', port)">×</button>
               </div>
               <button v-if="!functionSignature.inputs.length" class="empty-signature-port" @click="addFunctionSignaturePort('inputs')">＋ 添加输入参数</button>
@@ -1444,7 +1693,7 @@ function toggleModuleCategory(category: string) {
               <header><span>输出参数</span><button @click="addFunctionSignaturePort('outputs')">＋</button></header>
               <div v-for="port in functionSignature.outputs" :key="port.id" class="signature-port-row">
                 <input v-model="port.name" placeholder="参数名" @change="syncFunctionSignatureToGraph" />
-                <select v-model="port.type" @change="syncFunctionSignatureToGraph"><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="float">Float</option><option value="string">String</option><option value="array">Array</option><option value="file">File</option><option value="table">Table</option><option value="dictionary">Dictionary</option></select>
+                <select v-model="port.type" @change="syncFunctionSignatureToGraph"><option v-for="option in functionSignatureTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select>
                 <button title="删除参数" @click="removeFunctionSignaturePort('outputs', port)">×</button>
               </div>
               <button v-if="!functionSignature.outputs.length" class="empty-signature-port" @click="addFunctionSignaturePort('outputs')">＋ 添加输出参数</button>
@@ -1493,7 +1742,7 @@ function toggleModuleCategory(category: string) {
             <div v-if="nodeReferenceSearch.loading" class="reference-empty">正在扫描当前工程下的 .vgf / .obp 文件...</div>
             <div v-else-if="!nodeReferenceSearch.results.length" class="reference-empty">没有找到引用该结点的蓝图</div>
             <template v-else>
-              <button v-for="result in nodeReferenceSearch.results" :key="result.path" class="reference-row" :title="result.path" @contextmenu.stop.prevent="openFileContextMenu($event, result.path)" @dblclick="openNodeReference(result)">
+              <button v-for="result in nodeReferenceSearch.results" :key="result.path" class="reference-row" :title="result.path" @contextmenu.stop.prevent="openFileContextMenu($event, result)" @dblclick="openNodeReference(result)">
                 <span>{{ result.name }}</span>
                 <small>{{ result.count }} 次</small>
                 <code>{{ result.path }}</code>
@@ -1531,7 +1780,9 @@ function toggleModuleCategory(category: string) {
       <button @click="findModuleNodeReferences()">查找所有引用</button>
     </div>
     <div v-if="fileContextMenu.visible" class="file-context-menu" :style="{ left: `${fileContextMenu.x}px`, top: `${fileContextMenu.y}px` }" @pointerdown.stop>
-      <button @click="openFileContextGraph">打开蓝图</button>
+      <button v-if="!fileContextMenu.isDir" @click="openFileContextGraph">{{ fileContextMenu.isFunction ? '打开函数' : '打开蓝图' }}</button>
+      <button v-if="fileContextMenu.isDir" @click="createBlueprintInFileContext">新建蓝图</button>
+      <button v-if="fileContextMenu.isDir" @click="createFunctionInFileContext">新建函数</button>
       <button @click="revealFileContextInFolder">在资源管理器中定位</button>
     </div>
     <div v-if="unsavedCloseDialog.visible" class="unsaved-close-backdrop">
