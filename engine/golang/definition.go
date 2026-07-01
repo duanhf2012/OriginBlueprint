@@ -215,7 +215,7 @@ func newPortFromDataType(dataType string) (IPort, error) {
 		return NewPortBool(), nil
 	case "array":
 		return NewPortArray(), nil
-	case "any", "file", "table", "dictionary":
+	case "any":
 		return NewPortAny(), nil
 	default:
 		return nil, fmt.Errorf("invalid data type %s", dataType)

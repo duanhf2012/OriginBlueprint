@@ -15,6 +15,9 @@ var ErrExecutionSuspended = errors.New("golang blueprint execution suspended")
 // the caller continuation.
 var ErrFunctionReturned = errors.New("golang blueprint function returned")
 
+// ErrLoopBreak is raised by a loop break exec input and consumed by the owning loop.
+var ErrLoopBreak = errors.New("golang blueprint loop break")
+
 // IExecNode is the executable contract implemented by all runtime nodes.
 type IExecNode interface {
 	GetName() string
@@ -23,8 +26,9 @@ type IExecNode interface {
 
 // ExecContext holds cloned ports for a single node execution.
 type ExecContext struct {
-	InputPorts  []IPort
-	OutputPorts []IPort
+	InputPorts      []IPort
+	OutputPorts     []IPort
+	ExecInputPortID int
 }
 
 // BaseExecNode gives concrete nodes typed port helpers and continuation access.
@@ -150,6 +154,7 @@ type NodeDefinition struct {
 	InPorts                []IPort
 	OutPorts               []IPort
 	OutPortParamStartIndex int
+	DataInPortIndexes      []int
 }
 
 // NewNodeDefinition builds a node definition and records where output arguments start.
@@ -160,6 +165,7 @@ func NewNodeDefinition(name string, newExec func() IExecNode, inPorts []IPort, o
 		InPorts:                clonePorts(inPorts),
 		OutPorts:               clonePorts(outPorts),
 		OutPortParamStartIndex: firstDataOutPort(outPorts),
+		DataInPortIndexes:      dataInPortIndexes(inPorts),
 	}
 }
 
@@ -180,22 +186,28 @@ type PrePortNode struct {
 //
 // It does not store per-run port values; those live in Graph.context.
 type ExecNode struct {
-	ID           string
-	Definition   *NodeDefinition
-	Next         []*ExecNode
-	PreInPort    []*PrePortNode
-	DefaultIn    map[int]any
-	VariableName string
-	FunctionID   string
-	FunctionName string
-	BeConnect    bool
-	IsEntrance   bool
+	ID              string
+	Index           int
+	Definition      *NodeDefinition
+	Next            []*ExecNode
+	NextInPort      []int
+	PreInPort       []*PrePortNode
+	DefaultIn       map[int]any
+	DefaultInputs   []IPort
+	DefaultInputSet []bool
+	VariableName    string
+	FunctionID      string
+	FunctionName    string
+	FunctionGraph   *CompiledGraph
+	BeConnect       bool
+	IsEntrance      bool
 }
 
 // NewExecNode creates a compiled node instance from a definition.
 func NewExecNode(id string, definition *NodeDefinition) *ExecNode {
 	return &ExecNode{
 		ID:         id,
+		Index:      -1,
 		Definition: definition,
 		PreInPort:  make([]*PrePortNode, len(definition.InPorts)),
 		DefaultIn:  map[int]any{},
@@ -207,19 +219,22 @@ func NewExecNode(id string, definition *NodeDefinition) *ExecNode {
 // Data dependencies are evaluated lazily: pure producer nodes run only when an
 // executed node asks for their output.
 func (n *ExecNode) Do(graph *Graph, outPortArgs ...any) error {
+	return n.doWithInput(graph, 0, outPortArgs...)
+}
+
+func (n *ExecNode) doWithInput(graph *Graph, execInputPortID int, outPortArgs ...any) error {
 	if n == nil || n.Definition == nil {
 		return fmt.Errorf("exec node is invalid")
 	}
 	ctx := n.Definition.cloneContext()
-	graph.context[n.ID] = ctx
+	ctx.ExecInputPortID = execInputPortID
+	graph.setContext(n, ctx)
 
 	if err := n.applyOutputArgs(ctx, outPortArgs...); err != nil {
 		return err
 	}
-	for index, inPort := range ctx.InputPorts {
-		if inPort == nil || inPort.IsPortExec() {
-			continue
-		}
+	for _, index := range n.Definition.DataInPortIndexes {
+		inPort := ctx.InputPorts[index]
 		if err := n.setInPort(graph, ctx, index, inPort); err != nil {
 			return err
 		}
@@ -252,7 +267,11 @@ func (n *ExecNode) doNext(graph *Graph, index int) error {
 	if n.Next[index] == nil {
 		return nil
 	}
-	return n.Next[index].Do(graph)
+	nextInPort := 0
+	if index < len(n.NextInPort) {
+		nextInPort = n.NextInPort[index]
+	}
+	return n.Next[index].doWithInput(graph, nextInPort)
 }
 
 func (n *ExecNode) applyOutputArgs(ctx *ExecContext, outPortArgs ...any) error {
@@ -272,20 +291,25 @@ func (n *ExecNode) applyOutputArgs(ctx *ExecContext, outPortArgs ...any) error {
 func (n *ExecNode) setInPort(graph *Graph, ctx *ExecContext, index int, inPort IPort) error {
 	pre := n.PreInPort[index]
 	if pre == nil {
+		if index < len(n.DefaultInputSet) && n.DefaultInputSet[index] {
+			inPort.SetValue(n.DefaultInputs[index])
+			return nil
+		}
 		if value, ok := n.DefaultIn[index]; ok {
 			return inPort.setAnyValue(value)
 		}
 		return nil
 	}
 
-	// Pure data nodes are not reached by exec flow, so compute them on demand.
-	if _, ok := graph.context[pre.Node.ID]; !ok && !pre.Node.BeConnect && !pre.Node.IsEntrance {
+	// Pure data nodes may depend on loop outputs, so compute them on every
+	// demand. Executed flow nodes keep their current context for downstream data.
+	if !pre.Node.BeConnect && !pre.Node.IsEntrance {
 		if err := pre.Node.Do(graph); err != nil {
 			return err
 		}
 	}
 
-	preCtx, ok := graph.context[pre.Node.ID]
+	preCtx, ok := graph.getContext(pre.Node)
 	if !ok {
 		return fmt.Errorf("pre node %s not exec", pre.Node.ID)
 	}
@@ -302,6 +326,7 @@ type CompiledGraph struct {
 	Entrances map[int64]*ExecNode
 	Variables map[string]VariableConfig
 	Functions map[string]*CompiledGraph
+	NodeCount int
 }
 
 // Graph is one execution session.
@@ -310,7 +335,8 @@ type CompiledGraph struct {
 // keep it alive only when async nodes suspend.
 type Graph struct {
 	compiled           *CompiledGraph
-	context            map[string]*ExecContext
+	context            []*ExecContext
+	contextFallback    map[*ExecNode]*ExecContext
 	name               string
 	graphID            int64
 	module             IBlueprintModule
@@ -330,7 +356,7 @@ type Graph struct {
 // Blueprint.Do normally creates sessions for you; tests and embedded callers can
 // use NewGraph directly.
 func NewGraph(compiled *CompiledGraph) *Graph {
-	return &Graph{compiled: compiled, context: map[string]*ExecContext{}, timers: map[uint64]*time.Timer{}}
+	return &Graph{compiled: compiled, context: make([]*ExecContext, compiledNodeCount(compiled)), timers: map[uint64]*time.Timer{}}
 }
 
 // Do executes one entrance and hides internal suspension/function-return sentinels.
@@ -355,7 +381,7 @@ func (g *Graph) runEntrance(entranceID int64, args ...any) (PortArray, error) {
 		return nil, nil
 	}
 
-	g.context = map[string]*ExecContext{}
+	g.resetContext()
 	g.returns = nil
 	g.functionResults = nil
 	if g.variableMu == nil {
@@ -365,6 +391,9 @@ func (g *Graph) runEntrance(entranceID int64, args ...any) (PortArray, error) {
 		g.variables = g.initialVariables()
 	}
 	if err := entrance.Do(g, args...); err != nil {
+		if errors.Is(err, ErrExecutionSuspended) {
+			return nil, err
+		}
 		return append(PortArray(nil), g.returns...), err
 	}
 	return append(PortArray(nil), g.returns...), nil
@@ -393,6 +422,51 @@ func initialVariables(compiled *CompiledGraph) map[string]IPort {
 		variables[name] = port
 	}
 	return variables
+}
+
+func compiledNodeCount(compiled *CompiledGraph) int {
+	if compiled == nil || compiled.NodeCount < 0 {
+		return 0
+	}
+	return compiled.NodeCount
+}
+
+func (g *Graph) resetContext() {
+	g.context = make([]*ExecContext, compiledNodeCount(g.compiled))
+	g.contextFallback = nil
+}
+
+func (g *Graph) setContext(node *ExecNode, ctx *ExecContext) {
+	if g == nil || node == nil {
+		return
+	}
+	if node.Index >= 0 {
+		if node.Index >= len(g.context) {
+			next := make([]*ExecContext, node.Index+1)
+			copy(next, g.context)
+			g.context = next
+		}
+		g.context[node.Index] = ctx
+		return
+	}
+	if g.contextFallback == nil {
+		g.contextFallback = map[*ExecNode]*ExecContext{}
+	}
+	g.contextFallback[node] = ctx
+}
+
+func (g *Graph) getContext(node *ExecNode) (*ExecContext, bool) {
+	if g == nil || node == nil {
+		return nil, false
+	}
+	if node.Index >= 0 {
+		if node.Index >= len(g.context) || g.context[node.Index] == nil {
+			return nil, false
+		}
+		return g.context[node.Index], true
+	}
+	ctx := g.contextFallback[node]
+	return ctx, ctx != nil
 }
 
 func clonePorts(source []IPort) []IPort {
@@ -445,4 +519,14 @@ func firstDataOutPort(ports []IPort) int {
 		}
 	}
 	return len(ports)
+}
+
+func dataInPortIndexes(ports []IPort) []int {
+	indexes := make([]int, 0, len(ports))
+	for index, port := range ports {
+		if port != nil && !port.IsPortExec() {
+			indexes = append(indexes, index)
+		}
+	}
+	return indexes
 }

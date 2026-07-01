@@ -94,6 +94,9 @@ func (n *FunctionCall) Exec() (int, error) {
 	if runErr != nil && !isFunctionCallStop(runErr) {
 		return -1, runErr
 	}
+	if runErr == ErrFunctionReturned {
+		return -1, nil
+	}
 	if runErr == nil && child.onFunctionComplete != nil {
 		return -1, fmt.Errorf("function %s completed without FunctionReturn", n.functionLabel())
 	}
@@ -103,6 +106,9 @@ func (n *FunctionCall) Exec() (int, error) {
 func (n *FunctionCall) lookupFunctionGraph() *CompiledGraph {
 	if n == nil || n.graph == nil || n.graph.compiled == nil {
 		return nil
+	}
+	if n.node.FunctionGraph != nil {
+		return n.node.FunctionGraph
 	}
 	if n.node.FunctionID != "" {
 		if graph := n.graph.compiled.Functions[n.node.FunctionID]; graph != nil {

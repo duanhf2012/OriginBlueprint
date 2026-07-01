@@ -11,6 +11,7 @@ import (
 // Graph definitions are compiled once and shared. Create allocates a lightweight
 // GraphInstance that owns variables and timer bookkeeping for one server object.
 type Blueprint struct {
+	mu            sync.RWMutex
 	graphs        map[string]*CompiledGraph
 	instances     map[int64]*GraphInstance
 	execFactories []func() IExecNode
@@ -29,16 +30,19 @@ type GraphInstance struct {
 	graphID    int64
 	module     IBlueprintModule
 	timers     map[uint64]struct{}
+	timerMu    sync.Mutex
 	variables  map[string]IPort
 	variableMu sync.RWMutex
 }
 
 // AddCompiledGraph registers an already compiled graph under a runtime name.
 func (b *Blueprint) AddCompiledGraph(name string, graph *CompiledGraph) {
-	b.ensure()
 	if name == "" || graph == nil {
 		return
 	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.ensureLocked()
 	b.graphs[name] = graph
 }
 
@@ -47,7 +51,9 @@ func (b *Blueprint) AddCompiledGraph(name string, graph *CompiledGraph) {
 // The returned instance shares the compiled execution tree but owns variables
 // and timer ids. A return value of 0 means the graph name was not registered.
 func (b *Blueprint) Create(graphName string) int64 {
-	b.ensure()
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.ensureLocked()
 	compiled := b.graphs[graphName]
 	if compiled == nil {
 		return 0
@@ -69,18 +75,26 @@ func (b *Blueprint) Create(graphName string) int64 {
 // Each Do call creates an execution session so concurrent async continuations do
 // not share transient node contexts. Instance variables are shared deliberately.
 func (b *Blueprint) Do(graphID int64, entranceID int64, args ...any) (PortArray, error) {
-	b.ensure()
+	b.mu.RLock()
 	instance := b.instances[graphID]
 	if instance == nil {
+		b.mu.RUnlock()
 		return nil, nil
 	}
-	graph := NewGraph(instance.compiled)
-	graph.name = instance.name
-	graph.graphID = instance.graphID
-	graph.module = instance.module
+	name := instance.name
+	compiled := instance.compiled
+	module := instance.module
+	variables := instance.variables
+	variableMu := &instance.variableMu
+	b.mu.RUnlock()
+
+	graph := NewGraph(compiled)
+	graph.name = name
+	graph.graphID = graphID
+	graph.module = module
 	graph.instance = instance
-	graph.variables = instance.variables
-	graph.variableMu = &instance.variableMu
+	graph.variables = variables
+	graph.variableMu = variableMu
 	return graph.Do(entranceID, args...)
 }
 
@@ -92,35 +106,50 @@ func (b *Blueprint) TriggerEvent(graphID int64, eventID int64, args ...any) erro
 
 // ReleaseGraph removes an instance and asks the host module to cancel timers.
 func (b *Blueprint) ReleaseGraph(graphID int64) {
-	b.ensure()
+	b.mu.Lock()
 	instance := b.instances[graphID]
+	delete(b.instances, graphID)
+	b.mu.Unlock()
+
 	if instance != nil && instance.module != nil {
+		instance.timerMu.Lock()
+		timerIDs := make([]uint64, 0, len(instance.timers))
 		for timerID := range instance.timers {
+			timerIDs = append(timerIDs, timerID)
+		}
+		instance.timers = map[uint64]struct{}{}
+		instance.timerMu.Unlock()
+		for _, timerID := range timerIDs {
 			id := timerID
 			instance.module.CancelTimerId(graphID, &id)
 		}
 	}
-	delete(b.instances, graphID)
 }
 
 // CancelTimerId preserves the old blueprint API for external timer modules.
 func (b *Blueprint) CancelTimerId(graphID int64, timerID *uint64) bool {
-	b.ensure()
 	if timerID == nil {
 		return false
 	}
 	id := *timerID
-	if b.module != nil {
-		b.module.CancelTimerId(graphID, timerID)
-	} else if b.cancelTimer != nil {
-		b.cancelTimer(timerID)
+	b.mu.RLock()
+	module := b.module
+	cancelTimer := b.cancelTimer
+	instance := b.instances[graphID]
+	b.mu.RUnlock()
+
+	if module != nil {
+		module.CancelTimerId(graphID, timerID)
+	} else if cancelTimer != nil {
+		cancelTimer(timerID)
 	}
 
-	instance := b.instances[graphID]
 	if instance == nil {
 		return false
 	}
+	instance.timerMu.Lock()
 	delete(instance.timers, id)
+	instance.timerMu.Unlock()
 	return true
 }
 
@@ -129,20 +158,28 @@ func (b *Blueprint) CancelTimerId(graphID int64, timerID *uint64) bool {
 // The new engine compiles immutable graph trees; file-watcher based hot reload
 // can be layered on top later. For now this returns a no-op stop function.
 func (b *Blueprint) StartHotReload() (func(), error) {
-	b.ensure()
-	if b.execDefPath == "" || b.graphPath == "" {
+	b.mu.RLock()
+	execDefPath := b.execDefPath
+	graphPath := b.graphPath
+	execFactories := append([]func() IExecNode(nil), b.execFactories...)
+	b.mu.RUnlock()
+
+	if execDefPath == "" || graphPath == "" {
 		return func() {}, nil
 	}
 	registry := NewRegistry()
-	factories := append(BuiltinExecNodeFactories(), b.execFactories...)
-	if err := loadDefinitionDir(registry, b.execDefPath, factories); err != nil {
+	factories := append(BuiltinExecNodeFactories(), execFactories...)
+	if err := loadDefinitionDir(registry, execDefPath, factories); err != nil {
 		return nil, err
 	}
-	graphs, err := loadGraphDir(registry, b.graphPath)
+	graphs, err := loadGraphDir(registry, graphPath)
 	if err != nil {
 		return nil, err
 	}
 	return func() {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		b.ensureLocked()
 		b.graphs = graphs
 		for _, instance := range b.instances {
 			if compiled := graphs[instance.name]; compiled != nil {
@@ -154,12 +191,15 @@ func (b *Blueprint) StartHotReload() (func(), error) {
 
 // GetLogger returns the optional logger passed to Init.
 func (b *Blueprint) GetLogger() IBlueprintLogger {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 	return b.logger
 }
 
 // GetGraphName returns the registered graph name for an instance.
 func (b *Blueprint) GetGraphName(graphID int64) string {
-	b.ensure()
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 	instance := b.instances[graphID]
 	if instance == nil {
 		return ""
@@ -168,6 +208,12 @@ func (b *Blueprint) GetGraphName(graphID int64) string {
 }
 
 func (b *Blueprint) ensure() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.ensureLocked()
+}
+
+func (b *Blueprint) ensureLocked() {
 	if b.graphs == nil {
 		b.graphs = map[string]*CompiledGraph{}
 	}
@@ -177,7 +223,8 @@ func (b *Blueprint) ensure() {
 }
 
 func (b *Blueprint) mustGraph(graphID int64) (*GraphInstance, error) {
-	b.ensure()
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 	graph := b.instances[graphID]
 	if graph == nil {
 		return nil, fmt.Errorf("can not find graph:%d", graphID)

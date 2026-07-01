@@ -1,5 +1,5 @@
 import { ClassicPreset } from 'rete'
-import { ArrayControl, BlueprintNode, FileControl, type DynamicBranchConfig, type NodeKind } from './types'
+import { ArrayControl, BlueprintNode, type DynamicBranchConfig, type NodeKind } from './types'
 import type { FunctionNodeMetadata, FunctionSignature, FunctionSignaturePort, GraphVariable, NodeProperties } from './document'
 
 export interface NodeDefinition {
@@ -17,15 +17,12 @@ const sockets = {
   string: new ClassicPreset.Socket('string'),
   float: new ClassicPreset.Socket('float'),
   array: new ClassicPreset.Socket('array'),
-  file: new ClassicPreset.Socket('file'),
-  table: new ClassicPreset.Socket('table'),
-  dictionary: new ClassicPreset.Socket('dictionary'),
   any: new ClassicPreset.Socket('any')
 }
 
 type SocketType = keyof typeof sockets
 type PortKind = SocketType | 'data'
-export interface PortSchema { key: string; label: string; type: PortKind; data_type?: string; defaultValue?: unknown; arrayItemType?: 'string' | 'number'; fileMode?: 'open' | 'save'; hideIcon?: boolean }
+export interface PortSchema { key: string; label: string; type: PortKind; data_type?: string; defaultValue?: unknown; arrayItemType?: 'string' | 'number'; hideIcon?: boolean }
 export interface NodeSchema {
   id: string
   title: string
@@ -44,11 +41,9 @@ let allNodeDefinitions: NodeDefinition[] = []
 const hiddenNodeTypes = new Set(['origin.event.timer', 'origin.timer.create', 'origin.timer.close'])
 export let nodeDefinitions: NodeDefinition[] = []
 
-function input(socket: ClassicPreset.Socket, label: string, value?: unknown, arrayItemType: 'string' | 'number' = 'string', fileMode?: 'open' | 'save') {
+function input(socket: ClassicPreset.Socket, label: string, value?: unknown, arrayItemType: 'string' | 'number' = 'string') {
   const port = new ClassicPreset.Input(socket, label)
-  if (fileMode) {
-    port.addControl(new FileControl(fileMode, String(value ?? '')))
-  } else if (Array.isArray(value)) {
+  if (Array.isArray(value)) {
     port.addControl(new ArrayControl(arrayItemType, value))
   } else if (value !== undefined) {
     port.addControl(new ClassicPreset.InputControl(typeof value === 'number' ? 'number' : 'text', { initial: value }))
@@ -92,15 +87,6 @@ function socketTypeForDataType(value?: string): SocketType {
     case 'array':
     case 'list':
       return 'array'
-    case 'file':
-      return 'file'
-    case 'dataframe':
-    case 'table':
-      return 'table'
-    case 'dict':
-    case 'dictionary':
-    case 'map':
-      return 'dictionary'
     case 'any':
     default:
       return 'any'
@@ -135,7 +121,7 @@ function fromSchema(schema: NodeSchema): NodeDefinition {
       for (const port of schema.inputs ?? []) {
         const socketType = socketTypeForPort(port)
         const defaultValue = schema.dynamicBranch?.controlInput === port.key && port.defaultValue === undefined ? [] : port.defaultValue
-        result.addInput(port.key, input(sockets[socketType] ?? sockets.any, port.label, defaultValue, port.arrayItemType, port.fileMode))
+        result.addInput(port.key, input(sockets[socketType] ?? sockets.any, port.label, defaultValue, port.arrayItemType))
       }
       for (const port of schema.outputs ?? []) {
         const socketType = socketTypeForPort(port)

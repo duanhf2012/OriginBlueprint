@@ -66,20 +66,5 @@ export class ArrayControl extends ClassicPreset.Control {
   }
 }
 
-export class FileControl extends ClassicPreset.Control {
-  value: string
-  mode: 'open' | 'save'
-
-  constructor(mode: 'open' | 'save', initial = '') {
-    super()
-    this.mode = mode
-    this.value = initial
-  }
-
-  setValue(value?: unknown) {
-    this.value = String(value ?? '')
-  }
-}
-
 export type BlueprintConnection = ClassicPreset.Connection<BlueprintNode, BlueprintNode> & { selected?: boolean; socketType?: SocketThemeName; hidden?: boolean }
 export type Schemes = GetSchemes<BlueprintNode, BlueprintConnection>

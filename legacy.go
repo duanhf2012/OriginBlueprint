@@ -107,9 +107,6 @@ var legacyNodeSpecs = map[string]legacyNodeSpec{
 	"ForeachIntArray":            {"origin.flow.foreach-integer-array", []string{"exec", "array"}, []string{"body", "completed", "index", "value"}},
 	"Probability":                {"origin.flow.probability", []string{"exec", "probability"}, []string{"miss", "hit"}},
 	"DebugOutput":                {"origin.debug.output", []string{"exec", "integer", "string", "array"}, []string{"exec"}},
-	"FileNode":                   {"origin.io.file-path", []string{"path"}, []string{"file"}},
-	"FileReadNode":               {"origin.io.read-text", []string{"exec", "file"}, []string{"exec", "text", "error"}},
-	"SaveFileNode":               {"origin.io.save-file-path", []string{"path"}, []string{"file"}},
 	"StringNode":                 {"origin.literal.string", []string{"value"}, []string{"value"}},
 	"AddNode":                    {"origin.math.add-float", []string{"a", "b"}, []string{"result"}},
 	"MinusNode":                  {"origin.math.subtract-float", []string{"a", "b"}, []string{"result"}},
@@ -119,22 +116,11 @@ var legacyNodeSpecs = map[string]legacyNodeSpec{
 	"WhileNode":                  {"origin.flow.while", []string{"exec", "condition"}, []string{"body", "completed"}},
 	"ForLoopWithBreak":           {"origin.flow.for-loop-break", []string{"exec", "start", "end", "break"}, []string{"body", "index", "completed"}},
 	"Length (Array)":             {"origin.array.length", []string{"array"}, []string{"length"}},
-	"TableReader":                {"origin.table.read-csv", []string{"exec", "file", "delimiter", "header"}, []string{"exec", "table", "error"}},
-	"Save Table":                 {"origin.table.save-csv", []string{"exec", "table", "file"}, []string{"exec", "table"}},
-	"Table Rows Count":           {"origin.table.row-count", []string{"exec", "table"}, []string{"exec", "count"}},
-	"TableHeader":                {"origin.table.headers", []string{"exec", "table"}, []string{"exec", "headers"}},
-	"MergeTable":                 {"origin.table.merge", []string{"exec", "left", "right", "key"}, []string{"exec", "table"}},
-	"Sub Table":                  {"origin.table.select-columns", []string{"exec", "table", "columns"}, []string{"exec", "table"}},
-	"Print Table":                {"origin.table.print", []string{"exec", "table"}, []string{"exec", "table"}},
 	"ForEahcNode":                {"origin.flow.foreach-array", []string{"exec", "array"}, []string{"body", "index", "value", "completed"}},
-	"PreviewTable":               {"origin.table.preview", []string{"table"}, nil},
 	"Split":                      {"origin.string.split", []string{"exec", "text", "delimiter"}, []string{"exec", "array"}},
 	"Get (Array)":                {"origin.array.get-any", []string{"array", "index"}, []string{"value"}},
 	"Cast To":                    {"origin.cast.any-string", []string{"exec", "value"}, []string{"exec", "result"}},
 	"CastingNode_str":            {"origin.cast.any-string", []string{"exec", "value"}, []string{"exec", "valid", "result"}},
-	"Set (Dict)":                 {"origin.dictionary.set", []string{"exec", "dictionary", "key", "value"}, []string{"exec", "dictionary"}},
-	"Size (Dict)":                {"origin.dictionary.size", []string{"dictionary"}, []string{"size"}},
-	"Keys (Dict)":                {"origin.dictionary.keys", []string{"dictionary"}, []string{"keys"}},
 }
 
 func (a *App) MigrateLegacyGraph(content string) (string, error) {
@@ -661,12 +647,6 @@ func legacyVariableType(value interface{}) string {
 		return "float"
 	case "array", "list":
 		return "array"
-	case "file":
-		return "file"
-	case "dataframe", "table":
-		return "table"
-	case "dict", "dictionary", "map":
-		return "dictionary"
 	}
 	return "string"
 }

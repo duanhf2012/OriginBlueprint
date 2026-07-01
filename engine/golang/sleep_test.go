@@ -17,14 +17,13 @@ func (n *testSignalRecorder) Exec() (int, error) {
 }
 
 func TestSleepNodeResumesAfterDelay(t *testing.T) {
-	var recorder *testSignalRecorder
+	done := make(chan struct{})
 	entrance := NewExecNode("entrance", NewNodeDefinition("TestEntrance", func() IExecNode {
 		return &testEntrance{}
 	}, nil, []IPort{NewPortExec()}))
 	sleep := NewExecNode("sleep", NewSleepNodeDefinition())
 	record := NewExecNode("record", NewNodeDefinition("TestSignalRecorder", func() IExecNode {
-		recorder = &testSignalRecorder{done: make(chan struct{})}
-		return recorder
+		return &testSignalRecorder{done: done}
 	}, []IPort{NewPortExec()}, nil))
 
 	sleep.DefaultIn[1] = 5
@@ -37,22 +36,14 @@ func TestSleepNodeResumesAfterDelay(t *testing.T) {
 	if _, err := graph.Do(1); err != nil {
 		t.Fatalf("Do failed: %v", err)
 	}
-	if recorder != nil {
+	select {
+	case <-done:
 		t.Fatalf("recorder ran before sleep resumed")
-	}
-
-	deadline := time.After(500 * time.Millisecond)
-	for recorder == nil {
-		select {
-		case <-deadline:
-			t.Fatalf("recorder did not run after sleep")
-		default:
-			time.Sleep(time.Millisecond)
-		}
+	default:
 	}
 
 	select {
-	case <-recorder.done:
+	case <-done:
 	case <-time.After(500 * time.Millisecond):
 		t.Fatalf("recorder did not signal completion")
 	}

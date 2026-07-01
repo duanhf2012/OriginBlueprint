@@ -1,6 +1,6 @@
-# OriginNodeEditor parity checklist
+# 历史功能与兼容性清单
 
-This document tracks the functional migration from `OriginNodeEditor_old`.
+本文档记录 `OriginBlueprint` 已覆盖的历史功能和 legacy `.vgf` 兼容能力。它不要求本地存在旧项目目录；后续维护应以本仓库内的代码、文档、测试和样本为准。
 
 ## Editor interaction
 
@@ -80,7 +80,7 @@ This document tracks the functional migration from `OriginNodeEditor_old`.
 - Table VIF and Table Column VIF
 - OLS, Poisson, Negative Binomial and Zero Inflated regression nodes
 
-## Completed legacy parity decisions
+## 已完成的历史兼容决策
 
 - [x] Legacy literal/utility aliases: `StringNode` and `Length (Array)`
 - [x] Legacy float arithmetic: `AddNode`, `MinusNode`, `MultiplyNode` and `DivideNode`
@@ -90,7 +90,7 @@ This document tracks the functional migration from `OriginNodeEditor_old`.
 - [x] Functional search field in the right-side module library
 - [x] Legacy File menu extras: New Window, Clear Recent Files and Quit
 - [x] Help/about content
-- [x] Final visual and pointer-interaction comparison against the old editor
+- [x] 基于历史行为记录完成视觉和指针交互对齐
 
 ## Optional product enhancements (not old-editor parity)
 

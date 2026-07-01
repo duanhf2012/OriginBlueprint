@@ -26,6 +26,8 @@ func (b *Blueprint) RegisterExecNode(factory func() IExecNode) {
 	if factory == nil {
 		return
 	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	b.execFactories = append(b.execFactories, factory)
 }
 
@@ -34,7 +36,8 @@ func (b *Blueprint) RegisterExecNode(factory func() IExecNode) {
 // Top-level node JSON files are loaded; a child directory named "json" is
 // skipped to match the OriginBlueprint repository layout.
 func (b *Blueprint) Init(execDefFilePath string, graphFilePath string, blueprintModule IBlueprintModule, cancelTimer func(*uint64) bool, logger ...IBlueprintLogger) error {
-	b.ensure()
+	b.mu.Lock()
+	b.ensureLocked()
 	b.module = blueprintModule
 	b.cancelTimer = cancelTimer
 	b.execDefPath = execDefFilePath
@@ -42,8 +45,11 @@ func (b *Blueprint) Init(execDefFilePath string, graphFilePath string, blueprint
 	if len(logger) > 0 {
 		b.logger = logger[0]
 	}
+	execFactories := append([]func() IExecNode(nil), b.execFactories...)
+	b.mu.Unlock()
+
 	registry := NewRegistry()
-	factories := append(BuiltinExecNodeFactories(), b.execFactories...)
+	factories := append(BuiltinExecNodeFactories(), execFactories...)
 	if err := loadDefinitionDir(registry, execDefFilePath, factories); err != nil {
 		return err
 	}
@@ -51,9 +57,12 @@ func (b *Blueprint) Init(execDefFilePath string, graphFilePath string, blueprint
 	if err != nil {
 		return err
 	}
+	b.mu.Lock()
+	b.ensureLocked()
 	for name, graph := range graphs {
-		b.AddCompiledGraph(name, graph)
+		b.graphs[name] = graph
 	}
+	b.mu.Unlock()
 	return nil
 }
 

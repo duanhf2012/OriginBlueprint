@@ -2,23 +2,16 @@ package main
 
 import (
 	"context"
-	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
 	"math/rand"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 )
-
-type RuntimeTable struct {
-	Columns []string        `json:"columns"`
-	Rows    [][]interface{} `json:"rows"`
-}
 
 type ExecutionNodeState struct {
 	NodeID string `json:"nodeId"`
@@ -75,20 +68,6 @@ func executeGraph(ctx context.Context, sessionID string, document GraphDocument,
 			executor.flush()
 			return executor.result(), err
 		}
-	}
-	for _, node := range document.Nodes {
-		if node.TypeID != "origin.table.preview" {
-			continue
-		}
-		value, err := executor.input(node, "table", map[string]bool{})
-		if err != nil {
-			return executor.result(), executor.fail(node, err)
-		}
-		table, err := asRuntimeTable(value)
-		if err != nil {
-			return executor.result(), executor.fail(node, err)
-		}
-		executor.results = append(executor.results, map[string]interface{}{"kind": "table", "nodeId": node.ID, "table": table})
 	}
 	executor.flush()
 	return executor.result(), nil
@@ -259,25 +238,6 @@ func (e *graphExecutor) runNode(nodeID string) error {
 			}
 		}
 		next = []string{"completed"}
-	case "origin.flow.foreach-table-row":
-		value, err := e.input(node, "table", map[string]bool{})
-		if err != nil {
-			return e.fail(node, err)
-		}
-		table, err := asRuntimeTable(value)
-		if err != nil {
-			return e.fail(node, err)
-		}
-		for index, row := range table.Rows {
-			if err := e.check(node.ID); err != nil {
-				return e.fail(node, err)
-			}
-			e.transient[node.ID] = map[string]interface{}{"index": index, "row": tableRowDictionary(table.Columns, row)}
-			if err := e.follow(node.ID, "body"); err != nil {
-				return err
-			}
-		}
-		next = []string{"completed"}
 	case "origin.flow.sequence":
 		keys := make([]string, 0)
 		for key := range e.outgoing[node.ID] {
@@ -357,191 +317,6 @@ func (e *graphExecutor) runNode(nodeID string) error {
 			return e.fail(node, err)
 		}
 		e.variables[node.Properties.VariableID] = cloneValue(value)
-	case "origin.io.read-text":
-		fileValue, err := e.input(node, "file", map[string]bool{})
-		if err != nil {
-			return e.fail(node, err)
-		}
-		data, err := os.ReadFile(fmt.Sprint(fileValue))
-		if err != nil {
-			e.log("error", fmt.Sprintf("read file: %v", err), node.ID)
-			next = []string{"error"}
-			break
-		}
-		text := string(data)
-		e.transient[node.ID] = map[string]interface{}{"text": text}
-	case "origin.io.save-text":
-		fileValue, err := e.input(node, "file", map[string]bool{})
-		if err != nil {
-			return e.fail(node, err)
-		}
-		textValue, err := e.input(node, "text", map[string]bool{})
-		if err != nil {
-			return e.fail(node, err)
-		}
-		if err := os.WriteFile(fmt.Sprint(fileValue), []byte(fmt.Sprint(textValue)), 0644); err != nil {
-			return e.fail(node, fmt.Errorf("save file: %w", err))
-		}
-	case "origin.table.read-csv":
-		fileValue, err := e.input(node, "file", map[string]bool{})
-		if err != nil {
-			return e.fail(node, err)
-		}
-		delimiterValue, _ := e.input(node, "delimiter", map[string]bool{})
-		headerValue, _ := e.input(node, "header", map[string]bool{})
-		table, err := readCSVTable(fmt.Sprint(fileValue), fmt.Sprint(delimiterValue), asBool(headerValue))
-		if err != nil {
-			e.log("error", err.Error(), node.ID)
-			next = []string{"error"}
-		} else {
-			e.transient[node.ID] = map[string]interface{}{"table": table}
-			next = []string{"exec"}
-		}
-	case "origin.table.save-csv":
-		tableValue, err := e.input(node, "table", map[string]bool{})
-		if err != nil {
-			return e.fail(node, err)
-		}
-		table, err := asRuntimeTable(tableValue)
-		if err != nil {
-			return e.fail(node, err)
-		}
-		fileValue, err := e.input(node, "file", map[string]bool{})
-		if err != nil {
-			return e.fail(node, err)
-		}
-		if err := writeCSVTable(fmt.Sprint(fileValue), table); err != nil {
-			return e.fail(node, err)
-		}
-		e.transient[node.ID] = map[string]interface{}{"table": table}
-	case "origin.table.row-count":
-		value, err := e.input(node, "table", map[string]bool{})
-		if err != nil {
-			return e.fail(node, err)
-		}
-		table, err := asRuntimeTable(value)
-		if err != nil {
-			return e.fail(node, err)
-		}
-		e.transient[node.ID] = map[string]interface{}{"count": len(table.Rows)}
-	case "origin.table.headers":
-		value, err := e.input(node, "table", map[string]bool{})
-		if err != nil {
-			return e.fail(node, err)
-		}
-		table, err := asRuntimeTable(value)
-		if err != nil {
-			return e.fail(node, err)
-		}
-		e.transient[node.ID] = map[string]interface{}{"headers": stringsToInterfaces(table.Columns)}
-	case "origin.table.merge":
-		leftValue, err := e.input(node, "left", map[string]bool{})
-		if err != nil {
-			return e.fail(node, err)
-		}
-		rightValue, err := e.input(node, "right", map[string]bool{})
-		if err != nil {
-			return e.fail(node, err)
-		}
-		keyValue, _ := e.input(node, "key", map[string]bool{})
-		merged, err := mergeTables(leftValue, rightValue, fmt.Sprint(keyValue))
-		if err != nil {
-			return e.fail(node, err)
-		}
-		e.transient[node.ID] = map[string]interface{}{"table": merged}
-	case "origin.table.select-columns":
-		tableValue, err := e.input(node, "table", map[string]bool{})
-		if err != nil {
-			return e.fail(node, err)
-		}
-		columnsValue, err := e.input(node, "columns", map[string]bool{})
-		if err != nil {
-			return e.fail(node, err)
-		}
-		table, err := selectTableColumns(tableValue, interfaceStrings(asSlice(columnsValue)))
-		if err != nil {
-			return e.fail(node, err)
-		}
-		e.transient[node.ID] = map[string]interface{}{"table": table}
-	case "origin.table.print":
-		tableValue, err := e.input(node, "table", map[string]bool{})
-		if err != nil {
-			return e.fail(node, err)
-		}
-		table, err := asRuntimeTable(tableValue)
-		if err != nil {
-			return e.fail(node, err)
-		}
-		e.transient[node.ID] = map[string]interface{}{"table": table}
-		e.results = append(e.results, map[string]interface{}{"kind": "table", "nodeId": node.ID, "table": table})
-		e.log("info", fmt.Sprintf("Table: %d rows x %d columns", len(table.Rows), len(table.Columns)), node.ID)
-	case "origin.table.sort":
-		tableValue, err := e.input(node, "table", map[string]bool{})
-		if err != nil {
-			return e.fail(node, err)
-		}
-		columnValue, _ := e.input(node, "column", map[string]bool{})
-		ascendingValue, _ := e.input(node, "ascending", map[string]bool{})
-		table, err := sortTable(tableValue, fmt.Sprint(columnValue), asBool(ascendingValue))
-		if err != nil {
-			return e.fail(node, err)
-		}
-		e.transient[node.ID] = map[string]interface{}{"table": table}
-	case "origin.table.filter-equal":
-		tableValue, err := e.input(node, "table", map[string]bool{})
-		if err != nil {
-			return e.fail(node, err)
-		}
-		columnValue, _ := e.input(node, "column", map[string]bool{})
-		matchValue, err := e.input(node, "value", map[string]bool{})
-		if err != nil {
-			return e.fail(node, err)
-		}
-		table, err := filterTableEqual(tableValue, fmt.Sprint(columnValue), matchValue)
-		if err != nil {
-			return e.fail(node, err)
-		}
-		e.transient[node.ID] = map[string]interface{}{"table": table}
-	case "origin.table.rename-column":
-		tableValue, err := e.input(node, "table", map[string]bool{})
-		if err != nil {
-			return e.fail(node, err)
-		}
-		fromValue, _ := e.input(node, "from", map[string]bool{})
-		toValue, _ := e.input(node, "to", map[string]bool{})
-		table, err := renameTableColumn(tableValue, fmt.Sprint(fromValue), fmt.Sprint(toValue))
-		if err != nil {
-			return e.fail(node, err)
-		}
-		e.transient[node.ID] = map[string]interface{}{"table": table}
-	case "origin.table.drop-columns":
-		tableValue, err := e.input(node, "table", map[string]bool{})
-		if err != nil {
-			return e.fail(node, err)
-		}
-		columnsValue, err := e.input(node, "columns", map[string]bool{})
-		if err != nil {
-			return e.fail(node, err)
-		}
-		table, err := dropTableColumns(tableValue, interfaceStrings(asSlice(columnsValue)))
-		if err != nil {
-			return e.fail(node, err)
-		}
-		e.transient[node.ID] = map[string]interface{}{"table": table}
-	case "origin.table.fill-empty":
-		tableValue, err := e.input(node, "table", map[string]bool{})
-		if err != nil {
-			return e.fail(node, err)
-		}
-		replacement, err := e.input(node, "value", map[string]bool{})
-		if err != nil {
-			return e.fail(node, err)
-		}
-		table, err := fillEmptyTableCells(tableValue, replacement)
-		if err != nil {
-			return e.fail(node, err)
-		}
-		e.transient[node.ID] = map[string]interface{}{"table": table}
 	case "origin.string.split":
 		textValue, err := e.input(node, "text", map[string]bool{})
 		if err != nil {
@@ -560,19 +335,6 @@ func (e *graphExecutor) runNode(nodeID string) error {
 			return e.fail(node, err)
 		}
 		e.transient[node.ID] = map[string]interface{}{"valid": true, "result": fmt.Sprint(value)}
-	case "origin.dictionary.set":
-		dictionaryValue, err := e.input(node, "dictionary", map[string]bool{})
-		if err != nil {
-			return e.fail(node, err)
-		}
-		keyValue, _ := e.input(node, "key", map[string]bool{})
-		value, err := e.input(node, "value", map[string]bool{})
-		if err != nil {
-			return e.fail(node, err)
-		}
-		dictionary := asDictionary(dictionaryValue)
-		dictionary[fmt.Sprint(keyValue)] = cloneValue(value)
-		e.transient[node.ID] = map[string]interface{}{"dictionary": dictionary}
 	case "origin.action.print":
 		value, err := e.input(node, "value", map[string]bool{})
 		if err != nil {
@@ -681,8 +443,6 @@ func (e *graphExecutor) output(nodeID, key string, visiting map[string]bool) (in
 		return cloneValue(e.variables[node.Properties.VariableID]), nil
 	case "origin.variable.set":
 		return input("value")
-	case "origin.io.file-path", "origin.io.save-file-path":
-		return input("path")
 	case "origin.literal.string":
 		return input("value")
 	case "origin.compare.greater-integer":
@@ -804,47 +564,6 @@ func (e *graphExecutor) output(nodeID, key string, visiting map[string]bool) (in
 			return nil, err
 		}
 		return append(asSlice(items), cloneValue(value)), nil
-	case "origin.dictionary.size":
-		value, err := input("dictionary")
-		return len(asDictionary(value)), err
-	case "origin.dictionary.keys":
-		value, err := input("dictionary")
-		if err != nil {
-			return nil, err
-		}
-		dictionary := asDictionary(value)
-		keys := make([]string, 0, len(dictionary))
-		for key := range dictionary {
-			keys = append(keys, key)
-		}
-		sort.Strings(keys)
-		return stringsToInterfaces(keys), nil
-	case "origin.table.get-column":
-		tableValue, err := input("table")
-		if err != nil {
-			return nil, err
-		}
-		columnValue, err := input("column")
-		if err != nil {
-			return nil, err
-		}
-		table, err := asRuntimeTable(tableValue)
-		if err != nil {
-			return nil, err
-		}
-		column := indexOf(table.Columns, fmt.Sprint(columnValue))
-		if column < 0 {
-			return nil, fmt.Errorf("table column %q does not exist", columnValue)
-		}
-		values := make([]interface{}, 0, len(table.Rows))
-		for _, row := range table.Rows {
-			if column < len(row) {
-				values = append(values, cloneValue(row[column]))
-			} else {
-				values = append(values, nil)
-			}
-		}
-		return values, nil
 	}
 	return nil, fmt.Errorf("node %s has no runtime output %s", node.TypeID, key)
 }
@@ -933,356 +652,12 @@ func asSlice(value interface{}) []interface{} {
 	return []interface{}{}
 }
 
-func asDictionary(value interface{}) map[string]interface{} {
-	if value == nil {
-		return map[string]interface{}{}
-	}
-	if dictionary, ok := cloneValue(value).(map[string]interface{}); ok {
-		return dictionary
-	}
-	return map[string]interface{}{}
-}
-
-func asRuntimeTable(value interface{}) (RuntimeTable, error) {
-	if table, ok := value.(RuntimeTable); ok {
-		return table, nil
-	}
-	data, err := json.Marshal(value)
-	if err != nil {
-		return RuntimeTable{}, err
-	}
-	var table RuntimeTable
-	if err := json.Unmarshal(data, &table); err != nil {
-		return RuntimeTable{}, errors.New("value is not a table")
-	}
-	if table.Columns == nil || table.Rows == nil {
-		return RuntimeTable{}, errors.New("value is not a table")
-	}
-	return table, nil
-}
-
-func readCSVTable(path, delimiter string, header bool) (RuntimeTable, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return RuntimeTable{}, fmt.Errorf("open CSV file: %w", err)
-	}
-	defer file.Close()
-	reader := csv.NewReader(file)
-	if delimiter != "" {
-		reader.Comma = []rune(delimiter)[0]
-	}
-	records, err := reader.ReadAll()
-	if err != nil {
-		return RuntimeTable{}, fmt.Errorf("read CSV file: %w", err)
-	}
-	table := RuntimeTable{Columns: []string{}, Rows: [][]interface{}{}}
-	if len(records) == 0 {
-		return table, nil
-	}
-	start := 0
-	if header {
-		table.Columns = append(table.Columns, records[0]...)
-		start = 1
-	} else {
-		for index := range records[0] {
-			table.Columns = append(table.Columns, fmt.Sprintf("Column %d", index+1))
-		}
-	}
-	for _, record := range records[start:] {
-		row := make([]interface{}, len(record))
-		for index, item := range record {
-			row[index] = item
-		}
-		table.Rows = append(table.Rows, row)
-	}
-	return table, nil
-}
-
-func writeCSVTable(path string, table RuntimeTable) error {
-	file, err := os.Create(path)
-	if err != nil {
-		return fmt.Errorf("create CSV file: %w", err)
-	}
-	defer file.Close()
-	writer := csv.NewWriter(file)
-	if len(table.Columns) > 0 {
-		if err := writer.Write(table.Columns); err != nil {
-			return fmt.Errorf("write CSV header: %w", err)
-		}
-	}
-	for _, row := range table.Rows {
-		record := make([]string, len(row))
-		for index, item := range row {
-			record[index] = fmt.Sprint(item)
-		}
-		if err := writer.Write(record); err != nil {
-			return fmt.Errorf("write CSV row: %w", err)
-		}
-	}
-	writer.Flush()
-	if err := writer.Error(); err != nil {
-		return fmt.Errorf("write CSV file: %w", err)
-	}
-	return nil
-}
-
-func mergeTables(leftValue, rightValue interface{}, key string) (RuntimeTable, error) {
-	left, err := asRuntimeTable(leftValue)
-	if err != nil {
-		return RuntimeTable{}, fmt.Errorf("left table: %w", err)
-	}
-	right, err := asRuntimeTable(rightValue)
-	if err != nil {
-		return RuntimeTable{}, fmt.Errorf("right table: %w", err)
-	}
-	leftKey, rightKey := indexOf(left.Columns, key), indexOf(right.Columns, key)
-	if leftKey < 0 || rightKey < 0 {
-		return RuntimeTable{}, fmt.Errorf("merge key %q is missing from one of the tables", key)
-	}
-	columns := append([]string(nil), left.Columns...)
-	rightColumns := make([]int, 0, len(right.Columns)-1)
-	for index, column := range right.Columns {
-		if index == rightKey {
-			continue
-		}
-		name := column
-		if indexOf(columns, name) >= 0 {
-			name += "_right"
-		}
-		columns = append(columns, name)
-		rightColumns = append(rightColumns, index)
-	}
-	rightRows := map[string][][]interface{}{}
-	for _, row := range right.Rows {
-		if rightKey < len(row) {
-			rightRows[fmt.Sprint(row[rightKey])] = append(rightRows[fmt.Sprint(row[rightKey])], row)
-		}
-	}
-	result := RuntimeTable{Columns: columns, Rows: [][]interface{}{}}
-	for _, leftRow := range left.Rows {
-		if leftKey >= len(leftRow) {
-			continue
-		}
-		for _, rightRow := range rightRows[fmt.Sprint(leftRow[leftKey])] {
-			row := append([]interface{}{}, leftRow...)
-			for _, index := range rightColumns {
-				if index < len(rightRow) {
-					row = append(row, rightRow[index])
-				} else {
-					row = append(row, nil)
-				}
-			}
-			result.Rows = append(result.Rows, row)
-		}
-	}
-	return result, nil
-}
-
-func indexOf(items []string, value string) int {
-	for index, item := range items {
-		if item == value {
-			return index
-		}
-	}
-	return -1
-}
-
 func stringsToInterfaces(items []string) []interface{} {
 	result := make([]interface{}, len(items))
 	for index, item := range items {
 		result[index] = item
 	}
 	return result
-}
-
-func interfaceStrings(items []interface{}) []string {
-	result := make([]string, len(items))
-	for index, item := range items {
-		result[index] = fmt.Sprint(item)
-	}
-	return result
-}
-
-func tableRowDictionary(columns []string, row []interface{}) map[string]interface{} {
-	result := make(map[string]interface{}, len(columns))
-	for index, column := range columns {
-		if index < len(row) {
-			result[column] = cloneValue(row[index])
-		} else {
-			result[column] = nil
-		}
-	}
-	return result
-}
-
-func selectTableColumns(value interface{}, columns []string) (RuntimeTable, error) {
-	table, err := asRuntimeTable(value)
-	if err != nil {
-		return RuntimeTable{}, err
-	}
-	indexes := make([]int, len(columns))
-	for index, column := range columns {
-		indexes[index] = indexOf(table.Columns, column)
-		if indexes[index] < 0 {
-			return RuntimeTable{}, fmt.Errorf("table column %q does not exist", column)
-		}
-	}
-	result := RuntimeTable{Columns: append([]string(nil), columns...), Rows: make([][]interface{}, 0, len(table.Rows))}
-	for _, source := range table.Rows {
-		row := make([]interface{}, len(indexes))
-		for index, sourceIndex := range indexes {
-			if sourceIndex < len(source) {
-				row[index] = cloneValue(source[sourceIndex])
-			}
-		}
-		result.Rows = append(result.Rows, row)
-	}
-	return result, nil
-}
-
-func dropTableColumns(value interface{}, columns []string) (RuntimeTable, error) {
-	table, err := asRuntimeTable(value)
-	if err != nil {
-		return RuntimeTable{}, err
-	}
-	dropped := make(map[string]bool, len(columns))
-	for _, column := range columns {
-		if indexOf(table.Columns, column) < 0 {
-			return RuntimeTable{}, fmt.Errorf("table column %q does not exist", column)
-		}
-		dropped[column] = true
-	}
-	kept := make([]string, 0, len(table.Columns)-len(columns))
-	for _, column := range table.Columns {
-		if !dropped[column] {
-			kept = append(kept, column)
-		}
-	}
-	return selectTableColumns(table, kept)
-}
-
-func renameTableColumn(value interface{}, from, to string) (RuntimeTable, error) {
-	table, err := asRuntimeTable(value)
-	if err != nil {
-		return RuntimeTable{}, err
-	}
-	index := indexOf(table.Columns, from)
-	if index < 0 {
-		return RuntimeTable{}, fmt.Errorf("table column %q does not exist", from)
-	}
-	if strings.TrimSpace(to) == "" {
-		return RuntimeTable{}, errors.New("new table column name is empty")
-	}
-	if existing := indexOf(table.Columns, to); existing >= 0 && existing != index {
-		return RuntimeTable{}, fmt.Errorf("table column %q already exists", to)
-	}
-	table.Columns[index] = to
-	return table, nil
-}
-
-func filterTableEqual(value interface{}, column string, match interface{}) (RuntimeTable, error) {
-	table, err := asRuntimeTable(value)
-	if err != nil {
-		return RuntimeTable{}, err
-	}
-	index := indexOf(table.Columns, column)
-	if index < 0 {
-		return RuntimeTable{}, fmt.Errorf("table column %q does not exist", column)
-	}
-	result := RuntimeTable{Columns: append([]string(nil), table.Columns...), Rows: [][]interface{}{}}
-	for _, row := range table.Rows {
-		if index < len(row) && tableValuesEqual(row[index], match) {
-			result.Rows = append(result.Rows, append([]interface{}(nil), row...))
-		}
-	}
-	return result, nil
-}
-
-func sortTable(value interface{}, column string, ascending bool) (RuntimeTable, error) {
-	table, err := asRuntimeTable(value)
-	if err != nil {
-		return RuntimeTable{}, err
-	}
-	index := indexOf(table.Columns, column)
-	if index < 0 {
-		return RuntimeTable{}, fmt.Errorf("table column %q does not exist", column)
-	}
-	sort.SliceStable(table.Rows, func(left, right int) bool {
-		comparison := compareTableValues(tableCell(table.Rows[left], index), tableCell(table.Rows[right], index))
-		if ascending {
-			return comparison < 0
-		}
-		return comparison > 0
-	})
-	return table, nil
-}
-
-func fillEmptyTableCells(value, replacement interface{}) (RuntimeTable, error) {
-	table, err := asRuntimeTable(value)
-	if err != nil {
-		return RuntimeTable{}, err
-	}
-	for rowIndex, row := range table.Rows {
-		if len(row) < len(table.Columns) {
-			row = append(row, make([]interface{}, len(table.Columns)-len(row))...)
-			table.Rows[rowIndex] = row
-		}
-		for columnIndex, cell := range row {
-			if cell == nil || strings.TrimSpace(fmt.Sprint(cell)) == "" {
-				row[columnIndex] = cloneValue(replacement)
-			}
-		}
-	}
-	return table, nil
-}
-
-func tableCell(row []interface{}, index int) interface{} {
-	if index >= 0 && index < len(row) {
-		return row[index]
-	}
-	return nil
-}
-
-func tableValuesEqual(left, right interface{}) bool {
-	leftNumber, leftOK := tableNumber(left)
-	rightNumber, rightOK := tableNumber(right)
-	if leftOK && rightOK {
-		return leftNumber == rightNumber
-	}
-	return fmt.Sprint(left) == fmt.Sprint(right)
-}
-
-func compareTableValues(left, right interface{}) int {
-	leftNumber, leftOK := tableNumber(left)
-	rightNumber, rightOK := tableNumber(right)
-	if leftOK && rightOK {
-		if leftNumber < rightNumber {
-			return -1
-		}
-		if leftNumber > rightNumber {
-			return 1
-		}
-		return 0
-	}
-	return strings.Compare(strings.ToLower(fmt.Sprint(left)), strings.ToLower(fmt.Sprint(right)))
-}
-
-func tableNumber(value interface{}) (float64, bool) {
-	switch item := value.(type) {
-	case int:
-		return float64(item), true
-	case int64:
-		return float64(item), true
-	case float64:
-		return item, true
-	case json.Number:
-		number, err := item.Float64()
-		return number, err == nil
-	case string:
-		number, err := strconv.ParseFloat(strings.TrimSpace(item), 64)
-		return number, err == nil
-	}
-	return 0, false
 }
 
 func suffixNumber(value string) int {

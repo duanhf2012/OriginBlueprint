@@ -218,3 +218,32 @@ func TestAllNativeDocumentNodeSpecsCompile(t *testing.T) {
 		})
 	}
 }
+
+func TestRemovedFileTableDictionaryDocumentNodesAreUnsupported(t *testing.T) {
+	removedTypeIDs := []string{
+		"origin.io.file-path",
+		"origin.io.read-text",
+		"origin.io.save-text",
+		"origin.table.read-csv",
+		"origin.table.preview",
+		"origin.dictionary.set",
+		"origin.flow.foreach-table-row",
+	}
+	for _, typeID := range removedTypeIDs {
+		if _, ok := documentNodeSpecs[typeID]; ok {
+			t.Fatalf("documentNodeSpecs still contains removed node %s", typeID)
+		}
+	}
+
+	registry := NewRegistry()
+	for _, className := range []string{"FilePath", "ReadText", "TablePreview", "DictionarySet", "ForeachTableRow"} {
+		t.Run(className, func(t *testing.T) {
+			_, err := CompileGraph(registry, GraphConfig{
+				Nodes: []NodeConfig{{ID: "node", Class: className}},
+			})
+			if err == nil {
+				t.Fatalf("CompileGraph unexpectedly accepted removed class %s", className)
+			}
+		})
+	}
+}

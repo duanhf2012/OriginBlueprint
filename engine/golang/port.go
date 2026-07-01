@@ -20,12 +20,6 @@ type PortArray []ArrayData
 // PortAny stores native document values that do not map to legacy scalar ports.
 type PortAny = any
 
-// TableData is the in-memory representation used by native table nodes.
-type TableData struct {
-	Headers []string
-	Rows    []map[string]any
-}
-
 // ArrayData mirrors the old blueprint array cell shape.
 //
 // Only one field is expected to be meaningful for a given item.
@@ -337,29 +331,9 @@ func cloneAnyValue(value any) any {
 			clone[key] = cloneAnyValue(item)
 		}
 		return clone
-	case TableData:
-		return cloneTableData(v)
-	case *TableData:
-		if v == nil {
-			return (*TableData)(nil)
-		}
-		clone := cloneTableData(*v)
-		return &clone
 	default:
 		return value
 	}
-}
-
-func cloneTableData(table TableData) TableData {
-	clone := TableData{Headers: append([]string(nil), table.Headers...), Rows: make([]map[string]any, 0, len(table.Rows))}
-	for _, row := range table.Rows {
-		copied := make(map[string]any, len(row))
-		for key, value := range row {
-			copied[key] = cloneAnyValue(value)
-		}
-		clone.Rows = append(clone.Rows, copied)
-	}
-	return clone
 }
 
 func asPortInt(value any) (PortInt, bool) {

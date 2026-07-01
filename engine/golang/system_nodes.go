@@ -33,14 +33,8 @@ func BuiltinExecNodeFactories() []func() IExecNode {
 		NewExecNodeFactory[SleepNode, *SleepNode](),
 		NewExecNodeFactory[LiteralString, *LiteralString](), NewExecNodeFactory[CastIntegerString, *CastIntegerString](), NewExecNodeFactory[CastFloatString, *CastFloatString](), NewExecNodeFactory[CastAnyString, *CastAnyString](),
 		NewExecNodeFactory[AddFloat, *AddFloat](), NewExecNodeFactory[SubFloat, *SubFloat](), NewExecNodeFactory[MulFloat, *MulFloat](), NewExecNodeFactory[DivFloat, *DivFloat](), NewExecNodeFactory[CompareGreaterInteger, *CompareGreaterInteger](),
-		NewExecNodeFactory[FilePath, *FilePath](), NewExecNodeFactory[SaveFilePath, *SaveFilePath](), NewExecNodeFactory[ReadText, *ReadText](), NewExecNodeFactory[SaveText, *SaveText](),
 		NewExecNodeFactory[StringSplit, *StringSplit](), NewExecNodeFactory[GetArrayAny, *GetArrayAny](),
-		NewExecNodeFactory[WhileNode, *WhileNode](), NewExecNodeFactory[ForLoopBreak, *ForLoopBreak](), NewExecNodeFactory[ForeachArray, *ForeachArray](), NewExecNodeFactory[ForeachTableRow, *ForeachTableRow](),
-		NewExecNodeFactory[DictionarySet, *DictionarySet](), NewExecNodeFactory[DictionarySize, *DictionarySize](), NewExecNodeFactory[DictionaryKeys, *DictionaryKeys](),
-		NewExecNodeFactory[ReadCSV, *ReadCSV](), NewExecNodeFactory[SaveCSV, *SaveCSV](), NewExecNodeFactory[TableRowCount, *TableRowCount](), NewExecNodeFactory[TableHeaders, *TableHeaders](),
-		NewExecNodeFactory[TableMerge, *TableMerge](), NewExecNodeFactory[TableSelectColumns, *TableSelectColumns](), NewExecNodeFactory[TablePrint, *TablePrint](), NewExecNodeFactory[TableSort, *TableSort](),
-		NewExecNodeFactory[TableFilterEqual, *TableFilterEqual](), NewExecNodeFactory[TableRenameColumn, *TableRenameColumn](), NewExecNodeFactory[TableDropColumns, *TableDropColumns](), NewExecNodeFactory[TableFillEmpty, *TableFillEmpty](),
-		NewExecNodeFactory[TableGetColumn, *TableGetColumn](), NewExecNodeFactory[TablePreview, *TablePreview](),
+		NewExecNodeFactory[WhileNode, *WhileNode](), NewExecNodeFactory[ForLoopBreak, *ForLoopBreak](), NewExecNodeFactory[ForeachArray, *ForeachArray](),
 	}
 }
 
@@ -530,7 +524,9 @@ func (n *CreateTimer) Exec() (int, error) {
 			n.graph.module.CancelTimerId(graphID, &id)
 		})
 		if n.graph.instance != nil {
+			n.graph.instance.timerMu.Lock()
 			n.graph.instance.timers[timerID] = struct{}{}
+			n.graph.instance.timerMu.Unlock()
 		}
 	} else {
 		timer := time.AfterFunc(time.Duration(delay)*time.Millisecond, func() {})
@@ -548,7 +544,9 @@ func (n *CloseTimer) Exec() (int, error) {
 	if n.graph.module != nil {
 		n.graph.module.CancelTimerId(n.graph.graphID, &id)
 		if n.graph.instance != nil {
+			n.graph.instance.timerMu.Lock()
 			delete(n.graph.instance.timers, id)
+			n.graph.instance.timerMu.Unlock()
 		}
 		return 0, nil
 	}

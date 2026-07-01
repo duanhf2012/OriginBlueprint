@@ -47,6 +47,10 @@ func TestFunctionCallReturnsValuesToCaller(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compile main failed: %v", err)
 	}
+	callNode := mainGraph.Entrances[1].Next[0]
+	if callNode.FunctionGraph != functionGraph {
+		t.Fatalf("FunctionCall was not pre-resolved at compile time")
+	}
 
 	graph := NewGraph(mainGraph)
 	if _, err := graph.Do(1); err != nil {
@@ -58,10 +62,9 @@ func TestFunctionCallReturnsValuesToCaller(t *testing.T) {
 }
 
 func TestFunctionCallContinuesAfterAsyncFunctionReturn(t *testing.T) {
-	var recorder *testRecorder
+	recorder := &testRecorder{}
 	registry := NewRegistry()
 	registerFunctionTestNodes(registry, func() IExecNode {
-		recorder = &testRecorder{}
 		return recorder
 	})
 
@@ -102,17 +105,18 @@ func TestFunctionCallContinuesAfterAsyncFunctionReturn(t *testing.T) {
 	if _, err := graph.Do(1); err != nil {
 		t.Fatalf("Do failed: %v", err)
 	}
-	if recorder != nil {
+	if len(recorder.snapshot()) != 0 {
 		t.Fatalf("recorder ran before async function returned")
 	}
 	deadline := time.Now().Add(200 * time.Millisecond)
 	for time.Now().Before(deadline) {
-		if recorder != nil && len(recorder.values) == 1 && recorder.values[0] == 9 {
+		values := recorder.snapshot()
+		if len(values) == 1 && values[0] == 9 {
 			return
 		}
 		time.Sleep(time.Millisecond)
 	}
-	t.Fatalf("recorder values = %#v, want [9]", recorder)
+	t.Fatalf("recorder values = %#v, want [9]", recorder.snapshot())
 }
 
 func TestFunctionCallDepthLimitStopsRecursion(t *testing.T) {

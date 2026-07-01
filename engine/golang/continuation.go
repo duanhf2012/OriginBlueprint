@@ -59,7 +59,7 @@ func (c *Continuation) Resume(outPortArgs ...any) error {
 		return err
 	}
 	c.resumed = true
-	c.graph.context[c.node.ID] = c.ctx
+	c.graph.setContext(c.node, c.ctx)
 	nextIndex := c.nextIndex
 	c.mu.Unlock()
 

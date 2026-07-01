@@ -114,6 +114,7 @@ func ParseGraphConfigJSON(data []byte) (GraphConfig, error) {
 // lives in GraphInstance and per-Do transient context lives in Graph.
 func CompileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error) {
 	nodes := make(map[string]*ExecNode, len(config.Nodes))
+	nodeOrder := make([]*ExecNode, 0, len(config.Nodes))
 	entrances := map[int64]*ExecNode{}
 	variables := make(map[string]VariableConfig, len(config.Variables))
 	for _, variable := range config.Variables {
@@ -136,13 +137,22 @@ func CompileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error
 			nodeName = definition.Name
 		}
 
+		defaultInputs, defaultInputSet, err := compileDefaultInputs(definition.InPorts, nodeConfig.PortDefault)
+		if err != nil {
+			return nil, fmt.Errorf("node %s defaults: %w", nodeConfig.ID, err)
+		}
+
 		node := NewExecNode(nodeConfig.ID, definition)
-		node.DefaultIn = nodeConfig.PortDefault
+		node.Index = len(nodeOrder)
+		node.DefaultInputs = defaultInputs
+		node.DefaultInputSet = defaultInputSet
 		node.VariableName = variableNameFromClass(nodeConfig.Class)
 		node.FunctionID = nodeConfig.FunctionID
 		node.FunctionName = nodeConfig.FunctionName
+		node.FunctionGraph = resolveFunctionGraph(config.Functions, nodeConfig.FunctionID, nodeConfig.FunctionName)
 		node.IsEntrance = isEntrance
 		nodes[nodeConfig.ID] = node
+		nodeOrder = append(nodeOrder, node)
 		if isEntrance {
 			entrances[entranceID] = node
 		}
@@ -161,6 +171,7 @@ func CompileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error
 		if source.isOutPortExec(edge.SourcePortID) {
 			source.ensureNext(edge.SourcePortID)
 			source.Next[edge.SourcePortID] = dest
+			source.NextInPort[edge.SourcePortID] = edge.DesPortID
 			dest.BeConnect = true
 			continue
 		}
@@ -171,7 +182,46 @@ func CompileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error
 		dest.PreInPort[edge.DesPortID] = &PrePortNode{Node: source, OutPortID: edge.SourcePortID}
 	}
 
-	return &CompiledGraph{Entrances: entrances, Variables: variables, Functions: config.Functions}, nil
+	return &CompiledGraph{Entrances: entrances, Variables: variables, Functions: config.Functions, NodeCount: len(nodeOrder)}, nil
+}
+
+func resolveFunctionGraph(functions map[string]*CompiledGraph, functionID string, functionName string) *CompiledGraph {
+	if len(functions) == 0 {
+		return nil
+	}
+	if functionID != "" {
+		if graph := functions[functionID]; graph != nil {
+			return graph
+		}
+	}
+	if functionName != "" {
+		return functions[functionName]
+	}
+	return nil
+}
+
+func compileDefaultInputs(inPorts []IPort, defaults map[int]any) ([]IPort, []bool, error) {
+	if len(inPorts) == 0 || len(defaults) == 0 {
+		return nil, nil, nil
+	}
+	defaultInputs := make([]IPort, len(inPorts))
+	defaultInputSet := make([]bool, len(inPorts))
+	for index, value := range defaults {
+		if index < 0 || index >= len(inPorts) {
+			continue
+		}
+		port := inPorts[index]
+		if port == nil || port.IsPortExec() {
+			continue
+		}
+		clone := port.Clone()
+		if err := clone.setAnyValue(value); err != nil {
+			return nil, nil, fmt.Errorf("input port %d: %w", index, err)
+		}
+		defaultInputs[index] = clone
+		defaultInputSet[index] = true
+	}
+	return defaultInputs, defaultInputSet, nil
 }
 
 // dynamicDefinition creates definitions for nodes whose shape is graph-specific.
@@ -259,5 +309,6 @@ func (n *ExecNode) isOutPortExec(index int) bool {
 func (n *ExecNode) ensureNext(index int) {
 	for len(n.Next) <= index {
 		n.Next = append(n.Next, nil)
+		n.NextInPort = append(n.NextInPort, 0)
 	}
 }

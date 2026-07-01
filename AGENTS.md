@@ -1,100 +1,103 @@
-# OriginBlueprint Agent Guide
+# OriginBlueprint Agent 指南
 
-This file is the first stop for AI coding agents working on this project.
+这是 AI 编码 agent 进入本项目后应优先阅读的文件。
 
-## Project Relationship
+## 项目关系
 
-- `OriginBlueprint/` is the active project. Make product and code changes here.
-- `../OriginNodeEditor/` is the legacy Python/PyQt editor used as compatibility reference only.
-- Do not modify `../OriginNodeEditor/` unless the user explicitly asks for legacy-editor changes.
-- Online files produced by the old editor are legacy `.vgf` JSON graphs. The new editor must continue to open, display, edit, validate where possible, and export them without silently losing content.
+- `OriginBlueprint/` 是当前活跃项目。产品和代码修改都应在这里完成。
+- 不要假设 clone 后存在任何 sibling 旧项目目录；本仓库必须独立可维护。
+- 历史线上文件是 legacy `.vgf` JSON 蓝图。新编辑器必须继续支持打开、显示、编辑、尽可能校验，并在导入导出时避免静默丢失内容。
 
-## Stack
+## 技术栈
 
-- Desktop shell: Go + Wails v2.
-- Frontend: Vue 3 + TypeScript + Vite.
-- Graph editor: Rete.js v2.
-- Node definitions: JSON files under `nodes/`.
-- Runtime execution: Go, using serialized `GraphDocument` snapshots.
+- 桌面壳：Go + Wails v2。
+- 前端：Vue 3 + TypeScript + Vite。
+- 图编辑器：Rete.js v2。
+- 节点定义：`nodes/` 下的 JSON 文件。
+- 运行时执行：Go，基于序列化后的 `GraphDocument` 快照。
 
-## Read Before Editing
+## 修改前必读
 
-Read these docs before making non-trivial changes:
+做非 trivial 修改前，先阅读这些文档：
 
-- `docs/AI_PROJECT_CONTEXT_ZH.md`: fast project map for agents.
-- `docs/LEGACY_COMPATIBILITY_ZH.md`: `.vgf` and old-node compatibility rules.
-- `docs/ARCHITECTURE.md`: Go/frontend ownership boundary.
-- `docs/NODE_JSON_FORMAT_ZH.md`: node JSON format.
-- `docs/ORIGIN_NODE_EDITOR_PARITY.md`: parity checklist with the old editor.
+- `docs/AI_PROJECT_CONTEXT_ZH.md`：给 agent 的项目速览。
+- `docs/LEGACY_COMPATIBILITY_ZH.md`：`.vgf` 和旧节点兼容规则。
+- `docs/ARCHITECTURE.md`：Go 和前端的职责边界。
+- `docs/NODE_JSON_FORMAT_ZH.md`：节点 JSON 格式。
+- `docs/ORIGIN_NODE_EDITOR_PARITY.md`：历史功能和兼容性清单。
+- `docs/BLUEPRINT_ENGINE_TEST_MATRIX_ZH.md`：Go engine 当前测试、压测和 race 验证矩阵。
+- `docs/CODEX_BLUEPRINT_ENGINE_RULES_ZH.md`：Go 蓝图引擎的 Codex 维护规则。
 
-## Core Architecture Rules
+如果修改 `engine/golang/`，还必须阅读 `engine/golang/AGENTS.md`。
 
-- `GraphDocument` is the durable interchange contract between Go and TypeScript.
-- Go owns file persistence, migration, validation, runtime execution, workspace access, and Wails/platform services.
-- TypeScript owns Rete editor construction, canvas interaction, visual state, node rendering, menus, selection, and pointer/keyboard gestures.
-- Do not serialize Rete internals as the saved file format.
-- Do not call Go on every animation frame, pointer move, zoom step, or node drag update. Call Go only at transaction boundaries such as save, validate, execute, import/export, or completed edits.
+## 核心架构规则
 
-## Compatibility Rules
+- `GraphDocument` 是 Go 和 TypeScript 之间持久化交换的契约。
+- Go 负责文件持久化、迁移、校验、运行时执行、workspace 访问和 Wails/platform 服务。
+- TypeScript 负责 Rete 编辑器构建、画布交互、视觉状态、节点渲染、菜单、选择、鼠标和键盘手势。
+- 不要把 Rete 内部结构序列化为保存文件格式。
+- 不要在每一帧动画、鼠标移动、缩放步骤或节点拖动更新时调用 Go。只在保存、校验、执行、导入导出或完成编辑等事务边界调用 Go。
 
-- Preserve old `.vgf` graph content. Unknown old nodes or edges must be retained in legacy state rather than discarded.
-- Known legacy node classes map to current `origin.*` type IDs in `legacy.go` and `frontend/src/editor/runtimeNodeSchemas.ts`.
-- If you add or rename a node type, update both migration/export logic and frontend schema conversion when compatibility is involved.
-- If a new node must be usable by the old external parser, add an explicit export mapping to a legacy class.
-- Treat `.vgf` round-trip behavior as high risk. Add tests for import, displayable document shape, validation, and legacy export.
+## 兼容性规则
 
-## Important Files
+- 保留旧 `.vgf` 图内容。未知旧节点或边必须进入 legacy state，而不是丢弃。
+- 已知 legacy 节点类在 `legacy.go` 和 `frontend/src/editor/runtimeNodeSchemas.ts` 中映射到当前 `origin.*` type id。
+- 如果新增或重命名节点类型，涉及兼容性时必须同步更新迁移、导出逻辑和前端 schema 转换。
+- 如果新节点必须能被旧外部解析器使用，需要增加明确的 legacy class 导出映射。
+- `.vgf` round-trip 行为风险很高。相关修改必须增加导入、可显示文档形态、校验和 legacy 导出的测试。
 
-- `graph.go`: `GraphDocument`, validation, stable node-port type table.
-- `legacy.go`: legacy `.vgf` migration and export.
-- `node_schemas.go`: runtime loading of `nodes/**/*.json`.
-- `execution.go`: Go runtime execution semantics.
-- `app.go`: Wails-facing file/workspace/platform services.
-- `frontend/src/platform.ts`: desktop/browser capability abstraction.
-- `frontend/src/App.vue`: app shell, tabs, open/save flow, node library loading.
-- `frontend/src/editor/createEditor.ts`: Rete editor, snapshot/restore, connections, groups, gestures.
-- `frontend/src/editor/nodeRegistry.ts`: node schema registration and node factory.
-- `frontend/src/editor/runtimeNodeSchemas.ts`: legacy JSON node definition conversion.
-- `frontend/src/editor/BlueprintNode.vue`: node visual layout.
-- `frontend/src/editor/BlueprintControl.vue`: inline controls.
+## 重要文件
 
-## Commands
+- `graph.go`：`GraphDocument`、校验、稳定的节点端口类型表。
+- `legacy.go`：legacy `.vgf` 迁移和导出。
+- `node_schemas.go`：运行时加载 `nodes/**/*.json`。
+- `execution.go`：Go 运行时执行语义。
+- `app.go`：Wails 暴露的文件、workspace 和 platform 服务。
+- `frontend/src/platform.ts`：桌面和浏览器能力适配层。
+- `frontend/src/App.vue`：应用壳、标签页、打开保存流程、节点库加载。
+- `frontend/src/editor/createEditor.ts`：Rete 编辑器、快照恢复、连线、分组和手势。
+- `frontend/src/editor/nodeRegistry.ts`：节点 schema 注册和节点工厂。
+- `frontend/src/editor/runtimeNodeSchemas.ts`：legacy JSON 节点定义转换。
+- `frontend/src/editor/BlueprintNode.vue`：节点视觉布局。
+- `frontend/src/editor/BlueprintControl.vue`：内联控件。
 
-Run from `OriginBlueprint/`:
+## 常用命令
+
+在 `OriginBlueprint/` 下运行：
 
 ```powershell
 go test ./...
 ```
 
-Run from `OriginBlueprint/frontend/`:
+在 `OriginBlueprint/frontend/` 下运行：
 
 ```powershell
 npm run build
 npm run test:layout
 ```
 
-Desktop development:
+桌面开发：
 
 ```powershell
 wails dev
 ```
 
-Build executable:
+构建可执行文件：
 
 ```powershell
 wails build
 ```
 
-## Testing Expectations
+## 测试要求
 
-- Business rules, migration, validation, execution, and file-format behavior need Go tests.
-- Frontend editor behavior should get focused tests when practical, plus manual/visual checks for pointer and layout changes.
-- Compatibility changes need round-trip tests against representative legacy `.vgf` files.
-- Before reporting completion, run the narrow tests for the touched area and at least the relevant build/test command.
+- 业务规则、迁移、校验、执行和文件格式行为需要 Go 测试。
+- 前端编辑器行为在可行时应补 focused tests，鼠标和布局变化还需要人工或视觉检查。
+- 兼容性修改需要用代表性的 legacy `.vgf` 文件做 round-trip 测试。
+- Go engine 并发修改需要运行 `go test -race ./engine/golang -count=1`；如果修改 facade 级并发，还要运行 `go test -race ./... -count=1`。
+- 汇报完成前，先运行被修改区域的窄测试，并至少运行相关 build/test 命令。
 
-## Known Caution Points
+## 已知注意点
 
-- Some Chinese text in old JSON/doc files may look garbled in terminals depending on encoding. Do not rewrite large JSON files just to normalize display unless the user asks.
-- The project root containing both `OriginBlueprint/` and `OriginNodeEditor/` may not be a git repository. Check before using git-based workflows.
-- Existing docs may mention `OriginNodeEditor_old`; in this workspace the sibling legacy directory is `OriginNodeEditor`.
-- Saving/export semantics around `.vgf` and `.obp` are compatibility-sensitive. Review `app.go`, `legacy.go`, and `docs/LEGACY_COMPATIBILITY_ZH.md` before changing them.
+- 某些旧 JSON 或旧文档里的中文在不同终端编码下可能显示为乱码。除非用户要求，不要只为了显示正常而重写大型 JSON。
+- 不要引用或依赖仓库外的旧项目目录；clone 本仓库后应能独立阅读、构建和维护。
+- `.vgf` 和 `.obp` 的保存、导出语义对兼容性敏感。修改前先看 `app.go`、`legacy.go` 和 `docs/LEGACY_COMPATIBILITY_ZH.md`。

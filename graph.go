@@ -300,12 +300,6 @@ var graphNodePorts = map[string]portDefinition{
 	"origin.debug.output": {
 		Inputs: map[string]string{"exec": "exec", "integer": "integer", "string": "string", "array": "array"}, Outputs: map[string]string{"exec": "exec"},
 	},
-	"origin.io.file-path": {
-		Inputs: map[string]string{"path": "string"}, Outputs: map[string]string{"file": "file"},
-	},
-	"origin.io.save-file-path": {
-		Inputs: map[string]string{"path": "string"}, Outputs: map[string]string{"file": "file"},
-	},
 	"origin.literal.string": {
 		Inputs: map[string]string{"value": "string"}, Outputs: map[string]string{"value": "string"},
 	},
@@ -330,59 +324,8 @@ var graphNodePorts = map[string]portDefinition{
 	"origin.flow.for-loop-break": {
 		Inputs: map[string]string{"exec": "exec", "start": "integer", "end": "integer", "break": "exec"}, Outputs: map[string]string{"body": "exec", "index": "integer", "completed": "exec"},
 	},
-	"origin.io.read-text": {
-		Inputs: map[string]string{"exec": "exec", "file": "file"}, Outputs: map[string]string{"exec": "exec", "text": "string", "error": "exec"},
-	},
-	"origin.io.save-text": {
-		Inputs: map[string]string{"exec": "exec", "file": "file", "text": "string"}, Outputs: map[string]string{"exec": "exec"},
-	},
-	"origin.table.read-csv": {
-		Inputs: map[string]string{"exec": "exec", "file": "file", "delimiter": "string", "header": "boolean"}, Outputs: map[string]string{"exec": "exec", "table": "table", "error": "exec"},
-	},
-	"origin.table.save-csv": {
-		Inputs: map[string]string{"exec": "exec", "table": "table", "file": "file"}, Outputs: map[string]string{"exec": "exec", "table": "table"},
-	},
-	"origin.table.row-count": {
-		Inputs: map[string]string{"exec": "exec", "table": "table"}, Outputs: map[string]string{"exec": "exec", "count": "integer"},
-	},
-	"origin.table.headers": {
-		Inputs: map[string]string{"exec": "exec", "table": "table"}, Outputs: map[string]string{"exec": "exec", "headers": "array"},
-	},
-	"origin.table.merge": {
-		Inputs: map[string]string{"exec": "exec", "left": "table", "right": "table", "key": "string"}, Outputs: map[string]string{"exec": "exec", "table": "table"},
-	},
-	"origin.table.select-columns": {
-		Inputs: map[string]string{"exec": "exec", "table": "table", "columns": "array"}, Outputs: map[string]string{"exec": "exec", "table": "table"},
-	},
-	"origin.table.print": {
-		Inputs: map[string]string{"exec": "exec", "table": "table"}, Outputs: map[string]string{"exec": "exec", "table": "table"},
-	},
-	"origin.table.sort": {
-		Inputs: map[string]string{"exec": "exec", "table": "table", "column": "string", "ascending": "boolean"}, Outputs: map[string]string{"exec": "exec", "table": "table"},
-	},
-	"origin.table.filter-equal": {
-		Inputs: map[string]string{"exec": "exec", "table": "table", "column": "string", "value": "any"}, Outputs: map[string]string{"exec": "exec", "table": "table"},
-	},
-	"origin.table.rename-column": {
-		Inputs: map[string]string{"exec": "exec", "table": "table", "from": "string", "to": "string"}, Outputs: map[string]string{"exec": "exec", "table": "table"},
-	},
-	"origin.table.drop-columns": {
-		Inputs: map[string]string{"exec": "exec", "table": "table", "columns": "array"}, Outputs: map[string]string{"exec": "exec", "table": "table"},
-	},
-	"origin.table.fill-empty": {
-		Inputs: map[string]string{"exec": "exec", "table": "table", "value": "any"}, Outputs: map[string]string{"exec": "exec", "table": "table"},
-	},
-	"origin.table.get-column": {
-		Inputs: map[string]string{"table": "table", "column": "string"}, Outputs: map[string]string{"values": "array"},
-	},
 	"origin.flow.foreach-array": {
 		Inputs: map[string]string{"exec": "exec", "array": "array"}, Outputs: map[string]string{"body": "exec", "completed": "exec", "value": "any", "index": "integer"},
-	},
-	"origin.flow.foreach-table-row": {
-		Inputs: map[string]string{"exec": "exec", "table": "table"}, Outputs: map[string]string{"body": "exec", "completed": "exec", "row": "dictionary", "index": "integer"},
-	},
-	"origin.table.preview": {
-		Inputs: map[string]string{"table": "table"},
 	},
 	"origin.string.split": {
 		Inputs: map[string]string{"exec": "exec", "text": "string", "delimiter": "string"}, Outputs: map[string]string{"exec": "exec", "array": "array"},
@@ -392,15 +335,6 @@ var graphNodePorts = map[string]portDefinition{
 	},
 	"origin.cast.any-string": {
 		Inputs: map[string]string{"exec": "exec", "value": "any"}, Outputs: map[string]string{"exec": "exec", "valid": "boolean", "result": "string"},
-	},
-	"origin.dictionary.set": {
-		Inputs: map[string]string{"exec": "exec", "dictionary": "dictionary", "key": "string", "value": "any"}, Outputs: map[string]string{"exec": "exec", "dictionary": "dictionary"},
-	},
-	"origin.dictionary.size": {
-		Inputs: map[string]string{"dictionary": "dictionary"}, Outputs: map[string]string{"size": "integer"},
-	},
-	"origin.dictionary.keys": {
-		Inputs: map[string]string{"dictionary": "dictionary"}, Outputs: map[string]string{"keys": "array"},
 	},
 }
 
@@ -420,7 +354,7 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 
 	variables := make(map[string]GraphVariable, len(document.Variables))
 	variableNames := make(map[string]bool, len(document.Variables))
-	variableTypes := map[string]bool{"boolean": true, "integer": true, "float": true, "string": true, "array": true, "file": true, "table": true, "dictionary": true}
+	variableTypes := map[string]bool{"boolean": true, "integer": true, "float": true, "string": true, "array": true}
 	variableGroups := map[string]bool{"default": true}
 	variableGroupNames := map[string]bool{"Default": true}
 	for _, group := range document.VariableGroups {

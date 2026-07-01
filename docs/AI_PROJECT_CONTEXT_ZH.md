@@ -4,19 +4,18 @@
 
 ## 一句话定位
 
-`OriginBlueprint` 是对旧版 `OriginNodeEditor` 的重构复刻版。后续功能只在 `OriginBlueprint` 中演进，但必须兼容旧编辑器已经在线使用并导出的 `.vgf` 图文件。
+`OriginBlueprint` 是当前唯一维护的蓝图编辑器项目。后续功能只在本仓库中演进，但必须兼容历史线上已经使用并导出的 `.vgf` 图文件。
 
 ## 目录关系
 
-当前工作区通常有两个并列目录：
+当前仓库应当能独立 clone、构建和维护，不依赖任何 sibling 旧项目目录：
 
 ```text
 OriginBlueprint/
-  OriginBlueprint/      新编辑器，当前唯一应该修改的项目
-  OriginNodeEditor/     老编辑器，用于参考旧格式、旧节点和旧交互
+  OriginBlueprint/      当前唯一应该修改和维护的项目
 ```
 
-除非用户明确要求，不要修改 `OriginNodeEditor/`。它是兼容参考，不是后续开发目标。
+如果需要理解历史兼容行为，应以本仓库中的文档、测试、`legacy.go`、`nodes/` 定义和脱敏 `.vgf` 样本为准；不要引用仓库外的旧项目目录。
 
 ## 技术栈
 
@@ -79,13 +78,13 @@ Go 侧：
 
 节点定义：
 
-- `nodes/json/**/*.json`：节点库定义。支持旧 `OriginNodeEditor` JSON 格式，也支持带 `id/category/inputs/outputs` 的新格式。
+- `nodes/json/**/*.json`：节点库定义。支持 legacy JSON 格式，也支持带 `id/category/inputs/outputs` 的新格式。
 
 文档：
 
 - `docs/ARCHITECTURE.md`：架构边界。
 - `docs/NODE_JSON_FORMAT_ZH.md`：节点 JSON 格式。
-- `docs/ORIGIN_NODE_EDITOR_PARITY.md`：旧编辑器功能对齐清单。
+- `docs/ORIGIN_NODE_EDITOR_PARITY.md`：历史功能和兼容性清单。
 - `docs/LEGACY_COMPATIBILITY_ZH.md`：旧 `.vgf` 兼容专题。
 
 ## 文件格式和数据流
@@ -243,5 +242,5 @@ npm run test:layout
 
 - 部分中文内容在 PowerShell 输出里可能显示为乱码，这通常是编码显示问题，不代表 JSON 一定损坏。
 - 当前工作区顶层可能不是 git 仓库，使用 git 前先确认。
-- 旧样本目录在本工作区是 `OriginNodeEditor/`，部分旧测试或文档中可能仍写着 `OriginNodeEditor_old`。
+- 不要假设本仓库外存在旧项目目录；如果需要旧格式样本，应使用仓库内已提交的脱敏样本或测试内联样本。
 - `.obp` 当前保存/导出行为与 legacy 兼容有耦合。若要让 `.obp` 成为纯新格式扩展，需要专门设计迁移策略。

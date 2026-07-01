@@ -89,13 +89,13 @@ OriginBlueprint/
   app.go                        桌面能力：打开、保存、工作区、最近文件等
   graph.go                      GraphDocument 数据结构、端口定义和校验
   execution.go                  蓝图运行时
-  legacy.go                     旧 OriginNodeEditor .vgf 格式迁移
+  legacy.go                     legacy .vgf 格式迁移
   app_test.go                   Go 回归测试
   wails.json                    Wails 构建配置
   run.bat                       Windows 一键启动/构建
   docs/
     ARCHITECTURE.md             代码归属原则
-    ORIGIN_NODE_EDITOR_PARITY.md 旧编辑器功能复刻清单
+    ORIGIN_NODE_EDITOR_PARITY.md 历史功能和兼容性清单
   frontend/src/
     main.ts                     Vue 前端入口
     App.vue                     主窗口、菜单、面板和业务编排
@@ -451,7 +451,7 @@ outputs: value(integer)
 
 ### 9.5 兼容旧节点（如需要）
 
-如果旧编辑器有对应节点，在 `legacy.go` 增加映射，明确旧输入/输出索引对应的新 key。
+如果 legacy 格式有对应节点，在 `legacy.go` 增加映射，明确旧输入/输出索引对应的新 key。
 
 结点演进统一遵循“老结点冻结，新结点承载改进”的原则：
 

@@ -2,7 +2,7 @@ import type { NodeSchema, PortSchema } from './nodeRegistry'
 import type { DynamicBranchConfig } from './types'
 import type { NodeKind } from './types'
 
-type SocketType = 'exec' | 'integer' | 'boolean' | 'string' | 'float' | 'array' | 'file' | 'table' | 'dictionary' | 'any'
+type SocketType = 'exec' | 'integer' | 'boolean' | 'string' | 'float' | 'array' | 'any'
 
 interface LegacyNodeDefinition {
   name?: string
@@ -85,9 +85,6 @@ const legacyNodeSpecs: Record<string, LegacyNodeSpec> = {
   'Get (Array)': { typeId: 'origin.array.get-any', inputs: ['array', 'index'], outputs: ['value'] },
   'Cast To': { typeId: 'origin.cast.any-string', inputs: ['exec', 'value'], outputs: ['exec', 'result'] },
   CastingNode_str: { typeId: 'origin.cast.any-string', inputs: ['exec', 'value'], outputs: ['exec', 'valid', 'result'] },
-  'Set (Dict)': { typeId: 'origin.dictionary.set', inputs: ['exec', 'dictionary', 'key', 'value'], outputs: ['exec', 'dictionary'] },
-  'Size (Dict)': { typeId: 'origin.dictionary.size', inputs: ['dictionary'], outputs: ['size'] },
-  'Keys (Dict)': { typeId: 'origin.dictionary.keys', inputs: ['dictionary'], outputs: ['keys'] }
 }
 
 export function parseNodeSchemaDocument(value: unknown): NodeSchema[] {
@@ -202,15 +199,6 @@ function normalizeSocketType(portType?: string, dataType?: string): SocketType {
     case 'array':
     case 'list':
       return 'array'
-    case 'file':
-      return 'file'
-    case 'dataframe':
-    case 'table':
-      return 'table'
-    case 'dict':
-    case 'dictionary':
-    case 'map':
-      return 'dictionary'
     case 'any':
     case '':
       return 'any'
@@ -223,8 +211,6 @@ function defaultPortValue(type: SocketType): unknown {
   if (type === 'integer' || type === 'float') return 0
   if (type === 'boolean') return false
   if (type === 'array') return []
-  if (type === 'dictionary') return {}
-  if (type === 'table') return { columns: [], rows: [] }
   return ''
 }
 

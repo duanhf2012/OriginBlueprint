@@ -1,6 +1,9 @@
 package golang
 
-import "testing"
+import (
+	"sync"
+	"testing"
+)
 
 type testEntrance struct {
 	BaseExecNode
@@ -28,6 +31,7 @@ func (n *testAsync) Exec() (int, error) {
 
 type testRecorder struct {
 	BaseExecNode
+	mu     sync.Mutex
 	values []PortInt
 }
 
@@ -35,9 +39,20 @@ func (n *testRecorder) GetName() string { return "TestRecorder" }
 func (n *testRecorder) Exec() (int, error) {
 	value, ok := n.GetInPortInt(1)
 	if ok {
+		n.mu.Lock()
 		n.values = append(n.values, value)
+		n.mu.Unlock()
 	}
 	return -1, nil
+}
+
+func (n *testRecorder) snapshot() []PortInt {
+	if n == nil {
+		return nil
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return append([]PortInt(nil), n.values...)
 }
 
 func TestLegacyStyleSyncExecution(t *testing.T) {

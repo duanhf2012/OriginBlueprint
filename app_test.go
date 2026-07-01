@@ -417,15 +417,15 @@ func TestValidateGraphTreatsDataDependenciesAsEntryReachable(t *testing.T) {
 		Nodes: []GraphNode{
 			{ID: "entry", TypeID: "origin.event.begin"},
 			{ID: "debug", TypeID: "origin.debug.output"},
-			{ID: "row-count", TypeID: "origin.table.row-count"},
+			{ID: "add", TypeID: "origin.math.add-integer", Values: map[string]interface{}{"a": 1, "b": 2}},
 		},
 		Connections: []GraphConnection{
 			{Source: "entry", SourceOutput: "exec", Target: "debug", TargetInput: "exec"},
-			{Source: "row-count", SourceOutput: "count", Target: "debug", TargetInput: "integer"},
+			{Source: "add", SourceOutput: "result", Target: "debug", TargetInput: "integer"},
 		},
 	}
 	issues := validateGraph(document)
-	if hasIssue(issues, "flow.unreachable-node", "row-count") {
+	if hasIssue(issues, "flow.unreachable-node", "add") {
 		t.Fatalf("data dependency should be attributed to the entry path: %#v", issues)
 	}
 }
@@ -711,116 +711,6 @@ func TestExecuteGraphHonoursCancellation(t *testing.T) {
 	}
 }
 
-func TestExecuteGraphReadsAndPreviewsCSVTable(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "people.csv")
-	if err := os.WriteFile(path, []byte("id,name\n1,Ada\n2,Grace\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	document := GraphDocument{
-		SchemaVersion: GraphSchemaVersion,
-		Variables:     []GraphVariable{{ID: "table", Name: "People", Type: "table", DefaultValue: RuntimeTable{Columns: []string{}, Rows: [][]interface{}{}}}},
-		Nodes: []GraphNode{
-			{ID: "begin", TypeID: "origin.event.begin"},
-			{ID: "file", TypeID: "origin.io.file-path", Values: map[string]interface{}{"path": path}},
-			{ID: "read", TypeID: "origin.table.read-csv", Values: map[string]interface{}{"delimiter": ",", "header": true}},
-			{ID: "set", TypeID: "origin.variable.set", Properties: GraphNodeProperties{VariableID: "table"}},
-			{ID: "get", TypeID: "origin.variable.get", Properties: GraphNodeProperties{VariableID: "table"}},
-			{ID: "preview", TypeID: "origin.table.preview"},
-		},
-		Connections: []GraphConnection{
-			{Source: "begin", SourceOutput: "exec", Target: "read", TargetInput: "exec"},
-			{Source: "file", SourceOutput: "file", Target: "read", TargetInput: "file"},
-			{Source: "read", SourceOutput: "exec", Target: "set", TargetInput: "exec"},
-			{Source: "read", SourceOutput: "table", Target: "set", TargetInput: "value"},
-			{Source: "get", SourceOutput: "value", Target: "preview", TargetInput: "table"},
-		},
-	}
-	result, err := executeGraph(context.Background(), "test", document, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Results) != 1 {
-		t.Fatalf("results = %#v", result.Results)
-	}
-	preview, ok := result.Results[0].(map[string]interface{})
-	if !ok || preview["kind"] != "table" {
-		t.Fatalf("preview = %#v", result.Results[0])
-	}
-	table, err := asRuntimeTable(preview["table"])
-	if err != nil || len(table.Rows) != 2 || strings.Join(table.Columns, ",") != "id,name" {
-		t.Fatalf("table = %#v, err = %v", table, err)
-	}
-}
-
-func TestExecuteGraphUpdatesDictionary(t *testing.T) {
-	document := GraphDocument{
-		SchemaVersion: GraphSchemaVersion,
-		Variables:     []GraphVariable{{ID: "dict", Name: "Lookup", Type: "dictionary", DefaultValue: map[string]interface{}{}}},
-		Nodes: []GraphNode{
-			{ID: "begin", TypeID: "origin.event.begin"},
-			{ID: "get", TypeID: "origin.variable.get", Properties: GraphNodeProperties{VariableID: "dict"}},
-			{ID: "dict-set", TypeID: "origin.dictionary.set", Values: map[string]interface{}{"key": "answer", "value": 42}},
-			{ID: "set", TypeID: "origin.variable.set", Properties: GraphNodeProperties{VariableID: "dict"}},
-		},
-		Connections: []GraphConnection{
-			{Source: "begin", SourceOutput: "exec", Target: "dict-set", TargetInput: "exec"},
-			{Source: "get", SourceOutput: "value", Target: "dict-set", TargetInput: "dictionary"},
-			{Source: "dict-set", SourceOutput: "exec", Target: "set", TargetInput: "exec"},
-			{Source: "dict-set", SourceOutput: "dictionary", Target: "set", TargetInput: "value"},
-		},
-	}
-	result, err := executeGraph(context.Background(), "test", document, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	dictionary := asDictionary(result.Variables["Lookup"])
-	if dictionary["answer"] != float64(42) {
-		t.Fatalf("dictionary = %#v", dictionary)
-	}
-}
-
-func TestAdvancedTableOperations(t *testing.T) {
-	source := RuntimeTable{
-		Columns: []string{"id", "name", "score", "unused"},
-		Rows: [][]interface{}{
-			{"2", "Grace", "91.5", ""},
-			{"1", "Ada", "88", nil},
-			{"3", "Linus", "88", "drop"},
-		},
-	}
-	selected, err := selectTableColumns(source, []string{"id", "name", "score", "unused"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	sorted, err := sortTable(selected, "id", true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	filtered, err := filterTableEqual(sorted, "score", 88)
-	if err != nil {
-		t.Fatal(err)
-	}
-	renamed, err := renameTableColumn(filtered, "name", "author")
-	if err != nil {
-		t.Fatal(err)
-	}
-	dropped, err := dropTableColumns(renamed, []string{"unused"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	filled, err := fillEmptyTableCells(dropped, "N/A")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Join(filled.Columns, ",") != "id,author,score" || len(filled.Rows) != 2 {
-		t.Fatalf("table = %#v", filled)
-	}
-	if filled.Rows[0][0] != "1" || filled.Rows[1][1] != "Linus" {
-		t.Fatalf("rows = %#v", filled.Rows)
-	}
-}
-
 func TestExecuteGraphForEachArrayPreservesLegacyPortOrder(t *testing.T) {
 	document := GraphDocument{
 		SchemaVersion: GraphSchemaVersion,
@@ -933,25 +823,19 @@ func TestExecuteGraphRunsLegacyFloatArithmetic(t *testing.T) {
 	}
 }
 
-func TestTableRowDictionaryUsesColumnNames(t *testing.T) {
-	row := tableRowDictionary([]string{"id", "name", "missing"}, []interface{}{7, "Ada"})
-	if row["id"] != float64(7) || row["name"] != "Ada" || row["missing"] != nil {
-		t.Fatalf("row = %#v", row)
-	}
-}
-
-func TestMigrateLegacyTableAndDictionaryNodes(t *testing.T) {
+func TestMigrateLegacyHidesRemovedFileTableAndDictionaryNodes(t *testing.T) {
 	content := `{"graph_name":"Data","nodes":[{"id":"file","class":"FileNode","port_defaultv":{"0":"data.csv"}},{"id":"read","class":"TableReader","port_defaultv":{"2":",","3":true}},{"id":"preview","class":"PreviewTable","port_defaultv":{}},{"id":"keys","class":"Keys (Dict)","port_defaultv":{}}],"edges":[{"source_node_id":"file","source_port_index":0,"des_node_id":"read","des_port_index":1},{"source_node_id":"read","source_port_index":1,"des_node_id":"preview","des_port_index":0}],"groups":[],"variables":[{"name":"Table","type":"DataFrame","value":{"columns":[],"rows":[]}},{"name":"Lookup","type":"Dict","value":{}}]}`
 	document, err := migrateLegacyGraph([]byte(content))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, node := range document.Nodes {
-		if node.TypeID == "origin.legacy.placeholder" {
-			t.Fatalf("unexpected placeholder: %#v", node)
-		}
+	if len(document.Nodes) != 0 {
+		t.Fatalf("removed nodes should be hidden, got %#v", document.Nodes)
 	}
-	if document.Variables[0].Type != "table" || document.Variables[1].Type != "dictionary" {
+	if document.Legacy == nil || len(document.Legacy.HiddenNodes) != 4 || len(document.Legacy.HiddenEdges) != 2 {
+		t.Fatalf("legacy state = %#v", document.Legacy)
+	}
+	if document.Variables[0].Type != "string" || document.Variables[1].Type != "string" {
 		t.Fatalf("variables = %#v", document.Variables)
 	}
 	if issues := validateGraph(document); len(issues) != 0 {

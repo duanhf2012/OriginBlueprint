@@ -6,9 +6,6 @@ export const socketThemes = {
   boolean: { color: '#d00000', fill: '#180000', label: '#ff3333' },
   string: { color: '#d85cff' },
   array: { color: '#f0c230' },
-  file: { color: '#00a8e8', label: '#84c8ff' },
-  table: { color: '#00d0aa' },
-  dictionary: { color: '#f08a24' },
   any: { color: '#00a8e8', label: '#55bfff' }
 } as const
 

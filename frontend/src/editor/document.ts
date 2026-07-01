@@ -1,4 +1,4 @@
-export type VariableType = 'boolean' | 'integer' | 'float' | 'string' | 'array' | 'file' | 'table' | 'dictionary'
+export type VariableType = 'boolean' | 'integer' | 'float' | 'string' | 'array'
 
 export interface GraphVariable {
   id: string
