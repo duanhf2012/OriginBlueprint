@@ -81,6 +81,7 @@ func (n *FunctionCall) Exec() (int, error) {
 	// share instance state with the caller.
 	child.variables = n.graph.variables
 	child.variableMu = n.graph.variableMu
+	child.trace = n.graph.trace
 	child.onFunctionComplete = func(values []any) error {
 		return continuation.Resume(values...)
 	}

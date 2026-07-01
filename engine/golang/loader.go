@@ -44,6 +44,9 @@ func (b *Blueprint) Init(execDefFilePath string, graphFilePath string, blueprint
 	b.graphPath = graphFilePath
 	if len(logger) > 0 {
 		b.logger = logger[0]
+		if traceLogger, ok := logger[0].(BlueprintTraceLogger); ok {
+			b.traceLogger = traceLogger
+		}
 	}
 	execFactories := append([]func() IExecNode(nil), b.execFactories...)
 	b.mu.Unlock()

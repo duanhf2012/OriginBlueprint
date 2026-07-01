@@ -118,11 +118,17 @@ func (p *Port) Clone() IPort {
 	if p == nil {
 		return nil
 	}
-	clone := *p
-	if p.arrv != nil {
-		clone.arrv = append(PortArray(nil), p.arrv...)
-	}
+	clone := clonePortValue(*p)
 	return &clone
+}
+
+func clonePortValue(source Port) Port {
+	clone := source
+	if source.arrv != nil {
+		clone.arrv = append(PortArray(nil), source.arrv...)
+	}
+	clone.anyv = cloneAnyValue(source.anyv)
+	return clone
 }
 
 func (p *Port) IsPortExec() bool {

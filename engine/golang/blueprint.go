@@ -18,6 +18,8 @@ type Blueprint struct {
 	module        IBlueprintModule
 	cancelTimer   func(*uint64) bool
 	logger        IBlueprintLogger
+	traceEnabled  bool
+	traceLogger   BlueprintTraceLogger
 	execDefPath   string
 	graphPath     string
 	seedID        int64
@@ -86,6 +88,8 @@ func (b *Blueprint) Do(graphID int64, entranceID int64, args ...any) (PortArray,
 	module := instance.module
 	variables := instance.variables
 	variableMu := &instance.variableMu
+	traceEnabled := b.traceEnabled && b.traceLogger != nil
+	traceLogger := b.traceLogger
 	b.mu.RUnlock()
 
 	graph := NewGraph(compiled)
@@ -95,6 +99,9 @@ func (b *Blueprint) Do(graphID int64, entranceID int64, args ...any) (PortArray,
 	graph.instance = instance
 	graph.variables = variables
 	graph.variableMu = variableMu
+	if traceEnabled {
+		graph.trace = &blueprintTraceRuntime{logger: traceLogger, state: &blueprintTraceState{}}
+	}
 	return graph.Do(entranceID, args...)
 }
 
@@ -109,19 +116,28 @@ func (b *Blueprint) ReleaseGraph(graphID int64) {
 	b.mu.Lock()
 	instance := b.instances[graphID]
 	delete(b.instances, graphID)
+	cancelTimer := b.cancelTimer
 	b.mu.Unlock()
 
-	if instance != nil && instance.module != nil {
-		instance.timerMu.Lock()
-		timerIDs := make([]uint64, 0, len(instance.timers))
-		for timerID := range instance.timers {
-			timerIDs = append(timerIDs, timerID)
-		}
-		instance.timers = map[uint64]struct{}{}
-		instance.timerMu.Unlock()
-		for _, timerID := range timerIDs {
-			id := timerID
+	if instance == nil {
+		return
+	}
+	instance.timerMu.Lock()
+	timerIDs := make([]uint64, 0, len(instance.timers))
+	for timerID := range instance.timers {
+		timerIDs = append(timerIDs, timerID)
+	}
+	instance.timers = map[uint64]struct{}{}
+	instance.timerMu.Unlock()
+
+	for _, timerID := range timerIDs {
+		id := timerID
+		if instance.module != nil {
 			instance.module.CancelTimerId(graphID, &id)
+			continue
+		}
+		if cancelTimer != nil {
+			cancelTimer(&id)
 		}
 	}
 }

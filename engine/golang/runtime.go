@@ -159,13 +159,15 @@ type NodeDefinition struct {
 
 // NewNodeDefinition builds a node definition and records where output arguments start.
 func NewNodeDefinition(name string, newExec func() IExecNode, inPorts []IPort, outPorts []IPort) *NodeDefinition {
+	clonedInPorts := clonePorts(inPorts)
+	clonedOutPorts := clonePorts(outPorts)
 	return &NodeDefinition{
 		Name:                   name,
 		New:                    newExec,
-		InPorts:                clonePorts(inPorts),
-		OutPorts:               clonePorts(outPorts),
+		InPorts:                clonedInPorts,
+		OutPorts:               clonedOutPorts,
 		OutPortParamStartIndex: firstDataOutPort(outPorts),
-		DataInPortIndexes:      dataInPortIndexes(inPorts),
+		DataInPortIndexes:      dataInPortIndexes(clonedInPorts),
 	}
 }
 
@@ -182,6 +184,30 @@ type PrePortNode struct {
 	OutPortID int
 }
 
+// InputBindingKind identifies how one data input is populated at runtime.
+type InputBindingKind uint8
+
+const (
+	// InputBindingDefault copies a pre-typed default port into the node input.
+	InputBindingDefault InputBindingKind = iota + 1
+	// InputBindingProducer copies a value from an upstream data producer.
+	InputBindingProducer
+)
+
+// InputBinding is the compile-time plan for one data input.
+//
+// Compiled graphs use bindings to avoid checking PreInPort/default maps on the
+// hot execution path. Hand-built nodes may leave InputBindings empty and use the
+// legacy setInPort fallback.
+type InputBinding struct {
+	Kind              InputBindingKind
+	InputPortID       int
+	DefaultPort       IPort
+	Producer          *ExecNode
+	ProducerOutPortID int
+	RecomputeProducer bool
+}
+
 // ExecNode is a compiled node in the shared execution tree.
 //
 // It does not store per-run port values; those live in Graph.context.
@@ -195,6 +221,7 @@ type ExecNode struct {
 	DefaultIn       map[int]any
 	DefaultInputs   []IPort
 	DefaultInputSet []bool
+	InputBindings   []InputBinding
 	VariableName    string
 	FunctionID      string
 	FunctionName    string
@@ -233,10 +260,18 @@ func (n *ExecNode) doWithInput(graph *Graph, execInputPortID int, outPortArgs ..
 	if err := n.applyOutputArgs(ctx, outPortArgs...); err != nil {
 		return err
 	}
-	for _, index := range n.Definition.DataInPortIndexes {
-		inPort := ctx.InputPorts[index]
-		if err := n.setInPort(graph, ctx, index, inPort); err != nil {
-			return err
+	if len(n.InputBindings) != 0 {
+		for _, binding := range n.InputBindings {
+			if err := n.applyInputBinding(graph, ctx, binding); err != nil {
+				return err
+			}
+		}
+	} else {
+		for _, index := range n.Definition.DataInPortIndexes {
+			inPort := ctx.InputPorts[index]
+			if err := n.setInPort(graph, ctx, index, inPort); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -248,6 +283,7 @@ func (n *ExecNode) doWithInput(graph *Graph, execInputPortID int, outPortArgs ..
 	}
 
 	nextIndex, err := exec.Exec()
+	graph.traceNode(n, ctx, nextIndex, err)
 	if err != nil {
 		return err
 	}
@@ -321,6 +357,45 @@ func (n *ExecNode) setInPort(graph *Graph, ctx *ExecContext, index int, inPort I
 	return nil
 }
 
+func (n *ExecNode) applyInputBinding(graph *Graph, ctx *ExecContext, binding InputBinding) error {
+	if binding.InputPortID < 0 || binding.InputPortID >= len(ctx.InputPorts) {
+		return fmt.Errorf("node %s input port index %d not found", n.ID, binding.InputPortID)
+	}
+	inPort := ctx.InputPorts[binding.InputPortID]
+	if inPort == nil {
+		return fmt.Errorf("node %s input port index %d is nil", n.ID, binding.InputPortID)
+	}
+
+	switch binding.Kind {
+	case InputBindingDefault:
+		if binding.DefaultPort != nil {
+			inPort.SetValue(binding.DefaultPort)
+		}
+		return nil
+	case InputBindingProducer:
+		producer := binding.Producer
+		if producer == nil {
+			return fmt.Errorf("node %s input port %d producer is nil", n.ID, binding.InputPortID)
+		}
+		if binding.RecomputeProducer {
+			if err := producer.Do(graph); err != nil {
+				return err
+			}
+		}
+		preCtx, ok := graph.getContext(producer)
+		if !ok {
+			return fmt.Errorf("pre node %s not exec", producer.ID)
+		}
+		if binding.ProducerOutPortID < 0 || binding.ProducerOutPortID >= len(preCtx.OutputPorts) {
+			return fmt.Errorf("pre node %s out port index %d not found", producer.ID, binding.ProducerOutPortID)
+		}
+		inPort.SetValue(preCtx.OutputPorts[binding.ProducerOutPortID])
+		return nil
+	default:
+		return fmt.Errorf("node %s input port %d has unknown binding kind %d", n.ID, binding.InputPortID, binding.Kind)
+	}
+}
+
 // CompiledGraph is the immutable runtime form shared by many graph instances.
 type CompiledGraph struct {
 	Entrances map[int64]*ExecNode
@@ -349,6 +424,7 @@ type Graph struct {
 	variableMu         *sync.RWMutex
 	timers             map[uint64]*time.Timer
 	timerSeq           uint64
+	trace              *blueprintTraceRuntime
 }
 
 // NewGraph creates a standalone execution session for a compiled graph.
@@ -356,7 +432,7 @@ type Graph struct {
 // Blueprint.Do normally creates sessions for you; tests and embedded callers can
 // use NewGraph directly.
 func NewGraph(compiled *CompiledGraph) *Graph {
-	return &Graph{compiled: compiled, context: make([]*ExecContext, compiledNodeCount(compiled)), timers: map[uint64]*time.Timer{}}
+	return &Graph{compiled: compiled, timers: map[uint64]*time.Timer{}}
 }
 
 // Do executes one entrance and hides internal suspension/function-return sentinels.
@@ -382,8 +458,10 @@ func (g *Graph) runEntrance(entranceID int64, args ...any) (PortArray, error) {
 	}
 
 	g.resetContext()
-	g.returns = nil
-	g.functionResults = nil
+	clear(g.returns)
+	g.returns = g.returns[:0]
+	clear(g.functionResults)
+	g.functionResults = g.functionResults[:0]
 	if g.variableMu == nil {
 		g.variableMu = &sync.RWMutex{}
 	}
@@ -432,7 +510,13 @@ func compiledNodeCount(compiled *CompiledGraph) int {
 }
 
 func (g *Graph) resetContext() {
-	g.context = make([]*ExecContext, compiledNodeCount(g.compiled))
+	nodeCount := compiledNodeCount(g.compiled)
+	if cap(g.context) >= nodeCount {
+		g.context = g.context[:nodeCount]
+		clear(g.context)
+	} else {
+		g.context = make([]*ExecContext, nodeCount)
+	}
 	g.contextFallback = nil
 }
 
@@ -476,6 +560,11 @@ func clonePorts(source []IPort) []IPort {
 	ports := make([]IPort, len(source))
 	for index, port := range source {
 		if port != nil {
+			if concrete, ok := port.(*Port); ok {
+				clone := clonePortValue(*concrete)
+				ports[index] = &clone
+				continue
+			}
 			ports[index] = port.Clone()
 		}
 	}

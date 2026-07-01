@@ -182,7 +182,47 @@ func CompileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error
 		dest.PreInPort[edge.DesPortID] = &PrePortNode{Node: source, OutPortID: edge.SourcePortID}
 	}
 
+	for _, node := range nodeOrder {
+		node.InputBindings = compileInputBindings(node)
+	}
+
 	return &CompiledGraph{Entrances: entrances, Variables: variables, Functions: config.Functions, NodeCount: len(nodeOrder)}, nil
+}
+
+func compileInputBindings(node *ExecNode) []InputBinding {
+	if node == nil || node.Definition == nil {
+		return nil
+	}
+	bindings := make([]InputBinding, 0, len(node.Definition.DataInPortIndexes))
+	for _, inputPortID := range node.Definition.DataInPortIndexes {
+		if inputPortID < 0 {
+			continue
+		}
+		if inputPortID < len(node.PreInPort) {
+			pre := node.PreInPort[inputPortID]
+			if pre != nil {
+				bindings = append(bindings, InputBinding{
+					Kind:              InputBindingProducer,
+					InputPortID:       inputPortID,
+					Producer:          pre.Node,
+					ProducerOutPortID: pre.OutPortID,
+					RecomputeProducer: pre.Node != nil && !pre.Node.BeConnect && !pre.Node.IsEntrance,
+				})
+				continue
+			}
+		}
+		if inputPortID < len(node.DefaultInputSet) && node.DefaultInputSet[inputPortID] {
+			bindings = append(bindings, InputBinding{
+				Kind:        InputBindingDefault,
+				InputPortID: inputPortID,
+				DefaultPort: node.DefaultInputs[inputPortID],
+			})
+		}
+	}
+	if len(bindings) == 0 {
+		return nil
+	}
+	return bindings
 }
 
 func resolveFunctionGraph(functions map[string]*CompiledGraph, functionID string, functionName string) *CompiledGraph {

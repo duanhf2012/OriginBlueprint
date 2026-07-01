@@ -151,7 +151,39 @@ go test ./engine/golang -run '^$' -bench 'BenchmarkFunctionCall' -benchtime=10s 
 - 为每个 `ExecNode` 分配连续 `Index`，`Graph` 执行上下文使用 slice 按下标访问；手工构图的未索引节点保留 fallback。
 - 将节点默认输入从 `map[int]any` 预转换为 typed `IPort`，执行时直接复制 port 值。
 - 为 `NodeDefinition` 预计算数据输入口下标，执行时只遍历真实数据口。
+- 为每个已连接或有默认值的数据输入口预生成 `InputBinding`，执行时直接按绑定复制默认值或上游输出，减少热路径分支和 map 查询。
 - 为 `FunctionCall` 预解析目标 `*CompiledGraph`，执行时优先使用编译期指针；递归或后续补挂函数表的场景保留运行期查找 fallback。
+- `Graph` 执行上下文 slice 按容量复用并在每次 `Do` 前清空，减少复用 `Graph` 或创建短生命周期 session 时的重复分配。
+- 内置 `*Port` 克隆走具体类型快速路径，避免接口分发；自定义 `IPort` 保留原有 `Clone` fallback。
+- 执行流程 trace 默认关闭；打开 `Blueprint.SetTraceEnabled(true)` 且设置 `BlueprintTraceLogger` 后，才记录节点步骤、输入端口和输出端口。
+
+## 执行流程日志验证
+
+覆盖测试：
+
+- `engine/golang/trace_test.go`
+  - `TestBlueprintTraceDisabledByDefault`
+  - `TestBlueprintTraceLogsNodeStepsInputsAndOutputsWhenEnabled`
+
+预期：
+
+- 默认关闭时不生成任何节点 trace 事件。
+- 打开后按实际执行顺序记录 `Step`、图名、图实例 ID、节点 ID、节点名称、执行输入口、下一个执行分支、输入端口值、输出端口值和错误文本。
+- 函数子图继承 caller 的 trace 状态，异步 continuation 后续节点仍走同一 trace logger。
+
+## 老接口替换验证
+
+覆盖测试：
+
+- `engine/golang/compatibility_test.go`
+  - `TestBlueprintLegacyFacadeIntegrationPath`
+  - `TestBlueprintReleaseGraphCancelsInstanceTimersThroughLegacyCallback`
+
+覆盖内容：
+
+- 使用旧 facade 路径完成 `RegisterExecNode`、`Init`、`Create`、`TriggerEvent`、`Do`、`ReleaseGraph`、`StartHotReload`、`GetLogger`、`GetGraphName`。
+- `ReleaseGraph` 会清理实例 timer；有 module 时走 `IBlueprintModule.CancelTimerId`，无 module 时走旧 `cancelTimer` 回调。
+- 详细接入清单见 `docs/BLUEPRINT_ENGINE_COMPATIBILITY_ZH.md`。
 
 ## 当前线程安全边界
 

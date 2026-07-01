@@ -76,6 +76,25 @@ func TestLegacyStyleSyncExecution(t *testing.T) {
 	}
 }
 
+func TestGraphRunEntranceReusesResultBuffers(t *testing.T) {
+	entrance := NewExecNode("entrance", NewNodeDefinition("TestEntrance", func() IExecNode {
+		return &testEntrance{}
+	}, nil, []IPort{NewPortExec()}))
+	graph := NewGraph(&CompiledGraph{Entrances: map[int64]*ExecNode{1: entrance}, NodeCount: 1})
+	graph.returns = make(PortArray, 0, 8)
+	graph.functionResults = make([]any, 0, 4)
+
+	if _, err := graph.runEntrance(1); err != nil {
+		t.Fatalf("runEntrance failed: %v", err)
+	}
+	if cap(graph.returns) != 8 {
+		t.Fatalf("returns capacity = %d, want 8", cap(graph.returns))
+	}
+	if cap(graph.functionResults) != 4 {
+		t.Fatalf("functionResults capacity = %d, want 4", cap(graph.functionResults))
+	}
+}
+
 func TestAsyncContinuationResumeContinuesFromSuspendedNode(t *testing.T) {
 	var async *testAsync
 	var recorder *testRecorder
