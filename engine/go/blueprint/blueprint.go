@@ -6,8 +6,9 @@ import (
 	"sync/atomic"
 )
 
-// ??????????????????
-// ??????????????????
+// Blueprint 是蓝图库的入口对象，负责加载编译图、创建实例并分发执行请求。
+//
+// 编译后的执行树由多个实例共享，实例自身只保存运行期上下文。
 type Blueprint struct {
 	mu            sync.RWMutex
 	graphs        map[string]*CompiledGraph
@@ -23,7 +24,7 @@ type Blueprint struct {
 	seedID        int64
 }
 
-// ??????????????????
+// GraphInstance 保存单个 Create 实例的运行期状态。
 type GraphInstance struct {
 	name       string
 	compiled   *CompiledGraph
@@ -35,7 +36,7 @@ type GraphInstance struct {
 	variableMu sync.RWMutex
 }
 
-// ??????????????????
+// AddCompiledGraph 手动加入一份已经编译完成的蓝图。
 func (b *Blueprint) AddCompiledGraph(name string, graph *CompiledGraph) {
 	if name == "" || graph == nil {
 		return
@@ -46,8 +47,9 @@ func (b *Blueprint) AddCompiledGraph(name string, graph *CompiledGraph) {
 	b.graphs[name] = graph
 }
 
-// ??????????????????
-// ??????????????????
+// Create 创建一个蓝图实例并返回实例 ID。
+//
+// 同名蓝图的多个实例共享 CompiledGraph，但变量和 timer 互相隔离。
 func (b *Blueprint) Create(graphName string) int64 {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -68,8 +70,9 @@ func (b *Blueprint) Create(graphName string) int64 {
 	return graphID
 }
 
-// ??????????????????
-// ??????????????????
+// Do 从指定入口执行蓝图实例。
+//
+// 每次调用都会创建轻量 Graph 运行对象，复用实例上的共享变量上下文。
 func (b *Blueprint) Do(graphID int64, entranceID int64, args ...any) (PortArray, error) {
 	b.mu.RLock()
 	instance := b.instances[graphID]
@@ -99,13 +102,13 @@ func (b *Blueprint) Do(graphID int64, entranceID int64, args ...any) (PortArray,
 	return graph.Do(entranceID, args...)
 }
 
-// ??????????????????
+// TriggerEvent 兼容旧接口，用入口 ID 触发一次蓝图事件。
 func (b *Blueprint) TriggerEvent(graphID int64, eventID int64, args ...any) error {
 	_, err := b.Do(graphID, eventID, args...)
 	return err
 }
 
-// ??????????????????
+// ReleaseGraph 释放实例并取消实例上仍然挂起的 timer。
 func (b *Blueprint) ReleaseGraph(graphID int64) {
 	b.mu.Lock()
 	instance := b.instances[graphID]
@@ -136,7 +139,7 @@ func (b *Blueprint) ReleaseGraph(graphID int64) {
 	}
 }
 
-// ??????????????????
+// CancelTimerId 取消指定实例上的 timer。
 func (b *Blueprint) CancelTimerId(graphID int64, timerID *uint64) bool {
 	if timerID == nil {
 		return false
@@ -163,8 +166,9 @@ func (b *Blueprint) CancelTimerId(graphID int64, timerID *uint64) bool {
 	return true
 }
 
-// ??????????????????
-// ??????????????????
+// StartHotReload 重新读取节点定义和蓝图文件，并返回一次性应用函数。
+//
+// 调用返回的函数时会原子替换编译图，并让已有实例指向新的同名图。
 func (b *Blueprint) StartHotReload() (func(), error) {
 	b.mu.RLock()
 	execDefPath := b.execDefPath
@@ -197,14 +201,14 @@ func (b *Blueprint) StartHotReload() (func(), error) {
 	}, nil
 }
 
-// ??????????????????
+// GetLogger 返回初始化时传入的日志对象。
 func (b *Blueprint) GetLogger() IBlueprintLogger {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return b.logger
 }
 
-// ??????????????????
+// GetGraphName 返回实例绑定的蓝图名称。
 func (b *Blueprint) GetGraphName(graphID int64) string {
 	b.mu.RLock()
 	defer b.mu.RUnlock()

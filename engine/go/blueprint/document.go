@@ -5,8 +5,9 @@ import (
 	"strings"
 )
 
-// ??????????????????
-// ??????????????????
+// graphDocument 是新版蓝图编辑器保存的文档格式。
+//
+// 它会在加载阶段转换为兼容旧编译器的 GraphConfig。
 type graphDocument struct {
 	SchemaVersion     int                        `json:"schemaVersion"`
 	GraphName         string                     `json:"graphName"`
@@ -64,14 +65,14 @@ type graphDocumentConnection struct {
 	TargetInput  string `json:"targetInput"`
 }
 
-// ??????????????????
+// documentNodeSpec 描述新版节点端口 key 到旧版端口索引的映射。
 type documentNodeSpec struct {
 	class   string
 	inputs  map[string]int
 	outputs map[string]int
 }
 
-// ??????????????????
+// documentNodeSpecs 保存系统节点的新旧格式映射。
 var documentNodeSpecs = map[string]documentNodeSpec{
 	"origin.event.entry-array":          {class: "Entrance_ArrayParam_2", outputs: map[string]int{"exec": 0, "objectId": 1, "params": 2}},
 	"origin.event.entry-two-integers":   {class: "Entrance_IntParam_1", outputs: map[string]int{"exec": 0, "objectId": 1, "param1": 2, "param2": 3}},
@@ -127,8 +128,9 @@ func switchOutputs() map[string]int {
 	return map[string]int{"otherwise": 0, "case0": 1, "case1": 2, "case2": 3, "case3": 4, "case4": 5}
 }
 
-// ??????????????????
-// ??????????????????
+// graphDocumentToConfig 将新版文档格式转换为 GraphConfig。
+//
+// 返回值中的 bool 表示输入是否确认为新版文档格式。
 func graphDocumentToConfig(document graphDocument) (GraphConfig, bool, error) {
 	variables := make([]VariableConfig, 0, len(document.Variables))
 	variableByID := make(map[string]graphDocumentVariable, len(document.Variables))
@@ -177,7 +179,7 @@ func graphDocumentToConfig(document graphDocument) (GraphConfig, bool, error) {
 	return GraphConfig{Nodes: nodes, Edges: edges, Variables: variables}, document.FunctionID != "" || len(document.FunctionSignature.Inputs)+len(document.FunctionSignature.Outputs) > 0, nil
 }
 
-// ??????????????????
+// documentNodeToConfig 将单个新版节点转换为编译器节点配置。
 func documentNodeToConfig(node graphDocumentNode, variables map[string]graphDocumentVariable) (NodeConfig, documentNodeSpec, error) {
 	switch node.TypeID {
 	case "origin.function.entry":
@@ -213,7 +215,7 @@ func documentNodeToConfig(node graphDocumentNode, variables map[string]graphDocu
 	return NodeConfig{ID: node.ID, Class: spec.class, PortDefault: documentDefaults(node.Values, spec.inputs)}, spec, nil
 }
 
-// ??????????????????
+// legacyNodeSpec 从文档内嵌的旧端口定义生成端口映射。
 func legacyNodeSpec(properties graphDocumentProperties) documentNodeSpec {
 	inputs := make(map[string]int, len(properties.LegacyInputs))
 	for index, port := range properties.LegacyInputs {
@@ -262,7 +264,7 @@ func functionCallSpec(signature graphDocumentFuncSignature) documentNodeSpec {
 	return documentNodeSpec{class: "FunctionCall", inputs: inputs, outputs: outputs}
 }
 
-// ??????????????????
+// functionPortKey 生成函数参数端口在文档中的稳定 key。
 func functionPortKey(prefix string, port graphDocumentFuncPort, index int) string {
 	source := strings.TrimSpace(port.ID)
 	if source == "" {

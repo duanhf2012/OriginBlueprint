@@ -8,22 +8,23 @@ import (
 	"strings"
 )
 
-// ??????????????????
+// ExecDefinitionConfig 对应节点定义 JSON 中的一项节点声明。
 type ExecDefinitionConfig struct {
 	Name    string           `json:"name"`
 	Inputs  []PortDefinition `json:"inputs"`
 	Outputs []PortDefinition `json:"outputs"`
 }
 
-// ??????????????????
+// PortDefinition 描述节点定义中的单个端口。
 type PortDefinition struct {
 	PortType string `json:"type"`
 	DataType string `json:"data_type"`
 	PortID   int    `json:"port_id"`
 }
 
-// ??????????????????
-// ??????????????????
+// LoadDefinitionsJSON 加载节点定义文件并注册可创建的节点。
+//
+// factories 用于把 JSON 定义绑定到具体 Go 执行节点。
 func (r *Registry) LoadDefinitionsJSON(data []byte, factories []func() IExecNode) error {
 	var configs []ExecDefinitionConfig
 	if err := json.Unmarshal(data, &configs); err != nil {

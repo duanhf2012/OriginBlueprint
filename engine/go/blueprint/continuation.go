@@ -6,10 +6,10 @@ import (
 	"sync"
 )
 
-// ??????????????????
+// ErrContinuationResumed 表示同一个异步续点被重复恢复。
 var ErrContinuationResumed = errors.New("golang blueprint continuation already resumed")
 
-// ??????????????????
+// Continuation 保存暂停节点继续执行所需的最小上下文。
 type Continuation struct {
 	graph     *Graph
 	node      *ExecNode
@@ -20,8 +20,9 @@ type Continuation struct {
 	resumed bool
 }
 
-// ??????????????????
-// ??????????????????
+// Suspend 暂停当前节点，并返回可在异步回调中恢复的续点。
+//
+// nextIndex 表示恢复后继续执行的输出执行端口。
 func (n *BaseExecNode) Suspend(nextIndex int) (*Continuation, error) {
 	if n == nil || n.graph == nil || n.node == nil || n.ctx == nil {
 		return nil, fmt.Errorf("node is not executing")
@@ -40,7 +41,7 @@ func (n *BaseExecNode) Suspend(nextIndex int) (*Continuation, error) {
 	}, nil
 }
 
-// ??????????????????
+// Resume 恢复被暂停的节点，并把参数写入恢复节点的输出数据端口。
 func (c *Continuation) Resume(outPortArgs ...any) error {
 	if c == nil {
 		return fmt.Errorf("continuation is nil")

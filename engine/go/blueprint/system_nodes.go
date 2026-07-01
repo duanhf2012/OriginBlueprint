@@ -8,16 +8,16 @@ import (
 )
 
 const (
-	// ??????????????????
+	// EntranceIDIntParam 是整数参数入口的固定 ID。
 	EntranceIDIntParam int64 = 1
-	// ??????????????????
+	// EntranceIDArrayParam 是数组参数入口的固定 ID。
 	EntranceIDArrayParam int64 = 2
-	// ??????????????????
+	// EntranceIDTimer 是 timer 回调入口的固定 ID。
 	EntranceIDTimer int64 = 3
 	returnVariable        = "g_Return"
 )
 
-// ??????????????????
+// BuiltinExecNodeFactories 返回内置系统节点工厂。
 func BuiltinExecNodeFactories() []func() IExecNode {
 	return []func() IExecNode{
 		NewExecNodeFactory[EntranceIntParam, *EntranceIntParam](), NewExecNodeFactory[EntranceArrayParam, *EntranceArrayParam](), NewExecNodeFactory[EntranceTimer, *EntranceTimer](),
@@ -43,7 +43,7 @@ type execNodePtr[T any] interface {
 	IExecNode
 }
 
-// ??????????????????
+// NewExecNodeFactory 将具体节点类型包装为统一工厂函数。
 func NewExecNodeFactory[T any, P execNodePtr[T]]() func() IExecNode {
 	return func() IExecNode {
 		var node T
@@ -51,13 +51,13 @@ func NewExecNodeFactory[T any, P execNodePtr[T]]() func() IExecNode {
 	}
 }
 
-// ??????????????????
+// EntranceIntParam 是带整数参数的蓝图入口节点。
 type EntranceIntParam struct{ BaseExecNode }
 
-// ??????????????????
+// EntranceArrayParam 是带数组参数的蓝图入口节点。
 type EntranceArrayParam struct{ BaseExecNode }
 
-// ??????????????????
+// EntranceTimer 是 timer 回调入口节点。
 type EntranceTimer struct{ BaseExecNode }
 
 func (n *EntranceIntParam) GetName() string   { return "Entrance_IntParam" }
@@ -73,7 +73,7 @@ func (n *EntranceTimer) Exec() (int, error) {
 	return 0, nil
 }
 
-// ??????????????????
+// DebugOutput 是调试输出节点。
 type DebugOutput struct{ BaseExecNode }
 
 func (n *DebugOutput) GetName() string { return "DebugOutput" }
@@ -81,7 +81,7 @@ func (n *DebugOutput) Exec() (int, error) {
 	return 0, nil
 }
 
-// ??????????????????
+// Sequence 是顺序执行多个输出分支的节点。
 type Sequence struct{ BaseExecNode }
 
 func (n *Sequence) GetName() string { return "Sequence" }
@@ -502,10 +502,10 @@ func (n *AppendStringReturn) Exec() (int, error) {
 	return 0, nil
 }
 
-// ??????????????????
+// CreateTimer 创建服务器 timer，并在回调时触发 timer 入口。
 type CreateTimer struct{ BaseExecNode }
 
-// ??????????????????
+// CloseTimer 关闭指定 timer。
 type CloseTimer struct{ BaseExecNode }
 
 func (n *CreateTimer) GetName() string { return "CreateTimer" }

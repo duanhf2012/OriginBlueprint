@@ -9,18 +9,19 @@ import (
 	"time"
 )
 
-// ??????????????????
-// ??????????????????
+// IBlueprintModule 由业务层实现，用于接入服务器 timer 和事件触发。
+//
+// 运行时优先使用模块接口，缺省时才使用 Init 传入的 cancelTimer。
 type IBlueprintModule interface {
 	SafeAfterFunc(timerID *uint64, d time.Duration, additionData any, cb func(uint64, any))
 	TriggerEvent(graphID int64, eventID int64, args ...any) error
 	CancelTimerId(graphID int64, timerID *uint64) bool
 }
 
-// ??????????????????
+// IBlueprintLogger 保留旧接口的日志对象类型。
 type IBlueprintLogger interface{}
 
-// ??????????????????
+// RegisterExecNode 注册业务自定义执行节点工厂。
 func (b *Blueprint) RegisterExecNode(factory func() IExecNode) {
 	if factory == nil {
 		return
@@ -30,8 +31,9 @@ func (b *Blueprint) RegisterExecNode(factory func() IExecNode) {
 	b.execFactories = append(b.execFactories, factory)
 }
 
-// ??????????????????
-// ??????????????????
+// Init 加载节点定义和蓝图目录，并初始化运行时依赖。
+//
+// 该方法兼容旧版 Blueprint 的初始化入口。
 func (b *Blueprint) Init(execDefFilePath string, graphFilePath string, blueprintModule IBlueprintModule, cancelTimer func(*uint64) bool, logger ...IBlueprintLogger) error {
 	b.mu.Lock()
 	b.ensureLocked()
@@ -122,7 +124,7 @@ func loadGraphDir(registry *Registry, dir string) (map[string]*CompiledGraph, er
 		return nil, err
 	}
 
-	// ??????????????????
+	// 先编译函数图，普通图编译时可以直接绑定函数调用目标。
 	functions := map[string]*CompiledGraph{}
 	for _, file := range files {
 		if !file.isFunction {

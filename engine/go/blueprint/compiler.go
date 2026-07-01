@@ -7,18 +7,19 @@ import (
 	"strings"
 )
 
-// ??????????????????
+// Registry 保存节点名称到节点定义的映射。
 type Registry struct {
 	definitions map[string]*NodeDefinition
 }
 
-// ??????????????????
+// NewRegistry 创建空节点定义注册表。
 func NewRegistry() *Registry {
 	return &Registry{definitions: map[string]*NodeDefinition{}}
 }
 
-// ??????????????????
-// ??????????????????
+// Register 注册一个节点定义。
+//
+// 已存在同名定义时返回 false，避免加载阶段静默覆盖。
 func (r *Registry) Register(definition *NodeDefinition) bool {
 	if r == nil || definition == nil || definition.Name == "" {
 		return false
@@ -33,7 +34,7 @@ func (r *Registry) Register(definition *NodeDefinition) bool {
 	return true
 }
 
-// ??????????????????
+// Get 按节点名称查找节点定义。
 func (r *Registry) Get(name string) *NodeDefinition {
 	if r == nil {
 		return nil
@@ -41,8 +42,9 @@ func (r *Registry) Get(name string) *NodeDefinition {
 	return r.definitions[name]
 }
 
-// ??????????????????
-// ??????????????????
+// NodeConfig 是编译器使用的节点配置。
+//
+// 它同时兼容旧格式和新版文档格式转换后的中间结构。
 type NodeConfig struct {
 	ID                  string         `json:"id"`
 	Class               string         `json:"class"`
@@ -54,7 +56,7 @@ type NodeConfig struct {
 	FunctionOutputTypes []string       `json:"functionOutputTypes,omitempty"`
 }
 
-// ??????????????????
+// EdgeConfig 描述两个节点端口之间的一条连接。
 type EdgeConfig struct {
 	SourceNodeID string `json:"source_node_id"`
 	DesNodeID    string `json:"des_node_id"`
@@ -62,7 +64,7 @@ type EdgeConfig struct {
 	DesPortID    int    `json:"des_port_id"`
 }
 
-// ??????????????????
+// GraphConfig 是编译蓝图图所需的完整配置。
 type GraphConfig struct {
 	Nodes     []NodeConfig     `json:"nodes"`
 	Edges     []EdgeConfig     `json:"edges"`
@@ -70,15 +72,16 @@ type GraphConfig struct {
 	Functions map[string]*CompiledGraph
 }
 
-// ??????????????????
+// VariableConfig 描述蓝图实例变量的初始值。
 type VariableConfig struct {
 	Name  string `json:"name"`
 	Type  string `json:"type"`
 	Value any    `json:"value"`
 }
 
-// ??????????????????
-// ??????????????????
+// ParseGraphConfigJSON 解析蓝图 JSON。
+//
+// 新版文档格式会先转换为 GraphConfig，旧格式则直接反序列化。
 func ParseGraphConfigJSON(data []byte) (GraphConfig, error) {
 	var documentProbe struct {
 		SchemaVersion int `json:"schemaVersion"`
@@ -102,8 +105,9 @@ func ParseGraphConfigJSON(data []byte) (GraphConfig, error) {
 	return config, nil
 }
 
-// ??????????????????
-// ??????????????????
+// CompileGraph 将 GraphConfig 编译为可执行的只读图结构。
+//
+// 编译阶段会预处理节点、连接、变量和函数，以减少运行期查找开销。
 func CompileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error) {
 	nodes := make(map[string]*ExecNode, len(config.Nodes))
 	nodeOrder := make([]*ExecNode, 0, len(config.Nodes))
@@ -256,7 +260,7 @@ func compileDefaultInputs(inPorts []IPort, defaults map[int]any) ([]IPort, []boo
 	return defaultInputs, defaultInputSet, nil
 }
 
-// ??????????????????
+// dynamicDefinition 为函数、变量等动态节点生成节点定义。
 func dynamicDefinition(nodeConfig NodeConfig, variables map[string]VariableConfig) (*NodeDefinition, error) {
 	switch nodeConfig.Class {
 	case "FunctionEntry":

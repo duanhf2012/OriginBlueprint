@@ -1,4 +1,4 @@
-module OriginBlueprint
+module github.com/duanhf2012/OriginBlueprint
 
 go 1.23.0
 
