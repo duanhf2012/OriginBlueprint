@@ -7,14 +7,20 @@ import (
 	"strings"
 )
 
+// Registry maps node class names to executable node definitions.
 type Registry struct {
 	definitions map[string]*NodeDefinition
 }
 
+// NewRegistry creates an empty node registry.
 func NewRegistry() *Registry {
 	return &Registry{definitions: map[string]*NodeDefinition{}}
 }
 
+// Register adds one node definition.
+//
+// It returns false for invalid or duplicate definitions so callers can keep old
+// loader semantics without panics.
 func (r *Registry) Register(definition *NodeDefinition) bool {
 	if r == nil || definition == nil || definition.Name == "" {
 		return false
@@ -29,6 +35,7 @@ func (r *Registry) Register(definition *NodeDefinition) bool {
 	return true
 }
 
+// Get returns a registered definition by class name.
 func (r *Registry) Get(name string) *NodeDefinition {
 	if r == nil {
 		return nil
@@ -36,13 +43,23 @@ func (r *Registry) Get(name string) *NodeDefinition {
 	return r.definitions[name]
 }
 
+// NodeConfig is the compact executable graph node format.
+//
+// It is used both by legacy .vgf files and by the native document conversion
+// layer. Dynamic nodes such as variables and functions fill the extra metadata.
 type NodeConfig struct {
-	ID          string         `json:"id"`
-	Class       string         `json:"class"`
-	PortDefault map[int]any    `json:"-"`
-	RawDefault  map[string]any `json:"port_defaultv"`
+	ID                  string         `json:"id"`
+	Class               string         `json:"class"`
+	PortDefault         map[int]any    `json:"-"`
+	RawDefault          map[string]any `json:"port_defaultv"`
+	FunctionID          string         `json:"functionId,omitempty"`
+	FunctionName        string         `json:"functionName,omitempty"`
+	FunctionInputTypes  []string       `json:"functionInputTypes,omitempty"`
+	FunctionOutputTypes []string       `json:"functionOutputTypes,omitempty"`
 }
 
+// EdgeConfig connects either an exec output to an exec input or a data output
+// to a data input. Port ids are the runtime numeric ids from node definitions.
 type EdgeConfig struct {
 	SourceNodeID string `json:"source_node_id"`
 	DesNodeID    string `json:"des_node_id"`
@@ -50,12 +67,37 @@ type EdgeConfig struct {
 	DesPortID    int    `json:"des_port_id"`
 }
 
+// GraphConfig is the language-neutral graph representation consumed by CompileGraph.
 type GraphConfig struct {
-	Nodes []NodeConfig `json:"nodes"`
-	Edges []EdgeConfig `json:"edges"`
+	Nodes     []NodeConfig     `json:"nodes"`
+	Edges     []EdgeConfig     `json:"edges"`
+	Variables []VariableConfig `json:"variables"`
+	Functions map[string]*CompiledGraph
 }
 
+// VariableConfig describes one per-instance variable.
+type VariableConfig struct {
+	Name  string `json:"name"`
+	Type  string `json:"type"`
+	Value any    `json:"value"`
+}
+
+// ParseGraphConfigJSON accepts legacy executable JSON and native graph documents.
+//
+// Native documents are converted into GraphConfig before compilation.
 func ParseGraphConfigJSON(data []byte) (GraphConfig, error) {
+	var documentProbe struct {
+		SchemaVersion int `json:"schemaVersion"`
+	}
+	if err := json.Unmarshal(data, &documentProbe); err == nil && documentProbe.SchemaVersion > 0 {
+		var document graphDocument
+		if err := json.Unmarshal(data, &document); err != nil {
+			return GraphConfig{}, err
+		}
+		config, _, err := graphDocumentToConfig(document)
+		return config, err
+	}
+
 	var config GraphConfig
 	if err := json.Unmarshal(data, &config); err != nil {
 		return GraphConfig{}, err
@@ -66,19 +108,39 @@ func ParseGraphConfigJSON(data []byte) (GraphConfig, error) {
 	return config, nil
 }
 
+// CompileGraph resolves node definitions and builds the shared execution tree.
+//
+// The returned CompiledGraph is immutable during execution; per-instance state
+// lives in GraphInstance and per-Do transient context lives in Graph.
 func CompileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error) {
 	nodes := make(map[string]*ExecNode, len(config.Nodes))
 	entrances := map[int64]*ExecNode{}
+	variables := make(map[string]VariableConfig, len(config.Variables))
+	for _, variable := range config.Variables {
+		variables[variable.Name] = variable
+	}
 
 	for _, nodeConfig := range config.Nodes {
 		nodeName, entranceID, isEntrance := parseEntranceClass(nodeConfig.Class)
+		if nodeConfig.Class == "FunctionEntry" {
+			entranceID = FunctionEntranceID
+			isEntrance = true
+		}
 		definition := registry.Get(nodeName)
 		if definition == nil {
-			return nil, fmt.Errorf("%s node has not been registered", nodeConfig.Class)
+			var dynamicErr error
+			definition, dynamicErr = dynamicDefinition(nodeConfig, variables)
+			if dynamicErr != nil {
+				return nil, dynamicErr
+			}
+			nodeName = definition.Name
 		}
 
 		node := NewExecNode(nodeConfig.ID, definition)
 		node.DefaultIn = nodeConfig.PortDefault
+		node.VariableName = variableNameFromClass(nodeConfig.Class)
+		node.FunctionID = nodeConfig.FunctionID
+		node.FunctionName = nodeConfig.FunctionName
 		node.IsEntrance = isEntrance
 		nodes[nodeConfig.ID] = node
 		if isEntrance {
@@ -109,7 +171,53 @@ func CompileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error
 		dest.PreInPort[edge.DesPortID] = &PrePortNode{Node: source, OutPortID: edge.SourcePortID}
 	}
 
-	return &CompiledGraph{Entrances: entrances}, nil
+	return &CompiledGraph{Entrances: entrances, Variables: variables, Functions: config.Functions}, nil
+}
+
+// dynamicDefinition creates definitions for nodes whose shape is graph-specific.
+func dynamicDefinition(nodeConfig NodeConfig, variables map[string]VariableConfig) (*NodeDefinition, error) {
+	switch nodeConfig.Class {
+	case "FunctionEntry":
+		return functionEntryDefinition(nodeConfig.FunctionInputTypes)
+	case "FunctionReturn":
+		return functionReturnDefinition(nodeConfig.FunctionOutputTypes)
+	case "FunctionCall":
+		return functionCallDefinition(nodeConfig.FunctionInputTypes, nodeConfig.FunctionOutputTypes)
+	default:
+		if definition := builtinDynamicDefinition(nodeConfig.Class); definition != nil {
+			return definition, nil
+		}
+		return dynamicVariableDefinition(nodeConfig.Class, variables)
+	}
+}
+
+func dynamicVariableDefinition(className string, variables map[string]VariableConfig) (*NodeDefinition, error) {
+	varName := variableNameFromClass(className)
+	if varName == "" {
+		return nil, fmt.Errorf("%s node has not been registered", className)
+	}
+	variable, ok := variables[varName]
+	if !ok {
+		return nil, fmt.Errorf("variable %s not found", varName)
+	}
+	port, err := newPortFromDataType(variable.Type)
+	if err != nil {
+		return nil, err
+	}
+	if strings.HasPrefix(className, "Get_") {
+		return NewNodeDefinition("GetVariable", func() IExecNode { return &GetVariableNode{} }, nil, []IPort{port}), nil
+	}
+	return NewNodeDefinition("SetVariable", func() IExecNode { return &SetVariableNode{} }, []IPort{NewPortExec(), port}, []IPort{NewPortExec(), port.Clone()}), nil
+}
+
+func variableNameFromClass(className string) string {
+	if strings.HasPrefix(className, "Get_") {
+		return strings.TrimPrefix(className, "Get_")
+	}
+	if strings.HasPrefix(className, "Set_") {
+		return strings.TrimPrefix(className, "Set_")
+	}
+	return ""
 }
 
 func parsePortDefaults(raw map[string]any) map[int]any {

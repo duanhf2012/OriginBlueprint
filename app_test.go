@@ -1226,8 +1226,8 @@ func TestValidateChoiceskillEasyRecognizesMonsterChoiceSkillEntry(t *testing.T) 
 	if hasIssue(issues, "flow.missing-entry", "") {
 		t.Fatalf("monster choice skill entry should be recognized: %#v", issues)
 	}
-	if !hasIssue(issues, "flow.unreachable-node", "c18c0e9d88fd385f") {
-		t.Fatalf("detached EqualSwitch should still be reported: %#v", issues)
+	if !hasIssue(issues, "flow.unreachable-node", "0e06d07bc81e8df8") {
+		t.Fatalf("detached legacy node should still be reported: %#v", issues)
 	}
 }
 

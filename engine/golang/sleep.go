@@ -5,12 +5,15 @@ import (
 	"time"
 )
 
+// SleepNodeName is the runtime class name for the async delay node.
 const SleepNodeName = "Sleep"
 
+// SleepNode suspends execution and resumes from its exec output after a delay.
 type SleepNode struct {
 	BaseExecNode
 }
 
+// NewSleepNodeDefinition builds the dynamic definition for Sleep.
 func NewSleepNodeDefinition() *NodeDefinition {
 	return NewNodeDefinition(SleepNodeName, func() IExecNode {
 		return &SleepNode{}

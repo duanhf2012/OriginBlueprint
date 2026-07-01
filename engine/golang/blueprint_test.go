@@ -52,3 +52,21 @@ func TestBlueprintCreateMissingGraphReturnsZero(t *testing.T) {
 		t.Fatalf("Create missing graph = %d, want 0", graphID)
 	}
 }
+
+func TestBlueprintLegacyFacadeMethodsRemainAvailable(t *testing.T) {
+	var bp Blueprint
+	stop, err := bp.StartHotReload()
+	if err != nil {
+		t.Fatalf("StartHotReload failed: %v", err)
+	}
+	if stop == nil {
+		t.Fatalf("StartHotReload returned nil stop function")
+	}
+	stop()
+
+	logger := struct{}{}
+	bp.logger = logger
+	if got := bp.GetLogger(); got != logger {
+		t.Fatalf("GetLogger = %#v, want logger", got)
+	}
+}
