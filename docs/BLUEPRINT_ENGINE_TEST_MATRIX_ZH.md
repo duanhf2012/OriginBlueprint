@@ -1,6 +1,6 @@
 # Blueprint Engine 测试矩阵
 
-本文档记录当前 Go 版解析执行引擎的测试用例设计、覆盖范围和压测入口。范围只包含顶层 `nodes/*.json` 与当前 engine/golang 功能；`nodes/json/**`、RPC 业务节点、origin 服务器完整替换接入、C#、Lua 均不在本轮处理。
+本文档记录当前 Go 版解析执行引擎的测试用例设计、覆盖范围和压测入口。范围只包含顶层 `nodes/*.json` 与当前 engine/go/blueprint 功能；`nodes/json/**`、RPC 业务节点、origin 服务器完整替换接入、C#、Lua 均不在本轮处理。
 
 ## 测试目标
 
@@ -24,7 +24,7 @@
 
 覆盖测试：
 
-- `engine/golang/system_nodes_test.go`
+- `engine/go/blueprint/system_nodes_test.go`
   - `TestBuiltinFactoriesCoverAllTopLevelNodeDefinitions`
   - `TestTopLevelSystemNodeBehaviorCoverage`
   - `TestBuiltinMathNodes`
@@ -32,7 +32,7 @@
   - `TestBuiltinBranchNodes`
   - `TestBuiltinEntranceTimerAndDebugNodes`
   - `TestBuiltinReturnNodesAppendGraphResults`
-- `engine/golang/flow_integration_test.go`
+- `engine/go/blueprint/flow_integration_test.go`
   - `TestLegacyBlueprintFileRunsComplexBranchAndNestedLoopFlow`
   - `TestLegacyBlueprintFileBreaksForLoopAndContinuesCompletedFlow`
   - `TestNativeBlueprintFileCallsFunctionAndContinuesFlow`
@@ -75,7 +75,7 @@
 
 异步流程：
 
-- 覆盖文件：`engine/golang/session_test.go`、`engine/golang/sleep_test.go`、`engine/golang/timer_test.go`、`engine/golang/functions_test.go`
+- 覆盖文件：`engine/go/blueprint/session_test.go`、`engine/go/blueprint/sleep_test.go`、`engine/go/blueprint/timer_test.go`、`engine/go/blueprint/functions_test.go`
 - 预期：节点挂起后保存 continuation，回调时恢复同一执行位置；函数内部异步返回时能回到 caller 并继续 caller 后续节点。
 
 ## 删除范围验证
@@ -89,7 +89,7 @@
 
 覆盖测试：
 
-- `engine/golang/document_test.go`
+- `engine/go/blueprint/document_test.go`
   - `TestRemovedFileTableDictionaryDocumentNodesAreUnsupported`
 - `frontend/tests/removedDataTypes.test.js`
 - `app_test.go`
@@ -106,7 +106,7 @@
 
 压测代码：
 
-- `engine/golang/benchmark_test.go`
+- `engine/go/blueprint/benchmark_test.go`
   - `BenchmarkBlueprintDoSharedCompiledGraph`
   - `BenchmarkBlueprintDoComplexSharedCompiledGraph`
   - `BenchmarkBlueprintDoComplexSharedCompiledGraphParallel`
@@ -122,19 +122,19 @@
 快速 smoke：
 
 ```powershell
-go test ./engine/golang -run '^$' -bench 'BenchmarkBlueprintDo(Shared|Complex)|BenchmarkFunctionCall' -benchtime=100x -benchmem -count=1
+go test ./engine/go/blueprint -run '^$' -bench 'BenchmarkBlueprintDo(Shared|Complex)|BenchmarkFunctionCall' -benchtime=100x -benchmem -count=1
 ```
 
 长时间压测：
 
 ```powershell
-go test ./engine/golang -run '^$' -bench 'BenchmarkBlueprintDoComplexSharedCompiledGraph' -benchtime=10s -benchmem -cpu=1,4,8,16 -count=3
+go test ./engine/go/blueprint -run '^$' -bench 'BenchmarkBlueprintDoComplexSharedCompiledGraph' -benchtime=10s -benchmem -cpu=1,4,8,16 -count=3
 ```
 
 只测函数调用：
 
 ```powershell
-go test ./engine/golang -run '^$' -bench 'BenchmarkFunctionCall' -benchtime=10s -benchmem -cpu=1,4,8,16 -count=3
+go test ./engine/go/blueprint -run '^$' -bench 'BenchmarkFunctionCall' -benchtime=10s -benchmem -cpu=1,4,8,16 -count=3
 ```
 
 解读指标：
@@ -161,7 +161,7 @@ go test ./engine/golang -run '^$' -bench 'BenchmarkFunctionCall' -benchtime=10s 
 
 覆盖测试：
 
-- `engine/golang/trace_test.go`
+- `engine/go/blueprint/trace_test.go`
   - `TestBlueprintTraceDisabledByDefault`
   - `TestBlueprintTraceLogsNodeStepsInputsAndOutputsWhenEnabled`
 
@@ -175,7 +175,7 @@ go test ./engine/golang -run '^$' -bench 'BenchmarkFunctionCall' -benchtime=10s 
 
 覆盖测试：
 
-- `engine/golang/compatibility_test.go`
+- `engine/go/blueprint/compatibility_test.go`
   - `TestBlueprintLegacyFacadeIntegrationPath`
   - `TestBlueprintReleaseGraphCancelsInstanceTimersThroughLegacyCallback`
 
@@ -197,7 +197,7 @@ go test ./engine/golang -run '^$' -bench 'BenchmarkFunctionCall' -benchtime=10s 
 线程安全验证：
 
 ```powershell
-go test -race ./engine/golang -count=1
+go test -race ./engine/go/blueprint -count=1
 ```
 
 ## 标准验证命令
@@ -205,7 +205,7 @@ go test -race ./engine/golang -count=1
 Go engine：
 
 ```powershell
-go test ./engine/golang -count=1
+go test ./engine/go/blueprint -count=1
 ```
 
 项目 Go 全量：
@@ -229,7 +229,7 @@ npm run build
 删除范围残留扫描：
 
 ```powershell
-rg -n "origin\.(io|table|dictionary)|foreach-table-row|DataFrame|\bDict\b|RuntimeTable|TableData|FileControl|fileMode|type-file|type-table|type-dictionary" -S graph.go legacy.go execution.go app_test.go engine\golang frontend\src\editor frontend\src\App.vue frontend\src\style.css frontend\tests nodes --glob "!nodes/json/**"
+rg -n "origin\.(io|table|dictionary)|foreach-table-row|DataFrame|\bDict\b|RuntimeTable|TableData|FileControl|fileMode|type-file|type-table|type-dictionary" -S graph.go legacy.go execution.go app_test.go engine\go\blueprint frontend\src\editor frontend\src\App.vue frontend\src\style.css frontend\tests nodes --glob "!nodes/json/**"
 ```
 
 允许命中：

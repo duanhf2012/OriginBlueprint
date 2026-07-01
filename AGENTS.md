@@ -28,7 +28,7 @@
 - `docs/BLUEPRINT_ENGINE_TEST_MATRIX_ZH.md`：Go engine 当前测试、压测和 race 验证矩阵。
 - `docs/CODEX_BLUEPRINT_ENGINE_RULES_ZH.md`：Go 蓝图引擎的 Codex 维护规则。
 
-如果修改 `engine/golang/`，还必须阅读 `engine/golang/AGENTS.md`。
+如果修改 `engine/go/blueprint/`，还必须阅读 `engine/go/blueprint/AGENTS.md`。
 
 ## 核心架构规则
 
@@ -93,7 +93,7 @@ wails build
 - 业务规则、迁移、校验、执行和文件格式行为需要 Go 测试。
 - 前端编辑器行为在可行时应补 focused tests，鼠标和布局变化还需要人工或视觉检查。
 - 兼容性修改需要用代表性的 legacy `.vgf` 文件做 round-trip 测试。
-- Go engine 并发修改需要运行 `go test -race ./engine/golang -count=1`；如果修改 facade 级并发，还要运行 `go test -race ./... -count=1`。
+- Go engine 并发修改需要运行 `go test -race ./engine/go/blueprint -count=1`；如果修改 facade 级并发，还要运行 `go test -race ./... -count=1`。
 - 汇报完成前，先运行被修改区域的窄测试，并至少运行相关 build/test 命令。
 
 ## 已知注意点

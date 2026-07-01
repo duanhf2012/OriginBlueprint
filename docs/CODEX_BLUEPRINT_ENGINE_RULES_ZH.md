@@ -1,6 +1,6 @@
 # Codex 蓝图引擎维护规则
 
-本文档记录 Go 蓝图解析执行引擎的维护规则，供后续 Codex 或其他 agent 修改本库时优先阅读。规则覆盖 `engine/golang/`，以及和它相关的顶层 `nodes/*.json`、兼容迁移、测试和压测。
+本文档记录 Go 蓝图解析执行引擎的维护规则，供后续 Codex 或其他 agent 修改本库时优先阅读。规则覆盖 `engine/go/blueprint/`，以及和它相关的顶层 `nodes/*.json`、兼容迁移、测试和压测。
 
 ## 1. 当前范围
 
@@ -35,7 +35,7 @@
 线程安全验证命令：
 
 ```powershell
-go test -race ./engine/golang -count=1
+go test -race ./engine/go/blueprint -count=1
 ```
 
 如果修改 `Blueprint` facade、热更新、实例生命周期或 timer 生命周期，还要跑：
@@ -65,7 +65,7 @@ go test -race ./... -count=1
 性能验证命令：
 
 ```powershell
-go test ./engine/golang -run '^$' -bench 'BenchmarkBlueprintDo(Shared|Complex)|BenchmarkFunctionCall' -benchtime=3s -benchmem -count=1
+go test ./engine/go/blueprint -run '^$' -bench 'BenchmarkBlueprintDo(Shared|Complex)|BenchmarkFunctionCall' -benchtime=3s -benchmem -count=1
 ```
 
 ## 5. 异步与函数规则
@@ -95,13 +95,13 @@ go test ./engine/golang -run '^$' -bench 'BenchmarkBlueprintDo(Shared|Complex)|B
 修改 engine 时至少运行：
 
 ```powershell
-go test ./engine/golang -count=1
+go test ./engine/go/blueprint -count=1
 ```
 
 修改线程安全时运行：
 
 ```powershell
-go test -race ./engine/golang -count=1
+go test -race ./engine/go/blueprint -count=1
 ```
 
 修改跨包 API、迁移、前端类型或节点定义时运行：

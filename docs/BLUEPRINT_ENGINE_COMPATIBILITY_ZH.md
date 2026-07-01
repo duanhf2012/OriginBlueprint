@@ -26,7 +26,7 @@
 
 覆盖测试：
 
-- `engine/golang/compatibility_test.go`
+- `engine/go/blueprint/compatibility_test.go`
   - `TestBlueprintLegacyFacadeIntegrationPath`
   - `TestBlueprintReleaseGraphCancelsInstanceTimersThroughLegacyCallback`
 
@@ -54,7 +54,7 @@
 ## 推荐验证命令
 
 ```powershell
-go test ./engine/golang -run 'TestBlueprintLegacyFacadeIntegrationPath|TestBlueprintReleaseGraphCancelsInstanceTimersThroughLegacyCallback' -count=1
-go test ./engine/golang -race -count=1
+go test ./engine/go/blueprint -run 'TestBlueprintLegacyFacadeIntegrationPath|TestBlueprintReleaseGraphCancelsInstanceTimersThroughLegacyCallback' -count=1
+go test ./engine/go/blueprint -race -count=1
 go test ./...
 ```
