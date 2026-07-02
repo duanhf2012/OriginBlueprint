@@ -46,7 +46,7 @@ assert(component.includes('DEFAULT_CONTROL_WIDTH = 62'), 'default input controls
 assert(component.includes('DEFAULT_LABEL_MIN_WIDTH = 28'), 'short port labels should not force oversized nodes')
 assert(component.includes('ENTRY_BADGE_MIN_WIDTH = 56'), 'short entry binding badges should not force oversized nodes')
 assert(component.includes('BRANCH_ACTION_WIDTH = 96'), 'dynamic branch rows need enough width for + Item controls')
-assert(component.includes('width: `${nodeWidth}px`'), 'node template must use computed content-aware width')
+assert(component.includes('width: `${nodeWidth.value}px`') && component.includes(':style="nodeStyle"'), 'node template must use computed content-aware width')
 assert(component.includes('inputEntryBindingTitle'), 'entry binding badge title must be different from badge text')
 assert(component.includes('entryBindingBadgeLabel'), 'entry binding badge text must prefer the field name')
 assert(!component.includes('max-width: 150px'), 'input labels should not be capped at 150px')

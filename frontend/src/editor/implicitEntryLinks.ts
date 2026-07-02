@@ -8,6 +8,8 @@ export interface EntryBindingNode {
   typeId?: string
   legacyClass?: string
   label: string
+  entrySourceKey?: string
+  entrySourceColor?: string
   inputs?: Record<string, EntryBindingPort | undefined>
   outputs?: Record<string, EntryBindingPort | undefined>
 }
@@ -28,6 +30,7 @@ export interface EntryPortBinding {
   targetInput: string
   socket: string
   label: string
+  entrySourceColor?: string
 }
 
 export interface EntryBindingCandidate {
@@ -46,6 +49,40 @@ export interface EntryBindingCandidateGroup {
 
 function cleanLabel(value: string | undefined, fallback: string) {
   return String(value ?? '').trim() || fallback
+}
+
+const entrySourcePalette = [
+  '#5fd0ff',
+  '#8fb8ff',
+  '#b38cff',
+  '#ef8cff',
+  '#ff9d66',
+  '#f2c94c',
+  '#87d96c',
+  '#45d6a4',
+  '#4dd6d6',
+  '#ff7f96',
+  '#b7d66b',
+  '#d79aff',
+  '#79a8ff',
+  '#f0a45d',
+  '#76d18a',
+  '#d8c86a'
+]
+
+function hashText(value: string) {
+  let hash = 2166136261
+  for (let index = 0; index < value.length; index++) {
+    hash ^= value.charCodeAt(index)
+    hash = Math.imul(hash, 16777619)
+  }
+  return hash >>> 0
+}
+
+export function entrySourceColor(sourceKey?: string) {
+  const key = String(sourceKey ?? '').trim()
+  if (!key) return ''
+  return entrySourcePalette[hashText(key) % entrySourcePalette.length]
 }
 
 function looksLikeEntryName(value: string | undefined) {
@@ -84,6 +121,7 @@ export function describeEntryBinding(
 
   const sourceNodeLabel = cleanLabel(source?.label, '入口')
   const sourceOutputLabel = cleanLabel(output.label, connection.sourceOutput)
+  const sourceColor = source.entrySourceColor || entrySourceColor(source.entrySourceKey || source.typeId || source.label)
   return {
     sourceNodeId: connection.source,
     sourceNodeLabel,
@@ -92,7 +130,8 @@ export function describeEntryBinding(
     targetNodeId: connection.target,
     targetInput: connection.targetInput,
     socket: output.socket,
-    label: sourceOutputLabel
+    label: sourceOutputLabel,
+    entrySourceColor: sourceColor
   }
 }
 

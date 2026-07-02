@@ -90,10 +90,14 @@ export interface SelectedNodeInfo {
   variableId?: string
 }
 
+export interface AddNodeOptions {
+  allowEntryNodes?: boolean
+}
+
 export interface BlueprintEditorHandle {
   destroy(): void
   resetView(): void
-  addNode(typeId: string, clientPosition?: Position): Promise<void>
+  addNode(typeId: string, clientPosition?: Position, options?: AddNodeOptions): Promise<void>
   addFunctionCallNode(spec: FunctionNodeMetadata, clientPosition?: Position): Promise<void>
   addFunctionEntryNode(spec: FunctionNodeMetadata, clientPosition?: Position): Promise<void>
   addFunctionReturnNode(spec: FunctionNodeMetadata, clientPosition?: Position): Promise<void>
@@ -131,6 +135,7 @@ interface Callbacks {
   onVariables(variables: GraphVariable[]): void
   onVariableGroups(groups: GraphVariableGroup[]): void
   onSelection(node: SelectedNodeInfo | null): void
+  canAddEntryNodes?(): boolean
 }
 
 function controlValues(node: BlueprintNode) {
@@ -778,10 +783,21 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     return editor.getNodes().filter(node => node.selected)
   }
 
-  async function addNode(typeId: string, clientPosition?: Position) {
+  function isDuplicateEntryNode(node: BlueprintNode) {
+    if (!node.entrySourceKey) return false
+    return editor.getNodes().some(item => item.entrySourceKey === node.entrySourceKey || item.typeId === node.typeId)
+  }
+
+  function canAddOrdinaryEntryNode(options?: AddNodeOptions) {
+    return options?.allowEntryNodes ?? callbacks.canAddEntryNodes?.() ?? true
+  }
+
+  async function addNode(typeId: string, clientPosition?: Position, options?: AddNodeOptions) {
+    const node = createNode(typeId)
+    if (node.entrySourceKey && !canAddOrdinaryEntryNode(options)) throw new Error('函数蓝图不能添加普通入口节点')
+    if (isDuplicateEntryNode(node)) throw new Error('该入口节点已存在，不能重复添加')
     await mutate('Node created', async () => {
       await clearConnectionSelection()
-      const node = createNode(typeId)
       await editor.addNode(node)
       await area.translate(node.id, graphPosition(clientPosition))
       await refreshPortStates(true)
@@ -932,13 +948,14 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     if (!clipboard) return
     await mutate(`Pasted ${clipboard.nodes.length} node(s)`, async () => {
       const base = graphPosition()
-      const nodes: BlueprintNode[] = []
+      const nodes = new Map<number, BlueprintNode>()
       await selector.unselectAll()
-      for (const item of clipboard!.nodes) {
+      for (const [index, item] of clipboard!.nodes.entries()) {
         const typeId = typeof item.typeId === 'string' ? item.typeId : ''
         if (!typeId) continue
         const node = createRestoredNode(item, typeId)
         if (!node) continue
+        if (node.entrySourceKey && (!canAddOrdinaryEntryNode() || isDuplicateEntryNode(node))) continue
         applyNodeProperties(node, item.properties)
         if (node.dynamicOutputs) setDynamicOutputCount(node, item.properties?.dynamicOutputCount ?? 3)
         if (item.properties?.label && !typeId.startsWith('origin.variable.') && !item.properties.legacyClass) {
@@ -949,12 +966,12 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
         await editor.addNode(node)
         await area.translate(node.id, { x: base.x + item.position.x, y: base.y + item.position.y })
         await selectable.select(node.id, true)
-        nodes.push(node)
+        nodes.set(index, node)
       }
       for (const item of clipboard!.connections) {
-        const source = nodes[item.sourceIndex]
-        const target = nodes[item.targetIndex]
-        await editor.addConnection(createConnection(source, item.sourceOutput, target, item.targetInput))
+        const source = nodes.get(item.sourceIndex)
+        const target = nodes.get(item.targetIndex)
+        if (source && target) await editor.addConnection(createConnection(source, item.sourceOutput, target, item.targetInput))
       }
     })
   }

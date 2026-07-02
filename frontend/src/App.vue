@@ -114,10 +114,11 @@ const functionModuleItems = computed<ModuleLibraryItem[]>(() => callableFunction
     throw new Error('Function call nodes are not implemented yet')
   }
 })))
+const filteredModuleItems = computed(() => nodeLibrary.value.filter(item => !isFunctionBlueprintTab.value || !item.ordinaryEntry))
 const categories = computed(() => {
   const result = new Map<string, ModuleLibraryItem[]>()
   const search = moduleSearch.value.trim().toLowerCase()
-  for (const definition of nodeLibrary.value.filter(item => !search || `${item.title} ${item.category} ${item.id}`.toLowerCase().includes(search))) {
+  for (const definition of filteredModuleItems.value.filter(item => !search || `${item.title} ${item.category} ${item.id}`.toLowerCase().includes(search))) {
     const items = result.get(definition.category) ?? []; items.push(definition); result.set(definition.category, items)
   }
   for (const definition of functionModuleItems.value.filter(item => !search || `${item.title} ${item.category} ${item.id} ${item.path ?? ''}`.toLowerCase().includes(search))) {
@@ -127,7 +128,8 @@ const categories = computed(() => {
 })
 const filteredDefinitions = computed(() => {
   const search = contextMenu.value.search.trim().toLowerCase()
-  return search ? nodeLibrary.value.filter(item => `${item.title} ${item.category}`.toLowerCase().includes(search)) : nodeLibrary.value
+  const items = filteredModuleItems.value
+  return search ? items.filter(item => `${item.title} ${item.category}`.toLowerCase().includes(search)) : items
 })
 const moduleSearchActive = computed(() => Boolean(moduleSearch.value.trim()))
 const menuText = computed(() => menuLocales[currentLocale.value])
@@ -160,7 +162,8 @@ onMounted(async () => {
     onSelection(value) {
       selectedNode.value = value ? { ...value, values: { ...value.values } } : null
       if (value) selectedVariableId.value = null
-    }
+    },
+    canAddEntryNodes() { return !isFunctionBlueprintTab.value }
   })
   await editor.newDocument()
   if (nodeLoadStatus) status.value = nodeLoadStatus
@@ -1414,7 +1417,7 @@ async function exportImage(selected: boolean) {
 
 async function addNodeAt(typeId: string, position?: { x: number; y: number }) {
   try {
-    await editor?.addNode(typeId, position ?? visibleCanvasInsertPosition())
+    await editor?.addNode(typeId, position ?? visibleCanvasInsertPosition(), { allowEntryNodes: !isFunctionBlueprintTab.value })
   } catch (error) {
     status.value = error instanceof Error ? error.message : String(error)
   }

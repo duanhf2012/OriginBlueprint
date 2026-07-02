@@ -94,6 +94,10 @@ const nodeWidth = computed(() => Math.max(
   props.data.width ?? 230,
   inputColumnWidth.value + outputColumnWidth.value + PORT_COLUMN_GAP + NODE_HORIZONTAL_PADDING
 ))
+const nodeStyle = computed(() => ({
+  width: `${nodeWidth.value}px`,
+  '--entry-source-color': props.data.entrySourceColor || undefined
+}))
 
 function portFilled(side: 'inputs' | 'outputs', key: string) {
   return props.data.portStates?.[side][key]?.filled ?? false
@@ -113,6 +117,11 @@ function inputEntryBindingLabel(key: string) {
 
 function inputEntryBindingTitle(key: string) {
   return entryBindingTitle(props.data.portStates?.inputs[key]?.entryBinding)
+}
+
+function inputEntryBindingStyle(key: string) {
+  const color = props.data.portStates?.inputs[key]?.entryBinding?.entrySourceColor
+  return color ? { '--entry-source-color': color } : undefined
 }
 
 function openEntryBindingMenu(event: MouseEvent, key: string, socket: { name: string }) {
@@ -172,7 +181,7 @@ function removeBranch(index: number) {
 </script>
 
 <template>
-  <article class="blueprint-node" :class="[`kind-${data.kind ?? 'function'}`, { selected: data.selected, compact: data.compact, legacy: Boolean(data.legacyStyle), 'has-entry-binding': hasEntryBinding, 'reference-highlighted': data.referenceHighlighted, 'issue-highlighted': data.issueHighlighted }]" :style="{ width: `${nodeWidth}px` }">
+  <article class="blueprint-node" :class="[`kind-${data.kind ?? 'function'}`, { selected: data.selected, compact: data.compact, legacy: Boolean(data.legacyStyle), 'has-entry-binding': hasEntryBinding, 'reference-highlighted': data.referenceHighlighted, 'issue-highlighted': data.issueHighlighted }]" :style="nodeStyle">
     <header class="blueprint-title">
       <span class="node-icon">&#9670;</span>
       <span class="title-text">{{ data.label }}</span>
@@ -185,7 +194,7 @@ function removeBranch(index: number) {
         <div v-if="normalInputs[index - 1]" class="port input-port" :class="portClass('inputs', normalInputs[index - 1][0], normalInputs[index - 1][1].socket)" :style="socketStyle(normalInputs[index - 1][1].socket.name)" @contextmenu.stop.prevent="openEntryBindingMenu($event, normalInputs[index - 1][0], normalInputs[index - 1][1].socket)">
           <Ref class="socket-ref" :emit="emit" :data="{ type: 'socket', side: 'input', key: normalInputs[index - 1][0], nodeId: data.id, payload: socketPayload('inputs', normalInputs[index - 1][0], normalInputs[index - 1][1].socket) }" />
           <span class="port-label">{{ normalInputs[index - 1][1].label }}</span>
-          <span v-if="inputEntryBindingLabel(normalInputs[index - 1][0])" class="entry-binding-badge" :title="inputEntryBindingTitle(normalInputs[index - 1][0])">{{ inputEntryBindingLabel(normalInputs[index - 1][0]) }}</span>
+          <span v-if="inputEntryBindingLabel(normalInputs[index - 1][0])" class="entry-binding-badge" :style="inputEntryBindingStyle(normalInputs[index - 1][0])" :title="inputEntryBindingTitle(normalInputs[index - 1][0])">{{ inputEntryBindingLabel(normalInputs[index - 1][0]) }}</span>
           <Ref v-if="normalInputs[index - 1][1].control && normalInputs[index - 1][1].showControl" class="control-ref" :emit="emit" :data="{ type: 'control', payload: normalInputs[index - 1][1].control }" />
         </div>
         <div v-else class="port-spacer"></div>
@@ -226,7 +235,7 @@ function removeBranch(index: number) {
         <div v-if="inputs[index - 1]" class="port input-port" :class="portClass('inputs', inputs[index - 1][0], inputs[index - 1][1].socket)" :style="socketStyle(inputs[index - 1][1].socket.name)" @contextmenu.stop.prevent="openEntryBindingMenu($event, inputs[index - 1][0], inputs[index - 1][1].socket)">
           <Ref class="socket-ref" :emit="emit" :data="{ type: 'socket', side: 'input', key: inputs[index - 1][0], nodeId: data.id, payload: socketPayload('inputs', inputs[index - 1][0], inputs[index - 1][1].socket) }" />
           <span class="port-label">{{ inputs[index - 1][1].label }}</span>
-          <span v-if="inputEntryBindingLabel(inputs[index - 1][0])" class="entry-binding-badge" :title="inputEntryBindingTitle(inputs[index - 1][0])">{{ inputEntryBindingLabel(inputs[index - 1][0]) }}</span>
+          <span v-if="inputEntryBindingLabel(inputs[index - 1][0])" class="entry-binding-badge" :style="inputEntryBindingStyle(inputs[index - 1][0])" :title="inputEntryBindingTitle(inputs[index - 1][0])">{{ inputEntryBindingLabel(inputs[index - 1][0]) }}</span>
           <Ref v-if="inputs[index - 1][1].control && inputs[index - 1][1].showControl" class="control-ref" :emit="emit" :data="{ type: 'control', payload: inputs[index - 1][1].control }" />
         </div>
         <div v-else class="port-spacer"></div>
@@ -259,7 +268,7 @@ function removeBranch(index: number) {
 .blueprint-node.compact .port-row { min-height: 21px; }
 .blueprint-title { height: 31px; display: flex; align-items: center; gap: 6px; padding: 0 8px; border-radius: 3px 3px 0 0; background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 75%, #222)); color: white; font: 16px Arial, sans-serif; text-shadow: 0 1px #0008; cursor: move; white-space: nowrap; }
 .title-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.node-icon { opacity: .8; }
+.node-icon { color: var(--entry-source-color, currentColor); opacity: .95; text-shadow: 0 0 4px color-mix(in srgb, var(--entry-source-color, transparent) 70%, transparent); }
 .dynamic-actions { display: flex; gap: 2px; margin-left: 3px; }
 .dynamic-actions button { width: 19px; height: 18px; padding: 0; border: 1px solid #ffffff55; border-radius: 2px; background: #0003; color: white; line-height: 14px; }
 .ports { padding: 7px 0 8px; }
@@ -273,7 +282,7 @@ function removeBranch(index: number) {
 .output-port .socket-ref { margin-right: 8px; }
 .port-label { color: var(--socket-label-color); white-space: nowrap; }
 .input-port .port-label { flex: 0 0 auto; min-width: max-content; }
-.entry-binding-badge { flex: 0 1 auto; box-sizing: border-box; max-width: 180px; min-width: 0; overflow: hidden; padding: 1px 7px; border: 1px solid #33c5e8; border-radius: 2px; background: linear-gradient(90deg, #0b2e38e6, #101b20d9); color: #bff4ff; font: 10px "Segoe UI", sans-serif; text-overflow: ellipsis; white-space: nowrap; box-shadow: inset 0 0 0 1px #ffffff10, 0 0 5px #33c5e833; }
+.entry-binding-badge { flex: 0 1 auto; box-sizing: border-box; max-width: 180px; min-width: 0; overflow: hidden; padding: 1px 7px; border: 1px solid color-mix(in srgb, var(--entry-source-color, #33c5e8) 80%, #ffffff); border-radius: 2px; background: linear-gradient(90deg, color-mix(in srgb, var(--entry-source-color, #33c5e8) 22%, #101010), #101b20d9); color: var(--entry-source-color, #bff4ff); font: 10px "Segoe UI", sans-serif; text-overflow: ellipsis; white-space: nowrap; box-shadow: inset 0 0 0 1px #ffffff10, 0 0 5px color-mix(in srgb, var(--entry-source-color, #33c5e8) 45%, transparent); }
 .port.socket-exec { min-height: 25px; }
 .port:not(.filled) :deep(.blueprint-socket:not(.exec)) { background: #101010; box-shadow: 0 0 0 1px #000, inset 0 1px #ffffff24; }
 .port.filled :deep(.blueprint-socket:not(.exec)) { background: var(--socket-fill); box-shadow: 0 0 0 1px #000, inset 0 1px #ffffff55, 0 0 4px var(--socket-color); }

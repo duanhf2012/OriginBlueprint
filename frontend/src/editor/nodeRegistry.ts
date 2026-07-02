@@ -1,12 +1,15 @@
 import { ClassicPreset } from 'rete'
 import { ArrayControl, BlueprintNode, type DynamicBranchConfig, type NodeKind } from './types'
 import type { FunctionNodeMetadata, FunctionSignature, FunctionSignaturePort, GraphVariable, NodeProperties } from './document'
+import { entrySourceColor } from './implicitEntryLinks'
 
 export interface NodeDefinition {
   id: string
+  sourceName?: string
   title: string
   category: string
   kind: NodeKind
+  ordinaryEntry?: boolean
   create(): BlueprintNode
 }
 
@@ -25,6 +28,7 @@ type PortKind = SocketType | 'data'
 export interface PortSchema { key: string; label: string; type: PortKind; data_type?: string; defaultValue?: unknown; arrayItemType?: 'string' | 'number'; hideIcon?: boolean }
 export interface NodeSchema {
   id: string
+  sourceName?: string
   title: string
   category: string
   kind?: NodeKind
@@ -106,15 +110,32 @@ function inferKind(schema: NodeSchema): NodeKind {
   return 'function'
 }
 
+function isOrdinaryEntrySchema(schema: NodeSchema, kind: NodeKind) {
+  const sourceName = String(schema.sourceName ?? '').trim().toLowerCase()
+  return kind === 'event' && (
+    schema.id.startsWith('origin.event.') ||
+    schema.id.startsWith('origin.entry.') ||
+    schema.id.startsWith('origin.custom.entrance-') ||
+    sourceName.startsWith('entrance')
+  )
+}
+
 function fromSchema(schema: NodeSchema): NodeDefinition {
   const kind = inferKind(schema)
+  const ordinaryEntry = isOrdinaryEntrySchema(schema, kind)
   return {
     id: schema.id,
+    sourceName: schema.sourceName,
     title: schema.title,
     category: schema.category,
     kind,
+    ordinaryEntry,
     create() {
       const result = node(schema.id, schema.title, kind, schema.subtitle ?? schema.category, schema.width ?? 230)
+      if (ordinaryEntry) {
+        result.entrySourceKey = schema.sourceName || schema.id
+        result.entrySourceColor = entrySourceColor(schema.sourceName || schema.id)
+      }
       result.dynamicOutputs = schema.dynamicOutputs
       result.dynamicBranch = schema.dynamicBranch
       if (schema.dynamicOutputs) result.dynamicOutputCount = schema.outputs?.filter(port => port.key.startsWith('then')).length ?? 1

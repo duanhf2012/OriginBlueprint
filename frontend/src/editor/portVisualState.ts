@@ -38,7 +38,7 @@ function entryBindingNode(node?: BlueprintNode): EntryBindingNode | undefined {
   if (!node) return undefined
   const inputs = Object.fromEntries(Object.entries(node.inputs).flatMap(([key, port]) => port ? [[key, { label: port.label, socket: port.socket.name }]] : []))
   const outputs = Object.fromEntries(Object.entries(node.outputs).flatMap(([key, port]) => port ? [[key, { label: port.label, socket: port.socket.name }]] : []))
-  return { id: node.id, typeId: node.typeId, legacyClass: node.legacyClass, label: node.label, inputs, outputs }
+  return { id: node.id, typeId: node.typeId, legacyClass: node.legacyClass, label: node.label, entrySourceKey: node.entrySourceKey, entrySourceColor: node.entrySourceColor, inputs, outputs }
 }
 
 export function refreshNodePortStates(

@@ -109,6 +109,7 @@ function convertLegacyNodeDefinition(definition: LegacyNodeDefinition, index: nu
 
   return {
     id,
+    sourceName: name,
     title: firstNonEmpty(definition.title, name),
     category: firstNonEmpty(definition.package, 'Custom'),
     kind: inferNodeKind(id, inputs, outputs),
