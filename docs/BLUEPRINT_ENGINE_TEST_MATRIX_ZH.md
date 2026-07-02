@@ -1,15 +1,40 @@
 # Blueprint Engine 测试矩阵
 
-本文档记录当前 Go 版解析执行引擎的测试用例设计、覆盖范围和压测入口。范围只包含顶层 `nodes/*.json` 与当前 engine/go/blueprint 功能；`nodes/json/**`、RPC 业务节点、origin 服务器完整替换接入、C#、Lua 均不在本轮处理。
+本文档记录当前 Go 版解析执行引擎的测试用例设计、覆盖范围和压测入口。范围覆盖顶层 `nodes/*.json`、业务 `nodes/json/**/*.json`、编辑器保存出的 `.obp/.obpf`、历史 `.vgf` 迁移文件，以及当前 `engine/go/blueprint` 能解析和执行的功能；RPC 业务节点、origin 服务器完整替换接入、C#、Lua 均不在本轮处理。
 
 ## 测试目标
 
 - 验证旧蓝图 `.vgf` 能继续加载、编译和执行。
+- 验证旧 `.vgf` 与新 Go 解析/执行库兼容；兼容标准是 Go 库能正确加载、编译、执行并得到预期结果，不要求和旧编辑器导出的文件逐字一致。
 - 验证新蓝图 `.obp/.obpf` 的函数入口、函数返回、函数调用后续执行。
+- 验证由节点定义组装、连线并保存出的 `.obp/.obpf` 能被 Go engine 正确执行。
 - 验证异步 continuation 机制能在 sleep/timer 类节点回调后继续当前位置。
-- 验证顶层 `nodes/*.json` 中所有基础系统节点均有加载覆盖和行为覆盖。
+- 验证 `nodes/**/*.json` 中所有基础系统节点和已恢复业务节点均有加载覆盖，关键节点有组合行为覆盖。
 - 验证已删除的文件、表格、字典相关节点和变量类型不会重新暴露。
 - 提供服务器高频执行的 benchmark 入口，用于观察共享编译树、多实例执行、并发执行的耗时和分配。
+
+## 兼容判定口径
+
+本项目当前的旧格式兼容目标是“旧 `.vgf` 能兼容新的 Go 解析和执行库”，而不是“新导出的 `.vgf` 与旧编辑器导出的文件字节完全一致”。
+
+测试中应严格比较语义字段：
+
+- 节点 class/name 到 Go 节点定义的映射。
+- 旧 `port_id` 到新 port key 的映射。
+- `port_defaultv` 到新 `values` 的转换结果。
+- exec/data 连线拓扑。
+- 入口、函数、变量、动态分支的执行语义。
+- Go engine 执行结果。
+
+测试中不应把这些非语义字段作为失败条件：
+
+- JSON 字段顺序。
+- 自动生成的节点 id、连线 id。
+- 保存时间。
+- 画布坐标的微小差异。
+- 编辑器内部展示顺序。
+
+如需对比 `.vgf` round-trip，应先 canonicalize，再比较 class、module、端口编号、默认值和连线拓扑。
 
 ## 顶层节点覆盖
 
@@ -21,6 +46,16 @@
 - `nodes/Math.json`
 - `nodes/SysFlowControl.json`
 - `nodes/Test.json`
+
+业务节点覆盖来源：
+
+- `nodes/json/**/*.json`
+
+覆盖要求：
+
+- 每个业务 JSON 至少进入一次 schema 加载覆盖，防止旧业务节点退化成 `origin.legacy.placeholder`。
+- 旧 `.vgf` 中实际出现过的业务 class 必须能映射到 schema、静态 legacy spec，或明确进入允许的 hidden/fallback 清单。
+- 代表性业务节点需要进入组合蓝图执行用例，至少覆盖入口参数、业务数据输出、数组/分支连接和函数调用边界。
 
 覆盖测试：
 
@@ -49,6 +84,19 @@
 
 ## 组合流程用例
 
+新增蓝图文件生成原则：
+
+- 测试不得直接手写 `.obp/.obpf` JSON 文件。
+- 测试应通过“组图动作”生成蓝图：从节点定义创建节点、设置输入默认值、模拟连线、保存文件、重新加载文件。
+- 组图动作可以是 headless 测试工具，也可以是少量 Playwright UI 烟测；核心要求是复用编辑器和 Go 侧同一套 schema/端口规则，而不是绕过保存链路。
+
+建议测试产物目录：
+
+- `testdata/generated/obp/`：由测试组图生成的新格式蓝图。
+- `testdata/generated/vgf/`：由兼容导出生成的旧格式蓝图。
+- `testdata/golden/`：canonical 后的期望结构。
+- `testdata/golden/results/`：Go engine 执行结果期望值。
+
 复杂旧蓝图流程：
 
 - 入口：`Entrance_IntParam_000001`
@@ -72,6 +120,26 @@
 - 主图文件：`.obp`
 - 函数节点：`origin.function.entry`、`origin.function.return`、`origin.function.call`
 - 预期：函数返回值写回调用点，调用节点之后的执行流继续执行。
+
+函数嵌套流程：
+
+- 主图文件：`.obp`
+- 函数文件：`func_a.obpf`、`func_b.obpf`
+- 调用关系：主图调用 `func_a`，`func_a` 内部调用 `func_b`
+- 预期：函数入参、返回值、局部变量互不污染；`func_b` 返回后继续 `func_a`，`func_a` 返回后继续主图。
+- 反例：函数递归或循环依赖应在加载、编译或执行前给出明确错误，不能静默死循环。
+
+业务入口流程：
+
+- 入口：怪物选择技能入口、怪物被攻击入口、怪物回合开始入口、Buff 相关入口。
+- 数据流：入口参数连接到业务节点，再进入分支、数组和返回节点。
+- 预期：旧 `.vgf` 打开后入口节点不丢，入口参数 port 不乱序；保存为 `.obp` 后 Go engine 仍可按入口参数执行。
+
+旧 `.vgf` 兼容流程：
+
+- 输入：`build/bin/vgf/**/*.vgf` 中的代表性样例，例如 `choiceskill_easy.vgf`。
+- 流程：旧 `.vgf` -> Go 迁移 -> 校验 -> 编译 -> 执行；必要时再导出 legacy `.vgf` 做 canonical round-trip。
+- 预期：Go 解析/执行库能加载并运行；已知断开的线上样例允许产生明确 validation warning，但不能丢失已知业务节点、入口节点和连线。
 
 异步流程：
 
@@ -185,6 +253,38 @@ go test ./engine/go/blueprint -run '^$' -bench 'BenchmarkFunctionCall' -benchtim
 - `ReleaseGraph` 会清理实例 timer；有 module 时走 `IBlueprintModule.CancelTimerId`，无 module 时走旧 `cancelTimer` 回调。
 - 详细接入清单见 `docs/BLUEPRINT_ENGINE_COMPATIBILITY_ZH.md`。
 
+## 蓝图生成到 Go 执行全链路验证
+
+推荐新增一组专门的 compatibility/golden 测试：
+
+1. 读取 `nodes/**/*.json` 并注册 schema。
+2. 使用测试组图器按用例创建节点、设置默认值、连接 exec/data 端口。
+3. 保存为 `.obp/.obpf`。
+4. 重新加载保存后的文件，验证节点数、端口、默认值、连线拓扑。
+5. 对需要旧格式兼容的用例导出 `.vgf`，再用 Go 迁移路径重新读入。
+6. 调用 `engine/go/blueprint` 编译并执行。
+7. 比较执行返回值、变量变化、trace 关键步骤和错误信息。
+
+建议优先落地这些用例：
+
+- 基础数学和顺序执行：入口 -> `Sequence` -> `AddInt/SubInt/MulInt/DivInt` -> return。
+- 动态分支：`EqualSwitch`、`RangeCompare`、数组 item 增删后左右端口同步。
+- 数组遍历：`CreateIntArray` -> `ForeachIntArray` -> 累加/返回。
+- 业务入口参数引用：多个入口使用不同参数名，保存后来源不混淆。
+- 函数调用：主图调用函数、函数调用函数、函数内异步/return 后继续 caller。
+- 旧 `.vgf` 样例：`choiceskill_easy.vgf` 和至少一个 battle/buffskill 样例。
+- fallback 边界：未知旧节点只在允许清单中 fallback，已知业务节点不得 fallback。
+
+这组测试的失败信息应说明是哪一层失败：
+
+- schema 加载失败。
+- 组图保存失败。
+- 重新加载后结构不一致。
+- legacy 迁移失败。
+- Go 编译失败。
+- Go 执行结果不一致。
+- 显示契约回归，例如标题显示为 `name/class`、大量节点被染成兼容黄色、动态输出端口丢失。
+
 ## 当前线程安全边界
 
 - `CompiledGraph`、`ExecNode`、`NodeDefinition` 在编译后按只读共享使用，可被多个 create 实例并发执行。
@@ -239,7 +339,6 @@ rg -n "origin\.(io|table|dictionary)|foreach-table-row|DataFrame|\bDict\b|Runtim
 
 ## 当前不处理项
 
-- `nodes/json/**` 业务节点。
 - RPC 异步业务节点。
 - origin 服务器完整替换接入。
 - C# engine。

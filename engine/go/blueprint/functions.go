@@ -92,7 +92,7 @@ func (n *FunctionCall) Exec() (int, error) {
 	if runErr != nil && !isFunctionCallStop(runErr) {
 		return -1, runErr
 	}
-	if runErr == ErrFunctionReturned {
+	if runErr == ErrFunctionReturned || child.functionCompleted {
 		return -1, nil
 	}
 	if runErr == nil && child.onFunctionComplete != nil {

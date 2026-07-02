@@ -361,6 +361,7 @@ func TestRemovedFileTableDictionaryDocumentNodesAreUnsupported(t *testing.T) {
 
 type jsonNodeSchemaContract struct {
 	ID            string                     `json:"id"`
+	Name          string                     `json:"name"`
 	Inputs        []jsonPortSchemaContract   `json:"inputs"`
 	Outputs       []jsonPortSchemaContract   `json:"outputs"`
 	DynamicBranch *jsonDynamicBranchContract `json:"dynamicBranch"`

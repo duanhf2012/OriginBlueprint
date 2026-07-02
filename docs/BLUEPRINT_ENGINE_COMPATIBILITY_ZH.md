@@ -2,6 +2,22 @@
 
 本文用于服务器项目替换旧 `Origin/util/blueprint` 前核对新 Go engine 的接入风险。
 
+## 旧 `.vgf` 兼容口径
+
+当前兼容目标是：线上旧 `.vgf` 能被新的 Go 解析/执行库正确加载、编译和运行。
+
+验收时以 Go 库行为为准：
+
+- 旧 `.vgf` 可以通过迁移路径生成 `GraphDocument`。
+- 已知业务节点、入口节点、函数节点和变量节点不丢失。
+- 旧 `port_id`、`port_defaultv`、exec/data 连线能映射到新端口。
+- `engine/go/blueprint` 可以编译并执行代表性用例。
+- 执行返回值、变量变化、分支命中和异步 continuation 行为符合预期。
+
+不要求新导出的 `.vgf` 与旧编辑器生成的 `.vgf` 字节完全一致。字段顺序、自动 id、保存时间、画布坐标微小差异不作为兼容失败；需要 round-trip 对比时，应使用 canonical 后的语义结构进行比较。
+
+详细测试矩阵见 `docs/BLUEPRINT_ENGINE_TEST_MATRIX_ZH.md`。
+
 ## 兼容入口
 
 服务器侧优先只依赖以下 facade：

@@ -2,6 +2,8 @@
 
 本文档沉淀蓝图编辑器、旧 `.vgf` 迁移、节点 JSON、前端渲染和 Go 执行链路的改动经验。后续修改蓝图相关代码前，先读这里，再读 `docs/LEGACY_COMPATIBILITY_ZH.md` 和 `docs/NODE_JSON_FORMAT_ZH.md`。
 
+Go 解析/执行兼容的专项测试矩阵见 `docs/BLUEPRINT_ENGINE_TEST_MATRIX_ZH.md`。旧 `.vgf` 的兼容验收口径是“能被新的 Go 库加载、编译和执行”，不要求与旧编辑器导出的 `.vgf` 字节完全一致。
+
 ## 核心原则
 
 蓝图不是单纯 UI。任何改动至少同时影响三层合同：
