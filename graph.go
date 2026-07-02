@@ -289,13 +289,13 @@ var graphNodePorts = map[string]portDefinition{
 		Inputs: map[string]string{"exec": "exec", "probability": "integer"}, Outputs: map[string]string{"miss": "exec", "hit": "exec"},
 	},
 	"origin.flow.range-compare": {
-		Inputs: map[string]string{"exec": "exec", "value": "integer", "ranges": "array"}, Outputs: map[string]string{"otherwise": "exec", "case0": "exec", "case1": "exec", "case2": "exec", "case3": "exec", "case4": "exec"},
+		Inputs: map[string]string{"exec": "exec", "value": "integer", "ranges": "array"}, Outputs: map[string]string{"otherwise": "exec"},
 	},
 	"origin.flow.equal-switch": {
-		Inputs: map[string]string{"exec": "exec", "value": "integer", "cases": "array"}, Outputs: map[string]string{"otherwise": "exec", "case0": "exec", "case1": "exec", "case2": "exec", "case3": "exec", "case4": "exec"},
+		Inputs: map[string]string{"exec": "exec", "value": "integer", "cases": "array"}, Outputs: map[string]string{"otherwise": "exec"},
 	},
 	"origin.flow.equal-switch-new": {
-		Inputs: map[string]string{"exec": "exec", "value": "integer", "cases": "array"}, Outputs: map[string]string{"otherwise": "exec", "case0": "exec", "case1": "exec", "case2": "exec", "case3": "exec", "case4": "exec"},
+		Inputs: map[string]string{"exec": "exec", "value": "integer", "cases": "array"}, Outputs: map[string]string{"otherwise": "exec"},
 	},
 	"origin.debug.output": {
 		Inputs: map[string]string{"exec": "exec", "integer": "integer", "string": "string", "array": "array"}, Outputs: map[string]string{"exec": "exec"},
@@ -336,6 +336,34 @@ var graphNodePorts = map[string]portDefinition{
 	"origin.cast.any-string": {
 		Inputs: map[string]string{"exec": "exec", "value": "any"}, Outputs: map[string]string{"exec": "exec", "valid": "boolean", "result": "string"},
 	},
+}
+
+type dynamicBranchSpec struct {
+	controlInput     string
+	outputPrefix     string
+	outputStartIndex int
+	maxBranches      int
+}
+
+var dynamicBranchSpecs = map[string]dynamicBranchSpec{
+	"origin.flow.range-compare":    {controlInput: "ranges", outputPrefix: "case", outputStartIndex: 1, maxBranches: 4},
+	"origin.flow.equal-switch":     {controlInput: "cases", outputPrefix: "case", outputStartIndex: 1, maxBranches: 4},
+	"origin.flow.equal-switch-new": {controlInput: "cases", outputPrefix: "case", outputStartIndex: 1, maxBranches: 50},
+}
+
+func applyDynamicBranchOutputs(node GraphNode, definition portDefinition) portDefinition {
+	spec, ok := dynamicBranchSpecs[node.TypeID]
+	if !ok {
+		return definition
+	}
+	outputs := make(map[string]string, len(definition.Outputs)+spec.maxBranches)
+	for key, value := range definition.Outputs {
+		outputs[key] = value
+	}
+	for index := 0; index < spec.maxBranches; index++ {
+		outputs[fmt.Sprintf("%s%d", spec.outputPrefix, spec.outputStartIndex+index)] = "exec"
+	}
+	return portDefinition{Inputs: definition.Inputs, Outputs: outputs}
 }
 
 func (a *App) ValidateGraph(content string) ([]ValidationIssue, error) {
@@ -466,6 +494,7 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 		if !known {
 			continue
 		}
+		definition = applyDynamicBranchOutputs(node, definition)
 		ports[node.ID] = definition
 	}
 

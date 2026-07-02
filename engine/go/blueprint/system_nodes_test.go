@@ -35,7 +35,7 @@ func TestBuiltinFactoriesCoverAllTopLevelNodeDefinitions(t *testing.T) {
 		"AddInt", "SubInt", "MulInt", "DivInt", "ModInt", "RandNumber",
 		"Sequence", "Foreach", "ForeachIntArray", "BoolIf", "GreaterThanInteger",
 		"LessThanInteger", "EqualInteger", "RangeCompare", "EqualSwitch", "Probability",
-		"DebugOutput",
+		"IntInArray", "DebugOutput",
 	} {
 		if registry.Get(name) == nil {
 			t.Fatalf("builtin definition %s was not registered", name)
@@ -70,6 +70,7 @@ func TestTopLevelSystemNodeBehaviorCoverage(t *testing.T) {
 		"RangeCompare":         true,
 		"EqualSwitch":          true,
 		"Probability":          true,
+		"IntInArray":           true,
 		"Entrance_ArrayParam":  true,
 		"Entrance_IntParam":    true,
 		"Entrance_Timer":       true,

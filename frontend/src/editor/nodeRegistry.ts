@@ -123,6 +123,11 @@ function isOrdinaryEntrySchema(schema: NodeSchema, kind: NodeKind) {
 function fromSchema(schema: NodeSchema): NodeDefinition {
   const kind = inferKind(schema)
   const ordinaryEntry = isOrdinaryEntrySchema(schema, kind)
+  const dynamicBranch = schema.dynamicBranch ? {
+    ...schema.dynamicBranch,
+    outputTemplate: schema.dynamicBranch.outputTemplate ? { ...schema.dynamicBranch.outputTemplate } : { type: 'exec', label: '' },
+    hiddenOutputKeys: schema.dynamicBranch.hiddenOutputKeys ? [...schema.dynamicBranch.hiddenOutputKeys] : undefined
+  } : undefined
   return {
     id: schema.id,
     sourceName: schema.sourceName,
@@ -137,14 +142,15 @@ function fromSchema(schema: NodeSchema): NodeDefinition {
         result.entrySourceColor = entrySourceColor(schema.sourceName || schema.id)
       }
       result.dynamicOutputs = schema.dynamicOutputs
-      result.dynamicBranch = schema.dynamicBranch
+      result.dynamicBranch = dynamicBranch
       if (schema.dynamicOutputs) result.dynamicOutputCount = schema.outputs?.filter(port => port.key.startsWith('then')).length ?? 1
       for (const port of schema.inputs ?? []) {
         const socketType = socketTypeForPort(port)
-        const defaultValue = schema.dynamicBranch?.controlInput === port.key && port.defaultValue === undefined ? [] : port.defaultValue
+        const defaultValue = dynamicBranch?.controlInput === port.key && port.defaultValue === undefined ? [] : port.defaultValue
         result.addInput(port.key, input(sockets[socketType] ?? sockets.any, port.label, defaultValue, port.arrayItemType))
       }
       for (const port of schema.outputs ?? []) {
+        if (dynamicBranch && port.key.startsWith(dynamicBranch.outputPrefix)) continue
         const socketType = socketTypeForPort(port)
         result.addOutput(port.key, new ClassicPreset.Output(sockets[socketType] ?? sockets.any, port.label))
       }

@@ -51,7 +51,7 @@ const legacyNodeSpecs: Record<string, LegacyNodeSpec> = {
   GreaterThanInteger: { typeId: 'origin.flow.greater-integer', inputs: ['exec', 'orEqual', 'a', 'b'], outputs: ['false', 'true'] },
   LessThanInteger: { typeId: 'origin.flow.less-integer', inputs: ['exec', 'orEqual', 'a', 'b'], outputs: ['false', 'true'] },
   EqualInteger: { typeId: 'origin.flow.equal-integer', inputs: ['exec', 'a', 'b'], outputs: ['false', 'true'] },
-  RangeCompare: { typeId: 'origin.flow.range-compare', inputs: ['exec', 'value', 'ranges'], outputs: ['otherwise', 'case0', 'case1', 'case2', 'case3', 'case4'] },
+  RangeCompare: { typeId: 'origin.flow.range-compare', inputs: ['exec', 'value', 'ranges'], outputs: ['otherwise'] },
   EqualSwitch: { typeId: 'origin.flow.equal-switch', inputs: ['exec', 'value', 'cases'], outputs: ['otherwise', 'case0', 'case1', 'case2', 'case3', 'case4'] },
   GetArrayInt: { typeId: 'origin.array.get-integer', inputs: ['array', 'index'], outputs: ['value'] },
   GetArrayString: { typeId: 'origin.array.get-string', inputs: ['array', 'index'], outputs: ['value'] },
@@ -131,6 +131,7 @@ function dynamicBranchForType(id: string): DynamicBranchConfig | undefined {
       outputPrefix: 'case',
       outputStartIndex: 1,
       maxBranches: 4,
+      outputTemplate: { type: 'exec', label: '' },
       hiddenOutputKeys: ['case0']
     }
   }

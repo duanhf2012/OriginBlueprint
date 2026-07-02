@@ -281,62 +281,28 @@
 			}]
 	},
   {
-		"name": "RangeCompare",
-		"title": "范围比较<=",
-		"package": "流程控制",
-		"description": "范围比较",
-		"is_pure": true,
-		"inputs": [{
-				"name": "",
-				"type": "exec",
-				"port_id": 0
-			} ,
-          {
-				"name": "值",
-				"type": "data",
-				"data_type": "Integer",
-				"has_input": true,
-				"port_id": 1
-			}
-          ,
-          {
-				"name": "",
-				"type": "data",
-				"data_type": "Array",
-				"has_input": false,
-                "pin_widget": "IntegerArrayWdg",
-				"port_id": 2
-			}
-        ],
-		"outputs": [{
-				"name": "否则",
-				"type": "exec",
-				"port_id": 0
-			} ,
-          {
-				"name": "",
-				"type": "exec",
-                "hide_icon": true,
-				"port_id": 1
-			},{
-				"name": "",
-				"type": "exec",
-				"port_id": 2
-			},{
-				"name": "",
-				"type": "exec",
-				"port_id": 3
-			},{
-				"name": "",
-				"type": "exec",
-				"port_id": 4
-			},{
-				"name": "",
-				"type": "exec",
-				"port_id": 5
-			}
-        ]
-	},
+    "id": "origin.flow.range-compare",
+    "title": "范围比较<=",
+    "category": "流程控制",
+    "subtitle": "范围比较",
+    "width": 260,
+    "inputs": [
+      { "key": "exec", "label": "", "type": "exec" },
+      { "key": "value", "label": "值", "type": "data", "data_type": "Integer", "defaultValue": 0 },
+      { "key": "ranges", "label": "值", "type": "data", "data_type": "Array", "defaultValue": [], "arrayItemType": "number" }
+    ],
+    "outputs": [
+      { "key": "otherwise", "label": "否则", "type": "exec" }
+    ],
+    "dynamicBranch": {
+      "controlInput": "ranges",
+      "defaultOutput": "otherwise",
+      "outputPrefix": "case",
+      "outputStartIndex": 1,
+      "maxBranches": 4,
+      "outputTemplate": { "label": "", "type": "exec" }
+    }
+  },
   {
     "name": "EqualSwitch",
     "title": "等于分支==",
@@ -393,6 +359,29 @@
         "port_id": 5
       }
     ]
+  },
+  {
+    "id": "origin.flow.equal-switch-new",
+    "title": "等于分支== [新]",
+    "category": "流程控制",
+    "subtitle": "等于比较",
+    "width": 260,
+    "inputs": [
+      { "key": "exec", "label": "", "type": "exec" },
+      { "key": "value", "label": "值", "type": "data", "data_type": "Integer", "defaultValue": 0 },
+      { "key": "cases", "label": "值", "type": "data", "data_type": "Array", "defaultValue": [], "arrayItemType": "number" }
+    ],
+    "outputs": [
+      { "key": "otherwise", "label": "否则", "type": "exec" }
+    ],
+    "dynamicBranch": {
+      "controlInput": "cases",
+      "defaultOutput": "otherwise",
+      "outputPrefix": "case",
+      "outputStartIndex": 1,
+      "maxBranches": 50,
+      "outputTemplate": { "label": "", "type": "exec" }
+    }
   },
   {
 		"name": "Probability",

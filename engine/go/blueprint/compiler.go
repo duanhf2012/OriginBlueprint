@@ -274,11 +274,33 @@ func dynamicDefinition(nodeConfig NodeConfig, variables map[string]VariableConfi
 	case "FunctionCall":
 		return functionCallDefinition(nodeConfig.FunctionInputTypes, nodeConfig.FunctionOutputTypes)
 	default:
+		if definition := dynamicSequenceDefinition(nodeConfig.Class); definition != nil {
+			return definition, nil
+		}
 		if definition := builtinDynamicDefinition(nodeConfig.Class); definition != nil {
 			return definition, nil
 		}
 		return dynamicVariableDefinition(nodeConfig.Class, variables)
 	}
+}
+
+func dynamicSequenceDefinition(className string) *NodeDefinition {
+	if !strings.HasPrefix(className, "SequenceDynamic") {
+		return nil
+	}
+	count, err := strconv.Atoi(strings.TrimPrefix(className, "SequenceDynamic"))
+	if err != nil || count <= 0 {
+		return nil
+	}
+	return NewNodeDefinition("Sequence", func() IExecNode { return &Sequence{} }, []IPort{NewPortExec()}, execPortList(count))
+}
+
+func execPortList(count int) []IPort {
+	ports := make([]IPort, count)
+	for index := range ports {
+		ports[index] = NewPortExec()
+	}
+	return ports
 }
 
 func dynamicVariableDefinition(className string, variables map[string]VariableConfig) (*NodeDefinition, error) {

@@ -83,7 +83,7 @@ func TestDefaultNodeDirectoryDocumentsLoad(t *testing.T) {
 }
 
 func TestRangeCompareUsesDynamicBranchSchema(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("nodes", "json", "common", "SysFlowControl.json"))
+	data, err := os.ReadFile(filepath.Join("nodes", "SysFlowControl.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,6 +105,21 @@ func TestRangeCompareUsesDynamicBranchSchema(t *testing.T) {
 		if branch["outputStartIndex"] != float64(1) || branch["maxBranches"] != float64(4) {
 			t.Fatalf("unexpected branch indexes: %#v", branch)
 		}
+		if _, ok := branch["hiddenOutputKeys"]; ok {
+			t.Fatalf("dynamicBranch should not require hidden output keys: %#v", branch)
+		}
+		template, ok := branch["outputTemplate"].(map[string]interface{})
+		if !ok || template["type"] != "exec" {
+			t.Fatalf("dynamicBranch should declare an exec outputTemplate: %#v", branch)
+		}
+		outputs, _ := definition["outputs"].([]interface{})
+		for _, value := range outputs {
+			output, _ := value.(map[string]interface{})
+			key, _ := output["key"].(string)
+			if strings.HasPrefix(key, "case") {
+				t.Fatalf("dynamic branch output %s should be generated, not declared", key)
+			}
+		}
 		return
 	}
 	t.Fatal("range compare schema not found")
@@ -112,8 +127,8 @@ func TestRangeCompareUsesDynamicBranchSchema(t *testing.T) {
 
 func TestNewNodeSchemasOmitOptionalKindAndCustom(t *testing.T) {
 	files := []string{
-		filepath.Join("nodes", "json", "common", "Base.json"),
-		filepath.Join("nodes", "json", "common", "SysFlowControl.json"),
+		filepath.Join("nodes", "Base.json"),
+		filepath.Join("nodes", "SysFlowControl.json"),
 	}
 	newNodeIDs := map[string]bool{
 		"origin.array.create-integer-new": true,
@@ -156,8 +171,8 @@ func TestNewNodeSchemasOmitOptionalKindAndCustom(t *testing.T) {
 
 func TestNewNodeSchemasUseLegacyPortTypeShape(t *testing.T) {
 	files := []string{
-		filepath.Join("nodes", "json", "common", "Base.json"),
-		filepath.Join("nodes", "json", "common", "SysFlowControl.json"),
+		filepath.Join("nodes", "Base.json"),
+		filepath.Join("nodes", "SysFlowControl.json"),
 	}
 
 	for _, file := range files {

@@ -97,6 +97,8 @@ button { font: inherit; color: inherit; }
 .canvas-toolbar { position: absolute; top: 12px; left: 12px; display: flex; gap: 4px; }
 .canvas-toolbar button { width: 30px; height: 28px; border: 1px solid #444; border-radius: 3px; background: #292929dd; color: #aaa; cursor: pointer; }
 .canvas-toolbar button:hover { color: white; border-color: #657b8b; }
+.canvas-toast { position: absolute; z-index: 1300; max-width: min(420px, calc(100% - 32px)); transform: translate(-50%, -100%); padding: 7px 12px; border: 1px solid #d5a842; border-radius: 3px; background: #241b0ee8; color: #ffd98a; box-shadow: 0 8px 22px #000c, 0 0 0 1px #ffffff14 inset; font: 12px "Segoe UI", "Microsoft YaHei UI", sans-serif; line-height: 18px; text-align: center; pointer-events: none; animation: canvas-toast-pop 1.9s ease-out both; }
+@keyframes canvas-toast-pop { 0% { opacity: 0; transform: translate(-50%, calc(-100% + 8px)); } 12% { opacity: 1; transform: translate(-50%, -100%); } 78% { opacity: 1; transform: translate(-50%, -100%); } 100% { opacity: 0; transform: translate(-50%, calc(-100% - 8px)); } }
 .canvas-hint { position: absolute; left: 12px; bottom: 10px; padding: 5px 8px; border-radius: 3px; background: #151515bb; color: #777; font-size: 11px; pointer-events: none; }
 .status-bar { height: 24px; display: flex; align-items: center; gap: 24px; padding: 0 8px; background: #252525; border-top: 1px solid #111; color: #888; font-size: 11px; }
 .status-bar span:nth-child(2) { margin-left: auto; }.status-bar button { height: 20px; min-width: 48px; border: 0; background: transparent; color: #aaa; }

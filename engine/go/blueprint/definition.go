@@ -10,6 +10,7 @@ import (
 
 // ExecDefinitionConfig 对应节点定义 JSON 中的一项节点声明。
 type ExecDefinitionConfig struct {
+	ID      string           `json:"id"`
 	Name    string           `json:"name"`
 	Inputs  []PortDefinition `json:"inputs"`
 	Outputs []PortDefinition `json:"outputs"`
@@ -47,6 +48,13 @@ func (r *Registry) LoadDefinitionsJSON(data []byte, factories []func() IExecNode
 	}
 
 	for _, config := range configs {
+		if strings.TrimSpace(config.Name) == "" {
+			var ok bool
+			config, ok = executableConfigForSchemaID(config.ID)
+			if !ok {
+				continue
+			}
+		}
 		nodeName, _, _ := parseEntranceClass(config.Name)
 		factory := factoryByName[nodeName]
 		if factory == nil {
@@ -57,7 +65,7 @@ func (r *Registry) LoadDefinitionsJSON(data []byte, factories []func() IExecNode
 		if err != nil {
 			return fmt.Errorf("exec %s input ports: %w", nodeName, err)
 		}
-		outPorts, err := buildPorts(config.Outputs)
+		outPorts, err := buildPorts(dynamicBranchDefinitionOutputs(config.Name, config.Outputs))
 		if err != nil {
 			return fmt.Errorf("exec %s output ports: %w", nodeName, err)
 		}
@@ -67,6 +75,50 @@ func (r *Registry) LoadDefinitionsJSON(data []byte, factories []func() IExecNode
 	}
 
 	return nil
+}
+
+func executableConfigForSchemaID(id string) (ExecDefinitionConfig, bool) {
+	switch id {
+	case "origin.flow.range-compare":
+		return ExecDefinitionConfig{
+			ID:   id,
+			Name: "RangeCompare",
+			Inputs: []PortDefinition{
+				{PortType: "exec", PortID: 0},
+				{PortType: "data", DataType: "Integer", PortID: 1},
+				{PortType: "data", DataType: "Array", PortID: 2},
+			},
+			Outputs: []PortDefinition{
+				{PortType: "exec", PortID: 0},
+				{PortType: "exec", PortID: 1},
+			},
+		}, true
+	default:
+		return ExecDefinitionConfig{}, false
+	}
+}
+
+func dynamicBranchDefinitionOutputs(name string, outputs []PortDefinition) []PortDefinition {
+	maxBranch := 0
+	switch name {
+	case "RangeCompare":
+		maxBranch = 4
+	case "EqualSwitch":
+		maxBranch = 50
+	default:
+		return outputs
+	}
+	result := append([]PortDefinition(nil), outputs...)
+	seen := make(map[int]bool, len(result))
+	for _, output := range result {
+		seen[output.PortID] = true
+	}
+	for portID := 0; portID <= maxBranch+1; portID++ {
+		if !seen[portID] {
+			result = append(result, PortDefinition{PortType: "exec", PortID: portID})
+		}
+	}
+	return result
 }
 
 func parseLenientDefinitions(text string) []ExecDefinitionConfig {

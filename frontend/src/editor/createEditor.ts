@@ -161,6 +161,31 @@ function dynamicBranchValueCount(node: BlueprintNode) {
   return Array.isArray(value) ? value.length : 0
 }
 
+function dynamicBranchOutputSocket(node: BlueprintNode) {
+  const config = node.dynamicBranch
+  const template = config?.outputTemplate
+  const socketName = template?.type === 'data' ? template.data_type : template?.type
+  return new ClassicPreset.Socket(socketName ?? node.outputs[config?.defaultOutput ?? '']?.socket.name ?? 'exec')
+}
+
+function syncDynamicBranchOutputs(node: BlueprintNode, requestedCount: number) {
+  const config = node.dynamicBranch
+  if (!config) return
+  const count = Math.max(0, Math.min(config.maxBranches, Math.floor(requestedCount)))
+  const first = config.outputStartIndex
+  const last = first + count - 1
+  const socket = dynamicBranchOutputSocket(node)
+  for (let index = first; index <= last; index++) {
+    const outputKey = `${config.outputPrefix}${index}`
+    if (!node.outputs[outputKey]) node.addOutput(outputKey, new ClassicPreset.Output(socket, config.outputTemplate?.label ?? ''))
+  }
+  for (const key of Object.keys(node.outputs)) {
+    if (!key.startsWith(config.outputPrefix)) continue
+    const index = Number(key.slice(config.outputPrefix.length))
+    if (Number.isFinite(index) && index >= first && index > last) node.removeOutput(key)
+  }
+}
+
 function nextFrame() {
   return new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
 }
@@ -584,6 +609,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
         node.width = Math.max(node.width ?? 230, nodeTitleWidth(node.label))
       }
       setControlValues(node, item.values)
+      syncDynamicBranchOutputs(node, dynamicBranchValueCount(node))
       await editor.addNode(node)
       await area.translate(node.id, item.position)
       nodes.set(node.id, node)
@@ -963,6 +989,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
           node.width = Math.max(node.width ?? 230, nodeTitleWidth(node.label))
         }
         setControlValues(node, item.values)
+        syncDynamicBranchOutputs(node, dynamicBranchValueCount(node))
         await editor.addNode(node)
         await area.translate(node.id, { x: base.x + item.position.x, y: base.y + item.position.y })
         await selectable.select(node.id, true)
@@ -1301,6 +1328,7 @@ function nodeSize(node: BlueprintNode) {
     void (async () => {
       if (detail.countChanged) await pruneDynamicBranchConnections(detail.nodeId, detail.count)
       const node = editor.getNode(detail.nodeId)
+      if (node) syncDynamicBranchOutputs(node, detail.count)
       await refreshPortStates(Boolean(node))
       if (node) {
         await area.update('node', node.id)
@@ -1347,6 +1375,7 @@ function nodeSize(node: BlueprintNode) {
       node.width = Math.max(230, nodeTitleWidth(node.label))
       setControlValues(node, values)
       if (node.dynamicBranch) await pruneDynamicBranchConnections(node.id, dynamicBranchValueCount(node))
+      syncDynamicBranchOutputs(node, dynamicBranchValueCount(node))
       await refreshPortStates()
       await area.update('node', node.id)
       callbacks.onSelection(selectedNodeInfo(node))

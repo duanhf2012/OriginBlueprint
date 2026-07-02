@@ -1155,6 +1155,37 @@ func TestNewEqualSwitchExportsAsLegacyEqualSwitch(t *testing.T) {
 	}
 }
 
+func TestValidateDynamicBranchOutputsUseGeneratedCaseKeys(t *testing.T) {
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		GraphName:     "DynamicSwitch",
+		Nodes: []GraphNode{
+			{
+				ID:     "entry",
+				TypeID: "origin.event.begin",
+			},
+			{
+				ID:     "switch",
+				TypeID: "origin.flow.equal-switch-new",
+				Values: map[string]interface{}{"cases": []interface{}{1, 2, 3, 4, 5, 6}},
+			},
+			{
+				ID:     "target",
+				TypeID: "origin.result.append-integer",
+			},
+		},
+		Connections: []GraphConnection{
+			{Source: "entry", SourceOutput: "exec", Target: "switch", TargetInput: "exec"},
+			{Source: "switch", SourceOutput: "case6", Target: "target", TargetInput: "exec"},
+		},
+	}
+
+	issues := validateGraph(document)
+	if hasIssue(issues, "connection.missing-port", "target") {
+		t.Fatalf("generated dynamic branch output case6 should validate: %#v", issues)
+	}
+}
+
 func TestNewCreateIntegerArrayExportsAsLegacyCreateIntArray(t *testing.T) {
 	document := GraphDocument{
 		SchemaVersion: GraphSchemaVersion,

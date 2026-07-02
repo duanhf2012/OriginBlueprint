@@ -14,6 +14,7 @@ type UnsavedCloseAction = 'save' | 'discard' | 'cancel'
 interface ModuleNodeMenuState { visible: boolean; x: number; y: number; node: NodeDefinition | null }
 interface NodeReferenceSearchState { visible: boolean; loading: boolean; nodeTitle: string; typeId: string; results: NodeReferenceResult[] }
 interface FileContextMenuState { visible: boolean; x: number; y: number; path: string; isDir: boolean; isFunction: boolean }
+interface CanvasToastState { visible: boolean; message: string; x: number; y: number }
 interface BlueprintFunction { id: string; name: string; readonly?: boolean }
 interface FunctionLibraryItem { id: string; functionId: string; name: string; path: string; source: 'current' | 'workspace' }
 interface ModuleLibraryItem extends NodeDefinition { functionPlaceholder?: boolean; functionSource?: FunctionLibraryItem['source']; functionItem?: FunctionLibraryItem; path?: string }
@@ -28,6 +29,7 @@ const contextMenu = ref({ visible: false, x: 0, y: 0, clientX: 0, clientY: 0, se
 const moduleNodeMenu = ref<ModuleNodeMenuState>({ visible: false, x: 0, y: 0, node: null })
 const nodeReferenceSearch = ref<NodeReferenceSearchState>({ visible: false, loading: false, nodeTitle: '', typeId: '', results: [] })
 const fileContextMenu = ref<FileContextMenuState>({ visible: false, x: 0, y: 0, path: '', isDir: false, isFunction: false })
+const canvasToast = ref<CanvasToastState>({ visible: false, message: '', x: 50, y: 18 })
 const testPanelHeight = ref(savedPanelSize('origin-blueprint-test-panel-height', 155, 96, 360))
 const testPanelCollapsed = ref(false)
 const referencePanelHeight = ref(savedReferencePanelHeight())
@@ -85,6 +87,7 @@ let workspaceLoadToken = 0
 let workspaceRefreshInFlight = false
 let workspaceRefreshTimer: ReturnType<typeof window.setInterval> | undefined
 let validationIssueClickTimer: ReturnType<typeof window.setTimeout> | undefined
+let canvasToastTimer: ReturnType<typeof window.setTimeout> | undefined
 const loadingFunctionTitles = new Set<string>()
 const workspaceRefreshIntervalKey = 'origin-blueprint-workspace-refresh-interval'
 const workspaceRefreshIntervalMs = Math.max(1000, Number.parseInt(localStorage.getItem(workspaceRefreshIntervalKey) ?? '1500', 10) || 1500)
@@ -217,6 +220,7 @@ async function loadRuntimeNodeLibrary() {
 
 onBeforeUnmount(() => {
   clearValidationIssueClickTimer()
+  if (canvasToastTimer) window.clearTimeout(canvasToastTimer)
   if (workspaceRefreshTimer) window.clearInterval(workspaceRefreshTimer)
   removeNodePointerListeners()
   unsubscribeCloseRequest()
@@ -1420,7 +1424,20 @@ async function addNodeAt(typeId: string, position?: { x: number; y: number }) {
     await editor?.addNode(typeId, position ?? visibleCanvasInsertPosition(), { allowEntryNodes: !isFunctionBlueprintTab.value })
   } catch (error) {
     status.value = error instanceof Error ? error.message : String(error)
+    showCanvasToast(status.value, position ?? visibleCanvasInsertPosition())
   }
+}
+
+function showCanvasToast(message: string, clientPosition?: { x: number; y: number }) {
+  const rect = canvas.value?.getBoundingClientRect()
+  const x = rect && clientPosition ? Math.max(12, Math.min(rect.width - 12, clientPosition.x - rect.left)) : (rect?.width ?? 100) / 2
+  const y = rect && clientPosition ? Math.max(42, Math.min(rect.height - 42, clientPosition.y - rect.top - 44)) : 58
+  canvasToast.value = { visible: true, message, x, y }
+  if (canvasToastTimer) window.clearTimeout(canvasToastTimer)
+  canvasToastTimer = window.setTimeout(() => {
+    canvasToast.value.visible = false
+    canvasToastTimer = undefined
+  }, 1900)
 }
 
 async function loadFunctionSignatureForModuleItem(item: ModuleLibraryItem) {
@@ -1825,7 +1842,7 @@ function toggleModuleCategory(category: string) {
            </div>
            <button class="tab-scroll-arrow right" @click="scrollTabStrip(1)">▶</button>
          </div>
-        <div class="canvas-wrap" @contextmenu.prevent @dragenter="allowNodeDrop" @dragover="allowNodeDrop" @drop.prevent="dropNode"><div ref="canvas" class="rete-canvas"></div><div class="canvas-toolbar"><button title="Select">⌖</button><button title="Reset view" @click="editor?.resetView()">⌂</button></div><div class="canvas-hint">Right drag: pan&nbsp;&nbsp; Middle drag: pan&nbsp;&nbsp; Ctrl: multi-select&nbsp;&nbsp; Ctrl + right drag: cut connections&nbsp;&nbsp; Connection: click + Delete</div></div>
+        <div class="canvas-wrap" @contextmenu.prevent @dragenter="allowNodeDrop" @dragover="allowNodeDrop" @drop.prevent="dropNode"><div ref="canvas" class="rete-canvas"></div><div v-if="canvasToast.visible" class="canvas-toast" :style="{ left: `${canvasToast.x}px`, top: `${canvasToast.y}px` }">{{ canvasToast.message }}</div><div class="canvas-toolbar"><button title="Select">⌖</button><button title="Reset view" @click="editor?.resetView()">⌂</button></div><div class="canvas-hint">Right drag: pan&nbsp;&nbsp; Middle drag: pan&nbsp;&nbsp; Ctrl: multi-select&nbsp;&nbsp; Ctrl + right drag: cut connections&nbsp;&nbsp; Connection: click + Delete</div></div>
         <div v-show="showLogger" class="logger-panel bottom-panel" :class="{ collapsed: testPanelCollapsed }" :style="testPanelStyle">
           <div class="bottom-panel-resizer" @pointerdown="beginTestPanelResize"></div>
           <div class="bottom-panel-title">

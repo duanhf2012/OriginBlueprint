@@ -202,6 +202,84 @@ func TestLoadGraphDirResolvesFunctionCallsByStableFunctionID(t *testing.T) {
 	}
 }
 
+func TestGraphDocumentToConfigMapsDynamicBranchCasesFromOne(t *testing.T) {
+	config, _, err := graphDocumentToConfig(graphDocument{
+		Nodes: []graphDocumentNode{
+			{
+				ID:     "switch",
+				TypeID: "origin.flow.equal-switch-new",
+				Values: map[string]any{"cases": []any{1, 2, 3, 4, 5, 6}},
+			},
+			{
+				ID:     "record",
+				TypeID: "origin.result.append-integer",
+			},
+		},
+		Connections: []graphDocumentConnection{
+			{Source: "switch", SourceOutput: "case1", Target: "record", TargetInput: "exec"},
+			{Source: "switch", SourceOutput: "case6", Target: "record", TargetInput: "exec"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("graphDocumentToConfig failed: %v", err)
+	}
+	if len(config.Edges) != 2 {
+		t.Fatalf("edges = %#v", config.Edges)
+	}
+	if config.Edges[0].SourcePortID != 2 || config.Edges[1].SourcePortID != 7 {
+		t.Fatalf("dynamic branch source ports = %#v", config.Edges)
+	}
+	if _, ok := documentNodeSpecs["origin.flow.equal-switch-new"].outputs["case0"]; ok {
+		t.Fatal("dynamic branch specs should not expose hidden case0")
+	}
+}
+
+func TestGraphDocumentDynamicSequenceOutputCompilesAndRuns(t *testing.T) {
+	config, _, err := graphDocumentToConfig(graphDocument{
+		Nodes: []graphDocumentNode{
+			{
+				ID:     "entry",
+				TypeID: "origin.event.entry-two-integers",
+			},
+			{
+				ID:     "sequence",
+				TypeID: "origin.flow.sequence",
+				Properties: graphDocumentProperties{
+					DynamicOutputCount: 5,
+				},
+			},
+			{
+				ID:     "record",
+				TypeID: "origin.result.append-string",
+				Values: map[string]any{"value": "then4"},
+			},
+		},
+		Connections: []graphDocumentConnection{
+			{Source: "entry", SourceOutput: "exec", Target: "sequence", TargetInput: "exec"},
+			{Source: "sequence", SourceOutput: "then4", Target: "record", TargetInput: "exec"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("graphDocumentToConfig failed: %v", err)
+	}
+
+	registry := NewRegistry()
+	if err := loadDefinitionDir(registry, filepath.Join("..", "..", "..", "nodes"), BuiltinExecNodeFactories()); err != nil {
+		t.Fatalf("loadDefinitionDir failed: %v", err)
+	}
+	graph, err := CompileGraph(registry, config)
+	if err != nil {
+		t.Fatalf("CompileGraph failed: %v", err)
+	}
+	returns, err := NewGraph(graph).Do(1)
+	if err != nil {
+		t.Fatalf("Do failed: %v", err)
+	}
+	if len(returns) != 1 || returns[0].StrVal != "then4" {
+		t.Fatalf("returns = %#v, want then4", returns)
+	}
+}
+
 func TestAllNativeDocumentNodeSpecsCompile(t *testing.T) {
 	registry := NewRegistry()
 	if err := loadDefinitionDir(registry, filepath.Join("..", "..", "..", "nodes"), BuiltinExecNodeFactories()); err != nil {

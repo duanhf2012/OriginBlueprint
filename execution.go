@@ -284,13 +284,13 @@ func (e *graphExecutor) runNode(nodeID string) error {
 		} else {
 			next = []string{"miss"}
 		}
-	case "origin.flow.range-compare", "origin.flow.equal-switch":
+	case "origin.flow.range-compare", "origin.flow.equal-switch", "origin.flow.equal-switch-new":
 		value, err := e.input(node, "value", map[string]bool{})
 		if err != nil {
 			return e.fail(node, err)
 		}
 		listKey := "ranges"
-		if node.TypeID == "origin.flow.equal-switch" {
+		if node.TypeID == "origin.flow.equal-switch" || node.TypeID == "origin.flow.equal-switch-new" {
 			listKey = "cases"
 		}
 		items, err := e.input(node, listKey, map[string]bool{})
@@ -300,12 +300,12 @@ func (e *graphExecutor) runNode(nodeID string) error {
 		selected := "otherwise"
 		for index, item := range asSlice(items) {
 			match := asInt(value) <= asInt(item)
-			if node.TypeID == "origin.flow.equal-switch" {
+			if node.TypeID == "origin.flow.equal-switch" || node.TypeID == "origin.flow.equal-switch-new" {
 				match = asInt(value) == asInt(item)
 			}
 			if match {
-				if index < 5 {
-					selected = fmt.Sprintf("case%d", index)
+				if index < dynamicBranchSpecs[node.TypeID].maxBranches {
+					selected = fmt.Sprintf("case%d", index+dynamicBranchSpecs[node.TypeID].outputStartIndex)
 				}
 				break
 			}

@@ -26,13 +26,14 @@ type graphDocumentNode struct {
 }
 
 type graphDocumentProperties struct {
-	VariableID        string                     `json:"variableId,omitempty"`
-	FunctionID        string                     `json:"functionId,omitempty"`
-	FunctionName      string                     `json:"functionName,omitempty"`
-	FunctionSignature graphDocumentFuncSignature `json:"functionSignature,omitempty"`
-	LegacyClass       string                     `json:"legacyClass,omitempty"`
-	LegacyInputs      []graphDocumentLegacyPort  `json:"legacyInputs,omitempty"`
-	LegacyOutputs     []graphDocumentLegacyPort  `json:"legacyOutputs,omitempty"`
+	VariableID         string                     `json:"variableId,omitempty"`
+	DynamicOutputCount int                        `json:"dynamicOutputCount,omitempty"`
+	FunctionID         string                     `json:"functionId,omitempty"`
+	FunctionName       string                     `json:"functionName,omitempty"`
+	FunctionSignature  graphDocumentFuncSignature `json:"functionSignature,omitempty"`
+	LegacyClass        string                     `json:"legacyClass,omitempty"`
+	LegacyInputs       []graphDocumentLegacyPort  `json:"legacyInputs,omitempty"`
+	LegacyOutputs      []graphDocumentLegacyPort  `json:"legacyOutputs,omitempty"`
 }
 
 type graphDocumentFuncSignature struct {
@@ -104,9 +105,9 @@ var documentNodeSpecs = map[string]documentNodeSpec{
 	"origin.flow.for-loop-break":        {class: "ForLoopBreak", inputs: map[string]int{"exec": 0, "start": 1, "end": 2, "break": 3}, outputs: map[string]int{"body": 0, "index": 1, "completed": 2}},
 	"origin.flow.foreach-array":         {class: "ForeachArray", inputs: map[string]int{"exec": 0, "array": 1}, outputs: map[string]int{"body": 0, "completed": 1, "value": 2, "index": 3}},
 	"origin.flow.probability":           {class: "Probability", inputs: map[string]int{"exec": 0, "probability": 1}, outputs: map[string]int{"miss": 0, "hit": 1}},
-	"origin.flow.range-compare":         {class: "RangeCompare", inputs: map[string]int{"exec": 0, "value": 1, "ranges": 2}, outputs: switchOutputs()},
-	"origin.flow.equal-switch":          {class: "EqualSwitch", inputs: map[string]int{"exec": 0, "value": 1, "cases": 2}, outputs: switchOutputs()},
-	"origin.flow.equal-switch-new":      {class: "EqualSwitch", inputs: map[string]int{"exec": 0, "value": 1, "cases": 2}, outputs: switchOutputs()},
+	"origin.flow.range-compare":         {class: "RangeCompare", inputs: map[string]int{"exec": 0, "value": 1, "ranges": 2}, outputs: dynamicSwitchOutputs(4)},
+	"origin.flow.equal-switch":          {class: "EqualSwitch", inputs: map[string]int{"exec": 0, "value": 1, "cases": 2}, outputs: dynamicSwitchOutputs(4)},
+	"origin.flow.equal-switch-new":      {class: "EqualSwitch", inputs: map[string]int{"exec": 0, "value": 1, "cases": 2}, outputs: dynamicSwitchOutputs(50)},
 	"origin.array.get-integer":          {class: "GetArrayInt", inputs: map[string]int{"array": 0, "index": 1}, outputs: map[string]int{"value": 0}},
 	"origin.array.get-string":           {class: "GetArrayString", inputs: map[string]int{"array": 0, "index": 1}, outputs: map[string]int{"value": 0}},
 	"origin.array.get-any":              {class: "GetArrayAny", inputs: map[string]int{"array": 0, "index": 1}, outputs: map[string]int{"value": 0}},
@@ -124,8 +125,12 @@ var documentNodeSpecs = map[string]documentNodeSpec{
 	"origin.string.split":               {class: "StringSplit", inputs: map[string]int{"exec": 0, "text": 1, "delimiter": 2}, outputs: map[string]int{"exec": 0, "array": 1}},
 }
 
-func switchOutputs() map[string]int {
-	return map[string]int{"otherwise": 0, "case0": 1, "case1": 2, "case2": 3, "case3": 4, "case4": 5}
+func dynamicSwitchOutputs(maxBranches int) map[string]int {
+	outputs := map[string]int{"otherwise": 0}
+	for index := 1; index <= maxBranches; index++ {
+		outputs[fmt.Sprintf("case%d", index)] = index + 1
+	}
+	return outputs
 }
 
 // graphDocumentToConfig 将新版文档格式转换为 GraphConfig。
@@ -192,6 +197,13 @@ func documentNodeToConfig(node graphDocumentNode, variables map[string]graphDocu
 		signature := node.Properties.FunctionSignature
 		spec := functionCallSpec(signature)
 		return NodeConfig{ID: node.ID, Class: "FunctionCall", FunctionID: node.Properties.FunctionID, FunctionName: node.Properties.FunctionName, FunctionInputTypes: signatureTypes(signature.Inputs), FunctionOutputTypes: signatureTypes(signature.Outputs), PortDefault: documentDefaults(node.Values, spec.inputs)}, spec, nil
+	case "origin.flow.sequence":
+		count := node.Properties.DynamicOutputCount
+		if count <= 0 {
+			count = 3
+		}
+		spec := sequenceSpec(count)
+		return NodeConfig{ID: node.ID, Class: spec.class, PortDefault: documentDefaults(node.Values, spec.inputs)}, spec, nil
 	case "origin.variable.get", "origin.variable.set":
 		variable, ok := variables[node.Properties.VariableID]
 		if !ok {
@@ -265,6 +277,17 @@ func functionCallSpec(signature graphDocumentFuncSignature) documentNodeSpec {
 }
 
 // functionPortKey 生成函数参数端口在文档中的稳定 key。
+func sequenceSpec(count int) documentNodeSpec {
+	if count <= 0 {
+		count = 3
+	}
+	outputs := make(map[string]int, count)
+	for index := 0; index < count; index++ {
+		outputs[fmt.Sprintf("then%d", index)] = index
+	}
+	return documentNodeSpec{class: fmt.Sprintf("SequenceDynamic%d", count), inputs: map[string]int{"exec": 0}, outputs: outputs}
+}
+
 func functionPortKey(prefix string, port graphDocumentFuncPort, index int) string {
 	source := strings.TrimSpace(port.ID)
 	if source == "" {

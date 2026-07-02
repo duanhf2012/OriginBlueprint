@@ -32,5 +32,8 @@ assert(createEditor.includes('该入口节点已存在，不能重复添加'), '
 assert(createEditor.includes('allowEntryNodes'), 'editor addNode must support blocking ordinary entry nodes for function blueprints')
 assert(app.includes('allowEntryNodes: !isFunctionBlueprintTab.value'), 'function blueprints must block ordinary entry nodes')
 assert(app.includes('filteredModuleItems'), 'function blueprints must hide ordinary entry nodes from the module list')
+assert(app.includes('canvasToast') && app.includes('showCanvasToast'), 'add-node failures must show an in-canvas toast')
+assert(app.includes('class="canvas-toast"'), 'canvas toast must render inside the editor canvas area')
+assert(app.includes('showCanvasToast(status.value, position'), 'add-node errors must use the attempted insertion position for the toast')
 
 console.log('entrySourceVisuals tests passed')

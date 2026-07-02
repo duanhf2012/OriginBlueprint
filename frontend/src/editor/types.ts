@@ -16,6 +16,7 @@ export interface DynamicBranchConfig {
   outputPrefix: string
   outputStartIndex: number
   maxBranches: number
+  outputTemplate?: { label?: string; type: string; data_type?: string }
   hiddenOutputKeys?: string[]
 }
 
