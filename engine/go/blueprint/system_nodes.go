@@ -28,6 +28,7 @@ func BuiltinExecNodeFactories() []func() IExecNode {
 		NewExecNodeFactory[ModInt, *ModInt](), NewExecNodeFactory[RandNumber, *RandNumber](),
 		NewExecNodeFactory[GetArrayInt, *GetArrayInt](), NewExecNodeFactory[GetArrayString, *GetArrayString](), NewExecNodeFactory[GetArrayLen, *GetArrayLen](),
 		NewExecNodeFactory[CreateIntArray, *CreateIntArray](), NewExecNodeFactory[CreateStringArray, *CreateStringArray](), NewExecNodeFactory[AppendIntegerToArray, *AppendIntegerToArray](), NewExecNodeFactory[AppendStringToArray, *AppendStringToArray](),
+		NewExecNodeFactory[IntInArray, *IntInArray](),
 		NewExecNodeFactory[AppendIntReturn, *AppendIntReturn](), NewExecNodeFactory[AppendStringReturn, *AppendStringReturn](),
 		NewExecNodeFactory[CreateTimer, *CreateTimer](), NewExecNodeFactory[CloseTimer, *CloseTimer](),
 		NewExecNodeFactory[SleepNode, *SleepNode](),
@@ -482,9 +483,11 @@ func (n *AppendStringToArray) Exec() (int, error) {
 
 type AppendIntReturn struct{ BaseExecNode }
 type AppendStringReturn struct{ BaseExecNode }
+type IntInArray struct{ BaseExecNode }
 
 func (n *AppendIntReturn) GetName() string    { return "AppendIntReturn" }
 func (n *AppendStringReturn) GetName() string { return "AppendStringReturn" }
+func (n *IntInArray) GetName() string         { return "IntInArray" }
 func (n *AppendIntReturn) Exec() (int, error) {
 	value, ok := n.GetInPortInt(1)
 	if !ok {
@@ -499,6 +502,24 @@ func (n *AppendStringReturn) Exec() (int, error) {
 		return -1, fmt.Errorf("AppendStringReturn input not found")
 	}
 	n.graph.appendReturn(ArrayData{StrVal: value})
+	return 0, nil
+}
+func (n *IntInArray) Exec() (int, error) {
+	value, ok := n.GetInPortInt(1)
+	if !ok {
+		return -1, fmt.Errorf("IntInArray inParam 1 not found")
+	}
+	array, ok := n.GetInPortArray(2)
+	if !ok {
+		return -1, fmt.Errorf("IntInArray inParam 2 not found")
+	}
+	for _, item := range array {
+		if item.IntVal == value {
+			n.SetOutPortBool(1, true)
+			return 0, nil
+		}
+	}
+	n.SetOutPortBool(1, false)
 	return 0, nil
 }
 

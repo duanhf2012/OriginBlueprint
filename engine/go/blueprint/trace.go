@@ -12,6 +12,10 @@ type BlueprintTraceLogger interface {
 	TraceBlueprintNode(BlueprintTraceEvent)
 }
 
+type legacyBlueprintLogger interface {
+	LogNodeExec(nodeName string, nodeID string, inPorts []IPort, outPorts []IPort, execResult int, err error)
+}
+
 // BlueprintTraceEvent 是单个蓝图节点的执行流程日志。
 type BlueprintTraceEvent struct {
 	Step            uint64
@@ -83,6 +87,17 @@ func (g *Graph) traceNode(node *ExecNode, ctx *ExecContext, nextIndex int, execE
 		event.Error = execErr.Error()
 	}
 	g.trace.logger.TraceBlueprintNode(event)
+}
+
+func (g *Graph) logLegacyNode(node *ExecNode, ctx *ExecContext, nextIndex int, execErr error) {
+	if g == nil || g.logger == nil || node == nil || ctx == nil || node.Definition == nil {
+		return
+	}
+	logger, ok := g.logger.(legacyBlueprintLogger)
+	if !ok {
+		return
+	}
+	logger.LogNodeExec(node.Definition.Name, node.ID, ctx.InputPorts, ctx.OutputPorts, nextIndex, execErr)
 }
 
 func isTraceControlError(err error) bool {

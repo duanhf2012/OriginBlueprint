@@ -199,22 +199,14 @@ func portAnyValue(port IPort) any {
 
 func arrayDataFromAny(value any) ArrayData {
 	switch v := value.(type) {
-	case PortInt:
-		return ArrayData{IntVal: v}
 	case int:
 		return ArrayData{IntVal: PortInt(v)}
 	case int64:
 		return ArrayData{IntVal: PortInt(v)}
-	case PortString:
-		return ArrayData{StrVal: v}
 	case string:
 		return ArrayData{StrVal: PortString(v)}
-	case PortBool:
-		return ArrayData{BoolVal: v}
 	case bool:
 		return ArrayData{BoolVal: PortBool(v)}
-	case PortFloat:
-		return ArrayData{FloatVal: v}
 	case float64:
 		return ArrayData{FloatVal: PortFloat(v)}
 	default:

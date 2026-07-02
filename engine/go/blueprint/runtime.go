@@ -129,6 +129,79 @@ func (n *BaseExecNode) SetOutPortBool(index int, value PortBool) bool {
 	return port.SetBool(value)
 }
 
+func (n *BaseExecNode) SetOutPort(index int, value IPort) bool {
+	port := n.GetOutPort(index)
+	if port == nil || value == nil {
+		return false
+	}
+	port.SetValue(value)
+	return true
+}
+
+func (n *BaseExecNode) GetOutPortInt(index int) (PortInt, bool) {
+	port := n.GetOutPort(index)
+	if port == nil {
+		return 0, false
+	}
+	return port.GetInt()
+}
+
+func (n *BaseExecNode) GetOutPortFloat(index int) (PortFloat, bool) {
+	port := n.GetOutPort(index)
+	if port == nil {
+		return 0, false
+	}
+	return port.GetFloat()
+}
+
+func (n *BaseExecNode) GetOutPortStr(index int) (PortString, bool) {
+	port := n.GetOutPort(index)
+	if port == nil {
+		return "", false
+	}
+	return port.GetStr()
+}
+
+func (n *BaseExecNode) GetOutPortBool(index int) (PortBool, bool) {
+	port := n.GetOutPort(index)
+	if port == nil {
+		return false, false
+	}
+	return port.GetBool()
+}
+
+func (n *BaseExecNode) AppendOutPortArrayValInt(index int, value PortInt) bool {
+	port := n.GetOutPort(index)
+	if port == nil {
+		return false
+	}
+	return port.AppendArrayValInt(value)
+}
+
+func (n *BaseExecNode) AppendOutPortArrayValStr(index int, value PortString) bool {
+	port := n.GetOutPort(index)
+	if port == nil {
+		return false
+	}
+	return port.AppendArrayValStr(value)
+}
+
+func (n *BaseExecNode) AppendInPortArrayValInt(index int, value PortInt) bool {
+	port := n.GetInPort(index)
+	if port == nil {
+		return false
+	}
+	return port.AppendArrayValInt(value)
+}
+
+func (n *BaseExecNode) AppendInPortArrayValStr(index int, value PortString) bool {
+	port := n.GetInPort(index)
+	if port == nil {
+		return false
+	}
+	return port.AppendArrayValStr(value)
+}
+
 func (n *BaseExecNode) GetOutPortCount() int {
 	if n == nil || n.ctx == nil {
 		return 0
@@ -141,6 +214,31 @@ func (n *BaseExecNode) DoNext(index int) error {
 		return fmt.Errorf("node is not executing")
 	}
 	return n.node.doNext(n.graph, index)
+}
+
+func (n *BaseExecNode) GetVariableName() string {
+	if n == nil || n.node == nil {
+		return ""
+	}
+	return n.node.VariableName
+}
+
+func (n *BaseExecNode) GetBlueprintModule() IBlueprintModule {
+	if n == nil || n.graph == nil {
+		return nil
+	}
+	return n.graph.module
+}
+
+func (n *BaseExecNode) GetBluePrintModule() IBlueprintModule {
+	return n.GetBlueprintModule()
+}
+
+func (n *BaseExecNode) GetAndCreateReturnPort() IPort {
+	if n == nil || n.graph == nil {
+		return nil
+	}
+	return n.graph.getAndCreateReturnPort()
 }
 
 // NodeDefinition 是节点的只读定义。
@@ -278,6 +376,7 @@ func (n *ExecNode) doWithInput(graph *Graph, execInputPortID int, outPortArgs ..
 	}
 
 	nextIndex, err := exec.Exec()
+	graph.logLegacyNode(n, ctx, nextIndex, err)
 	graph.traceNode(n, ctx, nextIndex, err)
 	if err != nil {
 		return err
@@ -411,6 +510,7 @@ type Graph struct {
 	module             IBlueprintModule
 	instance           *GraphInstance
 	returns            PortArray
+	returnPort         IPort
 	functionResults    []any
 	onFunctionComplete func([]any) error
 	callDepth          int
@@ -418,6 +518,7 @@ type Graph struct {
 	variableMu         *sync.RWMutex
 	timers             map[uint64]*time.Timer
 	timerSeq           uint64
+	logger             IBlueprintLogger
 	trace              *blueprintTraceRuntime
 }
 
@@ -453,6 +554,7 @@ func (g *Graph) runEntrance(entranceID int64, args ...any) (PortArray, error) {
 	g.resetContext()
 	clear(g.returns)
 	g.returns = g.returns[:0]
+	g.returnPort = nil
 	clear(g.functionResults)
 	g.functionResults = g.functionResults[:0]
 	if g.variableMu == nil {
@@ -466,6 +568,11 @@ func (g *Graph) runEntrance(entranceID int64, args ...any) (PortArray, error) {
 			return nil, err
 		}
 		return append(PortArray(nil), g.returns...), err
+	}
+	if len(g.returns) == 0 && g.returnPort != nil {
+		if returns, ok := g.returnPort.GetArray(); ok {
+			return append(PortArray(nil), returns...), nil
+		}
 	}
 	return append(PortArray(nil), g.returns...), nil
 }
@@ -566,6 +673,17 @@ func clonePorts(source []IPort) []IPort {
 
 func (g *Graph) appendReturn(value ArrayData) {
 	g.returns = append(g.returns, value)
+}
+
+func (g *Graph) getAndCreateReturnPort() IPort {
+	if g == nil {
+		return nil
+	}
+	if g.returnPort != nil {
+		return g.returnPort
+	}
+	g.returnPort = NewPortArray()
+	return g.returnPort
 }
 
 func (g *Graph) completeFunction(values []any) error {

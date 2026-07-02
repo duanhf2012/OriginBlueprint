@@ -110,6 +110,7 @@ func ParseGraphConfigJSON(data []byte) (GraphConfig, error) {
 // 编译阶段会预处理节点、连接、变量和函数，以减少运行期查找开销。
 func CompileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error) {
 	nodes := make(map[string]*ExecNode, len(config.Nodes))
+	nodeDefaults := make(map[string]map[int]any, len(config.Nodes))
 	nodeOrder := make([]*ExecNode, 0, len(config.Nodes))
 	entrances := map[int64]*ExecNode{}
 	variables := make(map[string]VariableConfig, len(config.Variables))
@@ -133,15 +134,8 @@ func CompileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error
 			nodeName = definition.Name
 		}
 
-		defaultInputs, defaultInputSet, err := compileDefaultInputs(definition.InPorts, nodeConfig.PortDefault)
-		if err != nil {
-			return nil, fmt.Errorf("node %s defaults: %w", nodeConfig.ID, err)
-		}
-
 		node := NewExecNode(nodeConfig.ID, definition)
 		node.Index = len(nodeOrder)
-		node.DefaultInputs = defaultInputs
-		node.DefaultInputSet = defaultInputSet
 		node.VariableName = variableNameFromClass(nodeConfig.Class)
 		node.FunctionID = nodeConfig.FunctionID
 		node.FunctionName = nodeConfig.FunctionName
@@ -152,6 +146,7 @@ func CompileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error
 		if isEntrance {
 			entrances[entranceID] = node
 		}
+		nodeDefaults[nodeConfig.ID] = nodeConfig.PortDefault
 	}
 
 	for _, edge := range config.Edges {
@@ -179,6 +174,12 @@ func CompileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error
 	}
 
 	for _, node := range nodeOrder {
+		defaultInputs, defaultInputSet, err := compileDefaultInputs(node.Definition.InPorts, node.PreInPort, nodeDefaults[node.ID])
+		if err != nil {
+			return nil, fmt.Errorf("node %s defaults: %w", node.ID, err)
+		}
+		node.DefaultInputs = defaultInputs
+		node.DefaultInputSet = defaultInputSet
 		node.InputBindings = compileInputBindings(node)
 	}
 
@@ -236,7 +237,7 @@ func resolveFunctionGraph(functions map[string]*CompiledGraph, functionID string
 	return nil
 }
 
-func compileDefaultInputs(inPorts []IPort, defaults map[int]any) ([]IPort, []bool, error) {
+func compileDefaultInputs(inPorts []IPort, preInPorts []*PrePortNode, defaults map[int]any) ([]IPort, []bool, error) {
 	if len(inPorts) == 0 || len(defaults) == 0 {
 		return nil, nil, nil
 	}
@@ -244,6 +245,9 @@ func compileDefaultInputs(inPorts []IPort, defaults map[int]any) ([]IPort, []boo
 	defaultInputSet := make([]bool, len(inPorts))
 	for index, value := range defaults {
 		if index < 0 || index >= len(inPorts) {
+			continue
+		}
+		if index < len(preInPorts) && preInPorts[index] != nil {
 			continue
 		}
 		port := inPorts[index]

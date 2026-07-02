@@ -87,6 +87,7 @@ func (b *Blueprint) Do(graphID int64, entranceID int64, args ...any) (PortArray,
 	variableMu := &instance.variableMu
 	traceEnabled := b.traceEnabled && b.traceLogger != nil
 	traceLogger := b.traceLogger
+	logger := b.logger
 	b.mu.RUnlock()
 
 	graph := NewGraph(compiled)
@@ -96,6 +97,7 @@ func (b *Blueprint) Do(graphID int64, entranceID int64, args ...any) (PortArray,
 	graph.instance = instance
 	graph.variables = variables
 	graph.variableMu = variableMu
+	graph.logger = logger
 	if traceEnabled {
 		graph.trace = &blueprintTraceRuntime{logger: traceLogger, state: &blueprintTraceState{}}
 	}

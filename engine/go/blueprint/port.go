@@ -3,16 +3,16 @@ package blueprint
 import "fmt"
 
 // PortInt 是蓝图整数端口值。
-type PortInt int64
+type PortInt = int64
 
 // PortFloat 是蓝图浮点端口值。
-type PortFloat float64
+type PortFloat = float64
 
 // PortString 是蓝图字符串端口值。
-type PortString string
+type PortString = string
 
 // PortBool 是蓝图布尔端口值。
-type PortBool bool
+type PortBool = bool
 
 // PortArray 是蓝图数组端口值。
 type PortArray []ArrayData
@@ -29,6 +29,12 @@ type ArrayData struct {
 	StrVal   PortString
 	BoolVal  PortBool
 }
+
+type Port_Int = PortInt
+type Port_Float = PortFloat
+type Port_Str = PortString
+type Port_Bool = PortBool
+type Port_Array = PortArray
 
 type portKind uint8
 
@@ -344,8 +350,6 @@ func cloneAnyValue(value any) any {
 
 func asPortInt(value any) (PortInt, bool) {
 	switch v := value.(type) {
-	case PortInt:
-		return v, true
 	case int:
 		return PortInt(v), true
 	case int8:
@@ -377,8 +381,6 @@ func asPortInt(value any) (PortInt, bool) {
 
 func asPortFloat(value any) (PortFloat, bool) {
 	switch v := value.(type) {
-	case PortFloat:
-		return v, true
 	case float64:
 		return PortFloat(v), true
 	case float32:
@@ -387,8 +389,6 @@ func asPortFloat(value any) (PortFloat, bool) {
 		return PortFloat(v), true
 	case int64:
 		return PortFloat(v), true
-	case PortInt:
-		return PortFloat(v), true
 	default:
 		return 0, false
 	}
@@ -396,8 +396,6 @@ func asPortFloat(value any) (PortFloat, bool) {
 
 func asPortString(value any) (PortString, bool) {
 	switch v := value.(type) {
-	case PortString:
-		return v, true
 	case string:
 		return PortString(v), true
 	default:
@@ -407,15 +405,11 @@ func asPortString(value any) (PortString, bool) {
 
 func asPortBool(value any) (PortBool, bool) {
 	switch v := value.(type) {
-	case PortBool:
-		return v, true
 	case bool:
 		return PortBool(v), true
 	case int:
 		return PortBool(v != 0), true
 	case int64:
-		return PortBool(v != 0), true
-	case PortInt:
 		return PortBool(v != 0), true
 	default:
 		return false, false

@@ -255,6 +255,44 @@ func TestBuiltinReturnNodesAppendGraphResults(t *testing.T) {
 	}
 }
 
+func TestBuiltinIntInArrayIsRegisteredAndFindsValue(t *testing.T) {
+	registry := NewRegistry()
+	definitions := []byte(`[
+		{"name":"Entrance_IntParam","inputs":[{"type":"exec","port_id":0}],"outputs":[{"type":"exec","port_id":0}]},
+		{"name":"IntInArray","inputs":[{"type":"exec","port_id":0},{"type":"data","data_type":"Integer","port_id":1},{"type":"data","data_type":"array","port_id":2}],"outputs":[{"type":"exec","port_id":0},{"type":"data","data_type":"Boolean","port_id":1}]},
+		{"name":"BoolIf","inputs":[{"type":"exec","port_id":0},{"type":"data","data_type":"Boolean","port_id":1}],"outputs":[{"type":"exec","port_id":0},{"type":"exec","port_id":1}]},
+		{"name":"AppendIntReturn","inputs":[{"type":"exec","port_id":0},{"type":"data","data_type":"Integer","port_id":1}],"outputs":[{"type":"exec","port_id":0}]}
+	]`)
+	if err := registry.LoadDefinitionsJSON(definitions, BuiltinExecNodeFactories()); err != nil {
+		t.Fatalf("LoadDefinitionsJSON failed: %v", err)
+	}
+
+	graph, err := CompileGraph(registry, GraphConfig{
+		Nodes: []NodeConfig{
+			{ID: "entry", Class: "Entrance_IntParam_1"},
+			{ID: "contains", Class: "IntInArray", PortDefault: map[int]any{1: 3, 2: []int64{1, 3, 5}}},
+			{ID: "branch", Class: "BoolIf"},
+			{ID: "return", Class: "AppendIntReturn", PortDefault: map[int]any{1: 1}},
+		},
+		Edges: []EdgeConfig{
+			{SourceNodeID: "entry", SourcePortID: 0, DesNodeID: "contains", DesPortID: 0},
+			{SourceNodeID: "contains", SourcePortID: 0, DesNodeID: "branch", DesPortID: 0},
+			{SourceNodeID: "contains", SourcePortID: 1, DesNodeID: "branch", DesPortID: 1},
+			{SourceNodeID: "branch", SourcePortID: 1, DesNodeID: "return", DesPortID: 0},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CompileGraph failed: %v", err)
+	}
+	returns, err := NewGraph(graph).Do(1)
+	if err != nil {
+		t.Fatalf("Do failed: %v", err)
+	}
+	if len(returns) != 1 || returns[0].IntVal != 1 {
+		t.Fatalf("returns = %#v, want [1]", returns)
+	}
+}
+
 func assertPureIntNode(t *testing.T, node IExecNode, in []IPort, want PortInt) {
 	t.Helper()
 	base := node.(interface {

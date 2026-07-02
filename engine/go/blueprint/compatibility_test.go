@@ -118,6 +118,35 @@ func TestBlueprintReleaseGraphCancelsInstanceTimersThroughLegacyCallback(t *test
 	}
 }
 
+func TestLegacyBaseExecNodeReturnPortAndLoggerCompatibility(t *testing.T) {
+	logger := &legacyNodeLogger{}
+	graph := NewGraph(&CompiledGraph{
+		Entrances: map[int64]*ExecNode{
+			1: NewExecNode("return", NewNodeDefinition("legacy", func() IExecNode {
+				return &legacyReturnNode{}
+			}, []IPort{NewPortExec()}, []IPort{NewPortExec()})),
+		},
+		NodeCount: 1,
+	})
+	graph.name = "compat"
+	graph.graphID = 42
+	graph.logger = logger
+
+	returns, err := graph.Do(1)
+	if err != nil {
+		t.Fatalf("Do failed: %v", err)
+	}
+	if len(returns) != 2 || returns[0].IntVal != 7 || returns[1].StrVal != "ok" {
+		t.Fatalf("returns = %#v, want [7, ok]", returns)
+	}
+	if logger.count != 1 {
+		t.Fatalf("legacy logger count = %d, want 1", logger.count)
+	}
+	if logger.nodeName != "legacy" || logger.nodeID != "return" || logger.nextIndex != -1 || logger.err != nil {
+		t.Fatalf("legacy logger event = %#v", logger)
+	}
+}
+
 func containsTimerID(values []uint64, want uint64) bool {
 	for _, value := range values {
 		if value == want {
@@ -125,4 +154,36 @@ func containsTimerID(values []uint64, want uint64) bool {
 		}
 	}
 	return false
+}
+
+type legacyReturnNode struct{ BaseExecNode }
+
+func (n *legacyReturnNode) GetName() string { return "legacy" }
+
+func (n *legacyReturnNode) Exec() (int, error) {
+	var intValue Port_Int = 7
+	var stringValue Port_Str = "ok"
+	returnPort := n.GetAndCreateReturnPort()
+	if returnPort == nil {
+		return -1, nil
+	}
+	returnPort.AppendArrayValInt(intValue)
+	returnPort.AppendArrayValStr(stringValue)
+	return -1, nil
+}
+
+type legacyNodeLogger struct {
+	count     int
+	nodeName  string
+	nodeID    string
+	nextIndex int
+	err       error
+}
+
+func (l *legacyNodeLogger) LogNodeExec(nodeName string, nodeID string, inPorts []IPort, outPorts []IPort, execResult int, err error) {
+	l.count++
+	l.nodeName = nodeName
+	l.nodeID = nodeID
+	l.nextIndex = execResult
+	l.err = err
 }

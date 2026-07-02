@@ -155,3 +155,31 @@ func TestCompilerPrecomputesInputBindings(t *testing.T) {
 		}
 	}
 }
+
+func TestCompilerIgnoresInvalidDefaultOnConnectedInput(t *testing.T) {
+	registry := NewRegistry()
+	registry.Register(NewNodeDefinition("TestEntrance", func() IExecNode {
+		return &testEntrance{}
+	}, nil, []IPort{NewPortExec()}))
+	registry.Register(NewNodeDefinition("ArraySource", func() IExecNode {
+		return &testRecorder{}
+	}, nil, []IPort{NewPortArray()}))
+	registry.Register(NewNodeDefinition("ArrayConsumer", func() IExecNode {
+		return &testRecorder{}
+	}, []IPort{NewPortExec(), NewPortArray()}, nil))
+
+	_, err := CompileGraph(registry, GraphConfig{
+		Nodes: []NodeConfig{
+			{ID: "entry", Class: "TestEntrance_1"},
+			{ID: "array", Class: "ArraySource"},
+			{ID: "consumer", Class: "ArrayConsumer", PortDefault: map[int]any{1: false}},
+		},
+		Edges: []EdgeConfig{
+			{SourceNodeID: "entry", SourcePortID: 0, DesNodeID: "consumer", DesPortID: 0},
+			{SourceNodeID: "array", SourcePortID: 0, DesNodeID: "consumer", DesPortID: 1},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CompileGraph returned error for connected bad default: %v", err)
+	}
+}
