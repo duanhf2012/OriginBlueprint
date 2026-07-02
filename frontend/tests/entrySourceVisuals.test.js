@@ -22,6 +22,9 @@ assert(nodeRegistry.includes('sourceName?: string'), 'node definitions must keep
 assert(nodeRegistry.includes('entrySourceColor(schema.sourceName'), 'entry source color must be derived from schema sourceName')
 assert(types.includes('entrySourceColor?: string'), 'entry source color must be a runtime-only node field')
 assert(!types.includes('entrySourceColor') || !source('editor/document.ts').includes('entrySourceColor'), 'entry source color must not be persisted in graph documents')
+assert(!implicitEntryLinks.includes('entrySourcePalette'), 'entry source colors must not use a small modulo palette that causes common collisions')
+assert(implicitEntryLinks.includes('hslToHex') && implicitEntryLinks.includes('hash % 360'), 'entry source colors must be generated from the full source hash')
+assert(implicitEntryLinks.includes('0x7feb352d') && implicitEntryLinks.includes('0x846ca68b'), 'entry source hash must be avalanche-mixed so similar entrance names do not cluster into similar colors')
 
 assert(implicitEntryLinks.includes('entrySourceColor'), 'entry bindings must carry the source color to target inputs')
 assert(blueprintNode.includes('--entry-source-color'), 'node rendering must expose the entry source color as a CSS variable')

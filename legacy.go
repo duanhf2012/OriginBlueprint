@@ -123,6 +123,10 @@ var legacyNodeSpecs = map[string]legacyNodeSpec{
 	"CastingNode_str":            {"origin.cast.any-string", []string{"exec", "value"}, []string{"exec", "valid", "result"}},
 }
 
+var preferredLegacyExportClassByType = map[string]string{
+	"origin.math.add-integer": "AddInt",
+}
+
 func (a *App) MigrateLegacyGraph(content string) (string, error) {
 	document, err := migrateLegacyGraph([]byte(content))
 	if err != nil {
@@ -178,13 +182,14 @@ func migrateLegacyGraph(data []byte) (GraphDocument, error) {
 	for _, edge := range legacy.Edges {
 		sourceIndex := legacyPortIndex(edge.SourcePortID, edge.SourceIndex)
 		targetIndex := legacyPortIndex(edge.TargetPortID, edge.TargetIndex)
-		if sourceIndex > maxOutputs[edge.SourceNodeID] {
+		if current, exists := maxOutputs[edge.SourceNodeID]; !exists || sourceIndex > current {
 			maxOutputs[edge.SourceNodeID] = sourceIndex
 		}
-		if targetIndex > maxInputs[edge.TargetNodeID] {
+		if current, exists := maxInputs[edge.TargetNodeID]; !exists || targetIndex > current {
 			maxInputs[edge.TargetNodeID] = targetIndex
 		}
 	}
+	fallbackSpecs := inferredRuntimeFallbackSpecs(legacy.Nodes, legacy.Edges, runtimeSpecs, maxInputs, maxOutputs)
 	for _, item := range legacy.Nodes {
 		spec, known := runtimeSpecs[item.Class]
 		if (len(spec.Inputs) > 0 && maxInputs[item.ID] >= len(spec.Inputs)) || (len(spec.Outputs) > 0 && maxOutputs[item.ID] >= len(spec.Outputs)) {
@@ -212,8 +217,13 @@ func migrateLegacyGraph(data []byte) (GraphDocument, error) {
 			}
 		}
 		if !known {
-			document.Legacy.HiddenNodes = append(document.Legacy.HiddenNodes, cloneLegacyNode(item))
-			continue
+			if fallback, exists := fallbackSpecs[item.ID]; exists {
+				spec = fallback
+				known = true
+			} else {
+				document.Legacy.HiddenNodes = append(document.Legacy.HiddenNodes, cloneLegacyNode(item))
+				continue
+			}
 		}
 		if _, staticallyKnown := graphNodePorts[spec.TypeID]; !staticallyKnown {
 			properties.LegacyInputs = legacyPortsFromRuntimeSpec(spec.Inputs, spec.InputPorts, "in")
@@ -342,6 +352,9 @@ func exportLegacyGraph(document GraphDocument) ([]byte, error) {
 			}
 		}
 		if class == "" {
+			class = preferredLegacyExportClassByType[node.TypeID]
+		}
+		if class == "" {
 			class = classByType[node.TypeID]
 		}
 		if class == "" {
@@ -349,6 +362,17 @@ func exportLegacyGraph(document GraphDocument) ([]byte, error) {
 		}
 		if spec.TypeID == "" {
 			spec = runtimeSpecs[class]
+		}
+		if spec.TypeID == "" && (node.TypeID == "origin.legacy.placeholder" || len(node.Properties.LegacyInputs) > 0 || len(node.Properties.LegacyOutputs) > 0) {
+			spec = runtimeLegacySpec{
+				legacyNodeSpec: legacyNodeSpec{
+					TypeID:  node.TypeID,
+					Inputs:  legacyPortKeysFromPorts(node.Properties.LegacyInputs),
+					Outputs: legacyPortKeysFromPorts(node.Properties.LegacyOutputs),
+				},
+				InputPorts:  node.Properties.LegacyInputs,
+				OutputPorts: node.Properties.LegacyOutputs,
+			}
 		}
 		if spec.TypeID == "" {
 			spec = specByType[node.TypeID]
@@ -415,8 +439,208 @@ func exportLegacyGraph(document GraphDocument) ([]byte, error) {
 	return json.MarshalIndent(legacy, "", "  ")
 }
 
+type inferredRuntimeFallbackPortSet struct {
+	inputs  map[int]string
+	outputs map[int]string
+}
+
+var hiddenLegacyClasses = map[string]bool{
+	"FileNode":      true,
+	"TableReader":   true,
+	"PreviewTable":  true,
+	"Keys (Dict)":   true,
+	"Get (Dict)":    true,
+	"Set (Dict)":    true,
+	"Create (Dict)": true,
+	"UnknownSource": true,
+}
+
+func inferredRuntimeFallbackSpecs(nodes []legacyNode, edges []legacyEdge, runtimeSpecs map[string]runtimeLegacySpec, maxInputs, maxOutputs map[string]int) map[string]runtimeLegacySpec {
+	byID := map[string]legacyNode{}
+	sets := map[string]*inferredRuntimeFallbackPortSet{}
+	for _, node := range nodes {
+		byID[node.ID] = node
+		if _, known := runtimeSpecs[node.Class]; known || !shouldCreateRuntimeFallback(node) {
+			continue
+		}
+		set := &inferredRuntimeFallbackPortSet{inputs: map[int]string{}, outputs: map[int]string{}}
+		if maxInput, exists := maxInputs[node.ID]; exists {
+			for index := 0; index <= maxInput; index++ {
+				set.inputs[index] = "any"
+			}
+		}
+		if maxOutput, exists := maxOutputs[node.ID]; exists {
+			for index := 0; index <= maxOutput; index++ {
+				set.outputs[index] = "any"
+			}
+		}
+		for rawIndex := range node.PortDefaults {
+			index, err := strconv.Atoi(rawIndex)
+			if err == nil && index >= 0 {
+				set.inputs[index] = "any"
+			}
+		}
+		if isLegacyEntranceClass(node.Class) {
+			set.outputs[0] = "exec"
+		}
+		if len(set.inputs) > 0 || len(set.outputs) > 0 || isLegacyEntranceClass(node.Class) {
+			sets[node.ID] = set
+		}
+	}
+
+	changed := true
+	for changed {
+		changed = false
+		for _, edge := range edges {
+			sourceIndex := legacyPortIndex(edge.SourcePortID, edge.SourceIndex)
+			targetIndex := legacyPortIndex(edge.TargetPortID, edge.TargetIndex)
+			sourceType := inferredLegacyOutputType(byID[edge.SourceNodeID], runtimeSpecs, sets, sourceIndex)
+			targetType := inferredLegacyInputType(byID[edge.TargetNodeID], runtimeSpecs, sets, targetIndex)
+			if set := sets[edge.SourceNodeID]; set != nil && assignInferredPortType(set.outputs, sourceIndex, targetType) {
+				changed = true
+			}
+			if set := sets[edge.TargetNodeID]; set != nil && assignInferredPortType(set.inputs, targetIndex, sourceType) {
+				changed = true
+			}
+		}
+		for _, set := range sets {
+			if set.inputs[0] == "exec" && assignInferredPortType(set.outputs, 0, "exec") {
+				changed = true
+			}
+			if set.outputs[0] == "exec" && assignInferredPortType(set.inputs, 0, "exec") {
+				changed = true
+			}
+		}
+	}
+
+	result := map[string]runtimeLegacySpec{}
+	for id, set := range sets {
+		inputs := inferredLegacyPorts(set.inputs, "in")
+		outputs := inferredLegacyPorts(set.outputs, "out")
+		result[id] = runtimeLegacySpec{
+			legacyNodeSpec: legacyNodeSpec{
+				TypeID:  "origin.legacy.placeholder",
+				Inputs:  legacyPortKeysFromPorts(inputs),
+				Outputs: legacyPortKeysFromPorts(outputs),
+			},
+			InputPorts:  inputs,
+			OutputPorts: outputs,
+		}
+	}
+	return result
+}
+
+func shouldCreateRuntimeFallback(node legacyNode) bool {
+	class := strings.TrimSpace(node.Class)
+	if class == "" || hiddenLegacyClasses[class] {
+		return false
+	}
+	module := strings.TrimSpace(node.Module)
+	return module == "" || module == "tools.json_node_loader"
+}
+
+func isLegacyEntranceClass(class string) bool {
+	return strings.HasPrefix(strings.TrimSpace(class), "Entrance_")
+}
+
+func inferredLegacyInputType(node legacyNode, runtimeSpecs map[string]runtimeLegacySpec, sets map[string]*inferredRuntimeFallbackPortSet, index int) string {
+	if set := sets[node.ID]; set != nil {
+		return set.inputs[index]
+	}
+	if spec, known := runtimeSpecs[node.Class]; known {
+		return runtimeLegacySpecPortType(spec, false, index)
+	}
+	return ""
+}
+
+func inferredLegacyOutputType(node legacyNode, runtimeSpecs map[string]runtimeLegacySpec, sets map[string]*inferredRuntimeFallbackPortSet, index int) string {
+	if set := sets[node.ID]; set != nil {
+		return set.outputs[index]
+	}
+	if spec, known := runtimeSpecs[node.Class]; known {
+		return runtimeLegacySpecPortType(spec, true, index)
+	}
+	return ""
+}
+
+func assignInferredPortType(ports map[int]string, index int, portType string) bool {
+	if index < 0 || portType == "" || portType == "any" {
+		return false
+	}
+	current, exists := ports[index]
+	if !exists {
+		return false
+	}
+	if current != "" && current != "any" {
+		return false
+	}
+	ports[index] = portType
+	return current != portType
+}
+
+func inferredLegacyPorts(types map[int]string, prefix string) []GraphLegacyPort {
+	indexes := make([]int, 0, len(types))
+	for index := range types {
+		indexes = append(indexes, index)
+	}
+	sort.Ints(indexes)
+	ports := make([]GraphLegacyPort, 0, len(indexes))
+	for _, index := range indexes {
+		portType := types[index]
+		if portType == "" {
+			portType = "any"
+		}
+		key := fmt.Sprintf("%s%d", prefix, index)
+		label := key
+		if portType == "exec" {
+			label = ""
+		}
+		ports = append(ports, GraphLegacyPort{Key: key, Label: label, Type: portType})
+	}
+	return ports
+}
+
+func runtimeLegacySpecPortType(spec runtimeLegacySpec, output bool, index int) string {
+	keys := spec.Inputs
+	ports := spec.InputPorts
+	staticPorts := map[string]string(nil)
+	if output {
+		keys = spec.Outputs
+		ports = spec.OutputPorts
+	}
+	if index < 0 || index >= len(keys) {
+		return ""
+	}
+	key := keys[index]
+	for _, port := range ports {
+		if port.Key == key {
+			return port.Type
+		}
+	}
+	if definition, exists := graphNodePorts[spec.TypeID]; exists {
+		if output {
+			staticPorts = definition.Outputs
+		} else {
+			staticPorts = definition.Inputs
+		}
+		if portType := staticPorts[key]; portType != "" {
+			return portType
+		}
+	}
+	if output && strings.HasPrefix(key, "case") && strings.HasPrefix(spec.TypeID, "origin.flow.") {
+		return "exec"
+	}
+	if key == "exec" || key == "body" || key == "completed" || key == "otherwise" || key == "true" || key == "false" || strings.HasPrefix(key, "then") {
+		return "exec"
+	}
+	return "any"
+}
+
 func runtimeLegacyNodeSpecs() map[string]runtimeLegacySpec {
 	result := map[string]runtimeLegacySpec{}
+	for name, spec := range legacyNodeSpecs {
+		result[name] = runtimeLegacySpec{legacyNodeSpec: spec}
+	}
 	loadResult := loadRuntimeNodeSchemaDocuments(runtimeNodeDirectories())
 	for _, document := range loadResult.Documents {
 		for _, definition := range parseLegacyRuntimeNodeDefinitions([]byte(document.Content)) {

@@ -1,8 +1,12 @@
 package blueprint
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
+	"strconv"
 	"testing"
 )
 
@@ -297,6 +301,35 @@ func TestAllNativeDocumentNodeSpecsCompile(t *testing.T) {
 	}
 }
 
+func TestTopLevelJSONNodeSchemasMatchDocumentExecutionContracts(t *testing.T) {
+	registry := NewRegistry()
+	if err := loadDefinitionDir(registry, filepath.Join("..", "..", "..", "nodes"), BuiltinExecNodeFactories()); err != nil {
+		t.Fatalf("loadDefinitionDir failed: %v", err)
+	}
+	for _, schema := range loadTopLevelNodeSchemas(t) {
+		t.Run(schema.ID, func(t *testing.T) {
+			assertDynamicBranchContract(t, schema)
+			_, spec, err := documentNodeToConfig(graphDocumentNode{
+				ID:     "node",
+				TypeID: schema.ID,
+				Values: map[string]any{},
+			}, nil)
+			if err != nil {
+				t.Fatalf("documentNodeToConfig failed: %v", err)
+			}
+			if got, want := sortedStringKeys(spec.inputs), schemaInputKeys(schema); !reflect.DeepEqual(got, want) {
+				t.Fatalf("input contract keys = %v, want %v", got, want)
+			}
+			if got, want := sortedIntMapKeys(spec.outputs), schemaOutputKeys(schema); !reflect.DeepEqual(got, want) {
+				t.Fatalf("output contract keys = %v, want %v", got, want)
+			}
+			if _, err := CompileGraph(registry, GraphConfig{Nodes: []NodeConfig{{ID: "node", Class: spec.class}}}); err != nil {
+				t.Fatalf("CompileGraph failed for %s/%s: %v", schema.ID, spec.class, err)
+			}
+		})
+	}
+}
+
 func TestRemovedFileTableDictionaryDocumentNodesAreUnsupported(t *testing.T) {
 	removedTypeIDs := []string{
 		"origin.io.file-path",
@@ -324,4 +357,119 @@ func TestRemovedFileTableDictionaryDocumentNodesAreUnsupported(t *testing.T) {
 			}
 		})
 	}
+}
+
+type jsonNodeSchemaContract struct {
+	ID            string                     `json:"id"`
+	Inputs        []jsonPortSchemaContract   `json:"inputs"`
+	Outputs       []jsonPortSchemaContract   `json:"outputs"`
+	DynamicBranch *jsonDynamicBranchContract `json:"dynamicBranch"`
+}
+
+type jsonPortSchemaContract struct {
+	Key string `json:"key"`
+}
+
+type jsonDynamicBranchContract struct {
+	ControlInput     string `json:"controlInput"`
+	DefaultOutput    string `json:"defaultOutput"`
+	OutputPrefix     string `json:"outputPrefix"`
+	OutputStartIndex int    `json:"outputStartIndex"`
+	MaxBranches      int    `json:"maxBranches"`
+}
+
+func assertDynamicBranchContract(t *testing.T, schema jsonNodeSchemaContract) {
+	t.Helper()
+	branch := schema.DynamicBranch
+	if branch == nil {
+		return
+	}
+	if branch.ControlInput == "" || !stringSliceContains(schemaInputKeys(schema), branch.ControlInput) {
+		t.Fatalf("dynamicBranch controlInput %q is not declared as an input", branch.ControlInput)
+	}
+	fixedOutputs := make([]string, 0, len(schema.Outputs))
+	for _, port := range schema.Outputs {
+		fixedOutputs = append(fixedOutputs, port.Key)
+	}
+	if branch.DefaultOutput == "" || !stringSliceContains(fixedOutputs, branch.DefaultOutput) {
+		t.Fatalf("dynamicBranch defaultOutput %q is not declared as a fixed output", branch.DefaultOutput)
+	}
+	if branch.OutputPrefix == "" || branch.OutputStartIndex < 0 || branch.MaxBranches <= 0 {
+		t.Fatalf("invalid dynamicBranch output range: %#v", branch)
+	}
+}
+
+func loadTopLevelNodeSchemas(t *testing.T) []jsonNodeSchemaContract {
+	t.Helper()
+	files, err := filepath.Glob(filepath.Join("..", "..", "..", "nodes", "*.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := make([]jsonNodeSchemaContract, 0)
+	for _, file := range files {
+		data, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatalf("ReadFile %s failed: %v", file, err)
+		}
+		var schemas []jsonNodeSchemaContract
+		if err := json.Unmarshal(data, &schemas); err != nil {
+			t.Fatalf("Unmarshal %s failed: %v", file, err)
+		}
+		for _, schema := range schemas {
+			if schema.ID != "" {
+				result = append(result, schema)
+			}
+		}
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+	return result
+}
+
+func schemaInputKeys(schema jsonNodeSchemaContract) []string {
+	keys := make([]string, 0, len(schema.Inputs))
+	for _, port := range schema.Inputs {
+		if port.Key != "" {
+			keys = append(keys, port.Key)
+		}
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func schemaOutputKeys(schema jsonNodeSchemaContract) []string {
+	keys := make([]string, 0, len(schema.Outputs))
+	for _, port := range schema.Outputs {
+		if port.Key != "" {
+			keys = append(keys, port.Key)
+		}
+	}
+	if branch := schema.DynamicBranch; branch != nil {
+		for index := 0; index < branch.MaxBranches; index++ {
+			keys = append(keys, branch.OutputPrefix+strconv.Itoa(branch.OutputStartIndex+index))
+		}
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func sortedStringKeys(values map[string]int) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func sortedIntMapKeys(values map[string]int) []string {
+	return sortedStringKeys(values)
+}
+
+func stringSliceContains(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }

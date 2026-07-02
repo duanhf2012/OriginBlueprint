@@ -51,38 +51,46 @@ function cleanLabel(value: string | undefined, fallback: string) {
   return String(value ?? '').trim() || fallback
 }
 
-const entrySourcePalette = [
-  '#5fd0ff',
-  '#8fb8ff',
-  '#b38cff',
-  '#ef8cff',
-  '#ff9d66',
-  '#f2c94c',
-  '#87d96c',
-  '#45d6a4',
-  '#4dd6d6',
-  '#ff7f96',
-  '#b7d66b',
-  '#d79aff',
-  '#79a8ff',
-  '#f0a45d',
-  '#76d18a',
-  '#d8c86a'
-]
-
 function hashText(value: string) {
   let hash = 2166136261
   for (let index = 0; index < value.length; index++) {
     hash ^= value.charCodeAt(index)
     hash = Math.imul(hash, 16777619)
   }
+  hash ^= hash >>> 16
+  hash = Math.imul(hash, 0x7feb352d)
+  hash ^= hash >>> 15
+  hash = Math.imul(hash, 0x846ca68b)
+  hash ^= hash >>> 16
   return hash >>> 0
+}
+
+function hslToHex(hue: number, saturation: number, lightness: number) {
+  const chroma = (1 - Math.abs(2 * lightness - 1)) * saturation
+  const segment = hue / 60
+  const second = chroma * (1 - Math.abs(segment % 2 - 1))
+  const offset = lightness - chroma / 2
+  const [red, green, blue] =
+    segment < 1 ? [chroma, second, 0] :
+    segment < 2 ? [second, chroma, 0] :
+    segment < 3 ? [0, chroma, second] :
+    segment < 4 ? [0, second, chroma] :
+    segment < 5 ? [second, 0, chroma] :
+    [chroma, 0, second]
+  return [red, green, blue]
+    .map(value => Math.round((value + offset) * 255).toString(16).padStart(2, '0'))
+    .join('')
+    .replace(/^/, '#')
 }
 
 export function entrySourceColor(sourceKey?: string) {
   const key = String(sourceKey ?? '').trim()
   if (!key) return ''
-  return entrySourcePalette[hashText(key) % entrySourcePalette.length]
+  const hash = hashText(key)
+  const hue = hash % 360
+  const saturation = 0.66 + ((hash >>> 9) % 18) / 100
+  const lightness = 0.58 + ((hash >>> 17) % 12) / 100
+  return hslToHex(hue, saturation, lightness)
 }
 
 function looksLikeEntryName(value: string | undefined) {

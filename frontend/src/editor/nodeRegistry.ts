@@ -120,6 +120,10 @@ function isOrdinaryEntrySchema(schema: NodeSchema, kind: NodeKind) {
   )
 }
 
+function isLegacyEntryClass(value?: string) {
+  return String(value ?? '').trim().toLowerCase().startsWith('entrance_')
+}
+
 function fromSchema(schema: NodeSchema): NodeDefinition {
   const kind = inferKind(schema)
   const ordinaryEntry = isOrdinaryEntrySchema(schema, kind)
@@ -281,12 +285,19 @@ export function createVariableNode(variable: GraphVariable, access: 'get' | 'set
 }
 
 export function createLegacyNode(properties: NodeProperties) {
-  const result = node('origin.legacy.placeholder', properties.label || properties.legacyClass || 'Legacy Node', 'function', `Legacy: ${properties.legacyModule || 'unknown'}`, 245)
+  const hasExecInput = properties.legacyInputs?.some(port => port.type === 'exec') ?? false
+  const hasExecOutput = properties.legacyOutputs?.some(port => port.type === 'exec') ?? false
+  const kind = isLegacyEntryClass(properties.legacyClass) || (hasExecOutput && !hasExecInput) ? 'event' : hasExecInput || hasExecOutput ? 'flow' : 'function'
+  const result = node('origin.legacy.placeholder', properties.label || properties.legacyClass || 'Legacy Node', kind, `Legacy: ${properties.legacyModule || 'unknown'}`, 245)
   result.legacyStyle = true
   result.legacyClass = properties.legacyClass
   result.legacyModule = properties.legacyModule
   result.legacyInputs = properties.legacyInputs?.map(port => ({ ...port })) ?? []
   result.legacyOutputs = properties.legacyOutputs?.map(port => ({ ...port })) ?? []
+  if (isLegacyEntryClass(properties.legacyClass)) {
+    result.entrySourceKey = properties.legacyClass
+    result.entrySourceColor = entrySourceColor(properties.legacyClass)
+  }
   for (const port of result.legacyInputs) result.addInput(port.key, input(sockets[port.type as SocketType] ?? sockets.any, port.label, port.type === 'exec' ? undefined : ''))
   for (const port of result.legacyOutputs) result.addOutput(port.key, new ClassicPreset.Output(sockets[port.type as SocketType] ?? sockets.any, port.label))
   return result

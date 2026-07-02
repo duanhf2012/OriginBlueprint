@@ -41,6 +41,8 @@
 - `has_input`: 输入端口是否显示默认值控件。
 - `pin_widget`: 旧控件名，目前识别 `IntegerArrayWdg` 和 `StringArrayWdg`。
 
+标题显示优先级应保持为：`JSON title > 用户显式自定义 label > fallback legacyClass/name`。不要在迁移时把旧 `.vgf` 的 `class/name` 写入 `properties.label` 作为正常标题，否则补回 JSON schema 后仍会显示英文 name。更多蓝图显示和兼容规则见 `docs/BLUEPRINT_CHANGE_SAFETY_ZH.md`。
+
 ## 注意
 
 只修改标题、分类和端口显示时，不需要重新编译程序；重新启动即可读取运行目录下的 JSON。新增未知 `name` 的节点可以编辑和连线，但执行器不会自动获得业务逻辑。需要执行的节点仍然要映射到已有 `origin.*` 类型，或后续在执行器中实现对应逻辑。

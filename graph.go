@@ -426,6 +426,7 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 
 	nodes := make(map[string]GraphNode, len(document.Nodes))
 	ports := make(map[string]portDefinition, len(document.Nodes))
+	hasLegacyPlaceholder := false
 	for _, node := range document.Nodes {
 		if node.ID == "" {
 			issues = append(issues, ValidationIssue{Severity: "error", Code: "node.missing-id", Message: "存在缺少 ID 的结点"})
@@ -467,6 +468,7 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 			known = true
 		}
 		if node.TypeID == "origin.legacy.placeholder" {
+			hasLegacyPlaceholder = true
 			inputs := make(map[string]string, len(node.Properties.LegacyInputs))
 			outputs := make(map[string]string, len(node.Properties.LegacyOutputs))
 			for _, port := range node.Properties.LegacyInputs {
@@ -521,7 +523,9 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 			issues = append(issues, ValidationIssue{Severity: "error", Code: "connection.type-mismatch", Message: fmt.Sprintf("端口类型不匹配：%s 不能连接到 %s", sourceType, targetType), NodeID: target.ID})
 		}
 	}
-	issues = append(issues, validateExecutionFlow(nodes, ports, document.Connections)...)
+	if !hasLegacyPlaceholder {
+		issues = append(issues, validateExecutionFlow(nodes, ports, document.Connections)...)
+	}
 
 	return issues
 }

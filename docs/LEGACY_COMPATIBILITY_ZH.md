@@ -2,6 +2,8 @@
 
 这份文档专门说明 `OriginBlueprint` 如何兼容历史线上使用的 `.vgf` 文件。修改导入、导出、节点定义、端口映射、运行时前，请先读这里。
 
+蓝图核心链路改动还必须同步阅读 `docs/BLUEPRINT_CHANGE_SAFETY_ZH.md`。尤其注意：fallback 只能用于兜底保图，不能替代完整 `nodes/**/*.json` schema；大量业务节点进入 `origin.legacy.placeholder` 应视为 schema 覆盖异常。
+
 ## 兼容目标
 
 线上已经存在旧编辑器导出的 `.vgf` 文件。新编辑器必须做到：

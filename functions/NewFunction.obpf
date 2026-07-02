@@ -1,22 +1,21 @@
 {
   "schemaVersion": 1,
-  "graphName": "NewFunction",
+  "graphName": "计算",
   "nodes": [
     {
       "id": "d84503c3-c4a6-45b8-a481-92cd5ee0d478",
       "typeId": "origin.function.entry",
       "position": {
-        "x": -379,
-        "y": -20
+        "x": -534,
+        "y": -25
       },
       "values": {},
       "properties": {
-        "label": "NewFunction Entry",
+        "label": "计算 Entry",
         "functionRole": "entry",
-        "functionId": "functions/NewFunction.obpf",
-        "functionName": "NewFunction",
+        "functionId": "fn_47963bdb151e",
+        "functionName": "计算",
         "functionSource": "workspace",
-        "functionPath": "functions/NewFunction.obpf",
         "functionSignature": {
           "inputs": [
             {
@@ -38,12 +37,11 @@
       },
       "values": {},
       "properties": {
-        "label": "NewFunction Return",
+        "label": "计算 Return",
         "functionRole": "return",
-        "functionId": "functions/NewFunction.obpf",
-        "functionName": "NewFunction",
+        "functionId": "fn_47963bdb151e",
+        "functionName": "计算",
         "functionSource": "workspace",
-        "functionPath": "functions/NewFunction.obpf",
         "functionSignature": {
           "inputs": [
             {
@@ -75,10 +73,11 @@
     }
   ],
   "view": {
-    "x": 554.5,
-    "y": 411.5,
+    "x": 1405,
+    "y": 601.5,
     "zoom": 1
   },
+  "functionId": "fn_47963bdb151e",
   "functionSignature": {
     "inputs": [
       {

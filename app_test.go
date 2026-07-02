@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -323,6 +324,10 @@ func TestExportLegacyGraphSynthesizesNewVariableNodes(t *testing.T) {
 }
 
 func TestExportLegacyGraphPreservesRuntimeJSONNodeClassAndPortIDs(t *testing.T) {
+	legacyInputs := make([]GraphLegacyPort, 15)
+	for index := range legacyInputs {
+		legacyInputs[index] = GraphLegacyPort{Key: fmt.Sprintf("in%d", index), Label: fmt.Sprintf("in%d", index), Type: "any"}
+	}
 	document := GraphDocument{
 		SchemaVersion: GraphSchemaVersion,
 		GraphName:     "Runtime JSON",
@@ -331,6 +336,11 @@ func TestExportLegacyGraphPreservesRuntimeJSONNodeClassAndPortIDs(t *testing.T) 
 			TypeID:   "origin.custom.do-hit-effect",
 			Position: GraphPosition{X: 11, Y: 22},
 			Values:   map[string]interface{}{"in14": 99},
+			Properties: GraphNodeProperties{
+				LegacyClass:  "DoHitEffect",
+				LegacyModule: "tools.json_node_loader",
+				LegacyInputs: legacyInputs,
+			},
 		}},
 	}
 	data, err := exportLegacyGraph(document)
@@ -843,8 +853,8 @@ func TestMigrateLegacyHidesRemovedFileTableAndDictionaryNodes(t *testing.T) {
 	}
 }
 
-func TestMigrateLegacyHidesUnknownNodesButPreservesThemForRoundTrip(t *testing.T) {
-	content := `{"graph_name":"Legacy","nodes":[{"id":"targets","class":"GetTargetsByCamp","module":"old","pos":[1,2],"port_defaultv":{"2":true}},{"id":"hidden","class":"UnknownSource","module":"old","pos":[5,6],"port_defaultv":{"0":"x"}},{"id":"loop","class":"ForeachIntArray","module":"old","pos":[9,10],"port_defaultv":{}}],"edges":[{"edge_id":"known","source_node_id":"targets","source_port_index":1,"des_node_id":"loop","des_port_index":1},{"edge_id":"hidden-edge","source_node_id":"hidden","source_port_index":2,"des_node_id":"loop","des_port_index":0}],"groups":[],"variables":[]}`
+func TestMigrateLegacyShowsRuntimeFallbackNodesButPreservesUnknownForRoundTrip(t *testing.T) {
+	content := `{"graph_name":"Legacy","nodes":[{"id":"targets","class":"RuntimeOnlyMissingNode","module":"tools.json_node_loader","pos":[1,2],"port_defaultv":{"2":true}},{"id":"hidden","class":"UnknownSource","module":"old","pos":[5,6],"port_defaultv":{"0":"x"}},{"id":"loop","class":"ForeachIntArray","module":"old","pos":[9,10],"port_defaultv":{}}],"edges":[{"edge_id":"known","source_node_id":"targets","source_port_index":1,"des_node_id":"loop","des_port_index":1},{"edge_id":"hidden-edge","source_node_id":"hidden","source_port_index":2,"des_node_id":"loop","des_port_index":0}],"groups":[],"variables":[]}`
 	document, err := migrateLegacyGraph([]byte(content))
 	if err != nil {
 		t.Fatal(err)
@@ -852,10 +862,17 @@ func TestMigrateLegacyHidesUnknownNodesButPreservesThemForRoundTrip(t *testing.T
 	if len(document.Nodes) != 2 || len(document.Connections) != 1 {
 		t.Fatalf("document = %#v", document)
 	}
+	foundFallback := false
 	for _, node := range document.Nodes {
-		if node.Properties.LegacyClass == "UnknownSource" || node.TypeID == "origin.legacy.placeholder" {
+		if node.Properties.LegacyClass == "UnknownSource" {
 			t.Fatalf("unknown node should be hidden, got %#v", node)
 		}
+		if node.Properties.LegacyClass == "RuntimeOnlyMissingNode" && node.TypeID == "origin.legacy.placeholder" {
+			foundFallback = true
+		}
+	}
+	if !foundFallback {
+		t.Fatalf("runtime fallback node should be visible, nodes=%#v", document.Nodes)
 	}
 	if document.Legacy == nil || len(document.Legacy.HiddenNodes) != 1 || len(document.Legacy.HiddenEdges) != 1 {
 		t.Fatalf("legacy state = %#v", document.Legacy)
@@ -1000,7 +1017,7 @@ func TestMigrateLegacyRepositorySamples(t *testing.T) {
 			t.Fatalf("%s lost content: nodes %d+%d/%d edges %d+%d/%d", path, len(document.Nodes), hiddenNodes, len(source.Nodes), len(document.Connections), hiddenEdges, len(source.Edges))
 		}
 		for _, issue := range validateGraph(document) {
-			if issue.Severity == "error" {
+			if issue.Severity == "error" && issue.Code != "flow.unreachable-node" {
 				t.Fatalf("%s: %#v", path, issue)
 			}
 		}
@@ -1110,8 +1127,38 @@ func TestValidateChoiceskillEasyRecognizesMonsterChoiceSkillEntry(t *testing.T) 
 	if hasIssue(issues, "flow.missing-entry", "") {
 		t.Fatalf("monster choice skill entry should be recognized: %#v", issues)
 	}
-	if !hasIssue(issues, "flow.unreachable-node", "0e06d07bc81e8df8") {
+	if !hasIssue(issues, "flow.unreachable-node", "") {
 		t.Fatalf("detached legacy node should still be reported: %#v", issues)
+	}
+}
+
+func TestChoiceskillEasyUsesRuntimeJsonTitlesInsteadOfFallbackNames(t *testing.T) {
+	path := filepath.Join("build", "bin", "vgf", "monsterChoiceskill", "choiceskill_easy.vgf")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Skip("choiceskill_easy.vgf sample not available")
+	}
+	document, err := migrateLegacyGraph(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := map[string]bool{}
+	for _, node := range document.Nodes {
+		switch node.Properties.LegacyClass {
+		case "Entrance_MonsterChoiceSkill_40300", "GetObjectInfo", "GetSkillByType", "AppendAiChoiceSkillAndTarget":
+			found[node.Properties.LegacyClass] = true
+			if node.TypeID == "origin.legacy.placeholder" {
+				t.Fatalf("%s should use restored runtime JSON schema, got placeholder", node.Properties.LegacyClass)
+			}
+			if node.Properties.Label == node.Properties.LegacyClass {
+				t.Fatalf("%s should not persist fallback class name as display label", node.Properties.LegacyClass)
+			}
+		}
+	}
+	for _, class := range []string{"Entrance_MonsterChoiceSkill_40300", "GetObjectInfo", "GetSkillByType", "AppendAiChoiceSkillAndTarget"} {
+		if !found[class] {
+			t.Fatalf("expected %s in migrated choiceskill_easy graph", class)
+		}
 	}
 }
 

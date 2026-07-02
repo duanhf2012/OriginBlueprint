@@ -136,6 +136,7 @@ assert(!node.includes('.blueprint-node.reference-highlighted { outline: 3px soli
 assert(types.includes('legacyStyle?: boolean'), 'legacy metadata must be separate from legacy visual styling')
 assert(node.includes('legacy: Boolean(data.legacyStyle)'), 'legacy styling must use an explicit visual flag')
 assert(!node.includes('legacy: Boolean(data.legacyClass)'), 'runtime nodes with legacy metadata must not all render as legacy-styled')
+assert(!node.includes('.blueprint-node.legacy { --accent:'), 'legacy compat styling must not override node kind colors')
 assert(node.includes('v-if="data.legacyStyle" class="legacy-badge"'), 'compat badge must only render for visually legacy nodes')
 assert(editor.includes('node.referenceHighlighted'), 'reference search should mark nodes with the independent highlight state')
 assert(!editor.includes('setExecutionStates'), 'editor handle should not expose execution-state updates when local running is disabled')

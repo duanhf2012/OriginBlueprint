@@ -536,6 +536,8 @@ npm run build --prefix frontend
 
 ## 12. 测试与发布检查
 
+涉及蓝图迁移、节点 JSON、画布显示、入口、动态分支、导入导出或 Go engine 时，先执行 `docs/BLUEPRINT_CHANGE_SAFETY_ZH.md` 中的专项清单。不要只验证节点数量或构建通过，还要验证标题、颜色、端口名和代表性 `.vgf` 样例。
+
 一次功能修改完成后至少执行：
 
 ```powershell

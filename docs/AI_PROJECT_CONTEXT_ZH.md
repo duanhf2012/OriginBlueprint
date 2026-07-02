@@ -86,6 +86,7 @@ Go 侧：
 - `docs/NODE_JSON_FORMAT_ZH.md`：节点 JSON 格式。
 - `docs/ORIGIN_NODE_EDITOR_PARITY.md`：历史功能和兼容性清单。
 - `docs/LEGACY_COMPATIBILITY_ZH.md`：旧 `.vgf` 兼容专题。
+- `docs/BLUEPRINT_CHANGE_SAFETY_ZH.md`：蓝图迁移、节点 JSON、显示和执行链路改动安全清单。
 
 ## 文件格式和数据流
 
