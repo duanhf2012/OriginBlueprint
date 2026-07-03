@@ -322,6 +322,20 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     }
   }
 
+  async function clearGroupSelection() {
+    if (!selectedGroupId) return
+    selectedGroupId = null
+    updateGroupSelectionClasses()
+  }
+
+  async function selectGroup(id: string) {
+    await clearConnectionSelection()
+    await selector.unselectAll()
+    selectedGroupId = id
+    updateGroupSelectionClasses()
+    callbacks.onSelection(null)
+  }
+
   async function selectConnection(id: string, additive: boolean) {
     const item = editor.getConnection(id)
     if (!item) return
@@ -331,7 +345,8 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     if (selected) selectedConnectionIds.add(id); else selectedConnectionIds.delete(id)
     await area.update('connection', id)
     await selector.unselectAll()
-    selectedGroupId = null; renderGroups(); callbacks.onSelection(null)
+    await clearGroupSelection()
+    callbacks.onSelection(null)
     callbacks.onStatus(selected ? 'Connection selected' : 'Connection deselected')
   }
 
@@ -548,9 +563,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
       groupElements.set(group.id, element)
 
       element.addEventListener('pointerdown', event => {
-        void clearConnectionSelection()
-        selectedGroupId = group.id
-        renderGroups()
+        void selectGroup(group.id)
         event.stopPropagation()
       })
       const title = element.querySelector('.node-group-title') as HTMLElement
@@ -565,7 +578,12 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     }
   }
 
+  function updateGroupSelectionClasses() {
+    for (const [id, element] of groupElements) element.classList.toggle('selected', selectedGroupId === id)
+  }
+
   function beginGroupDrag(event: PointerEvent, group: GroupSnapshot, resize: boolean) {
+    void selectGroup(group.id)
     event.stopPropagation(); event.preventDefault()
     const before = snapshot()
     const start = { x: event.clientX, y: event.clientY, gx: group.x, gy: group.y, width: group.width, height: group.height }
@@ -1127,7 +1145,10 @@ function nodeSize(node: BlueprintNode) {
       const minX = Math.min(...entries.map(e => e.position.x)), minY = Math.min(...entries.map(e => e.position.y))
       const maxX = Math.max(...entries.map(e => e.position.x + e.size.width)), maxY = Math.max(...entries.map(e => e.position.y + e.size.height))
       const group: GroupSnapshot = { id: crypto.randomUUID(), title: 'This is a group title', x: minX - 28, y: minY - 42, width: maxX - minX + 56, height: maxY - minY + 70, nodeIds: nodes.map(node => node.id) }
-      groups.push(group); selectedGroupId = group.id; renderGroups()
+      groups.push(group)
+      await selector.unselectAll()
+      selectedGroupId = group.id; renderGroups()
+      callbacks.onSelection(null)
     })
   }
 
@@ -1141,6 +1162,8 @@ function nodeSize(node: BlueprintNode) {
   }
 
   async function toggleGroupSelected() {
+    const nodes = selectedNodes()
+    if (nodes.length) { await groupSelected(); return }
     if (selectedGroupId) { await ungroupSelected(); return }
     await groupSelected()
   }
@@ -1152,6 +1175,7 @@ function nodeSize(node: BlueprintNode) {
 
   async function selectAll() {
     await clearConnectionSelection()
+    await clearGroupSelection()
     for (const node of editor.getNodes()) await selectable.select(node.id, true)
     callbacks.onStatus(`Selected ${editor.getNodes().length} node(s)`)
   }
@@ -1159,6 +1183,7 @@ function nodeSize(node: BlueprintNode) {
   async function deselectAll() {
     await selector.unselectAll()
     await clearConnectionSelection()
+    await clearGroupSelection()
     callbacks.onSelection(null)
     callbacks.onStatus('Selection cleared')
   }
@@ -1491,7 +1516,10 @@ function nodeSize(node: BlueprintNode) {
         right: rect.left + Math.max(start.x, current.x),
         bottom: rect.top + Math.max(start.y, current.y)
       }
-      if (!event.ctrlKey) await selector.unselectAll()
+      if (!event.ctrlKey) {
+        await selector.unselectAll()
+        await clearGroupSelection()
+      }
       const connectionIds = connectionIdsInClientRect(selectionRect)
       const selectedConnections = await selectConnections(connectionIds, event.ctrlKey)
       let selectedNodes = 0
@@ -1504,6 +1532,7 @@ function nodeSize(node: BlueprintNode) {
       }
       if (!selectedNodes) callbacks.onSelection(null)
       if (selectedNodes || selectedConnections) callbacks.onStatus(`Selected ${selectedNodes} node(s), ${selectedConnections} connection(s)`)
+      await clearGroupSelection()
       start = null
       rectangle.style.display = 'none'
       window.removeEventListener('pointermove', move)
@@ -1637,6 +1666,7 @@ function nodeSize(node: BlueprintNode) {
     }
     if (context.type === 'nodepicked') {
       void clearConnectionSelection()
+      await clearGroupSelection()
       startNodeDragFeedback()
       dragSnapshot = snapshot()
       await restoreMultiSelectionAfterNodePick(context.data.id)
