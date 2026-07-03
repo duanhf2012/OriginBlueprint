@@ -10,10 +10,14 @@ export const enUS: MenuLocaleText = {
       open: 'Open',
       recent: 'Recent',
       clearRecent: 'Clear Recent Files',
-      setWorkspace: 'Set Workspace Path',
+      openWorkspace: 'Open Workspace Folder',
+      refreshWorkspace: 'Refresh Workspace',
+      refreshNodeLibrary: 'Refresh Node Library',
       save: 'Save',
       saveAs: 'Save As',
       saveAll: 'Save All',
+      exportSelectedImage: 'Selected Nodes Image',
+      exportGraphImage: 'Whole Graph Image',
       quit: 'Quit'
     },
     edit: {
@@ -24,7 +28,7 @@ export const enUS: MenuLocaleText = {
       copy: 'Copy',
       paste: 'Paste',
       delete: 'Delete',
-      group: 'Group Nodes',
+      group: 'Group / Ungroup Nodes',
       ungroup: 'Ungroup Nodes',
       selectAll: 'Select All',
       deselectAll: 'Deselect All'
@@ -50,13 +54,14 @@ export const enUS: MenuLocaleText = {
       chinese: '中文',
       english: 'English'
     },
-    render: {
-      title: 'Render',
-      selectedNodes: 'Render Selected Nodes',
-      graph: 'Render Graph'
+    blueprint: {
+      title: 'Blueprint',
+      validate: 'Validate Blueprint'
     },
-    test: 'Test',
-    help: 'Help'
+    help: {
+      title: 'Help',
+      about: 'Shortcuts and About'
+    },
   },
   toolbar: {
     test: 'Test',

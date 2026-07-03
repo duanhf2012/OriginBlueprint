@@ -254,8 +254,11 @@ function onKeyDown(event: KeyboardEvent) {
   if (ctrl && event.shiftKey && key === 'n') run(() => platform.newWindow(), event)
   else if (ctrl && key === 'n') run(newGraph, event)
   else if (ctrl && key === 'o') run(() => openGraph(), event)
+  else if (ctrl && event.altKey && key === 's') run(saveAll, event)
   else if (ctrl && key === 's' && event.shiftKey) run(() => saveGraph(true), event)
   else if (ctrl && key === 's') run(() => saveGraph(false), event)
+  else if (ctrl && event.altKey && key === 'r') run(() => exportImage(true), event)
+  else if (ctrl && event.shiftKey && key === 'r') run(() => exportImage(false), event)
   else if (ctrl && key === 'a') run(() => editor?.selectAll(), event)
   else if (ctrl && key === 'd') run(() => editor?.deselectAll(), event)
   else if (ctrl && key === 'c') run(() => editor?.copy(), event)
@@ -263,12 +266,11 @@ function onKeyDown(event: KeyboardEvent) {
   else if (ctrl && key === 'v') run(() => editor?.paste(), event)
   else if (ctrl && key === 'z') run(() => editor?.undo(), event)
   else if (ctrl && key === 'y') run(() => editor?.redo(), event)
-  else if (ctrl && key === 'g') run(() => editor?.groupSelected(), event)
+  else if (ctrl && key === 'g') run(() => editor?.toggleGroupSelected(), event)
   else if (event.key === 'F5') run(testGraph, event)
   else if (event.altKey && event.shiftKey && key === 'b') { showLogger.value = !showLogger.value; event.preventDefault() }
   else if (event.altKey && event.shiftKey && key === 'l') { showTools.value = !showTools.value; event.preventDefault() }
   else if (event.altKey && event.shiftKey && key === 'r') { showRight.value = !showRight.value; event.preventDefault() }
-  else if (event.altKey && key === 'g') run(() => editor?.ungroupSelected(), event)
   else if (event.shiftKey && key === 'l') run(() => editor?.align('left'), event)
   else if (event.shiftKey && key === 'r') run(() => editor?.align('right'), event)
   else if (event.shiftKey && key === 't') run(() => editor?.align('top'), event)
@@ -1133,6 +1135,17 @@ async function chooseWorkspace() {
   const path = await platform.chooseWorkspace(); if (path) await loadWorkspace(path)
 }
 
+async function refreshWorkspace() {
+  if (!workspaceRoot.value) return
+  await loadWorkspace(workspaceRoot.value)
+  status.value = 'Workspace refreshed'
+}
+
+async function refreshNodeLibrary() {
+  const nodeLoadStatus = await loadRuntimeNodeLibrary()
+  status.value = nodeLoadStatus || `Node library refreshed (${nodeLibrary.value.length} node template(s))`
+}
+
 async function clearRecentFiles() {
   await platform.clearRecentFiles()
   recentFiles.value = []
@@ -1744,14 +1757,32 @@ function toggleModuleCategory(category: string) {
     <header class="menu-bar">
       <div class="menu-items">
         <div class="menu-root"><button @click.stop="toggleMenu('file')">{{ menuText.menu.file.title }}</button><div v-if="activeMenu === 'file'" class="dropdown-menu">
-          <button @click="run(newGraph)">{{ menuText.menu.file.newGraph }} <kbd>Ctrl+N</kbd></button><button @click="run(() => platform.newWindow())">{{ menuText.menu.file.newWindow }} <kbd>Ctrl+Shift+N</kbd></button><div class="menu-separator"></div><button @click="run(() => openGraph())">{{ menuText.menu.file.open }} <kbd>Ctrl+O</kbd></button>
-          <div v-if="recentFiles.length" class="menu-subtitle">{{ menuText.menu.file.recent }}</div><button v-for="file in recentFiles" :key="file" class="recent-item" @click="run(() => openGraph(file))">{{ file.split(/[\\/]/).pop() }}</button>
-          <button :disabled="!recentFiles.length" @click="run(clearRecentFiles)">{{ menuText.menu.file.clearRecent }}</button><div class="menu-separator"></div><button @click="run(chooseWorkspace)">{{ menuText.menu.file.setWorkspace }}</button><div class="menu-separator"></div><button @click="run(() => saveGraph(false))">{{ menuText.menu.file.save }} <kbd>Ctrl+S</kbd></button><button @click="run(() => saveGraph(true))">{{ menuText.menu.file.saveAs }} <kbd>Ctrl+Shift+S</kbd></button><button @click="run(saveAll)">{{ menuText.menu.file.saveAll }} <kbd>Ctrl+Alt+S</kbd></button><div class="menu-separator"></div><button @click="run(quitApplication)">{{ menuText.menu.file.quit }} <kbd>Alt+F4</kbd></button>
+          <button @click="run(newGraph)">{{ menuText.menu.file.newGraph }} <kbd>Ctrl+N</kbd></button>
+          <button v-if="platform.isDesktop()" @click="run(() => platform.newWindow())">{{ menuText.menu.file.newWindow }} <kbd>Ctrl+Shift+N</kbd></button>
+          <div class="menu-separator"></div>
+          <button @click="run(() => openGraph())">{{ menuText.menu.file.open }} <kbd>Ctrl+O</kbd></button>
+          <button v-if="platform.isDesktop()" @click="run(chooseWorkspace)">{{ menuText.menu.file.openWorkspace }}</button>
+          <template v-if="platform.isDesktop()">
+            <div v-if="recentFiles.length" class="menu-subtitle">{{ menuText.menu.file.recent }}</div>
+            <button v-for="file in recentFiles" :key="file" class="recent-item" @click="run(() => openGraph(file))">{{ file.split(/[\\/]/).pop() }}</button>
+            <button :disabled="!recentFiles.length" @click="run(clearRecentFiles)">{{ menuText.menu.file.clearRecent }}</button>
+          </template>
+          <div class="menu-separator"></div>
+          <button @click="run(() => saveGraph(false))">{{ menuText.menu.file.save }} <kbd>Ctrl+S</kbd></button>
+          <button @click="run(() => saveGraph(true))">{{ menuText.menu.file.saveAs }} <kbd>Ctrl+Shift+S</kbd></button>
+          <button @click="run(saveAll)">{{ menuText.menu.file.saveAll }} <kbd>Ctrl+Alt+S</kbd></button>
+          <div class="menu-separator"></div>
+          <button v-if="platform.isDesktop()" :disabled="!workspaceRoot" @click="run(refreshWorkspace)">{{ menuText.menu.file.refreshWorkspace }}</button>
+          <button @click="run(refreshNodeLibrary)">{{ menuText.menu.file.refreshNodeLibrary }}</button>
+          <div class="menu-separator"></div>
+          <button @click="run(() => exportImage(true))">{{ menuText.menu.file.exportSelectedImage }} <kbd>Ctrl+Alt+R</kbd></button>
+          <button @click="run(() => exportImage(false))">{{ menuText.menu.file.exportGraphImage }} <kbd>Ctrl+Shift+R</kbd></button>
+          <template v-if="platform.isDesktop()"><div class="menu-separator"></div><button @click="run(quitApplication)">{{ menuText.menu.file.quit }} <kbd>Alt+F4</kbd></button></template>
         </div></div>
         <div class="menu-root"><button @click.stop="toggleMenu('edit')">{{ menuText.menu.edit.title }}</button><div v-if="activeMenu === 'edit'" class="dropdown-menu">
           <button @click="run(() => editor?.undo())">{{ menuText.menu.edit.undo }} <kbd>Ctrl+Z</kbd></button><button @click="run(() => editor?.redo())">{{ menuText.menu.edit.redo }} <kbd>Ctrl+Y</kbd></button><div class="menu-separator"></div>
           <button @click="run(() => editor?.cut())">{{ menuText.menu.edit.cut }} <kbd>Ctrl+X</kbd></button><button @click="run(() => editor?.copy())">{{ menuText.menu.edit.copy }} <kbd>Ctrl+C</kbd></button><button @click="run(() => editor?.paste())">{{ menuText.menu.edit.paste }} <kbd>Ctrl+V</kbd></button><button @click="run(() => editor?.deleteSelected())">{{ menuText.menu.edit.delete }} <kbd>Delete</kbd></button>
-          <button @click="run(() => editor?.groupSelected())">{{ menuText.menu.edit.group }} <kbd>Ctrl+G</kbd></button><button @click="run(() => editor?.ungroupSelected())">{{ menuText.menu.edit.ungroup }} <kbd>Alt+G</kbd></button><div class="menu-separator"></div>
+          <button @click="run(() => editor?.toggleGroupSelected())">{{ menuText.menu.edit.group }} <kbd>Ctrl+G</kbd></button><div class="menu-separator"></div>
           <button @click="run(() => editor?.selectAll())">{{ menuText.menu.edit.selectAll }} <kbd>Ctrl+A</kbd></button><button @click="run(() => editor?.deselectAll())">{{ menuText.menu.edit.deselectAll }} <kbd>Ctrl+D</kbd></button>
         </div></div>
         <div class="menu-root"><button @click.stop="toggleMenu('align')">{{ menuText.menu.align.title }}</button><div v-if="activeMenu === 'align'" class="dropdown-menu">
@@ -1759,9 +1790,9 @@ function toggleModuleCategory(category: string) {
           <button @click="run(() => editor?.align('vertical-distribute'))">{{ menuText.menu.align.verticalDistribute }} <kbd>Shift+V</kbd></button><button @click="run(() => editor?.align('horizontal-distribute'))">{{ menuText.menu.align.horizontalDistribute }} <kbd>Shift+H</kbd></button>
           <button @click="run(() => editor?.align('left'))">{{ menuText.menu.align.left }} <kbd>Shift+L</kbd></button><button @click="run(() => editor?.align('right'))">{{ menuText.menu.align.right }} <kbd>Shift+R</kbd></button><button @click="run(() => editor?.align('top'))">{{ menuText.menu.align.top }} <kbd>Shift+T</kbd></button><button @click="run(() => editor?.align('bottom'))">{{ menuText.menu.align.bottom }} <kbd>Shift+B</kbd></button><button @click="run(() => editor?.align('straighten'))">{{ menuText.menu.align.straighten }} <kbd>Q</kbd></button>
         </div></div>
-        <div class="menu-root"><button @click.stop="toggleMenu('view')">{{ menuText.menu.view.title }}</button><div v-if="activeMenu === 'view'" class="dropdown-menu"><button @click="showLogger = !showLogger">{{ menuText.menu.view.showTestResults }} <kbd>Alt+Shift+B</kbd></button><button @click="showTools = !showTools">{{ menuText.menu.view.showLeftSidebar }} <kbd>Alt+Shift+L</kbd></button><button @click="showRight = !showRight">{{ menuText.menu.view.showModuleLibrary }} <kbd>Alt+Shift+R</kbd></button><div class="menu-separator"></div><div class="menu-subtitle">{{ menuText.menu.view.language }}</div><button @click="setLocale('zh-CN')">{{ currentLocale === 'zh-CN' ? '✓ ' : '' }}{{ menuText.menu.view.chinese }}</button><button @click="setLocale('en-US')">{{ currentLocale === 'en-US' ? '✓ ' : '' }}{{ menuText.menu.view.english }}</button></div></div>
-        <div class="menu-root"><button @click.stop="toggleMenu('render')">{{ menuText.menu.render.title }}</button><div v-if="activeMenu === 'render'" class="dropdown-menu"><button @click="run(() => exportImage(true))">{{ menuText.menu.render.selectedNodes }} <kbd>Ctrl+Alt+R</kbd></button><button @click="run(() => exportImage(false))">{{ menuText.menu.render.graph }} <kbd>Ctrl+Shift+R</kbd></button></div></div>
-        <button @click="run(testGraph)">{{ menuText.menu.test }}</button><button @click="showAbout = true">{{ menuText.menu.help }}</button>
+        <div class="menu-root"><button @click.stop="toggleMenu('view')">{{ menuText.menu.view.title }}</button><div v-if="activeMenu === 'view'" class="dropdown-menu"><button @click="showLogger = !showLogger">{{ showLogger ? '✓ ' : '' }}{{ menuText.menu.view.showTestResults }} <kbd>Alt+Shift+B</kbd></button><button @click="showTools = !showTools">{{ showTools ? '✓ ' : '' }}{{ menuText.menu.view.showLeftSidebar }} <kbd>Alt+Shift+L</kbd></button><button @click="showRight = !showRight">{{ showRight ? '✓ ' : '' }}{{ menuText.menu.view.showModuleLibrary }} <kbd>Alt+Shift+R</kbd></button><div class="menu-separator"></div><div class="menu-subtitle">{{ menuText.menu.view.language }}</div><button @click="setLocale('zh-CN')">{{ currentLocale === 'zh-CN' ? '✓ ' : '' }}{{ menuText.menu.view.chinese }}</button><button @click="setLocale('en-US')">{{ currentLocale === 'en-US' ? '✓ ' : '' }}{{ menuText.menu.view.english }}</button></div></div>
+        <div class="menu-root"><button @click.stop="toggleMenu('blueprint')">{{ menuText.menu.blueprint.title }}</button><div v-if="activeMenu === 'blueprint'" class="dropdown-menu"><button @click="run(testGraph)">{{ menuText.menu.blueprint.validate }} <kbd>F5</kbd></button></div></div>
+        <div class="menu-root"><button @click.stop="toggleMenu('help')">{{ menuText.menu.help.title }}</button><div v-if="activeMenu === 'help'" class="dropdown-menu"><button @click="showAbout = true; activeMenu = null">{{ menuText.menu.help.about }}</button></div></div>
       </div>
     </header>
 

@@ -1297,6 +1297,43 @@ func TestMigrateLegacyGraphPreservesEmptyGraphName(t *testing.T) {
 	}
 }
 
+func TestExportLegacyGraphUsesEditedVisibleGroupTitle(t *testing.T) {
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		GraphName:     "Groups",
+		Nodes: []GraphNode{
+			{ID: "visible", TypeID: "origin.math.add-integer", Position: GraphPosition{X: 10, Y: 20}},
+		},
+		Groups: []GraphGroup{{
+			ID:      "group-1",
+			Title:   "Edited Group",
+			NodeIDs: []string{"visible"},
+		}},
+		Legacy: &GraphLegacyState{
+			Format: "vgf",
+			Groups: []legacyGroup{{
+				Title: "Original Group",
+				Nodes: []string{"visible"},
+			}},
+		},
+	}
+
+	data, err := exportLegacyGraph(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var legacy legacyGraph
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		t.Fatal(err)
+	}
+	if len(legacy.Groups) != 1 {
+		t.Fatalf("groups = %#v", legacy.Groups)
+	}
+	if legacy.Groups[0].Title != "Edited Group" {
+		t.Fatalf("group title = %q, want edited title", legacy.Groups[0].Title)
+	}
+}
+
 func TestListWorkspaceFiltersAndSorts(t *testing.T) {
 	app := NewApp()
 	dir := t.TempDir()

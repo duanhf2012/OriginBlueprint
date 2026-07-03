@@ -8,10 +8,14 @@ export interface MenuLocaleText {
       open: string
       recent: string
       clearRecent: string
-      setWorkspace: string
+      openWorkspace: string
+      refreshWorkspace: string
+      refreshNodeLibrary: string
       save: string
       saveAs: string
       saveAll: string
+      exportSelectedImage: string
+      exportGraphImage: string
       quit: string
     }
     edit: {
@@ -48,13 +52,14 @@ export interface MenuLocaleText {
       chinese: string
       english: string
     }
-    render: {
+    blueprint: {
       title: string
-      selectedNodes: string
-      graph: string
+      validate: string
     }
-    test: string
-    help: string
+    help: {
+      title: string
+      about: string
+    }
   }
   toolbar: {
     test: string
@@ -82,10 +87,14 @@ export const zhCN: MenuLocaleText = {
       open: '打开',
       recent: '最近文件',
       clearRecent: '清空最近文件',
-      setWorkspace: '设置工程目录',
+      openWorkspace: '打开工程目录',
+      refreshWorkspace: '刷新工程',
+      refreshNodeLibrary: '刷新节点库',
       save: '保存',
       saveAs: '另存为',
       saveAll: '全部保存',
+      exportSelectedImage: '选中节点图片',
+      exportGraphImage: '整张蓝图图片',
       quit: '退出'
     },
     edit: {
@@ -96,7 +105,7 @@ export const zhCN: MenuLocaleText = {
       copy: '复制',
       paste: '粘贴',
       delete: '删除',
-      group: '创建节点组',
+      group: '节点组/取消节点组',
       ungroup: '取消节点组',
       selectAll: '全选',
       deselectAll: '取消选择'
@@ -122,13 +131,14 @@ export const zhCN: MenuLocaleText = {
       chinese: '中文',
       english: 'English'
     },
-    render: {
-      title: '渲染',
-      selectedNodes: '渲染选中节点',
-      graph: '渲染整张蓝图'
+    blueprint: {
+      title: '蓝图',
+      validate: '检查蓝图'
     },
-    test: '测试',
-    help: '帮助'
+    help: {
+      title: '帮助',
+      about: '快捷操作与关于'
+    },
   },
   toolbar: {
     test: '测试',

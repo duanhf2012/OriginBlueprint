@@ -782,14 +782,76 @@ func legacyVariables(document GraphDocument) []map[string]interface{} {
 }
 
 func legacyGroups(document GraphDocument) []legacyGroup {
-	if document.Legacy != nil && document.Legacy.Groups != nil {
-		return cloneLegacyGroups(document.Legacy.Groups)
-	}
 	result := make([]legacyGroup, 0, len(document.Groups))
+	if document.Legacy != nil && document.Legacy.Groups != nil {
+		visibleNodes := make(map[string]bool, len(document.Nodes))
+		for _, node := range document.Nodes {
+			visibleNodes[node.ID] = true
+		}
+		usedGroups := make([]bool, len(document.Groups))
+		for _, legacyItem := range document.Legacy.Groups {
+			visibleIDs := make([]string, 0, len(legacyItem.Nodes))
+			hiddenIDs := make([]string, 0)
+			for _, id := range legacyItem.Nodes {
+				if visibleNodes[id] {
+					visibleIDs = append(visibleIDs, id)
+				} else {
+					hiddenIDs = append(hiddenIDs, id)
+				}
+			}
+			if len(visibleIDs) == 0 {
+				result = append(result, legacyGroup{Title: legacyItem.Title, Nodes: append([]string(nil), legacyItem.Nodes...)})
+				continue
+			}
+			if index := matchingGraphGroup(document.Groups, usedGroups, visibleIDs); index >= 0 {
+				usedGroups[index] = true
+				group := document.Groups[index]
+				nodes := append([]string(nil), group.NodeIDs...)
+				nodes = append(nodes, hiddenIDs...)
+				result = append(result, legacyGroup{Title: group.Title, Nodes: nodes})
+			}
+		}
+		for index, group := range document.Groups {
+			if usedGroups[index] {
+				continue
+			}
+			result = append(result, legacyGroup{Title: group.Title, Nodes: append([]string(nil), group.NodeIDs...)})
+		}
+		return result
+	}
 	for _, group := range document.Groups {
 		result = append(result, legacyGroup{Title: group.Title, Nodes: append([]string(nil), group.NodeIDs...)})
 	}
 	return result
+}
+
+func matchingGraphGroup(groups []GraphGroup, used []bool, visibleIDs []string) int {
+	for index, group := range groups {
+		if index < len(used) && used[index] {
+			continue
+		}
+		if sameStringSet(group.NodeIDs, visibleIDs) {
+			return index
+		}
+	}
+	return -1
+}
+
+func sameStringSet(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	counts := make(map[string]int, len(left))
+	for _, item := range left {
+		counts[item]++
+	}
+	for _, item := range right {
+		counts[item]--
+		if counts[item] < 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func legacyRuntimeTypeID(definition legacyRuntimeNodeDefinition, name string) string {

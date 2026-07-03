@@ -117,6 +117,7 @@ export interface BlueprintEditorHandle {
   align(mode: 'horizontal-center' | 'vertical-center' | 'left' | 'right' | 'top' | 'bottom' | 'horizontal-distribute' | 'vertical-distribute' | 'straighten'): Promise<void>
   groupSelected(): Promise<void>
   ungroupSelected(): Promise<void>
+  toggleGroupSelected(): Promise<void>
   fitSelected(): Promise<void>
   setVariables(variables: GraphVariable[], variableGroups?: GraphVariableGroup[], refreshNodes?: boolean): Promise<void>
   updateSelectedNode(label: string, values: Record<string, unknown>): Promise<void>
@@ -1139,6 +1140,11 @@ function nodeSize(node: BlueprintNode) {
     })
   }
 
+  async function toggleGroupSelected() {
+    if (selectedGroupId) { await ungroupSelected(); return }
+    await groupSelected()
+  }
+
   async function fitSelected() {
     const nodes = selectedNodes()
     await AreaExtensions.zoomAt(area, nodes.length ? nodes : editor.getNodes(), { scale: 0.9 })
@@ -1696,6 +1702,7 @@ function nodeSize(node: BlueprintNode) {
     align,
     groupSelected,
     ungroupSelected,
+    toggleGroupSelected,
     fitSelected,
     setVariables,
     updateSelectedNode,
