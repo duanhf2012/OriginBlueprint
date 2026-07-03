@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 )
 
 func TestBlueprintInitLoadsDefinitionsAndGraphsFromDirectories(t *testing.T) {
@@ -59,7 +61,7 @@ func TestBlueprintInitLoadsDefinitionsAndGraphsFromDirectories(t *testing.T) {
 	}
 }
 
-func TestBlueprintStartHotReloadReplacesGraphsForExistingInstances(t *testing.T) {
+func TestBlueprintHotReloadReplacesGraphsForExistingInstances(t *testing.T) {
 	var recorder *testRecorder
 	root := t.TempDir()
 	execDir := filepath.Join(root, "json")
@@ -111,15 +113,249 @@ func TestBlueprintStartHotReloadReplacesGraphsForExistingInstances(t *testing.T)
 	}
 
 	writeGraph(20)
-	apply, err := bp.StartHotReload()
+	result, err := bp.HotReload()
 	if err != nil {
-		t.Fatalf("StartHotReload failed: %v", err)
+		t.Fatalf("HotReload failed: %v", err)
 	}
-	apply()
+	if result == nil || result.GraphCount != 1 || result.UpdatedInstances != 1 || result.UnchangedInstances != 0 {
+		t.Fatalf("HotReload result = %#v, want graph=1 updated=1 unchanged=0", result)
+	}
 	if _, err := bp.Do(graphID, 1); err != nil {
 		t.Fatalf("second Do failed: %v", err)
 	}
 	if recorder == nil || len(recorder.values) != 1 || recorder.values[0] != 20 {
 		t.Fatalf("second recorder values = %#v, want [20]", recorder)
 	}
+}
+
+func TestBlueprintPrepareHotReloadAppliesOnlyWhenRequested(t *testing.T) {
+	var recorder *testRecorder
+	root := t.TempDir()
+	execDir := filepath.Join(root, "json")
+	graphDir := filepath.Join(root, "vgf")
+	if err := os.Mkdir(execDir, 0755); err != nil {
+		t.Fatalf("Mkdir execDir failed: %v", err)
+	}
+	if err := os.Mkdir(graphDir, 0755); err != nil {
+		t.Fatalf("Mkdir graphDir failed: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(execDir, "nodes.json"), []byte(`[
+		{"name":"TestEntrance","inputs":[],"outputs":[{"type":"exec","port_id":0}]},
+		{"name":"TestRecorder","inputs":[{"type":"exec","port_id":0},{"type":"data","data_type":"int","port_id":1}],"outputs":[]}
+	]`), 0644); err != nil {
+		t.Fatalf("WriteFile nodes failed: %v", err)
+	}
+	writeGraph := func(value int) {
+		t.Helper()
+		data := []byte(fmt.Sprintf(`{
+			"nodes": [
+				{"id":"entrance","class":"TestEntrance_1"},
+				{"id":"record","class":"TestRecorder","port_defaultv":{"1":%d}}
+			],
+			"edges": [
+				{"source_node_id":"entrance","des_node_id":"record","source_port_id":0,"des_port_id":0}
+			]
+		}`, value))
+		if err := os.WriteFile(filepath.Join(graphDir, "test.vgf"), data, 0644); err != nil {
+			t.Fatalf("WriteFile graph failed: %v", err)
+		}
+	}
+	writeGraph(10)
+
+	var bp Blueprint
+	bp.RegisterExecNode(func() IExecNode { return &testEntrance{} })
+	bp.RegisterExecNode(func() IExecNode {
+		recorder = &testRecorder{}
+		return recorder
+	})
+	if err := bp.Init(execDir, graphDir, nil, nil); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	graphID := bp.Create("test")
+
+	writeGraph(20)
+	plan, err := bp.prepareHotReload()
+	if err != nil {
+		t.Fatalf("prepareHotReload failed: %v", err)
+	}
+	if plan == nil {
+		t.Fatalf("prepareHotReload returned nil plan")
+	}
+	if _, err := bp.Do(graphID, 1); err != nil {
+		t.Fatalf("Do before apply failed: %v", err)
+	}
+	if recorder == nil || len(recorder.values) != 1 || recorder.values[0] != 10 {
+		t.Fatalf("before apply recorder values = %#v, want [10]", recorder)
+	}
+
+	result := plan.apply()
+	if result.GraphCount != 1 || result.UpdatedInstances != 1 || result.UnchangedInstances != 0 {
+		t.Fatalf("Apply result = %#v, want graph=1 updated=1 unchanged=0", result)
+	}
+	if _, err := bp.Do(graphID, 1); err != nil {
+		t.Fatalf("Do after apply failed: %v", err)
+	}
+	if recorder == nil || len(recorder.values) != 1 || recorder.values[0] != 20 {
+		t.Fatalf("after apply recorder values = %#v, want [20]", recorder)
+	}
+}
+
+func TestBlueprintHotReloadFailureKeepsExistingGraphs(t *testing.T) {
+	var recorder *testRecorder
+	root := t.TempDir()
+	execDir := filepath.Join(root, "json")
+	graphDir := filepath.Join(root, "vgf")
+	if err := os.Mkdir(execDir, 0755); err != nil {
+		t.Fatalf("Mkdir execDir failed: %v", err)
+	}
+	if err := os.Mkdir(graphDir, 0755); err != nil {
+		t.Fatalf("Mkdir graphDir failed: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(execDir, "nodes.json"), []byte(`[
+		{"name":"TestEntrance","inputs":[],"outputs":[{"type":"exec","port_id":0}]},
+		{"name":"TestRecorder","inputs":[{"type":"exec","port_id":0},{"type":"data","data_type":"int","port_id":1}],"outputs":[]}
+	]`), 0644); err != nil {
+		t.Fatalf("WriteFile nodes failed: %v", err)
+	}
+	validGraph := []byte(`{
+		"nodes": [
+			{"id":"entrance","class":"TestEntrance_1"},
+			{"id":"record","class":"TestRecorder","port_defaultv":{"1":10}}
+		],
+		"edges": [
+			{"source_node_id":"entrance","des_node_id":"record","source_port_id":0,"des_port_id":0}
+		]
+	}`)
+	if err := os.WriteFile(filepath.Join(graphDir, "test.vgf"), validGraph, 0644); err != nil {
+		t.Fatalf("WriteFile valid graph failed: %v", err)
+	}
+
+	var bp Blueprint
+	bp.RegisterExecNode(func() IExecNode { return &testEntrance{} })
+	bp.RegisterExecNode(func() IExecNode {
+		recorder = &testRecorder{}
+		return recorder
+	})
+	if err := bp.Init(execDir, graphDir, nil, nil); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	graphID := bp.Create("test")
+
+	invalidGraph := []byte(`{
+		"nodes": [
+			{"id":"entrance","class":"TestEntrance_1"},
+			{"id":"bad","class":"MissingNode"}
+		],
+		"edges": [
+			{"source_node_id":"entrance","des_node_id":"bad","source_port_id":0,"des_port_id":0}
+		]
+	}`)
+	if err := os.WriteFile(filepath.Join(graphDir, "test.vgf"), invalidGraph, 0644); err != nil {
+		t.Fatalf("WriteFile invalid graph failed: %v", err)
+	}
+	if result, err := bp.HotReload(); err == nil || result != nil {
+		t.Fatalf("HotReload = %#v,%v; want nil result and error", result, err)
+	}
+	if _, err := bp.Do(graphID, 1); err != nil {
+		t.Fatalf("Do after failed reload failed: %v", err)
+	}
+	if recorder == nil || len(recorder.values) != 1 || recorder.values[0] != 10 {
+		t.Fatalf("recorder values after failed reload = %#v, want [10]", recorder)
+	}
+}
+
+func TestBlueprintHotReloadCanRunInGoroutineWithConcurrentDo(t *testing.T) {
+	root := t.TempDir()
+	execDir := filepath.Join(root, "json")
+	graphDir := filepath.Join(root, "vgf")
+	if err := os.Mkdir(execDir, 0755); err != nil {
+		t.Fatalf("Mkdir execDir failed: %v", err)
+	}
+	if err := os.Mkdir(graphDir, 0755); err != nil {
+		t.Fatalf("Mkdir graphDir failed: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(execDir, "nodes.json"), []byte(`[
+		{"name":"TestEntrance","inputs":[],"outputs":[{"type":"exec","port_id":0}]},
+		{"name":"TestRecorder","inputs":[{"type":"exec","port_id":0},{"type":"data","data_type":"int","port_id":1}],"outputs":[]}
+	]`), 0644); err != nil {
+		t.Fatalf("WriteFile nodes failed: %v", err)
+	}
+	writeGraph := func(value int) {
+		t.Helper()
+		data := []byte(fmt.Sprintf(`{
+			"nodes": [
+				{"id":"entrance","class":"TestEntrance_1"},
+				{"id":"record","class":"TestRecorder","port_defaultv":{"1":%d}}
+			],
+			"edges": [
+				{"source_node_id":"entrance","des_node_id":"record","source_port_id":0,"des_port_id":0}
+			]
+		}`, value))
+		if err := os.WriteFile(filepath.Join(graphDir, "test.vgf"), data, 0644); err != nil {
+			t.Fatalf("WriteFile graph failed: %v", err)
+		}
+	}
+	writeGraph(10)
+
+	var bp Blueprint
+	bp.RegisterExecNode(func() IExecNode { return &testEntrance{} })
+	bp.RegisterExecNode(func() IExecNode { return &testRecorder{} })
+	if err := bp.Init(execDir, graphDir, nil, nil); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	graphIDs := make([]int64, 8)
+	for index := range graphIDs {
+		graphIDs[index] = bp.Create("test")
+		if graphIDs[index] == 0 {
+			t.Fatalf("Create %d returned 0", index)
+		}
+	}
+
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	for _, graphID := range graphIDs {
+		graphID := graphID
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					if _, err := bp.Do(graphID, 1); err != nil {
+						t.Errorf("Do graph %d failed: %v", graphID, err)
+						return
+					}
+				}
+			}
+		}()
+	}
+
+	writeGraph(20)
+	done := make(chan struct {
+		result *HotReloadResult
+		err    error
+	}, 1)
+	go func() {
+		result, err := bp.HotReload()
+		done <- struct {
+			result *HotReloadResult
+			err    error
+		}{result: result, err: err}
+	}()
+
+	select {
+	case hotReload := <-done:
+		if hotReload.err != nil {
+			t.Fatalf("HotReload failed: %v", hotReload.err)
+		}
+		if hotReload.result == nil || hotReload.result.GraphCount != 1 || hotReload.result.UpdatedInstances != len(graphIDs) {
+			t.Fatalf("HotReload result = %#v, want graph=1 updated=%d", hotReload.result, len(graphIDs))
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatalf("HotReload timed out")
+	}
+	close(stop)
+	wg.Wait()
 }

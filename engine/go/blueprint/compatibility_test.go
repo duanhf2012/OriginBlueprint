@@ -51,14 +51,13 @@ func TestBlueprintLegacyFacadeIntegrationPath(t *testing.T) {
 		t.Fatalf("GetLogger did not return Init logger")
 	}
 
-	applyHotReload, err := bp.StartHotReload()
+	result, err := bp.HotReload()
 	if err != nil {
-		t.Fatalf("StartHotReload failed: %v", err)
+		t.Fatalf("HotReload failed: %v", err)
 	}
-	if applyHotReload == nil {
-		t.Fatalf("StartHotReload returned nil apply function")
+	if result == nil || result.GraphCount != 1 {
+		t.Fatalf("HotReload result = %#v, want graph count 1", result)
 	}
-	applyHotReload()
 
 	graphID := bp.Create("server")
 	if graphID == 0 {

@@ -69,16 +69,8 @@ func TestBlueprintCreateLazilyAllocatesTimerMap(t *testing.T) {
 	}
 }
 
-func TestBlueprintLegacyFacadeMethodsRemainAvailable(t *testing.T) {
+func TestBlueprintFacadeMethodsRemainAvailable(t *testing.T) {
 	var bp Blueprint
-	stop, err := bp.StartHotReload()
-	if err != nil {
-		t.Fatalf("StartHotReload failed: %v", err)
-	}
-	if stop == nil {
-		t.Fatalf("StartHotReload returned nil stop function")
-	}
-	stop()
 
 	logger := struct{}{}
 	bp.logger = logger

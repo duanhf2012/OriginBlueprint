@@ -36,6 +36,47 @@ type GraphInstance struct {
 	variableMu sync.RWMutex
 }
 
+// HotReloadResult 描述一次热加载应用到运行时后的结果。
+type HotReloadResult struct {
+	GraphCount         int
+	UpdatedInstances   int
+	UnchangedInstances int
+}
+
+// hotReloadPlan 保存已经在后台完成解析和编译的新蓝图集合。
+//
+// 调用 apply 时只做短时间指针替换，适合投递回服务器主协程执行。
+type hotReloadPlan struct {
+	blueprint *Blueprint
+	graphs    map[string]*CompiledGraph
+	result    HotReloadResult
+}
+
+// apply 将已编译的新蓝图集合应用到运行时。
+func (p *hotReloadPlan) apply() HotReloadResult {
+	if p == nil || p.blueprint == nil {
+		return HotReloadResult{}
+	}
+	b := p.blueprint
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.ensureLocked()
+	result := p.result
+	if p.graphs == nil {
+		return result
+	}
+	b.graphs = p.graphs
+	for _, instance := range b.instances {
+		if compiled := p.graphs[instance.name]; compiled != nil {
+			instance.compiled = compiled
+			result.UpdatedInstances++
+			continue
+		}
+		result.UnchangedInstances++
+	}
+	return result
+}
+
 // AddCompiledGraph 手动加入一份已经编译完成的蓝图。
 func (b *Blueprint) AddCompiledGraph(name string, graph *CompiledGraph) {
 	if name == "" || graph == nil {
@@ -172,10 +213,10 @@ func (b *Blueprint) CancelTimerId(graphID int64, timerID *uint64) bool {
 	return true
 }
 
-// StartHotReload 重新读取节点定义和蓝图文件，并返回一次性应用函数。
+// prepareHotReload 在调用方协程中重新读取节点定义和蓝图文件，并编译为可应用的热加载计划。
 //
-// 调用返回的函数时会原子替换编译图，并让已有实例指向新的同名图。
-func (b *Blueprint) StartHotReload() (func(), error) {
+// 该阶段不替换当前运行中的蓝图；只有应用返回计划时才会短锁替换关键指针。
+func (b *Blueprint) prepareHotReload() (*hotReloadPlan, error) {
 	b.mu.RLock()
 	execDefPath := b.execDefPath
 	graphPath := b.graphPath
@@ -183,7 +224,7 @@ func (b *Blueprint) StartHotReload() (func(), error) {
 	b.mu.RUnlock()
 
 	if execDefPath == "" || graphPath == "" {
-		return func() {}, nil
+		return &hotReloadPlan{blueprint: b}, nil
 	}
 	registry := NewRegistry()
 	factories := append(BuiltinExecNodeFactories(), execFactories...)
@@ -194,17 +235,25 @@ func (b *Blueprint) StartHotReload() (func(), error) {
 	if err != nil {
 		return nil, err
 	}
-	return func() {
-		b.mu.Lock()
-		defer b.mu.Unlock()
-		b.ensureLocked()
-		b.graphs = graphs
-		for _, instance := range b.instances {
-			if compiled := graphs[instance.name]; compiled != nil {
-				instance.compiled = compiled
-			}
-		}
+	return &hotReloadPlan{
+		blueprint: b,
+		graphs:    graphs,
+		result:    HotReloadResult{GraphCount: len(graphs)},
 	}, nil
+}
+
+// HotReload 重新读取节点定义和蓝图文件，编译成功后短锁替换运行时关键指针。
+//
+// 该方法是线程安全的，可以直接放到业务协程或 goroutine 中调用；热加载期间并发 Do
+// 会继续使用进入 Do 时取得的编译图，不会被中途替换。解析或编译失败时返回错误，并保留
+// 当前正在使用的旧蓝图不变。
+func (b *Blueprint) HotReload() (*HotReloadResult, error) {
+	plan, err := b.prepareHotReload()
+	if err != nil {
+		return nil, err
+	}
+	result := plan.apply()
+	return &result, nil
 }
 
 // GetLogger 返回初始化时传入的日志对象。
