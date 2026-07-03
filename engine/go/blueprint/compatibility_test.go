@@ -104,6 +104,7 @@ func TestBlueprintReleaseGraphCancelsInstanceTimersThroughLegacyCallback(t *test
 
 	instance := bp.instances[graphID]
 	instance.timerMu.Lock()
+	instance.timers = map[uint64]struct{}{}
 	instance.timers[77] = struct{}{}
 	instance.timers[88] = struct{}{}
 	instance.timerMu.Unlock()

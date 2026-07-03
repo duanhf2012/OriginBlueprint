@@ -512,7 +512,7 @@ type Graph struct {
 	returns            PortArray
 	returnPort         IPort
 	functionResults    []any
-	functionCompleted  bool
+	functionCompleted  atomic.Bool
 	onFunctionComplete func([]any) error
 	callDepth          int
 	variables          map[string]IPort
@@ -558,7 +558,7 @@ func (g *Graph) runEntrance(entranceID int64, args ...any) (PortArray, error) {
 	g.returnPort = nil
 	clear(g.functionResults)
 	g.functionResults = g.functionResults[:0]
-	g.functionCompleted = false
+	g.functionCompleted.Store(false)
 	if g.variableMu == nil {
 		g.variableMu = &sync.RWMutex{}
 	}
@@ -660,11 +660,16 @@ func clonePorts(source []IPort) []IPort {
 		return nil
 	}
 	ports := make([]IPort, len(source))
+	var concretePorts []Port
 	for index, port := range source {
 		if port != nil {
 			if concrete, ok := port.(*Port); ok {
+				if concretePorts == nil {
+					concretePorts = make([]Port, len(source))
+				}
 				clone := clonePortValue(*concrete)
-				ports[index] = &clone
+				concretePorts[index] = clone
+				ports[index] = &concretePorts[index]
 				continue
 			}
 			ports[index] = port.Clone()
@@ -690,7 +695,7 @@ func (g *Graph) getAndCreateReturnPort() IPort {
 
 func (g *Graph) completeFunction(values []any) error {
 	g.functionResults = append(g.functionResults[:0], values...)
-	g.functionCompleted = true
+	g.functionCompleted.Store(true)
 	if g.onFunctionComplete != nil {
 		return g.onFunctionComplete(values)
 	}

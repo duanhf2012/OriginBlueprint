@@ -49,6 +49,21 @@ func BenchmarkBlueprintDoSharedCompiledGraph(b *testing.B) {
 	}
 }
 
+func BenchmarkBlueprintCreateRelease(b *testing.B) {
+	var bp Blueprint
+	bp.AddCompiledGraph("bench", &CompiledGraph{Entrances: map[int64]*ExecNode{}, NodeCount: 1})
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for index := 0; index < b.N; index++ {
+		graphID := bp.Create("bench")
+		if graphID == 0 {
+			b.Fatal("Create returned 0")
+		}
+		bp.ReleaseGraph(graphID)
+	}
+}
+
 func BenchmarkBlueprintDoComplexSharedCompiledGraph(b *testing.B) {
 	bp, graphIDs := newBenchmarkComplexBlueprint(b, 4096)
 

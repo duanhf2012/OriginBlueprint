@@ -64,7 +64,6 @@ func (b *Blueprint) Create(graphName string) int64 {
 		compiled:  compiled,
 		graphID:   graphID,
 		module:    b.module,
-		timers:    map[uint64]struct{}{},
 		variables: initialVariables(compiled),
 	}
 	return graphID
@@ -122,11 +121,16 @@ func (b *Blueprint) ReleaseGraph(graphID int64) {
 		return
 	}
 	instance.timerMu.Lock()
+	if len(instance.timers) == 0 {
+		instance.timers = nil
+		instance.timerMu.Unlock()
+		return
+	}
 	timerIDs := make([]uint64, 0, len(instance.timers))
 	for timerID := range instance.timers {
 		timerIDs = append(timerIDs, timerID)
 	}
-	instance.timers = map[uint64]struct{}{}
+	instance.timers = nil
 	instance.timerMu.Unlock()
 
 	for _, timerID := range timerIDs {

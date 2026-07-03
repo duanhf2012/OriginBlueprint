@@ -546,6 +546,9 @@ func (n *CreateTimer) Exec() (int, error) {
 		})
 		if n.graph.instance != nil {
 			n.graph.instance.timerMu.Lock()
+			if n.graph.instance.timers == nil {
+				n.graph.instance.timers = map[uint64]struct{}{}
+			}
 			n.graph.instance.timers[timerID] = struct{}{}
 			n.graph.instance.timerMu.Unlock()
 		}
