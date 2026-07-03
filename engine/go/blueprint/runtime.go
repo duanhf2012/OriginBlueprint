@@ -527,7 +527,7 @@ type Graph struct {
 //
 // 传入的 CompiledGraph 不会被修改。
 func NewGraph(compiled *CompiledGraph) *Graph {
-	return &Graph{compiled: compiled, timers: map[uint64]*time.Timer{}}
+	return &Graph{compiled: compiled}
 }
 
 // Do 执行指定入口，并把蓝图返回值转换为 PortArray。
