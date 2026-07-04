@@ -62,6 +62,10 @@ export function NewWindow() {
   return window['go']['main']['App']['NewWindow']();
 }
 
+export function OpenExternalURL(arg1) {
+  return window['go']['main']['App']['OpenExternalURL'](arg1);
+}
+
 export function OpenGraph(arg1) {
   return window['go']['main']['App']['OpenGraph'](arg1);
 }

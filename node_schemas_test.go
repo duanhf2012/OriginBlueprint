@@ -82,6 +82,54 @@ func TestDefaultNodeDirectoryDocumentsLoad(t *testing.T) {
 	}
 }
 
+func TestEmbeddedNodeSchemaDocumentsLoad(t *testing.T) {
+	result := loadRuntimeNodeSchemaDocumentsWithEmbedded(nil)
+
+	if len(result.Errors) != 0 {
+		t.Fatalf("embedded nodes contain errors: %#v", result.Errors)
+	}
+	if len(result.Documents) == 0 {
+		t.Fatal("embedded nodes should provide node JSON documents")
+	}
+	foundBase := false
+	for _, document := range result.Documents {
+		if document.Path == "embedded:nodes/Base.json" && strings.Contains(document.Content, `"origin.array.create-integer-new"`) {
+			foundBase = true
+			break
+		}
+	}
+	if !foundBase {
+		t.Fatalf("embedded nodes should include Base.json, got %#v", result.Documents)
+	}
+}
+
+func TestExternalNodeSchemaDocumentsOverrideEmbeddedByRelativePath(t *testing.T) {
+	dir := t.TempDir()
+	nodesDir := filepath.Join(dir, "nodes")
+	if err := os.MkdirAll(nodesDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	overrideContent := `[{"id":"origin.test.override","title":"Override"}]`
+	if err := os.WriteFile(filepath.Join(nodesDir, "Base.json"), []byte(overrideContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result := loadRuntimeNodeSchemaDocumentsWithEmbedded([]string{nodesDir})
+
+	if len(result.Errors) != 0 {
+		t.Fatalf("unexpected errors: %#v", result.Errors)
+	}
+	for _, document := range result.Documents {
+		if strings.HasSuffix(document.Path, "Base.json") {
+			if document.Content != overrideContent {
+				t.Fatalf("external Base.json should override embedded Base.json, got %#v", document)
+			}
+			return
+		}
+	}
+	t.Fatal("Base.json document not found")
+}
+
 func TestRangeCompareUsesDynamicBranchSchema(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("nodes", "SysFlowControl.json"))
 	if err != nil {

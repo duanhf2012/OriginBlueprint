@@ -30,6 +30,7 @@ type DesktopApp = {
   ExportPNG(dataURL: string): Promise<string>
   ChooseExportPNGPath(defaultDirectory: string): Promise<string>
   SavePNG(path: string, dataURL: string): Promise<string>
+  OpenExternalURL(url: string): Promise<void>
   GetRecentFiles(): Promise<string[]>
   ValidateGraph(content: string): Promise<ValidationIssue[]>
   MigrateLegacyGraph(content: string): Promise<string>
@@ -177,6 +178,10 @@ export const platform = {
   async listWorkspace(path: string) { return desktop() ? withDesktopLogging('ListWorkspace', () => desktop()!.ListWorkspace(path)) : [] },
   async findNodeReferences(root: string, typeId: string) { return desktop() ? withDesktopLogging('FindNodeReferences', () => desktop()!.FindNodeReferences(root, typeId)) : [] },
   async revealInFolder(path: string) { if (desktop()) await withDesktopLogging('RevealInFolder', () => desktop()!.RevealInFolder(path)) },
+  async openExternalURL(url: string) {
+    if (desktop()) return withDesktopLogging('OpenExternalURL', () => desktop()!.OpenExternalURL(url))
+    window.open(url, '_blank', 'noopener')
+  },
   async recentFiles() { return desktop() ? withDesktopLogging('GetRecentFiles', () => desktop()!.GetRecentFiles()) : [] },
   async validateGraph(content: string): Promise<ValidationIssue[]> {
     if (desktop()) return withDesktopLogging('ValidateGraph', () => desktop()!.ValidateGraph(content))

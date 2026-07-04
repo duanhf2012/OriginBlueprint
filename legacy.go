@@ -641,7 +641,7 @@ func runtimeLegacyNodeSpecs() map[string]runtimeLegacySpec {
 	for name, spec := range legacyNodeSpecs {
 		result[name] = runtimeLegacySpec{legacyNodeSpec: spec}
 	}
-	loadResult := loadRuntimeNodeSchemaDocuments(runtimeNodeDirectories())
+	loadResult := loadRuntimeNodeSchemaDocumentsWithEmbedded(runtimeNodeDirectories())
 	for _, document := range loadResult.Documents {
 		for _, definition := range parseLegacyRuntimeNodeDefinitions([]byte(document.Content)) {
 			name := strings.TrimSpace(definition.Name)

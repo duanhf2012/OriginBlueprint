@@ -84,6 +84,10 @@ const defaultProjectSettingsContent = `{
   "editor": {
     "autoSave": "off",
     "validateBeforeSave": false
+  },
+  "export": {
+    "imageScale": 2,
+    "showGrid": true
   }
 }`
 
@@ -188,6 +192,18 @@ func exportsLegacyGraph(ext string) bool {
 
 func (a *App) ChooseWorkspace() (string, error) {
 	return runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{Title: "Select Workspace"})
+}
+
+func (a *App) OpenExternalURL(url string) error {
+	url = strings.TrimSpace(url)
+	if url == "" {
+		return nil
+	}
+	if !strings.HasPrefix(url, "https://") && !strings.HasPrefix(url, "http://") {
+		return errors.New("unsupported URL")
+	}
+	runtime.BrowserOpenURL(a.ctx, url)
+	return nil
 }
 
 func projectSettingsPath(root string) (string, error) {

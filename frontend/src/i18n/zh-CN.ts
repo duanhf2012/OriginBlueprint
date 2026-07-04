@@ -60,6 +60,7 @@ export interface MenuLocaleText {
     }
     help: {
       title: string
+      shortcuts: string
       about: string
     }
   }
@@ -70,17 +71,15 @@ export interface MenuLocaleText {
   canvas: {
     hint: string
   }
-  emptyStart: {
-    title: string
-    body: string
-    openWorkspace: string
-    openSample: string
-    newGraph: string
-  }
   validation: {
     title: string
     issueCount: string
     noIssues: string
+    error: string
+    warning: string
+    code: string
+    nodes: string
+    noNode: string
     rerunTitle: string
     expandTitle: string
     collapseTitle: string
@@ -103,11 +102,52 @@ export interface MenuLocaleText {
     language: string
     uiScale: string
     nodeScale: string
+    imageExportScale: string
+    showGrid: string
+    autoCheckUpdates: string
+    checkUpdatesNow: string
     small: string
     normal: string
     large: string
     revealActiveFile: string
     validateBeforeSave: string
+    close: string
+  }
+  update: {
+    title: string
+    checking: string
+    available: string
+    upToDate: string
+    currentVersion: string
+    latestVersion: string
+    openRelease: string
+    remindLater: string
+    noRelease: string
+    checkFailed: string
+  }
+  shortcuts: {
+    title: string
+    intro: string
+    fileTitle: string
+    fileBody: string
+    canvasTitle: string
+    canvasBody: string
+    selectionTitle: string
+    selectionBody: string
+    groupTitle: string
+    groupBody: string
+    validateTitle: string
+    validateBody: string
+    exportTitle: string
+    exportBody: string
+    close: string
+  }
+  about: {
+    title: string
+    description: string
+    version: string
+    runtime: string
+    checkUpdates: string
     close: string
   }
 }
@@ -174,7 +214,8 @@ export const zhCN: MenuLocaleText = {
     },
     help: {
       title: '帮助',
-      about: '快捷操作与关于'
+      shortcuts: '快捷操作',
+      about: '关于 OriginBlueprint'
     }
   },
   toolbar: {
@@ -184,17 +225,15 @@ export const zhCN: MenuLocaleText = {
   canvas: {
     hint: '右键拖拽：平移  中键拖拽：平移  Ctrl：多选  Ctrl + 右键拖拽：切断连线  连线：点击后按 Delete 删除'
   },
-  emptyStart: {
-    title: '开始编辑蓝图',
-    body: '打开工程目录以加载蓝图文件和节点库，或先查看示例工程。',
-    openWorkspace: '打开工程目录',
-    openSample: '打开示例工程',
-    newGraph: '新建空白蓝图'
-  },
   validation: {
     title: '检查结果',
     issueCount: '{count} 条问题',
     noIssues: '无问题',
+    error: '错误',
+    warning: '警告',
+    code: '代码',
+    nodes: '节点',
+    noNode: '无对应节点',
     rerunTitle: '重新检查蓝图',
     expandTitle: '展开检查结果',
     collapseTitle: '收起检查结果',
@@ -217,11 +256,52 @@ export const zhCN: MenuLocaleText = {
     language: '语言',
     uiScale: '界面字体',
     nodeScale: '节点字体',
+    imageExportScale: '图片导出倍率',
+    showGrid: '显示网格背景',
+    autoCheckUpdates: '自动检查更新',
+    checkUpdatesNow: '检查更新',
     small: '小',
     normal: '标准',
     large: '大',
     revealActiveFile: '自动定位当前文件',
     validateBeforeSave: '保存前自动检查',
+    close: '关闭'
+  },
+  update: {
+    title: '发现新版本',
+    checking: '正在检查更新...',
+    available: 'OriginBlueprint {version} 已可下载。',
+    upToDate: '当前已是最新版本',
+    currentVersion: '当前版本',
+    latestVersion: '最新版本',
+    openRelease: '打开 GitHub Release',
+    remindLater: '稍后提醒',
+    noRelease: 'GitHub 上暂无可用发布版本',
+    checkFailed: '检查更新失败'
+  },
+  shortcuts: {
+    title: '快捷操作',
+    intro: '这里保留日常编辑最常用的操作，完整命令仍以菜单和快捷键显示为准。',
+    fileTitle: '文件',
+    fileBody: 'Ctrl+N 新建蓝图，Ctrl+O 打开，Ctrl+S 保存，Ctrl+Shift+S 另存为。',
+    canvasTitle: '画布',
+    canvasBody: '鼠标滚轮缩放，右键或中键拖拽平移，Home 回到图中心。',
+    selectionTitle: '选择',
+    selectionBody: '左键框选节点，Ctrl 多选，Ctrl+A 全选，Delete 删除选中内容。',
+    groupTitle: '节点组',
+    groupBody: 'Ctrl+G 对选中节点创建节点组；选中已有节点组再按 Ctrl+G 可取消分组。',
+    validateTitle: '检查',
+    validateBody: 'F5 检查蓝图结构和执行流问题，底部结果可双击定位节点。',
+    exportTitle: '导出',
+    exportBody: 'Ctrl+Alt+R 导出选中节点图片，Ctrl+Shift+R 导出整张蓝图图片。',
+    close: '关闭'
+  },
+  about: {
+    title: '关于 OriginBlueprint',
+    description: 'OriginBlueprint 是用于编辑、校验和维护业务蓝图的可视化编辑器。',
+    version: '版本',
+    runtime: '技术栈',
+    checkUpdates: '检查版本',
     close: '关闭'
   }
 }

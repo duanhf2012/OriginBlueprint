@@ -21,6 +21,7 @@ interface ModuleLibraryItem extends NodeDefinition { functionPlaceholder?: boole
 type UiScale = 'small' | 'normal' | 'large'
 type NodeScale = 'normal' | 'large'
 type AutoSaveMode = 'off' | '1m' | '3m' | '5m'
+type ImageExportScale = 1 | 2 | 4
 interface ProjectSettings {
   version: number
   appearance: { locale: LocaleId; uiScale: UiScale; nodeScale: NodeScale }
@@ -30,6 +31,17 @@ interface ProjectSettings {
   }
   explorer: { expanded: string[]; selected: string; revealActiveFile: boolean; hideBuildFolders: boolean }
   editor: { autoSave: AutoSaveMode; validateBeforeSave: boolean }
+  export: { imageScale: ImageExportScale; showGrid: boolean }
+}
+interface UpdateCheckState {
+  autoCheck: boolean
+  checking: boolean
+  visible: boolean
+  latestVersion: string
+  currentVersion: string
+  htmlUrl: string
+  notes: string
+  error: string
 }
 
 const canvas = ref<HTMLElement | null>(null)
@@ -66,7 +78,21 @@ const showTools = ref(true)
 const showRight = ref(true)
 const showLogger = ref(false)
 const showAbout = ref(false)
+const showShortcuts = ref(false)
 const showSettings = ref(false)
+const updateCheckUrl = 'https://api.github.com/repos/duanhf2012/OriginBlueprint/releases/latest'
+const releasePageUrl = 'https://github.com/duanhf2012/OriginBlueprint/releases/latest'
+const appVersion = String(import.meta.env.VITE_APP_VERSION || '0.0.0')
+const updateState = ref<UpdateCheckState>({
+  autoCheck: localStorage.getItem('origin-blueprint-auto-check-updates') !== 'false',
+  checking: false,
+  visible: false,
+  latestVersion: '',
+  currentVersion: appVersion,
+  htmlUrl: '',
+  notes: '',
+  error: ''
+})
 const projectSettingsPath = ref('')
 const projectSettingsContent = ref<ProjectSettings>(defaultProjectSettings())
 const nodeLibrary = ref<NodeDefinition[]>(getNodeDefinitions())
@@ -104,6 +130,7 @@ let workspaceRefreshInFlight = false
 let workspaceRefreshTimer: ReturnType<typeof window.setInterval> | undefined
 let validationIssueClickTimer: ReturnType<typeof window.setTimeout> | undefined
 let canvasToastTimer: ReturnType<typeof window.setTimeout> | undefined
+let updateCheckTimer: ReturnType<typeof window.setTimeout> | undefined
 let applyingProjectSettings = false
 const loadingFunctionTitles = new Set<string>()
 const workspaceRefreshIntervalKey = 'origin-blueprint-workspace-refresh-interval'
@@ -161,11 +188,11 @@ const workspaceStyle = computed(() => ({
 const applicationClasses = computed(() => ({
   'tools-hidden': !showTools.value,
   'right-hidden': !showRight.value,
+  'grid-hidden': !projectSettingsContent.value.export.showGrid,
   [`ui-scale-${projectSettingsContent.value.appearance.uiScale}`]: true,
   [`node-scale-${projectSettingsContent.value.appearance.nodeScale}`]: true
 }))
 const activeWorkspacePath = computed(() => activeTab.value?.path || '')
-const showEmptyStart = computed(() => !workspaceRoot.value && !activeWorkspacePath.value && !activeTab.value?.dirty && metrics.value.nodes === 0)
 const validationIssueCountLabel = computed(() => validationIssues.value.length ? menuText.value.validation.issueCount.replace('{count}', String(validationIssues.value.length)) : menuText.value.validation.noIssues)
 const referencePanelStyle = computed(() => ({ height: `${referencePanelCollapsed.value ? 34 : referencePanelHeight.value}px` }))
 const testPanelStyle = computed(() => ({ height: `${testPanelCollapsed.value ? 34 : testPanelHeight.value}px` }))
@@ -205,6 +232,9 @@ onMounted(async () => {
   window.addEventListener('keydown', onKeyDown)
   window.addEventListener('pointerdown', closeFloatingMenus)
   window.addEventListener('beforeunload', onBeforeWindowUnload)
+  if (updateState.value.autoCheck) {
+    updateCheckTimer = window.setTimeout(() => { void checkForUpdates(false) }, 12000)
+  }
 })
 
 function savedPanelWidth(key: string, fallback: number, min = 140, max = 360) {
@@ -248,7 +278,8 @@ function defaultProjectSettings(): ProjectSettings {
       revealActiveFile: true,
       hideBuildFolders: false
     },
-    editor: { autoSave: 'off', validateBeforeSave: false }
+    editor: { autoSave: 'off', validateBeforeSave: false },
+    export: { imageScale: 2, showGrid: true }
   }
 }
 
@@ -261,10 +292,12 @@ function normalizeProjectSettings(value: unknown): ProjectSettings {
   const visible = layout.visible ?? fallback.layout.visible
   const explorer = source.explorer ?? fallback.explorer
   const editorSettings = source.editor ?? fallback.editor
+  const exportSettings = source.export ?? fallback.export
   const locale = normalizeLocale(appearance.locale)
   const uiScale: UiScale = appearance.uiScale === 'small' || appearance.uiScale === 'large' ? appearance.uiScale : 'normal'
   const nodeScale: NodeScale = appearance.nodeScale === 'large' ? 'large' : 'normal'
   const autoSave: AutoSaveMode = editorSettings.autoSave === '1m' || editorSettings.autoSave === '3m' || editorSettings.autoSave === '5m' ? editorSettings.autoSave : 'off'
+  const imageScale: ImageExportScale = exportSettings.imageScale === 1 || exportSettings.imageScale === 4 ? exportSettings.imageScale : 2
   return {
     version: 1,
     appearance: { locale, uiScale, nodeScale },
@@ -289,7 +322,11 @@ function normalizeProjectSettings(value: unknown): ProjectSettings {
       revealActiveFile: typeof explorer.revealActiveFile === 'boolean' ? explorer.revealActiveFile : true,
       hideBuildFolders: typeof explorer.hideBuildFolders === 'boolean' ? explorer.hideBuildFolders : false
     },
-    editor: { autoSave, validateBeforeSave: Boolean(editorSettings.validateBeforeSave) }
+    editor: { autoSave, validateBeforeSave: Boolean(editorSettings.validateBeforeSave) },
+    export: {
+      imageScale,
+      showGrid: typeof exportSettings.showGrid === 'boolean' ? exportSettings.showGrid : true
+    }
   }
 }
 
@@ -366,6 +403,77 @@ function updateProjectSettings(mutator: (settings: ProjectSettings) => void) {
   void saveProjectSettings()
 }
 
+function setAutoCheckUpdates(enabled: boolean) {
+  updateState.value.autoCheck = enabled
+  localStorage.setItem('origin-blueprint-auto-check-updates', enabled ? 'true' : 'false')
+  if (!enabled && updateCheckTimer) {
+    window.clearTimeout(updateCheckTimer)
+    updateCheckTimer = undefined
+  }
+  if (enabled) void checkForUpdates(false)
+}
+
+function normalizeVersion(value: string) {
+  return value.trim().replace(/^[^\d]*/, '').split(/[.+-]/).map(part => Number.parseInt(part, 10) || 0)
+}
+
+function compareVersions(left: string, right: string) {
+  const a = normalizeVersion(left)
+  const b = normalizeVersion(right)
+  const length = Math.max(a.length, b.length, 3)
+  for (let index = 0; index < length; index += 1) {
+    const delta = (a[index] ?? 0) - (b[index] ?? 0)
+    if (delta !== 0) return delta
+  }
+  return 0
+}
+
+async function checkForUpdates(manual = true) {
+  if (updateState.value.checking) return
+  updateState.value.checking = true
+  updateState.value.error = ''
+  if (manual) status.value = menuText.value.update.checking
+  try {
+    const response = await fetch(updateCheckUrl, {
+      headers: { Accept: 'application/vnd.github+json' },
+      cache: 'no-store'
+    })
+    if (response.status === 404) {
+      if (manual) status.value = menuText.value.update.noRelease
+      return
+    }
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const release = await response.json() as { tag_name?: string; name?: string; html_url?: string; body?: string; prerelease?: boolean }
+    const latestVersion = release.tag_name || release.name || ''
+    if (!latestVersion) throw new Error('Missing release version')
+    if (compareVersions(latestVersion, appVersion) > 0) {
+      updateState.value.visible = true
+      updateState.value.latestVersion = latestVersion
+      updateState.value.currentVersion = appVersion
+      updateState.value.htmlUrl = release.html_url || releasePageUrl
+      updateState.value.notes = (release.body || '').trim().slice(0, 800)
+      status.value = menuText.value.update.available.replace('{version}', latestVersion)
+    } else if (manual) {
+      status.value = menuText.value.update.upToDate
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    updateState.value.error = message
+    if (manual) status.value = `${menuText.value.update.checkFailed}: ${message}`
+  } finally {
+    updateState.value.checking = false
+  }
+}
+
+function closeUpdateDialog() {
+  updateState.value.visible = false
+}
+
+async function openUpdateRelease() {
+  await platform.openExternalURL(updateState.value.htmlUrl || releasePageUrl)
+  closeUpdateDialog()
+}
+
 async function loadRuntimeNodeLibrary() {
   let result
   try {
@@ -387,6 +495,7 @@ onBeforeUnmount(() => {
   clearValidationIssueClickTimer()
   if (canvasToastTimer) window.clearTimeout(canvasToastTimer)
   if (workspaceRefreshTimer) window.clearInterval(workspaceRefreshTimer)
+  if (updateCheckTimer) window.clearTimeout(updateCheckTimer)
   removeNodePointerListeners()
   unsubscribeCloseRequest()
   window.removeEventListener('focus', refreshWorkspaceOnFocus)
@@ -1134,6 +1243,15 @@ function issueNodeIds(issue: ValidationIssue) {
   return [...new Set(ids.filter(Boolean))]
 }
 
+function issueSeverityLabel(issue: ValidationIssue) {
+  return issue.severity === 'error' ? menuText.value.validation.error : menuText.value.validation.warning
+}
+
+function issueNodeLabel(issue: ValidationIssue) {
+  const ids = issueNodeIds(issue)
+  return ids.length ? ids.join(', ') : menuText.value.validation.noNode
+}
+
 function clearValidationIssueClickTimer() {
   if (validationIssueClickTimer) window.clearTimeout(validationIssueClickTimer)
   validationIssueClickTimer = undefined
@@ -1290,20 +1408,6 @@ async function handleCloseRequest() {
 
 async function chooseWorkspace() {
   const path = await platform.chooseWorkspace(); if (path) await loadWorkspace(path)
-}
-
-function joinLocalPath(root: string, ...parts: string[]) {
-  const separator = root.includes('\\') ? '\\' : '/'
-  return [root.replace(/[\\/]+$/, ''), ...parts].filter(Boolean).join(separator)
-}
-
-async function openSampleProject() {
-  const root = await platform.currentWorkingDirectory()
-  if (!root) {
-    status.value = 'Sample project is available in examples/sample-project'
-    return
-  }
-  await loadWorkspace(joinLocalPath(root, 'examples', 'sample-project'))
 }
 
 async function refreshWorkspace() {
@@ -1707,90 +1811,45 @@ function beginLeftToolsResize(event: PointerEvent) {
 }
 
 type ImageExportBounds = { x: number; y: number; width: number; height: number }
-type ImageExportConnection = { path: string; color: string; width: number }
-const exportImagePadding = 28
+const exportImagePadding = 64
 
-function prepareCanvasForImageExport(root: HTMLElement) {
+function setImportantStyle(element: HTMLElement | SVGElement, property: string, value: string) {
+  const previousValue = element.style.getPropertyValue(property)
+  const previousPriority = element.style.getPropertyPriority(property)
+  element.style.setProperty(property, value, 'important')
+  return () => {
+    if (previousValue) element.style.setProperty(property, previousValue, previousPriority)
+    else element.style.removeProperty(property)
+  }
+}
+
+function prepareConnectionDomForImageExport(root: HTMLElement) {
   const restore: Array<() => void> = []
-  root.querySelectorAll<SVGSVGElement>('.blueprint-connection').forEach(svg => {
-    const previousDisplay = svg.style.getPropertyValue('display')
-    const previousPriority = svg.style.getPropertyPriority('display')
-    svg.style.setProperty('display', 'none', 'important')
+  root.querySelectorAll<SVGPathElement>('.connection-hit-area').forEach(path => {
+    const previousPath = path.getAttribute('d')
+    path.setAttribute('d', '')
     restore.push(() => {
-      if (previousDisplay) svg.style.setProperty('display', previousDisplay, previousPriority)
-      else svg.style.removeProperty('display')
+      if (previousPath === null) path.removeAttribute('d')
+      else path.setAttribute('d', previousPath)
     })
+    restore.push(setImportantStyle(path, 'display', 'none'))
+    restore.push(setImportantStyle(path, 'stroke', 'none'))
+    restore.push(setImportantStyle(path, 'stroke-width', '0'))
+  })
+  root.querySelectorAll<SVGSVGElement>('.blueprint-connection').forEach(svg => {
+    const line = svg.querySelector<SVGPathElement>('.connection-line')
+    if (!line) return
+    const color = window.getComputedStyle(svg).getPropertyValue('--connection-color').trim()
+      || window.getComputedStyle(line).stroke
+      || '#f2f2f2'
+    const width = svg.classList.contains('socket-exec') ? '2.5px' : '1.55px'
+    restore.push(setImportantStyle(line, 'fill', 'none'))
+    restore.push(setImportantStyle(line, 'filter', 'none'))
+    restore.push(setImportantStyle(line, 'stroke', color))
+    restore.push(setImportantStyle(line, 'stroke-width', width))
+    restore.push(setImportantStyle(line, 'vector-effect', 'non-scaling-stroke'))
   })
   return () => restore.reverse().forEach(callback => callback())
-}
-
-function captureExportConnections(root: HTMLElement, bounds: ImageExportBounds | null): ImageExportConnection[] {
-  const rootRect = root.getBoundingClientRect()
-  return Array.from(root.querySelectorAll<SVGSVGElement>('.blueprint-connection')).flatMap(svg => {
-    const line = svg.querySelector<SVGPathElement>('.connection-line')
-    const path = line?.getAttribute('d') || ''
-    if (!path) return []
-    const rect = relativeElementBounds(svg, rootRect)
-    if (bounds && rect && !intersectsBounds(rect, bounds)) return []
-    const color = window.getComputedStyle(svg).getPropertyValue('--connection-color').trim() || '#f2f2f2'
-    return [{ path, color, width: svg.classList.contains('socket-exec') ? 2.5 : 1.55 }]
-  })
-}
-
-function captureExportOccluders(root: HTMLElement, bounds: ImageExportBounds | null) {
-  const rootRect = root.getBoundingClientRect()
-  return Array.from(root.querySelectorAll<HTMLElement>('.blueprint-node')).flatMap(node => {
-    const rect = relativeElementBounds(node, rootRect)
-    if (!rect || (bounds && !intersectsBounds(rect, bounds))) return []
-    return [paddedExportBounds(rect, rootRect)]
-  })
-}
-
-function loadDataImage(dataURL: string) {
-  return new Promise<HTMLImageElement>((resolve, reject) => {
-    const image = new Image()
-    image.onload = () => resolve(image)
-    image.onerror = () => reject(new Error('Failed to load exported graph image'))
-    image.src = dataURL
-  })
-}
-
-function drawExportConnections(context: CanvasRenderingContext2D, connections: ImageExportConnection[], bounds: ImageExportBounds | null, pixelRatio: number) {
-  context.save()
-  context.scale(pixelRatio, pixelRatio)
-  if (bounds) context.translate(-bounds.x, -bounds.y)
-  context.lineCap = 'round'
-  context.lineJoin = 'round'
-  for (const connection of connections) {
-    context.strokeStyle = connection.color
-    context.lineWidth = connection.width
-    context.stroke(new Path2D(connection.path))
-  }
-  context.restore()
-}
-
-function redrawExportOccluders(context: CanvasRenderingContext2D, image: HTMLImageElement, occluders: ImageExportBounds[], bounds: ImageExportBounds | null, pixelRatio: number) {
-  for (const occluder of occluders) {
-    const x = Math.max(0, Math.floor(((bounds ? occluder.x - bounds.x : occluder.x) - 4) * pixelRatio))
-    const y = Math.max(0, Math.floor(((bounds ? occluder.y - bounds.y : occluder.y) - 4) * pixelRatio))
-    const width = Math.min(image.width - x, Math.ceil((occluder.width + 8) * pixelRatio))
-    const height = Math.min(image.height - y, Math.ceil((occluder.height + 8) * pixelRatio))
-    if (width > 0 && height > 0) context.drawImage(image, x, y, width, height, x, y, width, height)
-  }
-}
-
-async function composeExportImage(baseDataURL: string, connections: ImageExportConnection[], occluders: ImageExportBounds[], bounds: ImageExportBounds | null, pixelRatio: number) {
-  if (!connections.length) return baseDataURL
-  const image = await loadDataImage(baseDataURL)
-  const output = document.createElement('canvas')
-  output.width = image.width
-  output.height = image.height
-  const context = output.getContext('2d')
-  if (!context) return baseDataURL
-  context.drawImage(image, 0, 0)
-  drawExportConnections(context, connections, bounds, pixelRatio)
-  redrawExportOccluders(context, image, occluders, bounds, pixelRatio)
-  return output.toDataURL('image/png')
 }
 
 function relativeElementBounds(element: Element, root: DOMRect): ImageExportBounds | null {
@@ -1811,11 +1870,11 @@ function intersectsBounds(a: ImageExportBounds, b: ImageExportBounds) {
   return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
 }
 
-function paddedExportBounds(bounds: ImageExportBounds, root: DOMRect) {
-  const x = Math.max(0, Math.floor(bounds.x - exportImagePadding))
-  const y = Math.max(0, Math.floor(bounds.y - exportImagePadding))
-  const right = Math.min(root.width, Math.ceil(bounds.x + bounds.width + exportImagePadding))
-  const bottom = Math.min(root.height, Math.ceil(bounds.y + bounds.height + exportImagePadding))
+function paddedExportBounds(bounds: ImageExportBounds) {
+  const x = Math.floor(bounds.x - exportImagePadding)
+  const y = Math.floor(bounds.y - exportImagePadding)
+  const right = Math.ceil(bounds.x + bounds.width + exportImagePadding)
+  const bottom = Math.ceil(bounds.y + bounds.height + exportImagePadding)
   return { x, y, width: Math.max(1, right - x), height: Math.max(1, bottom - y) }
 }
 
@@ -1844,7 +1903,7 @@ function exportImageBounds(selected: boolean): ImageExportBounds | null {
     return !selected || !primaryBounds || intersectsBounds(bounds, primaryBounds) ? [bounds] : []
   })
   const bounds = [...primary, ...connectionElements]
-  return bounds.length ? paddedExportBounds(mergeExportBounds(bounds), root) : null
+  return bounds.length ? paddedExportBounds(mergeExportBounds(bounds)) : null
 }
 
 async function exportImage(selected: boolean) {
@@ -1856,13 +1915,11 @@ async function exportImage(selected: boolean) {
   if (selected) await editor?.fitSelected(); else await editor?.resetView()
   await nextTick(); await new Promise(resolve => setTimeout(resolve, 120))
   const bounds = exportImageBounds(selected)
-  const connections = captureExportConnections(canvas.value, bounds)
-  const occluders = captureExportOccluders(canvas.value, bounds)
-  const pixelRatio = 2
+  const pixelRatio = projectSettingsContent.value.export.imageScale
   canvas.value.classList.add('exporting-image')
-  const restoreExportStyles = prepareCanvasForImageExport(canvas.value)
+  const restoreConnectionDom = prepareConnectionDomForImageExport(canvas.value)
   try {
-    const baseData = await toPng(canvas.value, {
+    const data = await toPng(canvas.value, {
       backgroundColor: '#202020',
       pixelRatio,
       cacheBust: true,
@@ -1875,11 +1932,10 @@ async function exportImage(selected: boolean) {
         transformOrigin: 'top left'
       } : undefined
     })
-    const data = await composeExportImage(baseData, connections, occluders, bounds, pixelRatio)
     const saved = await platform.savePNG(path, data)
     status.value = saved ? `Exported ${saved}` : 'Export cancelled'
   } finally {
-    restoreExportStyles()
+    restoreConnectionDom()
     canvas.value.classList.remove('exporting-image')
   }
 }
@@ -2248,7 +2304,7 @@ function toggleModuleCategory(category: string) {
         </div></div>
         <div class="menu-root"><button @click.stop="toggleMenu('view')">{{ menuText.menu.view.title }}</button><div v-if="activeMenu === 'view'" class="dropdown-menu"><button @click="showLogger = !showLogger">{{ showLogger ? '✓ ' : '' }}{{ menuText.menu.view.showTestResults }} <kbd>Alt+Shift+B</kbd></button><button @click="showTools = !showTools">{{ showTools ? '✓ ' : '' }}{{ menuText.menu.view.showLeftSidebar }} <kbd>Alt+Shift+L</kbd></button><button @click="showRight = !showRight">{{ showRight ? '✓ ' : '' }}{{ menuText.menu.view.showModuleLibrary }} <kbd>Alt+Shift+R</kbd></button><div class="menu-separator"></div><div class="menu-subtitle">{{ menuText.menu.view.language }}</div><button @click="setLocale('zh-CN')">{{ currentLocale === 'zh-CN' ? '✓ ' : '' }}{{ menuText.menu.view.chinese }}</button><button @click="setLocale('en-US')">{{ currentLocale === 'en-US' ? '✓ ' : '' }}{{ menuText.menu.view.english }}</button><div class="menu-separator"></div><button @click="showSettings = true; activeMenu = null">{{ menuText.menu.view.settings }}</button></div></div>
         <div class="menu-root"><button @click.stop="toggleMenu('blueprint')">{{ menuText.menu.blueprint.title }}</button><div v-if="activeMenu === 'blueprint'" class="dropdown-menu"><button @click="run(testGraph)">{{ menuText.menu.blueprint.validate }} <kbd>F5</kbd></button></div></div>
-        <div class="menu-root"><button @click.stop="toggleMenu('help')">{{ menuText.menu.help.title }}</button><div v-if="activeMenu === 'help'" class="dropdown-menu"><button @click="showAbout = true; activeMenu = null">{{ menuText.menu.help.about }}</button></div></div>
+        <div class="menu-root"><button @click.stop="toggleMenu('help')">{{ menuText.menu.help.title }}</button><div v-if="activeMenu === 'help'" class="dropdown-menu"><button @click="showShortcuts = true; activeMenu = null">{{ menuText.menu.help.shortcuts }}</button><button @click="showAbout = true; activeMenu = null">{{ menuText.menu.help.about }}</button></div></div>
       </div>
     </header>
 
@@ -2330,7 +2386,7 @@ function toggleModuleCategory(category: string) {
            </div>
            <button class="tab-scroll-arrow right" @click="scrollTabStrip(1)">▶</button>
          </div>
-        <div class="canvas-wrap" @contextmenu.prevent @dragenter="allowNodeDrop" @dragover="allowNodeDrop" @drop.prevent="dropNode"><div ref="canvas" class="rete-canvas"></div><div v-if="showEmptyStart" class="empty-start-panel"><h2>{{ menuText.emptyStart.title }}</h2><p>{{ menuText.emptyStart.body }}</p><div class="empty-start-actions"><button @click="chooseWorkspace">{{ menuText.emptyStart.openWorkspace }}</button><button @click="openSampleProject">{{ menuText.emptyStart.openSample }}</button><button @click="newGraph">{{ menuText.emptyStart.newGraph }}</button></div></div><div v-if="canvasToast.visible" class="canvas-toast" :style="{ left: `${canvasToast.x}px`, top: `${canvasToast.y}px` }">{{ canvasToast.message }}</div><div class="canvas-toolbar"><button title="Select">⌖</button><button title="Reset view" @click="editor?.resetView()">⌂</button></div><div class="canvas-hint">{{ menuText.canvas.hint }}</div></div>
+        <div class="canvas-wrap" @contextmenu.prevent @dragenter="allowNodeDrop" @dragover="allowNodeDrop" @drop.prevent="dropNode"><div ref="canvas" class="rete-canvas"></div><div v-if="canvasToast.visible" class="canvas-toast" :style="{ left: `${canvasToast.x}px`, top: `${canvasToast.y}px` }">{{ canvasToast.message }}</div><div class="canvas-toolbar"><button title="Select">⌖</button><button title="Reset view" @click="editor?.resetView()">⌂</button></div><div class="canvas-hint">{{ menuText.canvas.hint }}</div></div>
         <div v-show="showLogger" class="logger-panel bottom-panel" :class="{ collapsed: testPanelCollapsed }" :style="testPanelStyle">
           <div class="bottom-panel-resizer" @pointerdown="beginTestPanelResize"></div>
           <div class="bottom-panel-title">
@@ -2342,7 +2398,12 @@ function toggleModuleCategory(category: string) {
           </div>
           <div v-show="!testPanelCollapsed" class="logger-results">
             <div v-if="!validationIssues.length" class="logger-line">没有发现蓝图问题。</div>
-            <button v-for="(issue, index) in validationIssues" :key="validationIssueKey(issue, index)" class="logger-issue" :class="[issue.severity, { selected: selectedValidationIssueKey === validationIssueKey(issue, index) }]" @click="queueSelectIssue(issue, index)" @dblclick.stop.prevent="highlightIssue(issue, index)"><strong>{{ issue.severity === 'error' ? '错误' : '警告' }}</strong><span>{{ issue.message }}</span><small>{{ issue.code }}</small></button>
+            <button v-for="(issue, index) in validationIssues" :key="validationIssueKey(issue, index)" class="logger-issue" :class="[issue.severity, { selected: selectedValidationIssueKey === validationIssueKey(issue, index) }]" @click="queueSelectIssue(issue, index)" @dblclick.stop.prevent="highlightIssue(issue, index)">
+              <strong>{{ issueSeverityLabel(issue) }}</strong>
+              <span class="logger-issue-message">{{ issue.message }}</span>
+              <span class="logger-issue-meta"><b>{{ menuText.validation.nodes }}</b>{{ issueNodeLabel(issue) }}</span>
+              <small><b>{{ menuText.validation.code }}</b>{{ issue.code }}</small>
+            </button>
           </div>
         </div>
         <div v-if="nodeReferenceSearch.visible" class="reference-panel bottom-panel" :class="{ collapsed: referencePanelCollapsed }" :style="referencePanelStyle">
@@ -2408,10 +2469,23 @@ function toggleModuleCategory(category: string) {
           <label><span>{{ menuText.settings.language }}</span><select :value="currentLocale" @change="setLocale(($event.target as HTMLSelectElement).value as LocaleId)"><option value="zh-CN">中文</option><option value="en-US">English</option></select></label>
           <label><span>{{ menuText.settings.uiScale }}</span><select :value="projectSettingsContent.appearance.uiScale" @change="updateProjectSettings(settings => { settings.appearance.uiScale = ($event.target as HTMLSelectElement).value as UiScale })"><option value="small">{{ menuText.settings.small }}</option><option value="normal">{{ menuText.settings.normal }}</option><option value="large">{{ menuText.settings.large }}</option></select></label>
           <label><span>{{ menuText.settings.nodeScale }}</span><select :value="projectSettingsContent.appearance.nodeScale" @change="updateProjectSettings(settings => { settings.appearance.nodeScale = ($event.target as HTMLSelectElement).value as NodeScale })"><option value="normal">{{ menuText.settings.normal }}</option><option value="large">{{ menuText.settings.large }}</option></select></label>
+          <label><span>{{ menuText.settings.imageExportScale }}</span><select :value="projectSettingsContent.export.imageScale" @change="updateProjectSettings(settings => { settings.export.imageScale = Number(($event.target as HTMLSelectElement).value) as ImageExportScale })"><option :value="1">1x</option><option :value="2">2x</option><option :value="4">4x</option></select></label>
+          <label class="settings-check"><input type="checkbox" :checked="projectSettingsContent.export.showGrid" @change="updateProjectSettings(settings => { settings.export.showGrid = ($event.target as HTMLInputElement).checked })" /><span>{{ menuText.settings.showGrid }}</span></label>
           <label class="settings-check"><input type="checkbox" :checked="projectSettingsContent.explorer.revealActiveFile" @change="updateProjectSettings(settings => { settings.explorer.revealActiveFile = ($event.target as HTMLInputElement).checked })" /><span>{{ menuText.settings.revealActiveFile }}</span></label>
           <label class="settings-check"><input type="checkbox" :checked="projectSettingsContent.editor.validateBeforeSave" @change="updateProjectSettings(settings => { settings.editor.validateBeforeSave = ($event.target as HTMLInputElement).checked })" /><span>{{ menuText.settings.validateBeforeSave }}</span></label>
+          <label class="settings-check"><input type="checkbox" :checked="updateState.autoCheck" @change="setAutoCheckUpdates(($event.target as HTMLInputElement).checked)" /><span>{{ menuText.settings.autoCheckUpdates }}</span></label>
+          <button class="settings-action" :disabled="updateState.checking" @click="checkForUpdates(true)">{{ updateState.checking ? menuText.update.checking : menuText.settings.checkUpdatesNow }}</button>
         </div>
         <footer><small>{{ projectSettingsPath || 'originblueprint.project' }}</small><button @click="showSettings = false">{{ menuText.settings.close }}</button></footer>
+      </section>
+    </div>
+    <div v-if="updateState.visible" class="update-backdrop" @click.self="closeUpdateDialog">
+      <section class="update-dialog">
+        <header><strong>{{ menuText.update.title }}</strong><button @click="closeUpdateDialog">×</button></header>
+        <p>{{ menuText.update.available.replace('{version}', updateState.latestVersion) }}</p>
+        <dl><dt>{{ menuText.update.currentVersion }}</dt><dd>{{ updateState.currentVersion }}</dd><dt>{{ menuText.update.latestVersion }}</dt><dd>{{ updateState.latestVersion }}</dd></dl>
+        <pre v-if="updateState.notes">{{ updateState.notes }}</pre>
+        <footer><button @click="closeUpdateDialog">{{ menuText.update.remindLater }}</button><button class="primary" @click="openUpdateRelease">{{ menuText.update.openRelease }}</button></footer>
       </section>
     </div>
     <div v-if="unsavedCloseDialog.visible" class="unsaved-close-backdrop">
@@ -2425,6 +2499,7 @@ function toggleModuleCategory(category: string) {
         </footer>
       </section>
     </div>
-    <div v-if="showAbout" class="about-backdrop" @click.self="showAbout = false"><section class="about-dialog"><header><strong>Origin Blueprint</strong><button @click="showAbout = false">×</button></header><p>Cross-platform blueprint editor built with Go, Wails, Vue 3 and Rete.js.</p><dl><dt>Canvas</dt><dd>Right drag or middle drag pans, mouse wheel zooms, left drag selects.</dd><dt>Connections</dt><dd>Click a connection then Delete, or Ctrl + right-drag to cut lines.</dd><dt>Editing</dt><dd>Ctrl+C/X/V, Ctrl+Z/Y, Ctrl+G and alignment shortcuts match OriginNodeEditor.</dd><dt>Test</dt><dd>F5 checks structure, unreachable flow nodes, missing entries, and possible execution loops.</dd></dl><footer><button @click="showAbout = false">Close</button></footer></section></div>
+    <div v-if="showShortcuts" class="about-backdrop" @click.self="showShortcuts = false"><section class="about-dialog shortcut-dialog"><header><strong>{{ menuText.shortcuts.title }}</strong><button @click="showShortcuts = false">×</button></header><p>{{ menuText.shortcuts.intro }}</p><dl><dt>{{ menuText.shortcuts.fileTitle }}</dt><dd>{{ menuText.shortcuts.fileBody }}</dd><dt>{{ menuText.shortcuts.canvasTitle }}</dt><dd>{{ menuText.shortcuts.canvasBody }}</dd><dt>{{ menuText.shortcuts.selectionTitle }}</dt><dd>{{ menuText.shortcuts.selectionBody }}</dd><dt>{{ menuText.shortcuts.groupTitle }}</dt><dd>{{ menuText.shortcuts.groupBody }}</dd><dt>{{ menuText.shortcuts.validateTitle }}</dt><dd>{{ menuText.shortcuts.validateBody }}</dd><dt>{{ menuText.shortcuts.exportTitle }}</dt><dd>{{ menuText.shortcuts.exportBody }}</dd></dl><footer><button @click="showShortcuts = false">{{ menuText.shortcuts.close }}</button></footer></section></div>
+    <div v-if="showAbout" class="about-backdrop" @click.self="showAbout = false"><section class="about-dialog"><header><strong>{{ menuText.about.title }}</strong><button @click="showAbout = false">×</button></header><p>{{ menuText.about.description }}</p><dl><dt>{{ menuText.about.version }}</dt><dd>{{ appVersion }}</dd><dt>{{ menuText.about.runtime }}</dt><dd>Go + Wails v2 / Vue 3 / Rete.js</dd></dl><footer><button :disabled="updateState.checking" @click="checkForUpdates(true)">{{ updateState.checking ? menuText.update.checking : menuText.about.checkUpdates }}</button><button @click="showAbout = false">{{ menuText.about.close }}</button></footer></section></div>
   </main>
 </template>

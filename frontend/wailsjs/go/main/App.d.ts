@@ -32,6 +32,8 @@ export function MigrateLegacyGraph(arg1:string):Promise<string>;
 
 export function NewWindow():Promise<void>;
 
+export function OpenExternalURL(arg1:string):Promise<void>;
+
 export function OpenGraph(arg1:string):Promise<main.FileResult>;
 
 export function Quit():Promise<void>;

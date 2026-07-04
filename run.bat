@@ -5,6 +5,17 @@ cd /d "%~dp0"
 
 set "APP=%CD%\build\bin\OriginBlueprint.exe"
 set "WAILS=%USERPROFILE%\go\bin\wails.exe"
+set "APP_VERSION=%~1"
+
+if "%APP_VERSION%"=="" (
+    if exist "%CD%\VERSION" (
+        set /p APP_VERSION=<"%CD%\VERSION"
+    )
+)
+
+if "%APP_VERSION%"=="" (
+    set "APP_VERSION=0.0.0"
+)
 
 if not exist "%WAILS%" (
     where wails >nul 2>nul
@@ -19,7 +30,8 @@ if not exist "%WAILS%" (
     set "WAILS=wails"
 )
 
-echo Building OriginBlueprint with the latest frontend...
+echo Building OriginBlueprint %APP_VERSION% with the latest frontend...
+set "VITE_APP_VERSION=%APP_VERSION%"
 "%WAILS%" build
 if errorlevel 1 (
     echo.
@@ -28,12 +40,13 @@ if errorlevel 1 (
     exit /b 1
 )
 
-if exist "%CD%\nodes" (
-    echo Syncing node JSON files...
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "$src='%CD%\nodes'; $dst='%CD%\build\bin\nodes'; if (Test-Path $dst) { Remove-Item -LiteralPath $dst -Recurse -Force }; New-Item -ItemType Directory -Force -Path $dst | Out-Null; Copy-Item -Path (Join-Path $src '*') -Destination $dst -Recurse -Force"
+echo Default node JSON files are embedded in the executable.
+if exist "%CD%\build\bin\nodes" (
+    echo Removing stale external node JSON files from build output...
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "$dst='%CD%\build\bin\nodes'; if ((Resolve-Path -LiteralPath $dst).Path.StartsWith((Resolve-Path -LiteralPath '%CD%\build\bin').Path)) { Remove-Item -LiteralPath $dst -Recurse -Force }"
     if errorlevel 1 (
         echo.
-        echo ERROR: Failed to sync nodes directory.
+        echo ERROR: Failed to remove stale build nodes directory.
         pause
         exit /b 1
     )

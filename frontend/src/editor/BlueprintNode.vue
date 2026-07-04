@@ -185,7 +185,6 @@ function removeBranch(index: number) {
     <header class="blueprint-title">
       <span class="node-icon">&#9670;</span>
       <span class="title-text">{{ data.label }}</span>
-      <span v-if="data.legacyStyle" class="legacy-badge">COMPAT</span>
       <span v-if="data.dynamicOutputs" class="dynamic-actions"><button @pointerdown.stop.prevent="changeOutputs(-1, $event)">-</button><button @pointerdown.stop.prevent="changeOutputs(1, $event)">+</button></span>
     </header>
 
@@ -258,7 +257,6 @@ function removeBranch(index: number) {
 .blueprint-node.kind-function { --accent: #4f9a7f; }
 .blueprint-node.kind-variable { --accent: #805aa8; }
 .blueprint-node.legacy { border-style: dashed; }
-.legacy-badge { margin-left: 4px; padding: 1px 4px; border: 1px solid #ffe0a455; border-radius: 2px; background: #2a1d0d99; color: #ffe0a4; font-size: 8px; letter-spacing: .5px; }
 .blueprint-node.selected { outline: 2px solid #f5b642; outline-offset: 2px; box-shadow: 0 0 12px #f5b64255; }
 .blueprint-node.reference-highlighted { outline: 3px solid #ffd21f; outline-offset: 3px; box-shadow: 0 0 0 1px #fff4b088, 0 0 22px #ffd21f99, 0 5px 13px #0009; }
 .blueprint-node.issue-highlighted { outline: 3px solid #ff3b3b; outline-offset: 3px; box-shadow: 0 0 0 1px #ffe2e288, 0 0 22px #ff3b3b99, 0 5px 13px #0009; }
