@@ -30,6 +30,20 @@ export namespace main {
 	        this.count = source["count"];
 	    }
 	}
+	export class ProjectSettingsResult {
+	    path: string;
+	    content: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ProjectSettingsResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.content = source["content"];
+	    }
+	}
 	export class RuntimeNodeLoadError {
 	    path: string;
 	    message: string;

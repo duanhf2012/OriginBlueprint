@@ -13,6 +13,8 @@ export const enUS: MenuLocaleText = {
       openWorkspace: 'Open Workspace Folder',
       refreshWorkspace: 'Refresh Workspace',
       refreshNodeLibrary: 'Refresh Node Library',
+      collapseWorkspace: 'Collapse Workspace Tree',
+      revealActiveFile: 'Reveal Active File',
       save: 'Save',
       saveAs: 'Save As',
       saveAll: 'Save All',
@@ -42,8 +44,7 @@ export const enUS: MenuLocaleText = {
       left: 'Align Left',
       right: 'Align Right',
       top: 'Align Top',
-      bottom: 'Align Bottom',
-      straighten: 'Straighten Edge'
+      bottom: 'Align Bottom'
     },
     view: {
       title: 'View',
@@ -52,7 +53,8 @@ export const enUS: MenuLocaleText = {
       showModuleLibrary: 'Show Module Library',
       language: 'Language',
       chinese: '中文',
-      english: 'English'
+      english: 'English',
+      settings: 'Project Settings...'
     },
     blueprint: {
       title: 'Blueprint',
@@ -61,11 +63,23 @@ export const enUS: MenuLocaleText = {
     help: {
       title: 'Help',
       about: 'Shortcuts and About'
-    },
+    }
   },
   toolbar: {
     test: 'Test',
     testTitle: 'Validate blueprint (F5)'
+  },
+  canvas: {
+    hint: 'Right drag: pan  Middle drag: pan  Ctrl: multi-select  Ctrl + right drag: cut connections  Connection: click + Delete'
+  },
+  validation: {
+    title: 'Test Results',
+    issueCount: '{count} issue(s)',
+    noIssues: 'No issues',
+    rerunTitle: 'Validate blueprint again',
+    expandTitle: 'Expand Test Results',
+    collapseTitle: 'Collapse Test Results',
+    closeTitle: 'Close Test Results'
   },
   module: {
     functionCategory: 'Functions',
@@ -76,5 +90,17 @@ export const enUS: MenuLocaleText = {
   detail: {
     functionTitle: 'Function Title',
     functionTitlePlaceholder: 'Function display name'
+  },
+  settings: {
+    title: 'Project Settings',
+    language: 'Language',
+    uiScale: 'UI Font',
+    nodeScale: 'Node Font',
+    small: 'Small',
+    normal: 'Normal',
+    large: 'Large',
+    revealActiveFile: 'Reveal active file automatically',
+    validateBeforeSave: 'Validate before save',
+    close: 'Close'
   }
 }

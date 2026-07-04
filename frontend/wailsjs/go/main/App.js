@@ -42,6 +42,10 @@ export function LoadNodeSchemaDocuments() {
   return window['go']['main']['App']['LoadNodeSchemaDocuments']();
 }
 
+export function LoadProjectSettings(arg1) {
+  return window['go']['main']['App']['LoadProjectSettings'](arg1);
+}
+
 export function LogClientError(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['LogClientError'](arg1, arg2, arg3, arg4);
 }
@@ -68,6 +72,10 @@ export function RevealInFolder(arg1) {
 
 export function SaveGraph(arg1, arg2) {
   return window['go']['main']['App']['SaveGraph'](arg1, arg2);
+}
+
+export function SaveProjectSettings(arg1, arg2) {
+  return window['go']['main']['App']['SaveProjectSettings'](arg1, arg2);
 }
 
 export function ValidateGraph(arg1) {

@@ -11,6 +11,8 @@ export interface MenuLocaleText {
       openWorkspace: string
       refreshWorkspace: string
       refreshNodeLibrary: string
+      collapseWorkspace: string
+      revealActiveFile: string
       save: string
       saveAs: string
       saveAll: string
@@ -41,7 +43,6 @@ export interface MenuLocaleText {
       right: string
       top: string
       bottom: string
-      straighten: string
     }
     view: {
       title: string
@@ -51,6 +52,7 @@ export interface MenuLocaleText {
       language: string
       chinese: string
       english: string
+      settings: string
     }
     blueprint: {
       title: string
@@ -65,6 +67,18 @@ export interface MenuLocaleText {
     test: string
     testTitle: string
   }
+  canvas: {
+    hint: string
+  }
+  validation: {
+    title: string
+    issueCount: string
+    noIssues: string
+    rerunTitle: string
+    expandTitle: string
+    collapseTitle: string
+    closeTitle: string
+  }
   module: {
     functionCategory: string
     currentBlueprintFunctions: string
@@ -74,6 +88,18 @@ export interface MenuLocaleText {
   detail: {
     functionTitle: string
     functionTitlePlaceholder: string
+  }
+  settings: {
+    title: string
+    language: string
+    uiScale: string
+    nodeScale: string
+    small: string
+    normal: string
+    large: string
+    revealActiveFile: string
+    validateBeforeSave: string
+    close: string
   }
 }
 
@@ -90,6 +116,8 @@ export const zhCN: MenuLocaleText = {
       openWorkspace: '打开工程目录',
       refreshWorkspace: '刷新工程',
       refreshNodeLibrary: '刷新节点库',
+      collapseWorkspace: '折叠工程目录',
+      revealActiveFile: '定位当前文件',
       save: '保存',
       saveAs: '另存为',
       saveAll: '全部保存',
@@ -119,8 +147,7 @@ export const zhCN: MenuLocaleText = {
       left: '左对齐',
       right: '右对齐',
       top: '顶部对齐',
-      bottom: '底部对齐',
-      straighten: '拉直连线'
+      bottom: '底部对齐'
     },
     view: {
       title: '视图',
@@ -129,7 +156,8 @@ export const zhCN: MenuLocaleText = {
       showModuleLibrary: '显示模块库',
       language: '语言',
       chinese: '中文',
-      english: 'English'
+      english: 'English',
+      settings: '工程设置...'
     },
     blueprint: {
       title: '蓝图',
@@ -138,11 +166,23 @@ export const zhCN: MenuLocaleText = {
     help: {
       title: '帮助',
       about: '快捷操作与关于'
-    },
+    }
   },
   toolbar: {
     test: '测试',
     testTitle: '检查蓝图 (F5)'
+  },
+  canvas: {
+    hint: '右键拖拽：平移  中键拖拽：平移  Ctrl：多选  Ctrl + 右键拖拽：切断连线  连线：点击后按 Delete 删除'
+  },
+  validation: {
+    title: '检查结果',
+    issueCount: '{count} 条问题',
+    noIssues: '无问题',
+    rerunTitle: '重新检查蓝图',
+    expandTitle: '展开检查结果',
+    collapseTitle: '收起检查结果',
+    closeTitle: '关闭检查结果'
   },
   module: {
     functionCategory: '函数',
@@ -153,5 +193,17 @@ export const zhCN: MenuLocaleText = {
   detail: {
     functionTitle: '函数名',
     functionTitlePlaceholder: '函数显示名'
+  },
+  settings: {
+    title: '工程设置',
+    language: '语言',
+    uiScale: '界面字体',
+    nodeScale: '节点字体',
+    small: '小',
+    normal: '标准',
+    large: '大',
+    revealActiveFile: '自动定位当前文件',
+    validateBeforeSave: '保存前自动检查',
+    close: '关闭'
   }
 }

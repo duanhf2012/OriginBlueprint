@@ -2,6 +2,7 @@ import type { NodeSchema } from './editor/nodeRegistry'
 import { parseNodeSchemaDocument } from './editor/runtimeNodeSchemas'
 
 export interface FileResult { path: string; content: string }
+export interface ProjectSettingsResult { path: string; content: string }
 export interface WorkspaceEntry { name: string; path: string; isDir: boolean }
 export interface NodeReferenceResult { name: string; path: string; count: number }
 export interface ValidationIssue { severity: 'error' | 'warning'; code: string; message: string; nodeId?: string; nodeIds?: string[] }
@@ -17,6 +18,8 @@ type DesktopApp = {
   SaveGraph(path: string, content: string): Promise<string>
   CurrentWorkingDirectory(): Promise<string>
   ChooseWorkspace(): Promise<string>
+  LoadProjectSettings(root: string): Promise<ProjectSettingsResult>
+  SaveProjectSettings(root: string, content: string): Promise<string>
   ChooseDataFile(mode: string): Promise<string>
   NewWindow(): Promise<void>
   ClearRecentFiles(): Promise<void>
@@ -140,6 +143,14 @@ export const platform = {
   },
   async currentWorkingDirectory() { return desktop() ? withDesktopLogging('CurrentWorkingDirectory', () => desktop()!.CurrentWorkingDirectory()) : '' },
   async chooseWorkspace() { return desktop() ? withDesktopLogging('ChooseWorkspace', () => desktop()!.ChooseWorkspace()) : '' },
+  async loadProjectSettings(root: string): Promise<ProjectSettingsResult | null> {
+    return desktop() ? withDesktopLogging('LoadProjectSettings', () => desktop()!.LoadProjectSettings(root)) : null
+  },
+  async saveProjectSettings(root: string, content: string) {
+    if (desktop()) return withDesktopLogging('SaveProjectSettings', () => desktop()!.SaveProjectSettings(root, content))
+    localStorage.setItem(`origin-blueprint-project:${root || 'browser'}`, content)
+    return root ? `${root}/originblueprint.project` : 'originblueprint.project'
+  },
   async chooseDataFile(mode: 'open' | 'save') {
     if (desktop()) return withDesktopLogging('ChooseDataFile', () => desktop()!.ChooseDataFile(mode))
     if (mode === 'save') return window.prompt('Output file name', 'output.csv') ?? ''

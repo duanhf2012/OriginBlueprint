@@ -114,13 +114,12 @@ export interface BlueprintEditorHandle {
   getDocument(graphName?: string, variables?: GraphVariable[], variableGroups?: GraphVariableGroup[]): GraphDocument
   loadDocument(document: GraphDocument): Promise<void>
   newDocument(): Promise<void>
-  align(mode: 'horizontal-center' | 'vertical-center' | 'left' | 'right' | 'top' | 'bottom' | 'horizontal-distribute' | 'vertical-distribute' | 'straighten'): Promise<void>
+  align(mode: 'horizontal-center' | 'vertical-center' | 'left' | 'right' | 'top' | 'bottom' | 'horizontal-distribute' | 'vertical-distribute'): Promise<void>
   groupSelected(): Promise<void>
   ungroupSelected(): Promise<void>
   toggleGroupSelected(): Promise<void>
   fitSelected(): Promise<void>
   setVariables(variables: GraphVariable[], variableGroups?: GraphVariableGroup[], refreshNodes?: boolean): Promise<void>
-  updateSelectedNode(label: string, values: Record<string, unknown>): Promise<void>
   focusNode(id: string): Promise<void>
   highlightNodesByType(typeId: string): Promise<number>
   highlightIssueNode(id: string): Promise<number>
@@ -204,6 +203,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   const groupElements = new Map<string, HTMLElement>()
   const selectedConnectionIds = new Set<string>()
   let selectedGroupId: string | null = null
+  let editingGroupId: string | null = null
   let preservedMultiNodeSelection: string[] = []
   let dragSnapshot: GraphSnapshot | null = null
   let clipboard: ClipboardGraph | null = null
@@ -558,7 +558,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
       element.style.width = `${group.width}px`
       element.style.height = `${group.height}px`
       element.style.transform = `translate(${group.x}px, ${group.y}px)`
-      element.innerHTML = `<div class="node-group-title">${group.title}</div><div class="node-group-resize"></div>`
+      element.innerHTML = `<div class="node-group-title"></div><div class="node-group-resize"></div>`
       area.area.content.holder.prepend(element)
       groupElements.set(group.id, element)
 
@@ -567,10 +567,32 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
         event.stopPropagation()
       })
       const title = element.querySelector('.node-group-title') as HTMLElement
+      if (editingGroupId === group.id) {
+        const input = document.createElement('input')
+        input.className = 'node-group-title-input'
+        input.value = group.title
+        title.replaceChildren(input)
+        const finish = (save: boolean) => {
+          if (save && input.value.trim()) {
+            group.title = input.value.trim()
+            callbacks.onDirty()
+          }
+          editingGroupId = null
+          renderGroups()
+        }
+        input.onkeydown = event => {
+          if (event.key === 'Enter') finish(true)
+          if (event.key === 'Escape') finish(false)
+        }
+        input.onblur = () => finish(true)
+        requestAnimationFrame(() => { input.focus(); input.select() })
+      } else {
+        title.textContent = group.title
+      }
       title.ondblclick = event => {
         event.stopPropagation()
-        const next = window.prompt('Group title', group.title)
-        if (next?.trim()) { group.title = next.trim(); renderGroups(); callbacks.onDirty() }
+        editingGroupId = group.id
+        renderGroups()
       }
       title.onpointerdown = event => beginGroupDrag(event, group, false)
       const grip = element.querySelector('.node-group-resize') as HTMLElement
@@ -1130,7 +1152,7 @@ function nodeSize(node: BlueprintNode) {
           if (mode === 'top') y = minY
           if (mode === 'bottom') y = maxBottom - entry.size.height
           if (mode === 'vertical-center') x = centerX - entry.size.width / 2
-          if (mode === 'horizontal-center' || mode === 'straighten') y = centerY - entry.size.height / 2
+          if (mode === 'horizontal-center') y = centerY - entry.size.height / 2
           await area.translate(entry.node.id, { x, y })
         }
       }
@@ -1397,21 +1419,6 @@ function nodeSize(node: BlueprintNode) {
   window.addEventListener('pointerdown', hideEntryBindingMenu)
   const destroyPanFeedback = setupCanvasPanFeedback()
   const destroyMultiSelectionDragPreserver = setupMultiSelectionDragPreserver()
-
-  async function updateSelectedNode(label: string, values: Record<string, unknown>) {
-    const node = selectedNodes()[0]
-    if (!node) return
-    await mutate('Node properties updated', async () => {
-      node.label = label.trim() || node.label
-      node.width = Math.max(230, nodeTitleWidth(node.label))
-      setControlValues(node, values)
-      if (node.dynamicBranch) await pruneDynamicBranchConnections(node.id, dynamicBranchValueCount(node))
-      syncDynamicBranchOutputs(node, dynamicBranchValueCount(node))
-      await refreshPortStates()
-      await area.update('node', node.id)
-      callbacks.onSelection(selectedNodeInfo(node))
-    })
-  }
 
   async function setVariables(variables: GraphVariable[], variableGroups?: GraphVariableGroup[], refreshNodes = false) {
     const before = snapshot()
@@ -1735,7 +1742,6 @@ function nodeSize(node: BlueprintNode) {
     toggleGroupSelected,
     fitSelected,
     setVariables,
-    updateSelectedNode,
     focusNode,
     highlightNodesByType,
     highlightIssueNode,

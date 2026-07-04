@@ -22,6 +22,8 @@ export function ListWorkspace(arg1:string):Promise<Array<main.WorkspaceEntry>>;
 
 export function LoadNodeSchemaDocuments():Promise<main.RuntimeNodeSchemaDocumentLoadResult>;
 
+export function LoadProjectSettings(arg1:string):Promise<main.ProjectSettingsResult>;
+
 export function LogClientError(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
 
 export function MigrateLegacyGraph(arg1:string):Promise<string>;
@@ -35,5 +37,7 @@ export function Quit():Promise<void>;
 export function RevealInFolder(arg1:string):Promise<void>;
 
 export function SaveGraph(arg1:string,arg2:string):Promise<string>;
+
+export function SaveProjectSettings(arg1:string,arg2:string):Promise<string>;
 
 export function ValidateGraph(arg1:string):Promise<Array<main.ValidationIssue>>;

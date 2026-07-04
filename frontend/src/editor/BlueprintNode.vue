@@ -263,10 +263,10 @@ function removeBranch(index: number) {
 .blueprint-node.reference-highlighted { outline: 3px solid #ffd21f; outline-offset: 3px; box-shadow: 0 0 0 1px #fff4b088, 0 0 22px #ffd21f99, 0 5px 13px #0009; }
 .blueprint-node.issue-highlighted { outline: 3px solid #ff3b3b; outline-offset: 3px; box-shadow: 0 0 0 1px #ffe2e288, 0 0 22px #ff3b3b99, 0 5px 13px #0009; }
 .blueprint-node.compact { box-shadow: 0 2px 6px #0008; }
-.blueprint-node.compact .blueprint-title { height: 25px; font-size: 12px; }
+.blueprint-node.compact .blueprint-title { height: 25px; font-size: var(--node-compact-title-font-size, 12px); }
 .blueprint-node.compact .ports { padding: 3px 0 4px; }
 .blueprint-node.compact .port-row { min-height: 21px; }
-.blueprint-title { height: 31px; display: flex; align-items: center; gap: 6px; padding: 0 8px; border-radius: 3px 3px 0 0; background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 75%, #222)); color: white; font: 16px Arial, sans-serif; text-shadow: 0 1px #0008; cursor: move; white-space: nowrap; }
+.blueprint-title { height: 31px; display: flex; align-items: center; gap: 6px; padding: 0 8px; border-radius: 3px 3px 0 0; background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 75%, #222)); color: white; font: var(--node-title-font-size, 16px) Arial, sans-serif; text-shadow: 0 1px #0008; cursor: move; white-space: nowrap; }
 .title-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .node-icon { color: var(--entry-source-color, currentColor); opacity: .95; text-shadow: 0 0 4px color-mix(in srgb, var(--entry-source-color, transparent) 70%, transparent); }
 .dynamic-actions { display: flex; gap: 2px; margin-left: 3px; }
@@ -274,7 +274,7 @@ function removeBranch(index: number) {
 .ports { padding: 7px 0 8px; }
 .port-row { min-height: 27px; display: grid; grid-template-columns: max-content minmax(6px, 1fr) max-content; column-gap: 0; align-items: center; }
 .blueprint-node.has-entry-binding .port-row { grid-template-columns: max-content minmax(6px, 1fr) max-content; column-gap: 0; }
-.port { min-width: 0; display: flex; align-items: center; gap: 6px; font: 12px Consolas, monospace; }
+.port { min-width: 0; display: flex; align-items: center; gap: 6px; font: var(--node-port-font-size, 12px) Consolas, monospace; }
 .input-port { justify-content: flex-start; }
 .output-port { justify-content: flex-end; text-align: right; }
 .socket-ref { flex: 0 0 16px; display: flex; align-items: center; justify-content: center; }
@@ -282,7 +282,7 @@ function removeBranch(index: number) {
 .output-port .socket-ref { margin-right: 8px; }
 .port-label { color: var(--socket-label-color); white-space: nowrap; }
 .input-port .port-label { flex: 0 0 auto; min-width: max-content; }
-.entry-binding-badge { flex: 0 1 auto; box-sizing: border-box; max-width: 180px; min-width: 0; overflow: hidden; padding: 1px 7px; border: 1px solid color-mix(in srgb, var(--entry-source-color, #33c5e8) 80%, #ffffff); border-radius: 2px; background: linear-gradient(90deg, color-mix(in srgb, var(--entry-source-color, #33c5e8) 22%, #101010), #101b20d9); color: var(--entry-source-color, #bff4ff); font: 10px "Segoe UI", sans-serif; text-overflow: ellipsis; white-space: nowrap; box-shadow: inset 0 0 0 1px #ffffff10, 0 0 5px color-mix(in srgb, var(--entry-source-color, #33c5e8) 45%, transparent); }
+.entry-binding-badge { flex: 0 1 auto; box-sizing: border-box; max-width: 180px; min-width: 0; overflow: hidden; padding: 1px 7px; border: 1px solid color-mix(in srgb, var(--entry-source-color, #33c5e8) 80%, #ffffff); border-radius: 2px; background: linear-gradient(90deg, color-mix(in srgb, var(--entry-source-color, #33c5e8) 22%, #101010), #101b20d9); color: var(--entry-source-color, #bff4ff); font: var(--node-badge-font-size, 10px) "Segoe UI", sans-serif; text-overflow: ellipsis; white-space: nowrap; box-shadow: inset 0 0 0 1px #ffffff10, 0 0 5px color-mix(in srgb, var(--entry-source-color, #33c5e8) 45%, transparent); }
 .port.socket-exec { min-height: 25px; }
 .port:not(.filled) :deep(.blueprint-socket:not(.exec)) { background: #101010; box-shadow: 0 0 0 1px #000, inset 0 1px #ffffff24; }
 .port.filled :deep(.blueprint-socket:not(.exec)) { background: var(--socket-fill); box-shadow: 0 0 0 1px #000, inset 0 1px #ffffff55, 0 0 4px var(--socket-color); }
@@ -295,10 +295,10 @@ function removeBranch(index: number) {
 .branch-input .socket-ref { margin-left: 8px; }
 .branch-socket-spacer { width: 16px; height: 1px; }
 .branch-label-spacer { width: 22px; }
-.branch-value { width: 58px; height: 18px; justify-self: end; padding: 1px 4px; border: 1px solid #555; border-radius: 1px; background: #e9e9e9; color: #111; font: 11px Consolas, monospace; }
-.branch-remove { position: relative; z-index: 3; width: 18px; height: 18px; padding: 0; border: 1px solid #555; border-radius: 1px; background: #2b2b2b; color: #bbb; font: 12px Consolas, monospace; }
+.branch-value { width: 58px; height: 18px; justify-self: end; padding: 1px 4px; border: 1px solid #555; border-radius: 1px; background: #e9e9e9; color: #111; font: var(--node-control-font-size, 11px) Consolas, monospace; }
+.branch-remove { position: relative; z-index: 3; width: 18px; height: 18px; padding: 0; border: 1px solid #555; border-radius: 1px; background: #2b2b2b; color: #bbb; font: var(--node-control-font-size, 12px) Consolas, monospace; }
 .branch-actions-row { min-height: 22px; }
 .branch-actions-inline { display: flex; justify-content: flex-end; padding-right: 4px; }
-.branch-actions-inline button { width: 72px; height: 20px; border: 1px solid #555; border-radius: 2px; background: #252525; color: #bbb; font: 11px Consolas, monospace; }
+.branch-actions-inline button { width: 72px; height: 20px; border: 1px solid #555; border-radius: 2px; background: #252525; color: #bbb; font: var(--node-control-font-size, 11px) Consolas, monospace; }
 .branch-actions-inline button:disabled { opacity: .45; }
 </style>

@@ -242,6 +242,53 @@ func TestWorkspaceListsFunctionBlueprintFiles(t *testing.T) {
 	}
 }
 
+func TestProjectSettingsRoundTrip(t *testing.T) {
+	app := NewApp()
+	dir := t.TempDir()
+	content := `{"version":1,"appearance":{"locale":"zh-CN"},"layout":{"panels":{"files":240}}}`
+
+	saved, err := app.SaveProjectSettings(dir, content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantPath := filepath.Join(dir, "originblueprint.project")
+	if saved != wantPath {
+		t.Fatalf("project settings path = %q, want %q", saved, wantPath)
+	}
+	data, err := os.ReadFile(wantPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != content {
+		t.Fatalf("project settings content = %s, want %s", data, content)
+	}
+	loaded, err := app.LoadProjectSettings(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Path != wantPath || loaded.Content != content {
+		t.Fatalf("loaded project settings = %#v", loaded)
+	}
+}
+
+func TestLoadProjectSettingsCreatesDefaultWhenMissing(t *testing.T) {
+	app := NewApp()
+	dir := t.TempDir()
+	loaded, err := app.LoadProjectSettings(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Path != filepath.Join(dir, "originblueprint.project") {
+		t.Fatalf("project settings path = %q", loaded.Path)
+	}
+	if !strings.Contains(loaded.Content, `"version": 1`) || !strings.Contains(loaded.Content, `"appearance"`) {
+		t.Fatalf("default project settings content = %s", loaded.Content)
+	}
+	if _, err := os.Stat(loaded.Path); err != nil {
+		t.Fatalf("default project settings was not created: %v", err)
+	}
+}
+
 func TestGraphFiltersIncludeFunctionBlueprintFiles(t *testing.T) {
 	filters := graphFilters()
 	for _, filter := range filters {

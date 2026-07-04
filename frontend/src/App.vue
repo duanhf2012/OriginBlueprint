@@ -18,6 +18,19 @@ interface CanvasToastState { visible: boolean; message: string; x: number; y: nu
 interface BlueprintFunction { id: string; name: string; readonly?: boolean }
 interface FunctionLibraryItem { id: string; functionId: string; name: string; path: string; source: 'current' | 'workspace' }
 interface ModuleLibraryItem extends NodeDefinition { functionPlaceholder?: boolean; functionSource?: FunctionLibraryItem['source']; functionItem?: FunctionLibraryItem; path?: string }
+type UiScale = 'small' | 'normal' | 'large'
+type NodeScale = 'normal' | 'large'
+type AutoSaveMode = 'off' | '1m' | '3m' | '5m'
+interface ProjectSettings {
+  version: number
+  appearance: { locale: LocaleId; uiScale: UiScale; nodeScale: NodeScale }
+  layout: {
+    panels: { files: number; tools: number; library: number; variables: number; test: number; references: number }
+    visible: { tools: boolean; library: boolean; test: boolean }
+  }
+  explorer: { expanded: string[]; selected: string; revealActiveFile: boolean; hideBuildFolders: boolean }
+  editor: { autoSave: AutoSaveMode; validateBeforeSave: boolean }
+}
 
 const canvas = ref<HTMLElement | null>(null)
 const tabStrip = ref<HTMLElement | null>(null)
@@ -53,6 +66,9 @@ const showTools = ref(true)
 const showRight = ref(true)
 const showLogger = ref(false)
 const showAbout = ref(false)
+const showSettings = ref(false)
+const projectSettingsPath = ref('')
+const projectSettingsContent = ref<ProjectSettings>(defaultProjectSettings())
 const nodeLibrary = ref<NodeDefinition[]>(getNodeDefinitions())
 const moduleSearch = ref('')
 const expandedModuleCategories = ref<Set<string>>(new Set())
@@ -88,6 +104,7 @@ let workspaceRefreshInFlight = false
 let workspaceRefreshTimer: ReturnType<typeof window.setInterval> | undefined
 let validationIssueClickTimer: ReturnType<typeof window.setTimeout> | undefined
 let canvasToastTimer: ReturnType<typeof window.setTimeout> | undefined
+let applyingProjectSettings = false
 const loadingFunctionTitles = new Set<string>()
 const workspaceRefreshIntervalKey = 'origin-blueprint-workspace-refresh-interval'
 const workspaceRefreshIntervalMs = Math.max(1000, Number.parseInt(localStorage.getItem(workspaceRefreshIntervalKey) ?? '1500', 10) || 1500)
@@ -141,6 +158,14 @@ const workspaceStyle = computed(() => ({
   '--left-tools-width': `${leftToolsWidth.value}px`,
   '--right-sidebar-width': `${rightSidebarWidth.value}px`
 }))
+const applicationClasses = computed(() => ({
+  'tools-hidden': !showTools.value,
+  'right-hidden': !showRight.value,
+  [`ui-scale-${projectSettingsContent.value.appearance.uiScale}`]: true,
+  [`node-scale-${projectSettingsContent.value.appearance.nodeScale}`]: true
+}))
+const activeWorkspacePath = computed(() => activeTab.value?.path || '')
+const validationIssueCountLabel = computed(() => validationIssues.value.length ? menuText.value.validation.issueCount.replace('{count}', String(validationIssues.value.length)) : menuText.value.validation.noIssues)
 const referencePanelStyle = computed(() => ({ height: `${referencePanelCollapsed.value ? 34 : referencePanelHeight.value}px` }))
 const testPanelStyle = computed(() => ({ height: `${testPanelCollapsed.value ? 34 : testPanelHeight.value}px` }))
 const variablePanelStyle = computed(() => ({ flex: `0 0 ${variablePanelHeight.value}px` }))
@@ -196,9 +221,148 @@ function savedReferencePanelHeight() {
   return Number.isFinite(value) ? Math.min(360, Math.max(96, value)) : 155
 }
 
+function clampNumber(value: unknown, fallback: number, min: number, max: number) {
+  const number = typeof value === 'number' ? value : Number.parseInt(String(value ?? ''), 10)
+  return Number.isFinite(number) ? Math.min(max, Math.max(min, Math.round(number))) : fallback
+}
+
+function defaultProjectSettings(): ProjectSettings {
+  return {
+    version: 1,
+    appearance: { locale: currentLocale.value, uiScale: 'normal', nodeScale: 'normal' },
+    layout: {
+      panels: {
+        files: fileBrowserWidth.value,
+        tools: leftToolsWidth.value,
+        library: rightSidebarWidth.value,
+        variables: variablePanelHeight.value,
+        test: testPanelHeight.value,
+        references: referencePanelHeight.value
+      },
+      visible: { tools: showTools.value, library: showRight.value, test: showLogger.value }
+    },
+    explorer: {
+      expanded: Array.from(expandedWorkspacePaths.value),
+      selected: selectedWorkspacePath.value,
+      revealActiveFile: true,
+      hideBuildFolders: false
+    },
+    editor: { autoSave: 'off', validateBeforeSave: false }
+  }
+}
+
+function normalizeProjectSettings(value: unknown): ProjectSettings {
+  const source = (value && typeof value === 'object' ? value : {}) as Partial<ProjectSettings>
+  const fallback = defaultProjectSettings()
+  const appearance = source.appearance ?? fallback.appearance
+  const layout = source.layout ?? fallback.layout
+  const panels = layout.panels ?? fallback.layout.panels
+  const visible = layout.visible ?? fallback.layout.visible
+  const explorer = source.explorer ?? fallback.explorer
+  const editorSettings = source.editor ?? fallback.editor
+  const locale = normalizeLocale(appearance.locale)
+  const uiScale: UiScale = appearance.uiScale === 'small' || appearance.uiScale === 'large' ? appearance.uiScale : 'normal'
+  const nodeScale: NodeScale = appearance.nodeScale === 'large' ? 'large' : 'normal'
+  const autoSave: AutoSaveMode = editorSettings.autoSave === '1m' || editorSettings.autoSave === '3m' || editorSettings.autoSave === '5m' ? editorSettings.autoSave : 'off'
+  return {
+    version: 1,
+    appearance: { locale, uiScale, nodeScale },
+    layout: {
+      panels: {
+        files: clampNumber(panels.files, fallback.layout.panels.files, 140, 360),
+        tools: clampNumber(panels.tools, fallback.layout.panels.tools, 160, 520),
+        library: clampNumber(panels.library, fallback.layout.panels.library, 160, 460),
+        variables: clampNumber(panels.variables, fallback.layout.panels.variables, 130, 520),
+        test: clampNumber(panels.test, fallback.layout.panels.test, 96, 360),
+        references: clampNumber(panels.references, fallback.layout.panels.references, 96, 360)
+      },
+      visible: {
+        tools: typeof visible.tools === 'boolean' ? visible.tools : fallback.layout.visible.tools,
+        library: typeof visible.library === 'boolean' ? visible.library : fallback.layout.visible.library,
+        test: typeof visible.test === 'boolean' ? visible.test : fallback.layout.visible.test
+      }
+    },
+    explorer: {
+      expanded: Array.isArray(explorer.expanded) ? explorer.expanded.filter(item => typeof item === 'string') : [],
+      selected: typeof explorer.selected === 'string' ? explorer.selected : '',
+      revealActiveFile: typeof explorer.revealActiveFile === 'boolean' ? explorer.revealActiveFile : true,
+      hideBuildFolders: typeof explorer.hideBuildFolders === 'boolean' ? explorer.hideBuildFolders : false
+    },
+    editor: { autoSave, validateBeforeSave: Boolean(editorSettings.validateBeforeSave) }
+  }
+}
+
+function currentProjectSettings() {
+  const current = normalizeProjectSettings(projectSettingsContent.value)
+  current.appearance.locale = currentLocale.value
+  current.layout.panels = {
+    files: fileBrowserWidth.value,
+    tools: leftToolsWidth.value,
+    library: rightSidebarWidth.value,
+    variables: variablePanelHeight.value,
+    test: testPanelHeight.value,
+    references: referencePanelHeight.value
+  }
+  current.layout.visible = { tools: showTools.value, library: showRight.value, test: showLogger.value }
+  current.explorer.expanded = Array.from(expandedWorkspacePaths.value)
+  current.explorer.selected = selectedWorkspacePath.value
+  return current
+}
+
+function applyProjectSettings(settings: ProjectSettings) {
+  applyingProjectSettings = true
+  projectSettingsContent.value = normalizeProjectSettings(settings)
+  const current = projectSettingsContent.value
+  currentLocale.value = current.appearance.locale
+  fileBrowserWidth.value = current.layout.panels.files
+  leftToolsWidth.value = current.layout.panels.tools
+  rightSidebarWidth.value = current.layout.panels.library
+  variablePanelHeight.value = current.layout.panels.variables
+  testPanelHeight.value = current.layout.panels.test
+  referencePanelHeight.value = current.layout.panels.references
+  showTools.value = current.layout.visible.tools
+  showRight.value = current.layout.visible.library
+  showLogger.value = current.layout.visible.test
+  expandedWorkspacePaths.value = new Set(current.explorer.expanded)
+  selectedWorkspacePath.value = current.explorer.selected
+  applyingProjectSettings = false
+}
+
+async function loadProjectSettings(root: string) {
+  const result = await platform.loadProjectSettings(root)
+  if (!result?.content) return
+  projectSettingsPath.value = result.path
+  try {
+    applyProjectSettings(normalizeProjectSettings(JSON.parse(result.content)))
+  } catch {
+    applyProjectSettings(defaultProjectSettings())
+  }
+}
+
+async function saveProjectSettings() {
+  if (!workspaceRoot.value || applyingProjectSettings) return
+  const settings = currentProjectSettings()
+  projectSettingsContent.value = settings
+  const content = JSON.stringify(settings, null, 2)
+  try {
+    projectSettingsPath.value = await platform.saveProjectSettings(workspaceRoot.value, content)
+  } catch (error) {
+    status.value = `Project settings save failed: ${error instanceof Error ? error.message : String(error)}`
+  }
+}
+
 function setLocale(locale: LocaleId) {
   currentLocale.value = locale
   localStorage.setItem('origin-blueprint-locale', locale)
+  projectSettingsContent.value.appearance.locale = locale
+  void saveProjectSettings()
+}
+
+function updateProjectSettings(mutator: (settings: ProjectSettings) => void) {
+  const settings = currentProjectSettings()
+  mutator(settings)
+  applyProjectSettings(settings)
+  void saveProjectSettings()
 }
 
 async function loadRuntimeNodeLibrary() {
@@ -248,10 +412,11 @@ function closeFloatingMenus(event: PointerEvent) {
 
 function onKeyDown(event: KeyboardEvent) {
   const target = event.target as HTMLElement
-  if (target.matches('input, textarea, select')) return
   const ctrl = event.ctrlKey || event.metaKey
   const key = event.key.toLowerCase()
-  if (ctrl && event.shiftKey && key === 'n') run(() => platform.newWindow(), event)
+  if (ctrl && event.shiftKey && key === 'q') run(() => revealCurrentFileInFolder(), event)
+  else if (target.matches('input, textarea, select')) return
+  else if (ctrl && event.shiftKey && key === 'n') run(() => platform.newWindow(), event)
   else if (ctrl && key === 'n') run(newGraph, event)
   else if (ctrl && key === 'o') run(() => openGraph(), event)
   else if (ctrl && event.altKey && key === 's') run(saveAll, event)
@@ -279,7 +444,6 @@ function onKeyDown(event: KeyboardEvent) {
   else if (event.shiftKey && key === 'v') run(() => editor?.align('vertical-distribute'), event)
   else if (key === 'h') run(() => editor?.align('horizontal-center'), event)
   else if (key === 'v') run(() => editor?.align('vertical-center'), event)
-  else if (key === 'q') run(() => editor?.align('straighten'), event)
   else if (event.key === 'Delete' || key === 'x') run(() => editor?.deleteSelected(), event)
 }
 
@@ -828,23 +992,6 @@ async function createVariableNode(variable: GraphVariable, access: 'get' | 'set'
   await editor?.addVariableNode(variable, access, position)
 }
 
-async function applyNodeProperties() {
-  if (!selectedNode.value) return
-  await editor?.updateSelectedNode(selectedNode.value.label, selectedNode.value.values)
-}
-
-function setSelectedValue(key: string, event: Event) {
-  if (!selectedNode.value) return
-  const input = event.target as HTMLInputElement
-  const current = selectedNode.value.values[key]
-  selectedNode.value.values[key] = typeof current === 'number' ? Number(input.value) : input.value
-}
-
-function setSelectedArrayValue(key: string, event: Event) {
-  if (!selectedNode.value) return
-  selectedNode.value.values[key] = (event.target as HTMLInputElement).value.split(',').map(item => item.trim()).filter(Boolean).map(item => /^-?\d+(\.\d+)?$/.test(item) ? Number(item) : item)
-}
-
 function touchFunctionSignature() {
   if (isFunctionBlueprintTab.value) activeTab.value.dirty = true
 }
@@ -1077,6 +1224,15 @@ async function saveGraph(saveAs: boolean) {
   if (!editor) return
   const tab = activeTab.value
   const document = documentWithFunctionSignature(editor.getDocument(tab.title, variables.value, variableGroups.value), tab)
+  if (projectSettingsContent.value.editor.validateBeforeSave) {
+    const issues = await platform.validateGraph(JSON.stringify(document))
+    validationIssues.value = issues
+    if (issues.some(issue => issue.severity === 'error')) {
+      showLogger.value = true
+      status.value = 'Save blocked by validation errors'
+      return
+    }
+  }
   const shouldSaveLegacy = !saveAs && isLegacyGraphPath(tab.path) && !documentRequiresNativePersistence(document)
   const content = shouldSaveLegacy ? await platform.exportLegacyGraph(JSON.stringify(document)) : JSON.stringify(document, null, 2)
   const path = await platform.saveGraph(saveAs ? '' : tab.path, content)
@@ -1160,8 +1316,10 @@ async function loadWorkspace(path: string) {
   workspaceRoot.value = path
   expandedWorkspacePaths.value = new Set()
   workspaceTree.value = []
+  await loadProjectSettings(path)
   workspaceTree.value = await loadWorkspaceTree(path)
   void hydrateWorkspaceTree(workspaceTree.value, 1, token)
+  if (projectSettingsContent.value.explorer.revealActiveFile) void revealActiveWorkspaceFile()
 }
 
 async function loadWorkspaceTree(path: string, depth = 0): Promise<WorkspaceTreeNode[]> {
@@ -1210,6 +1368,15 @@ async function hydrateWorkspaceTree(nodes: WorkspaceTreeNode[], depth: number, t
 
 watch(workspaceSearch, value => {
   if (value.trim()) void hydrateWorkspaceTree(workspaceTree.value, 1, workspaceLoadToken)
+})
+
+watch(activeWorkspacePath, path => {
+  if (!path) { clearWorkspaceSelection(); return }
+  if (projectSettingsContent.value.explorer.revealActiveFile) void revealActiveWorkspaceFile(false)
+})
+
+watch([showTools, showRight, showLogger], () => {
+  void saveProjectSettings()
 })
 
 watch(functionLibraryItems, items => {
@@ -1304,13 +1471,111 @@ async function loadFunctionLibraryTitles(items: FunctionLibraryItem[]) {
 
 async function toggleWorkspaceNode(node: WorkspaceTreeNode) {
   selectedWorkspacePath.value = node.path
-  if (!node.isDir) return
+  if (!node.isDir) {
+    void saveProjectSettings()
+    return
+  }
   const next = new Set(expandedWorkspacePaths.value)
   if (next.has(node.path)) next.delete(node.path); else {
     next.add(node.path)
     await ensureWorkspaceChildren(node, workspaceNodeDepth(node.path) + 1, true)
   }
   expandedWorkspacePaths.value = next
+  void saveProjectSettings()
+}
+
+function workspaceEntryClass(node: WorkspaceTreeNode) {
+  return {
+    selected: selectedWorkspacePath.value === node.path,
+    active: activeWorkspacePath.value === node.path,
+    folder: node.isDir
+  }
+}
+
+function collapseWorkspaceTree() {
+  expandedWorkspacePaths.value = new Set()
+  void saveProjectSettings()
+  status.value = 'Workspace tree collapsed'
+}
+
+function workspaceParentPaths(path: string) {
+  const root = workspaceRoot.value.replace(/[\\/]+$/, '')
+  if (!root || !path.startsWith(root)) return []
+  const relative = path.slice(root.length).replace(/^[\\/]+/, '')
+  const parts = relative.split(/[\\/]/).filter(Boolean)
+  const parents: string[] = []
+  let current = root
+  for (let index = 0; index < Math.max(0, parts.length - 1); index++) {
+    current = `${current}${current.includes('\\') ? '\\' : '/'}${parts[index]}`
+    parents.push(current)
+  }
+  return parents
+}
+
+function workspacePathInRoot(path: string) {
+  const root = workspaceRoot.value.replace(/[\\/]+$/, '')
+  return Boolean(root) && (path === root || path.startsWith(`${root}\\`) || path.startsWith(`${root}/`))
+}
+
+function clearWorkspaceSelection() {
+  if (!selectedWorkspacePath.value) return
+  selectedWorkspacePath.value = ''
+  void saveProjectSettings()
+}
+
+async function revealActiveWorkspaceFile(notify = true) {
+  return revealWorkspaceFile(activeWorkspacePath.value, notify)
+}
+
+async function revealWorkspaceFile(path: string, notify = true) {
+  if (!path) {
+    clearWorkspaceSelection()
+    if (notify) status.value = '当前标签页还没有保存到文件'
+    return
+  }
+  if (!workspaceRoot.value || !workspacePathInRoot(path)) {
+    clearWorkspaceSelection()
+    if (notify) status.value = '当前文件不在已打开的工程目录中'
+    return
+  }
+  workspaceSearch.value = ''
+  const next = new Set(expandedWorkspacePaths.value)
+  for (const parent of workspaceParentPaths(path)) {
+    next.add(parent)
+    const node = findWorkspaceNodeByPath(parent)
+    if (node?.isDir) await ensureWorkspaceChildren(node, workspaceNodeDepth(node.path) + 1, true)
+  }
+  expandedWorkspacePaths.value = next
+  if (!findWorkspaceNodeByPath(path)) {
+    clearWorkspaceSelection()
+    if (notify) status.value = '文件浏览器中未找到当前蓝图文件'
+    return
+  }
+  selectedWorkspacePath.value = path
+  await nextTick()
+  document.querySelector('.workspace-entry.selected, .workspace-entry.active')?.scrollIntoView({ block: 'nearest' })
+  if (notify) status.value = '已定位当前蓝图文件'
+  void saveProjectSettings()
+}
+
+function selectedWorkspaceRevealPath() {
+  const node = selectedWorkspacePath.value ? findWorkspaceNodeByPath(selectedWorkspacePath.value) : null
+  return node && !node.isDir ? node.path : ''
+}
+
+function currentRevealPath() {
+  return selectedWorkspaceRevealPath() || activeWorkspacePath.value
+}
+
+async function revealCurrentFileInFolder() {
+  const path = currentRevealPath()
+  if (!path) {
+    clearWorkspaceSelection()
+    status.value = '当前没有可定位的蓝图文件'
+    return
+  }
+  await revealWorkspaceFile(path, false)
+  await revealFileInFolder(path)
 }
 
 function findWorkspaceNodeByPath(path: string, nodes = workspaceTree.value): WorkspaceTreeNode | null {
@@ -1396,6 +1661,7 @@ function beginLeftSidebarResize(event: PointerEvent) {
   const up = () => {
     localStorage.setItem('origin-blueprint-file-browser-width', String(fileBrowserWidth.value))
     localStorage.setItem('origin-blueprint-left-tools-width', String(leftToolsWidth.value))
+    void saveProjectSettings()
     window.removeEventListener('pointermove', move)
     window.removeEventListener('pointerup', up)
     window.removeEventListener('pointercancel', up)
@@ -1415,6 +1681,7 @@ function beginLeftToolsResize(event: PointerEvent) {
   }
   const up = () => {
     localStorage.setItem('origin-blueprint-left-tools-width', String(leftToolsWidth.value))
+    void saveProjectSettings()
     window.removeEventListener('pointermove', move)
     window.removeEventListener('pointerup', up)
     window.removeEventListener('pointercancel', up)
@@ -1625,6 +1892,7 @@ function beginRightSidebarResize(event: PointerEvent) {
   }
   const up = () => {
     localStorage.setItem('origin-blueprint-right-sidebar-width', String(rightSidebarWidth.value))
+    void saveProjectSettings()
     window.removeEventListener('pointermove', move)
     window.removeEventListener('pointerup', up)
     window.removeEventListener('pointercancel', up)
@@ -1644,6 +1912,7 @@ function beginVariablePanelHeightResize(event: PointerEvent) {
   }
   const up = () => {
     localStorage.setItem('origin-blueprint-variable-panel-height', String(variablePanelHeight.value))
+    void saveProjectSettings()
     window.removeEventListener('pointermove', move)
     window.removeEventListener('pointerup', up)
     window.removeEventListener('pointercancel', up)
@@ -1713,6 +1982,7 @@ function beginTestPanelResize(event: PointerEvent) {
   }
   const up = () => {
     localStorage.setItem('origin-blueprint-test-panel-height', String(testPanelHeight.value))
+    void saveProjectSettings()
     window.removeEventListener('pointermove', move)
     window.removeEventListener('pointerup', up)
     window.removeEventListener('pointercancel', up)
@@ -1732,6 +2002,7 @@ function beginReferencePanelResize(event: PointerEvent) {
   }
   const up = () => {
     localStorage.setItem('origin-blueprint-reference-panel-height', String(referencePanelHeight.value))
+    void saveProjectSettings()
     window.removeEventListener('pointermove', move)
     window.removeEventListener('pointerup', up)
     window.removeEventListener('pointercancel', up)
@@ -1753,7 +2024,7 @@ function toggleModuleCategory(category: string) {
 </script>
 
 <template>
-  <main class="application-shell" :class="{ 'tools-hidden': !showTools, 'right-hidden': !showRight }" @pointerdown="closeModuleNodeMenu">
+  <main class="application-shell" :class="applicationClasses" @pointerdown="closeModuleNodeMenu">
     <header class="menu-bar">
       <div class="menu-items">
         <div class="menu-root"><button @click.stop="toggleMenu('file')">{{ menuText.menu.file.title }}</button><div v-if="activeMenu === 'file'" class="dropdown-menu">
@@ -1788,9 +2059,9 @@ function toggleModuleCategory(category: string) {
         <div class="menu-root"><button @click.stop="toggleMenu('align')">{{ menuText.menu.align.title }}</button><div v-if="activeMenu === 'align'" class="dropdown-menu">
           <button @click="run(() => editor?.align('vertical-center'))">{{ menuText.menu.align.verticalCenter }} <kbd>V</kbd></button><button @click="run(() => editor?.align('horizontal-center'))">{{ menuText.menu.align.horizontalCenter }} <kbd>H</kbd></button>
           <button @click="run(() => editor?.align('vertical-distribute'))">{{ menuText.menu.align.verticalDistribute }} <kbd>Shift+V</kbd></button><button @click="run(() => editor?.align('horizontal-distribute'))">{{ menuText.menu.align.horizontalDistribute }} <kbd>Shift+H</kbd></button>
-          <button @click="run(() => editor?.align('left'))">{{ menuText.menu.align.left }} <kbd>Shift+L</kbd></button><button @click="run(() => editor?.align('right'))">{{ menuText.menu.align.right }} <kbd>Shift+R</kbd></button><button @click="run(() => editor?.align('top'))">{{ menuText.menu.align.top }} <kbd>Shift+T</kbd></button><button @click="run(() => editor?.align('bottom'))">{{ menuText.menu.align.bottom }} <kbd>Shift+B</kbd></button><button @click="run(() => editor?.align('straighten'))">{{ menuText.menu.align.straighten }} <kbd>Q</kbd></button>
+          <button @click="run(() => editor?.align('left'))">{{ menuText.menu.align.left }} <kbd>Shift+L</kbd></button><button @click="run(() => editor?.align('right'))">{{ menuText.menu.align.right }} <kbd>Shift+R</kbd></button><button @click="run(() => editor?.align('top'))">{{ menuText.menu.align.top }} <kbd>Shift+T</kbd></button><button @click="run(() => editor?.align('bottom'))">{{ menuText.menu.align.bottom }} <kbd>Shift+B</kbd></button>
         </div></div>
-        <div class="menu-root"><button @click.stop="toggleMenu('view')">{{ menuText.menu.view.title }}</button><div v-if="activeMenu === 'view'" class="dropdown-menu"><button @click="showLogger = !showLogger">{{ showLogger ? '✓ ' : '' }}{{ menuText.menu.view.showTestResults }} <kbd>Alt+Shift+B</kbd></button><button @click="showTools = !showTools">{{ showTools ? '✓ ' : '' }}{{ menuText.menu.view.showLeftSidebar }} <kbd>Alt+Shift+L</kbd></button><button @click="showRight = !showRight">{{ showRight ? '✓ ' : '' }}{{ menuText.menu.view.showModuleLibrary }} <kbd>Alt+Shift+R</kbd></button><div class="menu-separator"></div><div class="menu-subtitle">{{ menuText.menu.view.language }}</div><button @click="setLocale('zh-CN')">{{ currentLocale === 'zh-CN' ? '✓ ' : '' }}{{ menuText.menu.view.chinese }}</button><button @click="setLocale('en-US')">{{ currentLocale === 'en-US' ? '✓ ' : '' }}{{ menuText.menu.view.english }}</button></div></div>
+        <div class="menu-root"><button @click.stop="toggleMenu('view')">{{ menuText.menu.view.title }}</button><div v-if="activeMenu === 'view'" class="dropdown-menu"><button @click="showLogger = !showLogger">{{ showLogger ? '✓ ' : '' }}{{ menuText.menu.view.showTestResults }} <kbd>Alt+Shift+B</kbd></button><button @click="showTools = !showTools">{{ showTools ? '✓ ' : '' }}{{ menuText.menu.view.showLeftSidebar }} <kbd>Alt+Shift+L</kbd></button><button @click="showRight = !showRight">{{ showRight ? '✓ ' : '' }}{{ menuText.menu.view.showModuleLibrary }} <kbd>Alt+Shift+R</kbd></button><div class="menu-separator"></div><div class="menu-subtitle">{{ menuText.menu.view.language }}</div><button @click="setLocale('zh-CN')">{{ currentLocale === 'zh-CN' ? '✓ ' : '' }}{{ menuText.menu.view.chinese }}</button><button @click="setLocale('en-US')">{{ currentLocale === 'en-US' ? '✓ ' : '' }}{{ menuText.menu.view.english }}</button><div class="menu-separator"></div><button @click="showSettings = true; activeMenu = null">{{ menuText.menu.view.settings }}</button></div></div>
         <div class="menu-root"><button @click.stop="toggleMenu('blueprint')">{{ menuText.menu.blueprint.title }}</button><div v-if="activeMenu === 'blueprint'" class="dropdown-menu"><button @click="run(testGraph)">{{ menuText.menu.blueprint.validate }} <kbd>F5</kbd></button></div></div>
         <div class="menu-root"><button @click.stop="toggleMenu('help')">{{ menuText.menu.help.title }}</button><div v-if="activeMenu === 'help'" class="dropdown-menu"><button @click="showAbout = true; activeMenu = null">{{ menuText.menu.help.about }}</button></div></div>
       </div>
@@ -1799,10 +2070,11 @@ function toggleModuleCategory(category: string) {
     <section class="workspace" :style="workspaceStyle">
       <aside class="sidebar sidebar-file-browser">
         <div class="panel workspace-panel">
+          <div class="workspace-actions"><button :title="menuText.menu.file.openWorkspace" @click="chooseWorkspace">⌘</button><button :title="menuText.menu.file.refreshWorkspace" :disabled="!workspaceRoot" @click="refreshWorkspace">↻</button><button :title="`${menuText.menu.file.revealActiveFile} Ctrl+Shift+Q`" :disabled="!activeWorkspacePath" @click="revealActiveWorkspaceFile()">◎</button><button :title="menuText.menu.file.collapseWorkspace" :disabled="!expandedWorkspacePaths.size" @click="collapseWorkspaceTree">▴</button></div>
           <div class="panel-title"><span class="chevron">⌄</span> 文件浏览器<button class="panel-action" @click="chooseWorkspace">…</button></div>
           <div class="workspace-search"><input v-model="workspaceSearch" placeholder="搜索文件..." /></div>
           <div class="workspace-tree">
-            <button v-for="row in visibleWorkspaceNodes" :key="row.node.path" class="workspace-entry" :class="{ selected: selectedWorkspacePath === row.node.path, folder: row.node.isDir }" :style="{ paddingLeft: workspaceIndent(row.depth) }" :title="row.node.path" @click="toggleWorkspaceNode(row.node)" @contextmenu.stop.prevent="openFileContextMenu($event, row.node)" @dblclick="!row.node.isDir && workspaceOpen(row.node)">
+            <button v-for="row in visibleWorkspaceNodes" :key="row.node.path" class="workspace-entry" :class="workspaceEntryClass(row.node)" :style="{ paddingLeft: workspaceIndent(row.depth) }" :title="row.node.path" @click="toggleWorkspaceNode(row.node)" @contextmenu.stop.prevent="openFileContextMenu($event, row.node)" @dblclick="!row.node.isDir && workspaceOpen(row.node)">
               <span class="workspace-arrow">{{ row.node.loading ? '…' : row.node.isDir ? (workspaceSearch || expandedWorkspacePaths.has(row.node.path) ? '⌄' : '›') : '' }}</span>
               <span v-if="isFunctionResource(row.node)" class="workspace-icon function" :class="{ folder: row.node.isDir }"></span>
               <span v-else class="workspace-icon" :class="{ folder: row.node.isDir }"></span>
@@ -1858,7 +2130,7 @@ function toggleModuleCategory(category: string) {
             </section>
           </div>
           <div v-else-if="selectedVariable" class="node-detail variable-detail"><div class="detail-section-title">变量属性</div><label>Variable ID<input :value="selectedVariable.id" disabled /></label><label>名称<input v-model="selectedVariable.name" /></label><label>类型<select v-model="selectedVariable.type" @change="changeVariableType(selectedVariable)"><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="float">Float</option><option value="string">String</option><option value="array">Array</option></select></label><label>分组<select v-model="selectedVariable.groupId"><option v-for="group in variableGroups" :key="group.id" :value="group.id">{{ group.name }}</option></select></label><label>说明<textarea v-model="selectedVariable.description" rows="4" placeholder="变量用途和约束"></textarea></label><label>默认值<input v-if="selectedVariable.type === 'boolean'" v-model="selectedVariable.defaultValue" type="checkbox" /><input v-else-if="selectedVariable.type === 'string'" v-model="selectedVariable.defaultValue" type="text" /><input v-else-if="selectedVariable.type === 'array'" :value="Array.isArray(selectedVariable.defaultValue) ? selectedVariable.defaultValue.join(', ') : ''" placeholder="1, 2, text" @change="setVariableArrayDefault(selectedVariable, $event)" /><input v-else v-model.number="selectedVariable.defaultValue" type="number" /></label><button class="apply-properties" @click="updateVariable(selectedVariable)">应用变量属性</button><button class="delete-properties" @click="removeVariable(selectedVariable)">删除变量</button></div>
-          <div v-else-if="selectedNode" class="node-detail"><label>Node ID<input :value="selectedNode.id" disabled /></label><label>Type<input :value="selectedNode.typeId" disabled /></label><label>Title<input v-model="selectedNode.label" :disabled="Boolean(selectedNode.variableId)" /></label><label v-if="selectedNode.description">说明<textarea :value="selectedNode.description" rows="4" readonly></textarea></label><button class="apply-properties" @click="applyNodeProperties">Apply</button></div>
+          <div v-else-if="selectedNode" class="node-detail"><label>Node ID<input :value="selectedNode.id" disabled /></label><label>Type<input :value="selectedNode.typeId" disabled /></label><label>Title<input :value="selectedNode.label" readonly /></label><label v-if="selectedNode.description">说明<textarea :value="selectedNode.description" rows="4" readonly></textarea></label></div>
           <div v-else class="empty-detail">选择节点或变量以查看属性</div>
         </div>
       </aside>
@@ -1873,15 +2145,15 @@ function toggleModuleCategory(category: string) {
            </div>
            <button class="tab-scroll-arrow right" @click="scrollTabStrip(1)">▶</button>
          </div>
-        <div class="canvas-wrap" @contextmenu.prevent @dragenter="allowNodeDrop" @dragover="allowNodeDrop" @drop.prevent="dropNode"><div ref="canvas" class="rete-canvas"></div><div v-if="canvasToast.visible" class="canvas-toast" :style="{ left: `${canvasToast.x}px`, top: `${canvasToast.y}px` }">{{ canvasToast.message }}</div><div class="canvas-toolbar"><button title="Select">⌖</button><button title="Reset view" @click="editor?.resetView()">⌂</button></div><div class="canvas-hint">Right drag: pan&nbsp;&nbsp; Middle drag: pan&nbsp;&nbsp; Ctrl: multi-select&nbsp;&nbsp; Ctrl + right drag: cut connections&nbsp;&nbsp; Connection: click + Delete</div></div>
+        <div class="canvas-wrap" @contextmenu.prevent @dragenter="allowNodeDrop" @dragover="allowNodeDrop" @drop.prevent="dropNode"><div ref="canvas" class="rete-canvas"></div><div v-if="canvasToast.visible" class="canvas-toast" :style="{ left: `${canvasToast.x}px`, top: `${canvasToast.y}px` }">{{ canvasToast.message }}</div><div class="canvas-toolbar"><button title="Select">⌖</button><button title="Reset view" @click="editor?.resetView()">⌂</button></div><div class="canvas-hint">{{ menuText.canvas.hint }}</div></div>
         <div v-show="showLogger" class="logger-panel bottom-panel" :class="{ collapsed: testPanelCollapsed }" :style="testPanelStyle">
           <div class="bottom-panel-resizer" @pointerdown="beginTestPanelResize"></div>
           <div class="bottom-panel-title">
-            <strong class="bottom-panel-target">Test Results</strong>
-            <small>{{ validationIssues.length ? `${validationIssues.length} 条问题` : '无问题' }}</small>
-            <button class="bottom-panel-action" title="重新检查蓝图" @click="testGraph">Test</button>
-            <button class="bottom-panel-tool-button" :title="testPanelCollapsed ? '展开 Test Results' : '收起 Test Results'" @click="toggleTestPanel">{{ testPanelCollapsed ? '▴' : '▾' }}</button>
-            <button class="bottom-panel-tool-button close" title="关闭 Test Results" @click="showLogger = false">×</button>
+            <strong class="bottom-panel-target">{{ menuText.validation.title }}</strong>
+            <small>{{ validationIssueCountLabel }}</small>
+            <button class="bottom-panel-action" :title="menuText.validation.rerunTitle" @click="testGraph">{{ menuText.toolbar.test }}</button>
+            <button class="bottom-panel-tool-button" :title="testPanelCollapsed ? menuText.validation.expandTitle : menuText.validation.collapseTitle" @click="toggleTestPanel">{{ testPanelCollapsed ? '▴' : '▾' }}</button>
+            <button class="bottom-panel-tool-button close" :title="menuText.validation.closeTitle" @click="showLogger = false">×</button>
           </div>
           <div v-show="!testPanelCollapsed" class="logger-results">
             <div v-if="!validationIssues.length" class="logger-line">没有发现蓝图问题。</div>
@@ -1943,6 +2215,19 @@ function toggleModuleCategory(category: string) {
       <button v-if="fileContextMenu.isDir" @click="createBlueprintInFileContext">新建蓝图</button>
       <button v-if="fileContextMenu.isDir" @click="createFunctionInFileContext">新建函数</button>
       <button @click="revealFileContextInFolder">在资源管理器中定位</button>
+    </div>
+    <div v-if="showSettings" class="settings-backdrop" @click.self="showSettings = false">
+      <section class="settings-dialog">
+        <header><strong>{{ menuText.settings.title }}</strong><button @click="showSettings = false">×</button></header>
+        <div class="settings-body">
+          <label><span>{{ menuText.settings.language }}</span><select :value="currentLocale" @change="setLocale(($event.target as HTMLSelectElement).value as LocaleId)"><option value="zh-CN">中文</option><option value="en-US">English</option></select></label>
+          <label><span>{{ menuText.settings.uiScale }}</span><select :value="projectSettingsContent.appearance.uiScale" @change="updateProjectSettings(settings => { settings.appearance.uiScale = ($event.target as HTMLSelectElement).value as UiScale })"><option value="small">{{ menuText.settings.small }}</option><option value="normal">{{ menuText.settings.normal }}</option><option value="large">{{ menuText.settings.large }}</option></select></label>
+          <label><span>{{ menuText.settings.nodeScale }}</span><select :value="projectSettingsContent.appearance.nodeScale" @change="updateProjectSettings(settings => { settings.appearance.nodeScale = ($event.target as HTMLSelectElement).value as NodeScale })"><option value="normal">{{ menuText.settings.normal }}</option><option value="large">{{ menuText.settings.large }}</option></select></label>
+          <label class="settings-check"><input type="checkbox" :checked="projectSettingsContent.explorer.revealActiveFile" @change="updateProjectSettings(settings => { settings.explorer.revealActiveFile = ($event.target as HTMLInputElement).checked })" /><span>{{ menuText.settings.revealActiveFile }}</span></label>
+          <label class="settings-check"><input type="checkbox" :checked="projectSettingsContent.editor.validateBeforeSave" @change="updateProjectSettings(settings => { settings.editor.validateBeforeSave = ($event.target as HTMLInputElement).checked })" /><span>{{ menuText.settings.validateBeforeSave }}</span></label>
+        </div>
+        <footer><small>{{ projectSettingsPath || 'originblueprint.project' }}</small><button @click="showSettings = false">{{ menuText.settings.close }}</button></footer>
+      </section>
     </div>
     <div v-if="unsavedCloseDialog.visible" class="unsaved-close-backdrop">
       <section class="unsaved-close-dialog">

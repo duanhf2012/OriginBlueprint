@@ -28,6 +28,11 @@ type FileResult struct {
 	Content string `json:"content"`
 }
 
+type ProjectSettingsResult struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
+}
+
 type WorkspaceEntry struct {
 	Name  string `json:"name"`
 	Path  string `json:"path"`
@@ -44,6 +49,42 @@ type appConfig struct {
 	RecentFiles        []string `json:"recentFiles"`
 	LastGraphDirectory string   `json:"lastGraphDirectory"`
 }
+
+const projectSettingsFileName = "originblueprint.project"
+
+const defaultProjectSettingsContent = `{
+  "version": 1,
+  "appearance": {
+    "locale": "zh-CN",
+    "uiScale": "normal",
+    "nodeScale": "normal"
+  },
+  "layout": {
+    "panels": {
+      "files": 210,
+      "tools": 210,
+      "library": 230,
+      "variables": 300,
+      "test": 155,
+      "references": 180
+    },
+    "visible": {
+      "tools": true,
+      "library": true,
+      "test": false
+    }
+  },
+  "explorer": {
+    "expanded": [],
+    "selected": "",
+    "revealActiveFile": true,
+    "hideBuildFolders": false
+  },
+  "editor": {
+    "autoSave": "off",
+    "validateBeforeSave": false
+  }
+}`
 
 func NewApp() *App { return &App{} }
 
@@ -146,6 +187,42 @@ func exportsLegacyGraph(ext string) bool {
 
 func (a *App) ChooseWorkspace() (string, error) {
 	return runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{Title: "Select Workspace"})
+}
+
+func projectSettingsPath(root string) (string, error) {
+	if strings.TrimSpace(root) == "" {
+		return "", errors.New("workspace path is empty")
+	}
+	return filepath.Join(root, projectSettingsFileName), nil
+}
+
+func (a *App) LoadProjectSettings(root string) (ProjectSettingsResult, error) {
+	path, err := projectSettingsPath(root)
+	if err != nil {
+		return ProjectSettingsResult{}, err
+	}
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		if err := os.WriteFile(path, []byte(defaultProjectSettingsContent), 0644); err != nil {
+			return ProjectSettingsResult{}, err
+		}
+		return ProjectSettingsResult{Path: path, Content: defaultProjectSettingsContent}, nil
+	}
+	if err != nil {
+		return ProjectSettingsResult{}, err
+	}
+	return ProjectSettingsResult{Path: path, Content: string(data)}, nil
+}
+
+func (a *App) SaveProjectSettings(root, content string) (string, error) {
+	path, err := projectSettingsPath(root)
+	if err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		return "", err
+	}
+	return path, nil
 }
 
 func (a *App) CurrentWorkingDirectory() (string, error) {
