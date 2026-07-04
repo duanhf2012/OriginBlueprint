@@ -1,0 +1,16 @@
+[
+  {
+    "id": "origin.example.clamp-integer",
+    "title": "Clamp Integer",
+    "category": "Examples",
+    "subtitle": "Clamp a value between min and max.",
+    "inputs": [
+      { "key": "value", "label": "Value", "type": "data", "data_type": "Integer", "defaultValue": 0 },
+      { "key": "min", "label": "Min", "type": "data", "data_type": "Integer", "defaultValue": 0 },
+      { "key": "max", "label": "Max", "type": "data", "data_type": "Integer", "defaultValue": 100 }
+    ],
+    "outputs": [
+      { "key": "result", "label": "Result", "type": "data", "data_type": "Integer" }
+    ]
+  }
+]

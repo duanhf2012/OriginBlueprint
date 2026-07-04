@@ -72,6 +72,13 @@ export const enUS: MenuLocaleText = {
   canvas: {
     hint: 'Right drag: pan  Middle drag: pan  Ctrl: multi-select  Ctrl + right drag: cut connections  Connection: click + Delete'
   },
+  emptyStart: {
+    title: 'Start Editing Blueprints',
+    body: 'Open a workspace folder to load blueprint files and node libraries, or inspect the sample project first.',
+    openWorkspace: 'Open Workspace',
+    openSample: 'Open Sample Project',
+    newGraph: 'New Blank Graph'
+  },
   validation: {
     title: 'Test Results',
     issueCount: '{count} issue(s)',

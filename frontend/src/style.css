@@ -103,6 +103,12 @@ button { font: inherit; color: inherit; }
 .canvas-toast { position: absolute; z-index: 1300; max-width: min(420px, calc(100% - 32px)); transform: translate(-50%, -100%); padding: 7px 12px; border: 1px solid #d5a842; border-radius: 3px; background: #241b0ee8; color: #ffd98a; box-shadow: 0 8px 22px #000c, 0 0 0 1px #ffffff14 inset; font: 12px "Segoe UI", "Microsoft YaHei UI", sans-serif; line-height: 18px; text-align: center; pointer-events: none; animation: canvas-toast-pop 1.9s ease-out both; }
 @keyframes canvas-toast-pop { 0% { opacity: 0; transform: translate(-50%, calc(-100% + 8px)); } 12% { opacity: 1; transform: translate(-50%, -100%); } 78% { opacity: 1; transform: translate(-50%, -100%); } 100% { opacity: 0; transform: translate(-50%, calc(-100% - 8px)); } }
 .canvas-hint { position: absolute; left: 12px; bottom: 10px; padding: 5px 8px; border-radius: 3px; background: #151515bb; color: #777; font-size: 11px; pointer-events: none; }
+.empty-start-panel { position: absolute; z-index: 20; left: 50%; top: 46%; width: min(460px, calc(100% - 44px)); transform: translate(-50%, -50%); padding: 18px 20px 16px; border: 1px solid #35566a; border-radius: 6px; background: #20282dcc; box-shadow: 0 14px 40px #000c, inset 0 1px 0 #ffffff10; color: #d9e7ee; }
+.empty-start-panel h2 { margin: 0 0 8px; font-size: 20px; font-weight: 650; letter-spacing: 0; }
+.empty-start-panel p { margin: 0 0 14px; color: #9cafb9; font-size: 13px; line-height: 20px; }
+.empty-start-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.empty-start-actions button { min-height: 30px; padding: 0 11px; border: 1px solid #42677a; border-radius: 4px; background: #253846; color: #e4f4fb; cursor: pointer; }
+.empty-start-actions button:hover { border-color: #68a5c5; background: #315066; color: white; }
 .status-bar { height: 24px; display: flex; align-items: center; gap: 24px; padding: 0 8px; background: #252525; border-top: 1px solid #111; color: #888; font-size: 11px; }
 .status-bar span:first-child { color: #cfe4ee; font-weight: 600; }
 .status-bar span:nth-child(2) { margin-left: auto; }.status-bar button { height: 20px; min-width: 48px; border: 0; background: transparent; color: #aaa; }

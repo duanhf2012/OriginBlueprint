@@ -70,6 +70,13 @@ export interface MenuLocaleText {
   canvas: {
     hint: string
   }
+  emptyStart: {
+    title: string
+    body: string
+    openWorkspace: string
+    openSample: string
+    newGraph: string
+  }
   validation: {
     title: string
     issueCount: string
@@ -176,6 +183,13 @@ export const zhCN: MenuLocaleText = {
   },
   canvas: {
     hint: '右键拖拽：平移  中键拖拽：平移  Ctrl：多选  Ctrl + 右键拖拽：切断连线  连线：点击后按 Delete 删除'
+  },
+  emptyStart: {
+    title: '开始编辑蓝图',
+    body: '打开工程目录以加载蓝图文件和节点库，或先查看示例工程。',
+    openWorkspace: '打开工程目录',
+    openSample: '打开示例工程',
+    newGraph: '新建空白蓝图'
   },
   validation: {
     title: '检查结果',

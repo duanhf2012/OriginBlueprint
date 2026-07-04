@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "graphName": "Getting Started",
+  "nodes": [
+    {
+      "id": "entry",
+      "typeId": "origin.event.begin",
+      "position": { "x": 80, "y": 120 },
+      "values": {},
+      "properties": { "label": "Begin" }
+    },
+    {
+      "id": "message",
+      "typeId": "origin.literal.string",
+      "position": { "x": 330, "y": 220 },
+      "values": { "value": "Hello OriginBlueprint" },
+      "properties": { "label": "Message" }
+    },
+    {
+      "id": "print",
+      "typeId": "origin.action.print",
+      "position": { "x": 620, "y": 135 },
+      "values": {},
+      "properties": { "label": "Print" }
+    }
+  ],
+  "connections": [
+    { "source": "entry", "sourceOutput": "exec", "target": "print", "targetInput": "exec" },
+    { "source": "message", "sourceOutput": "value", "target": "print", "targetInput": "value" }
+  ],
+  "groups": [
+    {
+      "id": "group-start",
+      "title": "First Graph",
+      "x": 42,
+      "y": 70,
+      "width": 790,
+      "height": 310,
+      "nodeIds": ["entry", "message", "print"]
+    }
+  ],
+  "variables": [],
+  "variableGroups": [
+    { "id": "default", "name": "Default" }
+  ],
+  "view": { "x": 0, "y": 0, "zoom": 1 }
+}

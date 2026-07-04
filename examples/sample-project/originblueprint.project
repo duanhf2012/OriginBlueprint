@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "appearance": {
+    "locale": "en-US",
+    "uiScale": "normal",
+    "nodeScale": "normal"
+  },
+  "layout": {
+    "fileBrowserWidth": 250,
+    "leftToolsWidth": 230,
+    "rightSidebarWidth": 270,
+    "testPanelHeight": 180,
+    "referencePanelHeight": 180,
+    "variablePanelHeight": 260
+  },
+  "panels": {
+    "showLeftTools": true,
+    "showRightLibrary": true,
+    "showTestResults": true
+  },
+  "explorer": {
+    "expandedPaths": [],
+    "selectedPath": "",
+    "revealActiveFile": true
+  },
+  "moduleLibrary": {
+    "expandedCategories": ["Examples", "Flow", "Math"]
+  },
+  "editor": {
+    "validateBeforeSave": false
+  }
+}

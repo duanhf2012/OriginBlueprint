@@ -58,6 +58,17 @@ Build the desktop executable:
 wails build
 ```
 
+## Sample Project
+
+A small project is included at `examples/sample-project/`.
+
+Open that folder with **File > Open Workspace Folder** to try:
+
+- Loading a workspace-level `originblueprint.project`.
+- Opening a native `.obp` graph.
+- Opening a function `.obpf` graph.
+- Discovering a new-style custom node JSON file under `nodes/`.
+
 ## Basic Usage
 
 1. Open the application.
@@ -253,3 +264,11 @@ Desktop-only today:
 - [Legacy compatibility, Chinese](docs/LEGACY_COMPATIBILITY_ZH.md)
 - [Blueprint change safety, Chinese](docs/BLUEPRINT_CHANGE_SAFETY_ZH.md)
 - [Engine test matrix, Chinese](docs/BLUEPRINT_ENGINE_TEST_MATRIX_ZH.md)
+
+## Continuous Integration
+
+The repository includes a GitHub Actions workflow at `.github/workflows/ci.yml`. It runs:
+
+- `go test ./...`
+- `npm run test:layout`
+- `npm run build`

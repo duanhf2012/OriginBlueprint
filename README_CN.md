@@ -58,6 +58,17 @@ npm run build
 wails build
 ```
 
+## 示例工程
+
+仓库内置了一个小型示例工程：`examples/sample-project/`。
+
+通过 **文件 > 打开工程目录** 打开该目录，可以体验：
+
+- 加载工程级 `originblueprint.project`。
+- 打开原生 `.obp` 蓝图。
+- 打开函数 `.obpf` 蓝图。
+- 从 `nodes/` 目录发现新格式自定义节点 JSON。
+
 ## 基本使用
 
 1. 启动应用。
@@ -261,3 +272,11 @@ GraphDocument JSON
 - [Legacy 兼容说明](docs/LEGACY_COMPATIBILITY_ZH.md)
 - [蓝图修改安全规则](docs/BLUEPRINT_CHANGE_SAFETY_ZH.md)
 - [Go 引擎测试矩阵](docs/BLUEPRINT_ENGINE_TEST_MATRIX_ZH.md)
+
+## 持续集成
+
+仓库已包含 GitHub Actions 工作流：`.github/workflows/ci.yml`。它会运行：
+
+- `go test ./...`
+- `npm run test:layout`
+- `npm run build`

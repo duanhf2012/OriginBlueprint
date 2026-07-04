@@ -75,6 +75,74 @@ func TestGraphContentForLegacyPathExportsVGF(t *testing.T) {
 	}
 }
 
+func TestLegacyVGFMigrationPreservesKnownAndUnknownContent(t *testing.T) {
+	legacy := legacyGraph{
+		GraphName: "Compat Sample",
+		Time:      "2026-07-04T00:00:00Z",
+		Nodes: []legacyNode{
+			{ID: "begin", Class: "BeginNode", Module: "legacy", Position: []float64{10, 20}},
+			{ID: "add", Class: "AddInt", Module: "legacy", Position: []float64{220, 20}, PortDefaults: map[string]interface{}{"0": float64(1), "1": float64(2)}},
+			{ID: "unknown", Class: "CustomLegacyNode", Module: "legacy.custom", Position: []float64{430, 20}, PortDefaults: map[string]interface{}{"0": "keep me"}},
+		},
+		Edges: []legacyEdge{
+			{EdgeID: "exec-edge", SourceNodeID: "begin", SourceIndex: 0, TargetNodeID: "unknown", TargetIndex: 0},
+			{EdgeID: "data-edge", SourceNodeID: "add", SourceIndex: 0, TargetNodeID: "unknown", TargetIndex: 1},
+		},
+		Groups: []legacyGroup{{Title: "Legacy Group", Nodes: []string{"begin", "add", "unknown"}}},
+	}
+	data, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document, err := migrateLegacyGraph(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if document.SchemaVersion != GraphSchemaVersion || document.GraphName != "Compat Sample" {
+		t.Fatalf("document header = %#v", document)
+	}
+	if len(document.Nodes) == 0 {
+		t.Fatalf("known runtime nodes were not migrated: %#v", document)
+	}
+	if document.Legacy == nil || len(document.Legacy.HiddenNodes) != 1 {
+		t.Fatalf("unknown legacy node was not preserved: %#v", document.Legacy)
+	}
+	if document.Legacy.HiddenNodes[0].Class != "CustomLegacyNode" {
+		t.Fatalf("hidden node class = %q", document.Legacy.HiddenNodes[0].Class)
+	}
+	if len(document.Legacy.HiddenEdges) != 2 {
+		t.Fatalf("legacy edges were not preserved for unknown endpoints: %#v", document.Legacy.HiddenEdges)
+	}
+	if len(document.Legacy.Groups) != 1 || document.Legacy.Groups[0].Title != "Legacy Group" {
+		t.Fatalf("legacy group was not preserved: %#v", document.Legacy.Groups)
+	}
+}
+
+func TestSampleProjectBlueprintDocumentsParse(t *testing.T) {
+	paths := []string{
+		filepath.Join("examples", "sample-project", "blueprints", "getting-started.obp"),
+		filepath.Join("examples", "sample-project", "functions", "calculate-damage.obpf"),
+	}
+	for _, path := range paths {
+		t.Run(path, func(t *testing.T) {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var document GraphDocument
+			if err := json.Unmarshal(data, &document); err != nil {
+				t.Fatal(err)
+			}
+			if document.SchemaVersion != GraphSchemaVersion || document.GraphName == "" {
+				t.Fatalf("invalid sample document header: %#v", document)
+			}
+			if issues := validateGraph(document); len(issues) != 0 {
+				t.Fatalf("sample document should validate cleanly: %#v", issues)
+			}
+		})
+	}
+}
+
 func TestGraphContentForLegacyPathKeepsNativeWhenFunctionNodesExist(t *testing.T) {
 	document := GraphDocument{
 		SchemaVersion: GraphSchemaVersion,

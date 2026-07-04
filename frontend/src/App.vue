@@ -165,6 +165,7 @@ const applicationClasses = computed(() => ({
   [`node-scale-${projectSettingsContent.value.appearance.nodeScale}`]: true
 }))
 const activeWorkspacePath = computed(() => activeTab.value?.path || '')
+const showEmptyStart = computed(() => !workspaceRoot.value && !activeWorkspacePath.value && !activeTab.value?.dirty && metrics.value.nodes === 0)
 const validationIssueCountLabel = computed(() => validationIssues.value.length ? menuText.value.validation.issueCount.replace('{count}', String(validationIssues.value.length)) : menuText.value.validation.noIssues)
 const referencePanelStyle = computed(() => ({ height: `${referencePanelCollapsed.value ? 34 : referencePanelHeight.value}px` }))
 const testPanelStyle = computed(() => ({ height: `${testPanelCollapsed.value ? 34 : testPanelHeight.value}px` }))
@@ -1291,6 +1292,20 @@ async function chooseWorkspace() {
   const path = await platform.chooseWorkspace(); if (path) await loadWorkspace(path)
 }
 
+function joinLocalPath(root: string, ...parts: string[]) {
+  const separator = root.includes('\\') ? '\\' : '/'
+  return [root.replace(/[\\/]+$/, ''), ...parts].filter(Boolean).join(separator)
+}
+
+async function openSampleProject() {
+  const root = await platform.currentWorkingDirectory()
+  if (!root) {
+    status.value = 'Sample project is available in examples/sample-project'
+    return
+  }
+  await loadWorkspace(joinLocalPath(root, 'examples', 'sample-project'))
+}
+
 async function refreshWorkspace() {
   if (!workspaceRoot.value) return
   await loadWorkspace(workspaceRoot.value)
@@ -1692,37 +1707,90 @@ function beginLeftToolsResize(event: PointerEvent) {
 }
 
 type ImageExportBounds = { x: number; y: number; width: number; height: number }
+type ImageExportConnection = { path: string; color: string; width: number }
 const exportImagePadding = 28
 
 function prepareCanvasForImageExport(root: HTMLElement) {
   const restore: Array<() => void> = []
   root.querySelectorAll<SVGSVGElement>('.blueprint-connection').forEach(svg => {
-    const line = svg.querySelector<SVGPathElement>('.connection-line')
-    const d = line?.getAttribute('d')
-    if (!d) return
-
-    const computedConnection = window.getComputedStyle(svg)
-    const color = computedConnection.getPropertyValue('--connection-color').trim() || '#f2f2f2'
-    const width = svg.classList.contains('socket-exec') ? '2.5px' : '1.55px'
-    const originalChildren = Array.from(svg.childNodes)
-    const exportPath = document.createElementNS('http://www.w3.org/2000/svg', 'path')
-    exportPath.setAttribute('d', d)
-    exportPath.setAttribute('fill', 'none')
-    exportPath.setAttribute('stroke', color)
-    exportPath.setAttribute('stroke-width', width)
-    exportPath.setAttribute('stroke-linecap', 'round')
-    exportPath.setAttribute('stroke-linejoin', 'round')
-    exportPath.setAttribute('vector-effect', 'non-scaling-stroke')
-    exportPath.style.setProperty('filter', 'none', 'important')
-    exportPath.style.setProperty('pointer-events', 'none', 'important')
-    svg.replaceChildren(exportPath)
-    restore.push(() => svg.replaceChildren(...originalChildren))
+    const previousDisplay = svg.style.getPropertyValue('display')
+    const previousPriority = svg.style.getPropertyPriority('display')
+    svg.style.setProperty('display', 'none', 'important')
+    restore.push(() => {
+      if (previousDisplay) svg.style.setProperty('display', previousDisplay, previousPriority)
+      else svg.style.removeProperty('display')
+    })
   })
   return () => restore.reverse().forEach(callback => callback())
 }
 
-function shouldExportNode(node: Element) {
-  return !node.classList?.contains('connection-hit-area')
+function captureExportConnections(root: HTMLElement, bounds: ImageExportBounds | null): ImageExportConnection[] {
+  const rootRect = root.getBoundingClientRect()
+  return Array.from(root.querySelectorAll<SVGSVGElement>('.blueprint-connection')).flatMap(svg => {
+    const line = svg.querySelector<SVGPathElement>('.connection-line')
+    const path = line?.getAttribute('d') || ''
+    if (!path) return []
+    const rect = relativeElementBounds(svg, rootRect)
+    if (bounds && rect && !intersectsBounds(rect, bounds)) return []
+    const color = window.getComputedStyle(svg).getPropertyValue('--connection-color').trim() || '#f2f2f2'
+    return [{ path, color, width: svg.classList.contains('socket-exec') ? 2.5 : 1.55 }]
+  })
+}
+
+function captureExportOccluders(root: HTMLElement, bounds: ImageExportBounds | null) {
+  const rootRect = root.getBoundingClientRect()
+  return Array.from(root.querySelectorAll<HTMLElement>('.blueprint-node')).flatMap(node => {
+    const rect = relativeElementBounds(node, rootRect)
+    if (!rect || (bounds && !intersectsBounds(rect, bounds))) return []
+    return [paddedExportBounds(rect, rootRect)]
+  })
+}
+
+function loadDataImage(dataURL: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image()
+    image.onload = () => resolve(image)
+    image.onerror = () => reject(new Error('Failed to load exported graph image'))
+    image.src = dataURL
+  })
+}
+
+function drawExportConnections(context: CanvasRenderingContext2D, connections: ImageExportConnection[], bounds: ImageExportBounds | null, pixelRatio: number) {
+  context.save()
+  context.scale(pixelRatio, pixelRatio)
+  if (bounds) context.translate(-bounds.x, -bounds.y)
+  context.lineCap = 'round'
+  context.lineJoin = 'round'
+  for (const connection of connections) {
+    context.strokeStyle = connection.color
+    context.lineWidth = connection.width
+    context.stroke(new Path2D(connection.path))
+  }
+  context.restore()
+}
+
+function redrawExportOccluders(context: CanvasRenderingContext2D, image: HTMLImageElement, occluders: ImageExportBounds[], bounds: ImageExportBounds | null, pixelRatio: number) {
+  for (const occluder of occluders) {
+    const x = Math.max(0, Math.floor(((bounds ? occluder.x - bounds.x : occluder.x) - 4) * pixelRatio))
+    const y = Math.max(0, Math.floor(((bounds ? occluder.y - bounds.y : occluder.y) - 4) * pixelRatio))
+    const width = Math.min(image.width - x, Math.ceil((occluder.width + 8) * pixelRatio))
+    const height = Math.min(image.height - y, Math.ceil((occluder.height + 8) * pixelRatio))
+    if (width > 0 && height > 0) context.drawImage(image, x, y, width, height, x, y, width, height)
+  }
+}
+
+async function composeExportImage(baseDataURL: string, connections: ImageExportConnection[], occluders: ImageExportBounds[], bounds: ImageExportBounds | null, pixelRatio: number) {
+  if (!connections.length) return baseDataURL
+  const image = await loadDataImage(baseDataURL)
+  const output = document.createElement('canvas')
+  output.width = image.width
+  output.height = image.height
+  const context = output.getContext('2d')
+  if (!context) return baseDataURL
+  context.drawImage(image, 0, 0)
+  drawExportConnections(context, connections, bounds, pixelRatio)
+  redrawExportOccluders(context, image, occluders, bounds, pixelRatio)
+  return output.toDataURL('image/png')
 }
 
 function relativeElementBounds(element: Element, root: DOMRect): ImageExportBounds | null {
@@ -1788,14 +1856,16 @@ async function exportImage(selected: boolean) {
   if (selected) await editor?.fitSelected(); else await editor?.resetView()
   await nextTick(); await new Promise(resolve => setTimeout(resolve, 120))
   const bounds = exportImageBounds(selected)
+  const connections = captureExportConnections(canvas.value, bounds)
+  const occluders = captureExportOccluders(canvas.value, bounds)
+  const pixelRatio = 2
   canvas.value.classList.add('exporting-image')
   const restoreExportStyles = prepareCanvasForImageExport(canvas.value)
   try {
-    const data = await toPng(canvas.value, {
+    const baseData = await toPng(canvas.value, {
       backgroundColor: '#202020',
-      pixelRatio: 2,
+      pixelRatio,
       cacheBust: true,
-      filter: node => !(node instanceof Element) || shouldExportNode(node),
       width: bounds?.width,
       height: bounds?.height,
       style: bounds ? {
@@ -1805,6 +1875,7 @@ async function exportImage(selected: boolean) {
         transformOrigin: 'top left'
       } : undefined
     })
+    const data = await composeExportImage(baseData, connections, occluders, bounds, pixelRatio)
     const saved = await platform.savePNG(path, data)
     status.value = saved ? `Exported ${saved}` : 'Export cancelled'
   } finally {
@@ -2259,7 +2330,7 @@ function toggleModuleCategory(category: string) {
            </div>
            <button class="tab-scroll-arrow right" @click="scrollTabStrip(1)">▶</button>
          </div>
-        <div class="canvas-wrap" @contextmenu.prevent @dragenter="allowNodeDrop" @dragover="allowNodeDrop" @drop.prevent="dropNode"><div ref="canvas" class="rete-canvas"></div><div v-if="canvasToast.visible" class="canvas-toast" :style="{ left: `${canvasToast.x}px`, top: `${canvasToast.y}px` }">{{ canvasToast.message }}</div><div class="canvas-toolbar"><button title="Select">⌖</button><button title="Reset view" @click="editor?.resetView()">⌂</button></div><div class="canvas-hint">{{ menuText.canvas.hint }}</div></div>
+        <div class="canvas-wrap" @contextmenu.prevent @dragenter="allowNodeDrop" @dragover="allowNodeDrop" @drop.prevent="dropNode"><div ref="canvas" class="rete-canvas"></div><div v-if="showEmptyStart" class="empty-start-panel"><h2>{{ menuText.emptyStart.title }}</h2><p>{{ menuText.emptyStart.body }}</p><div class="empty-start-actions"><button @click="chooseWorkspace">{{ menuText.emptyStart.openWorkspace }}</button><button @click="openSampleProject">{{ menuText.emptyStart.openSample }}</button><button @click="newGraph">{{ menuText.emptyStart.newGraph }}</button></div></div><div v-if="canvasToast.visible" class="canvas-toast" :style="{ left: `${canvasToast.x}px`, top: `${canvasToast.y}px` }">{{ canvasToast.message }}</div><div class="canvas-toolbar"><button title="Select">⌖</button><button title="Reset view" @click="editor?.resetView()">⌂</button></div><div class="canvas-hint">{{ menuText.canvas.hint }}</div></div>
         <div v-show="showLogger" class="logger-panel bottom-panel" :class="{ collapsed: testPanelCollapsed }" :style="testPanelStyle">
           <div class="bottom-panel-resizer" @pointerdown="beginTestPanelResize"></div>
           <div class="bottom-panel-title">
