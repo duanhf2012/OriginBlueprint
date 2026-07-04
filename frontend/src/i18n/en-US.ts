@@ -82,6 +82,8 @@ export const enUS: MenuLocaleText = {
     closeTitle: 'Close Test Results'
   },
   module: {
+    title: 'Module Library',
+    searchPlaceholder: 'Search modules...',
     functionCategory: 'Functions',
     currentBlueprintFunctions: 'Current Blueprint Functions',
     workspaceFunctionLibrary: 'Workspace Function Library',

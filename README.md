@@ -1,42 +1,33 @@
 # OriginBlueprint
 
-OriginBlueprint is a desktop-first visual blueprint editor for legacy `.vgf` graphs and native `.obp/.obpf` graph documents. It uses Go + Wails v2 for persistence, migration, validation, runtime services, and platform integration, with Vue 3 + TypeScript + Rete.js v2 for the interactive node editor.
+[中文说明](README_CN.md)
 
-> 中文说明见下方。
+OriginBlueprint is a desktop-first visual blueprint editor built with Go, Wails v2, Vue 3, TypeScript, and Rete.js v2. It is designed to edit legacy `.vgf` blueprints while also supporting native `.obp` graph files and `.obpf` function blueprint files.
 
-## Features
+![OriginBlueprint editor preview](docs/assets/OriginBlueprint.png)
 
-- Node graph editing with pan, zoom, box selection, copy/paste, undo/redo, grouping, alignment, and connection cutting.
-- Legacy `.vgf` import with compatibility preservation for unknown legacy nodes and edges.
-- Native `.obp` graph documents and `.obpf` function blueprint files.
-- JSON-driven node library from `nodes/**/*.json`.
-- Workspace file browser, recent files, function library discovery, and node reference search in the desktop build.
-- Graph validation for missing entries, invalid ports, unreachable execution flow, and potential execution cycles.
-- Image export for selected nodes or the whole graph when a visual snapshot is useful.
-- Chinese and English UI menu text.
+## What It Does
 
-## Web Compatibility
+- Edit node graphs with pan, zoom, box selection, copy/paste, undo/redo, node groups, alignment, and connection cutting.
+- Open and preserve legacy `.vgf` files, including unknown legacy nodes and edges where possible.
+- Save native `.obp` graph documents and `.obpf` function blueprint files.
+- Load custom node definitions from JSON files under `nodes/`.
+- Browse a workspace folder, open blueprints from the file tree, reveal files in Explorer/Finder, and refresh the node library.
+- Validate graph structure, missing ports, type mismatches, missing entry nodes, unreachable execution flow, and possible execution cycles.
+- Export selected nodes or the whole graph as a PNG image.
+- Switch UI language between English and Chinese.
 
-The frontend can be built with Vite and opened as a web app, but the current product is still desktop-first.
+## File Types
 
-Works in the browser build:
+| File | Purpose |
+| --- | --- |
+| `.vgf` | Legacy blueprint JSON. The editor can migrate and preserve legacy content. |
+| `.obp` | Native OriginBlueprint graph document. |
+| `.obpf` | Native function blueprint document. |
+| `originblueprint.project` | Workspace-level editor settings such as layout sizes, language, and UI preferences. |
+| `nodes/**/*.json` | Node definition files loaded into the module library. |
 
-- Create and edit native graph documents.
-- Open local `.obp/.obpf/.json` files through the browser file picker.
-- Save native graph documents by downloading JSON.
-- Load the static node library from `nodes/manifest.json`.
-- Export graph images through browser download.
-
-Desktop-only today:
-
-- Legacy `.vgf` migration and legacy export.
-- Go-backed graph validation and runtime execution services.
-- Workspace directory scanning, recent files, reveal-in-folder, and node reference search.
-- Native file dialogs and application window controls.
-
-Before publishing a production web build, the desktop-only services should be replaced by web-safe equivalents such as an HTTP/WASM validation service, browser workspace APIs where available, or a server-side project backend.
-
-## Development
+## Quick Start
 
 Desktop development:
 
@@ -67,87 +58,198 @@ Build the desktop executable:
 wails build
 ```
 
-## Documentation
+## Basic Usage
+
+1. Open the application.
+2. Use **File > Open Workspace** to select a project directory.
+3. Open `.vgf`, `.obp`, or `.obpf` files from the file browser.
+4. Drag nodes from the module library into the canvas.
+5. Connect compatible ports. Execution ports represent control flow; data ports carry typed values.
+6. Use the variables panel to create variables and variable groups.
+7. Use **Test** to validate the graph.
+8. Save with `Ctrl+S`, or use **Save As** to choose a new file.
+
+Useful shortcuts:
+
+| Shortcut | Action |
+| --- | --- |
+| `Ctrl+S` | Save current graph |
+| `Ctrl+Shift+S` | Save As |
+| `Ctrl+A` | Select all |
+| `Ctrl+D` | Deselect all |
+| `Ctrl+C / Ctrl+X / Ctrl+V` | Copy, cut, paste |
+| `Ctrl+Z / Ctrl+Y` | Undo, redo |
+| `Ctrl+G` | Create a group, or ungroup when a group is selected |
+| `Ctrl+Shift+Q` | Reveal the current or selected blueprint file in the system file manager |
+| `Ctrl+Alt+R` | Export selected nodes as PNG |
+| `Ctrl+Shift+R` | Export the whole graph as PNG |
+
+## Project Directory Rules
+
+A typical workspace can look like this:
+
+```text
+ProjectRoot/
+  originblueprint.project
+  nodes/
+    MyGameplayNodes.json
+    combat/
+      DamageNodes.json
+  blueprints/
+    battle.vgf
+    skill.obp
+  functions/
+    calculate_damage.obpf
+```
+
+Rules:
+
+- Open the workspace root folder, not an individual blueprint file, when you want file browser, node library, and project settings support.
+- Put custom node JSON files anywhere under `nodes/`. The loader scans recursively.
+- Keep blueprint files in any folder you prefer. The file browser shows `.vgf`, `.obp`, and `.obpf` files.
+- `originblueprint.project` belongs to the workspace root. It stores editor preferences for that project.
+- Avoid editing generated build output. Treat `frontend/dist/` and packaged app output as disposable.
+
+## Custom Node JSON
+
+Use the current explicit node-definition format for new nodes. It uses stable node IDs and named port keys, which are easier to maintain than legacy numeric port IDs.
+
+Legacy node JSON can still be imported for compatibility, but new documentation and new projects should use the format below.
+
+### Node Example
+
+```json
+{
+  "id": "origin.example.clamp-integer",
+  "title": "Clamp Integer",
+  "category": "Math",
+  "subtitle": "Clamp a value between min and max.",
+  "inputs": [
+    { "key": "value", "label": "Value", "type": "data", "data_type": "Integer", "defaultValue": 0 },
+    { "key": "min", "label": "Min", "type": "data", "data_type": "Integer", "defaultValue": 0 },
+    { "key": "max", "label": "Max", "type": "data", "data_type": "Integer", "defaultValue": 100 }
+  ],
+  "outputs": [
+    { "key": "result", "label": "Result", "type": "data", "data_type": "Integer" }
+  ]
+}
+```
+
+Field notes:
+
+- `id`: Stable node type ID. Do not rename it after users save graphs with this node.
+- `title`: Display name in the module library and node header.
+- `category`: Module library category.
+- `subtitle`: Optional description shown as secondary text.
+- `inputs` / `outputs`: Port definitions.
+- `key`: Stable port key used by graph documents and runtime validation.
+- `label`: Port display text.
+- `type`: Use `exec` for execution-flow ports and `data` for value ports.
+- `data_type`: Supported common values include `Integer`, `Float`, `Boolean`, `String`, `Array`, and `Any`.
+- `defaultValue`: Optional inline default value for input data ports.
+- `arrayItemType`: Optional input item control type for array ports, usually `number` or `string`.
+
+Guidelines:
+
+- Keep `id` stable after users start saving graphs with that node.
+- Use lowercase, descriptive port keys such as `exec`, `value`, `result`, `true`, and `false`.
+- Use `exec` ports only for control-flow order.
+- Use data ports for values and set `defaultValue` when a user should be able to type a value directly on the node.
+- Adding a JSON node makes it visible and editable. It does not automatically implement runtime behavior in Go.
+
+## Dynamic Branch Nodes
+
+Some flow nodes need a `+ Item` control that adds matching parameter rows and execution outputs. Use `dynamicBranch` for this pattern:
+
+```json
+{
+  "id": "origin.flow.equal-switch-example",
+  "title": "Equal Switch",
+  "category": "Flow",
+  "inputs": [
+    { "key": "exec", "label": "", "type": "exec" },
+    { "key": "value", "label": "Value", "type": "data", "data_type": "Integer", "defaultValue": 0 },
+    { "key": "cases", "label": "Cases", "type": "data", "data_type": "Array", "defaultValue": [], "arrayItemType": "number" }
+  ],
+  "outputs": [
+    { "key": "otherwise", "label": "Otherwise", "type": "exec" },
+    { "key": "case1", "label": "", "type": "exec" },
+    { "key": "case2", "label": "", "type": "exec" }
+  ],
+  "dynamicBranch": {
+    "controlInput": "cases",
+    "defaultOutput": "otherwise",
+    "outputPrefix": "case",
+    "outputStartIndex": 1,
+    "maxBranches": 2
+  }
+}
+```
+
+## Go Integration
+
+The editor keeps persistent graph data in the `GraphDocument` contract defined in `graph.go`. Do not serialize Rete.js internals as a file format.
+
+Important Go files:
+
+| File | Responsibility |
+| --- | --- |
+| `graph.go` | `GraphDocument`, validation, stable built-in port definitions. |
+| `legacy.go` | Legacy `.vgf` migration and export compatibility. |
+| `node_schemas.go` | Loading `nodes/**/*.json` documents. |
+| `execution.go` | Go runtime execution semantics. |
+| `app.go` | Wails-facing file, workspace, project, image export, and platform services. |
+
+When adding a runtime node:
+
+1. Add or update the JSON node definition under `nodes/`.
+2. If the node must validate as a known runtime node, add its stable port definition in `graph.go`.
+3. If it should execute in the Go runtime, implement its behavior in `execution.go`.
+4. If it must import/export old `.vgf` files, update the mapping rules in `legacy.go` and `frontend/src/editor/runtimeNodeSchemas.ts`.
+5. Add focused Go tests for validation, migration, execution, or round-trip behavior.
+
+Minimal execution flow:
+
+```text
+GraphDocument JSON
+  -> Go validation / migration
+  -> executeGraph(...)
+  -> ExecutionEvent logs, results, variables, and node states
+```
+
+The frontend owns live canvas interaction. Go owns durable file compatibility, validation, migration, and execution rules.
+
+## Web Compatibility
+
+The frontend can be built as a Vite web app, but the product is currently desktop-first.
+
+Works in the browser build:
+
+- Create and edit native graph documents.
+- Open local `.obp`, `.obpf`, or JSON files through the browser file picker.
+- Save native graph documents by downloading JSON.
+- Load the static node library from `nodes/manifest.json`.
+- Export graph images through browser download.
+
+Desktop-only today:
+
+- Native workspace directory scanning.
+- Recent files and reveal-in-folder.
+- Legacy `.vgf` migration and export through Go services.
+- Go-backed validation and runtime services.
+- Native file dialogs and Wails window controls.
+
+## Compatibility Notes
+
+- Unknown legacy nodes and edges should be preserved instead of silently dropped.
+- `.vgf` round trips are compatibility-sensitive. Test representative legacy files when changing migration or export behavior.
+- New node IDs, port keys, and data types should be treated as stable once saved into graph documents.
+- If a new node must be consumed by an old external parser, provide an explicit legacy export mapping.
+
+## More Documentation
 
 - [Architecture](docs/ARCHITECTURE.md)
-- [AI project context, Chinese](docs/AI_PROJECT_CONTEXT_ZH.md)
-- [Legacy compatibility, Chinese](docs/LEGACY_COMPATIBILITY_ZH.md)
 - [Node JSON format, Chinese](docs/NODE_JSON_FORMAT_ZH.md)
-- [Maintenance guide, Chinese](docs/MAINTENANCE_GUIDE_ZH.md)
-
----
-
-# OriginBlueprint 中文说明
-
-OriginBlueprint 是一个以桌面端为主的可视化蓝图编辑器，用于编辑历史 `.vgf` 蓝图和新的 `.obp/.obpf` 图文档。项目使用 Go + Wails v2 负责文件读写、迁移、校验、运行时服务和系统能力，使用 Vue 3 + TypeScript + Rete.js v2 负责节点画布和高频交互。
-
-## 主要功能
-
-- 节点图编辑：平移、缩放、框选、复制粘贴、撤销重做、节点组、对齐、连线剪切。
-- 兼容历史 `.vgf`：未知旧节点和旧边会进入兼容保留区，避免静默丢失内容。
-- 支持原生 `.obp` 蓝图和 `.obpf` 函数蓝图文件。
-- 从 `nodes/**/*.json` 加载节点库。
-- 桌面版支持工程文件浏览器、最近文件、函数库发现和节点引用搜索。
-- 蓝图检查：入口缺失、端口错误、不可达执行流和潜在执行循环。
-- 支持导出选中节点或整张蓝图为图片，方便文档和讨论。
-- 菜单支持中文和英文切换。
-
-## 网页版兼容性
-
-当前前端可以作为 Vite 网页应用构建，但产品能力仍以桌面版为准。
-
-浏览器构建可用：
-
-- 创建和编辑原生图文档。
-- 通过浏览器文件选择器打开 `.obp/.obpf/.json`。
-- 通过下载方式保存原生 JSON 图文档。
-- 从 `nodes/manifest.json` 加载静态节点库。
-- 通过浏览器下载导出蓝图图片。
-
-当前仅桌面版可用：
-
-- 历史 `.vgf` 迁移和 legacy 导出。
-- Go 侧蓝图校验和运行时执行服务。
-- 工程目录扫描、最近文件、资源管理器定位和节点引用搜索。
-- 原生文件对话框和窗口控制。
-
-如果未来正式发布网页版，需要为这些桌面专属服务补上 Web 方案，例如 HTTP/WASM 校验服务、可用时接入浏览器文件系统 API，或提供服务端工程后端。
-
-## 开发
-
-桌面开发：
-
-```powershell
-wails dev
-```
-
-只开发前端：
-
-```powershell
-cd frontend
-npm install
-npm run dev
-```
-
-构建和验证：
-
-```powershell
-go test ./...
-cd frontend
-npm run test:layout
-npm run build
-```
-
-构建桌面可执行文件：
-
-```powershell
-wails build
-```
-
-## 相关文档
-
-- [架构说明](docs/ARCHITECTURE.md)
-- [AI 项目速览](docs/AI_PROJECT_CONTEXT_ZH.md)
-- [Legacy 兼容说明](docs/LEGACY_COMPATIBILITY_ZH.md)
-- [节点 JSON 格式](docs/NODE_JSON_FORMAT_ZH.md)
-- [维护指南](docs/MAINTENANCE_GUIDE_ZH.md)
+- [Legacy compatibility, Chinese](docs/LEGACY_COMPATIBILITY_ZH.md)
+- [Blueprint change safety, Chinese](docs/BLUEPRINT_CHANGE_SAFETY_ZH.md)
+- [Engine test matrix, Chinese](docs/BLUEPRINT_ENGINE_TEST_MATRIX_ZH.md)

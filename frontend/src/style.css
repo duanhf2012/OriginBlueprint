@@ -94,6 +94,9 @@ button { font: inherit; color: inherit; }
 .rete-canvas.is-interacting input, .rete-canvas.is-interacting textarea, .rete-canvas.is-interacting select, .rete-canvas.is-interacting button { box-shadow: none !important; }
 .rete-canvas.is-interacting .blueprint-socket.exec path { stroke-width: .75; }
 .rete-canvas.is-interacting .blueprint-socket:hover { transform: none !important; }
+.rete-canvas.exporting-image .connection-hit-area { display: none !important; }
+.rete-canvas.exporting-image .connection-line { filter: none !important; stroke: var(--connection-color, #f2f2f2) !important; shape-rendering: geometricPrecision; }
+.rete-canvas.exporting-image .blueprint-connection.socket-exec .connection-line { stroke-width: 2.5px !important; }
 .canvas-toolbar { position: absolute; top: 12px; left: 12px; display: flex; gap: 4px; }
 .canvas-toolbar button { width: 30px; height: 28px; border: 1px solid #444; border-radius: 3px; background: #292929dd; color: #aaa; cursor: pointer; }
 .canvas-toolbar button:hover { color: white; border-color: #657b8b; }
@@ -101,6 +104,7 @@ button { font: inherit; color: inherit; }
 @keyframes canvas-toast-pop { 0% { opacity: 0; transform: translate(-50%, calc(-100% + 8px)); } 12% { opacity: 1; transform: translate(-50%, -100%); } 78% { opacity: 1; transform: translate(-50%, -100%); } 100% { opacity: 0; transform: translate(-50%, calc(-100% - 8px)); } }
 .canvas-hint { position: absolute; left: 12px; bottom: 10px; padding: 5px 8px; border-radius: 3px; background: #151515bb; color: #777; font-size: 11px; pointer-events: none; }
 .status-bar { height: 24px; display: flex; align-items: center; gap: 24px; padding: 0 8px; background: #252525; border-top: 1px solid #111; color: #888; font-size: 11px; }
+.status-bar span:first-child { color: #cfe4ee; font-weight: 600; }
 .status-bar span:nth-child(2) { margin-left: auto; }.status-bar button { height: 20px; min-width: 48px; border: 0; background: transparent; color: #aaa; }
 .search-box { height: 29px; display: flex; align-items: center; gap: 7px; margin: 7px; padding: 0 8px; border: 1px solid #444; border-radius: 2px; background: #202020; color: #777; font-size: var(--settings-font-size); }.search-box:focus-within { border-color: #4b86ab; }.search-box input { min-width: 0; width: 100%; border: 0; outline: 0; background: transparent; color: #ddd; font: var(--search-input-font-size) Consolas, monospace; }.search-box input::placeholder { color: #666; }
 .module-list { min-height: 0; flex: 1; max-height: calc(100vh - 190px); overflow: auto; padding: 4px 6px 8px; font: var(--module-font-size) "Segoe UI", "Microsoft YaHei UI", sans-serif; line-height: var(--module-line-height); }

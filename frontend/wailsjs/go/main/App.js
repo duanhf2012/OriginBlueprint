@@ -6,6 +6,10 @@ export function ChooseDataFile(arg1) {
   return window['go']['main']['App']['ChooseDataFile'](arg1);
 }
 
+export function ChooseExportPNGPath(arg1) {
+  return window['go']['main']['App']['ChooseExportPNGPath'](arg1);
+}
+
 export function ChooseWorkspace() {
   return window['go']['main']['App']['ChooseWorkspace']();
 }
@@ -72,6 +76,10 @@ export function RevealInFolder(arg1) {
 
 export function SaveGraph(arg1, arg2) {
   return window['go']['main']['App']['SaveGraph'](arg1, arg2);
+}
+
+export function SavePNG(arg1, arg2) {
+  return window['go']['main']['App']['SavePNG'](arg1, arg2);
 }
 
 export function SaveProjectSettings(arg1, arg2) {

@@ -1574,7 +1574,7 @@ async function revealCurrentFileInFolder() {
     status.value = '当前没有可定位的蓝图文件'
     return
   }
-  await revealWorkspaceFile(path, false)
+  void revealWorkspaceFile(path, false)
   await revealFileInFolder(path)
 }
 
@@ -1691,12 +1691,126 @@ function beginLeftToolsResize(event: PointerEvent) {
   window.addEventListener('pointercancel', up)
 }
 
+type ImageExportBounds = { x: number; y: number; width: number; height: number }
+const exportImagePadding = 28
+
+function prepareCanvasForImageExport(root: HTMLElement) {
+  const restore: Array<() => void> = []
+  root.querySelectorAll<SVGSVGElement>('.blueprint-connection').forEach(svg => {
+    const line = svg.querySelector<SVGPathElement>('.connection-line')
+    const d = line?.getAttribute('d')
+    if (!d) return
+
+    const computedConnection = window.getComputedStyle(svg)
+    const color = computedConnection.getPropertyValue('--connection-color').trim() || '#f2f2f2'
+    const width = svg.classList.contains('socket-exec') ? '2.5px' : '1.55px'
+    const originalChildren = Array.from(svg.childNodes)
+    const exportPath = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+    exportPath.setAttribute('d', d)
+    exportPath.setAttribute('fill', 'none')
+    exportPath.setAttribute('stroke', color)
+    exportPath.setAttribute('stroke-width', width)
+    exportPath.setAttribute('stroke-linecap', 'round')
+    exportPath.setAttribute('stroke-linejoin', 'round')
+    exportPath.setAttribute('vector-effect', 'non-scaling-stroke')
+    exportPath.style.setProperty('filter', 'none', 'important')
+    exportPath.style.setProperty('pointer-events', 'none', 'important')
+    svg.replaceChildren(exportPath)
+    restore.push(() => svg.replaceChildren(...originalChildren))
+  })
+  return () => restore.reverse().forEach(callback => callback())
+}
+
+function shouldExportNode(node: Element) {
+  return !node.classList?.contains('connection-hit-area')
+}
+
+function relativeElementBounds(element: Element, root: DOMRect): ImageExportBounds | null {
+  const rect = element.getBoundingClientRect()
+  if (rect.width <= 0 || rect.height <= 0) return null
+  return { x: rect.left - root.left, y: rect.top - root.top, width: rect.width, height: rect.height }
+}
+
+function mergeExportBounds(items: ImageExportBounds[]) {
+  const left = Math.min(...items.map(item => item.x))
+  const top = Math.min(...items.map(item => item.y))
+  const right = Math.max(...items.map(item => item.x + item.width))
+  const bottom = Math.max(...items.map(item => item.y + item.height))
+  return { x: left, y: top, width: right - left, height: bottom - top }
+}
+
+function intersectsBounds(a: ImageExportBounds, b: ImageExportBounds) {
+  return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
+}
+
+function paddedExportBounds(bounds: ImageExportBounds, root: DOMRect) {
+  const x = Math.max(0, Math.floor(bounds.x - exportImagePadding))
+  const y = Math.max(0, Math.floor(bounds.y - exportImagePadding))
+  const right = Math.min(root.width, Math.ceil(bounds.x + bounds.width + exportImagePadding))
+  const bottom = Math.min(root.height, Math.ceil(bounds.y + bounds.height + exportImagePadding))
+  return { x, y, width: Math.max(1, right - x), height: Math.max(1, bottom - y) }
+}
+
+function graphDirectoryForExport() {
+  const path = activeTab.value?.path || activeWorkspacePath.value || workspaceRoot.value
+  if (!path) return ''
+  if (path === workspaceRoot.value) return path
+  const index = Math.max(path.lastIndexOf('\\'), path.lastIndexOf('/'))
+  return index > 0 ? path.slice(0, index) : workspaceRoot.value
+}
+
+function exportImageBounds(selected: boolean): ImageExportBounds | null {
+  if (!canvas.value) return null
+  const root = canvas.value.getBoundingClientRect()
+  const selectedNodes = Array.from(canvas.value.querySelectorAll('.blueprint-node.selected'))
+  const nodeElements = selected && selectedNodes.length ? selectedNodes : Array.from(canvas.value.querySelectorAll('.blueprint-node'))
+  const groupElements = selected ? Array.from(canvas.value.querySelectorAll('.node-group.selected')) : Array.from(canvas.value.querySelectorAll('.node-group'))
+  const primary = [...nodeElements, ...groupElements].flatMap(element => {
+    const bounds = relativeElementBounds(element, root)
+    return bounds ? [bounds] : []
+  })
+  const primaryBounds = primary.length ? mergeExportBounds(primary) : null
+  const connectionElements = Array.from(canvas.value.querySelectorAll('.blueprint-connection')).flatMap(element => {
+    const bounds = relativeElementBounds(element, root)
+    if (!bounds) return []
+    return !selected || !primaryBounds || intersectsBounds(bounds, primaryBounds) ? [bounds] : []
+  })
+  const bounds = [...primary, ...connectionElements]
+  return bounds.length ? paddedExportBounds(mergeExportBounds(bounds), root) : null
+}
+
 async function exportImage(selected: boolean) {
   if (!canvas.value) return
+  status.value = selected ? 'Preparing selected image export...' : 'Preparing graph image export...'
+  await nextTick()
+  const path = await platform.chooseExportPNGPath(graphDirectoryForExport())
+  if (!path) { status.value = 'Export cancelled'; return }
   if (selected) await editor?.fitSelected(); else await editor?.resetView()
   await nextTick(); await new Promise(resolve => setTimeout(resolve, 120))
-  const data = await toPng(canvas.value, { backgroundColor: '#202020', pixelRatio: 2, cacheBust: true })
-  const path = await platform.exportPNG(data); status.value = path ? `Exported ${path}` : 'Export cancelled'
+  const bounds = exportImageBounds(selected)
+  canvas.value.classList.add('exporting-image')
+  const restoreExportStyles = prepareCanvasForImageExport(canvas.value)
+  try {
+    const data = await toPng(canvas.value, {
+      backgroundColor: '#202020',
+      pixelRatio: 2,
+      cacheBust: true,
+      filter: node => !(node instanceof Element) || shouldExportNode(node),
+      width: bounds?.width,
+      height: bounds?.height,
+      style: bounds ? {
+        width: `${canvas.value.getBoundingClientRect().width}px`,
+        height: `${canvas.value.getBoundingClientRect().height}px`,
+        transform: `translate(${-bounds.x}px, ${-bounds.y}px)`,
+        transformOrigin: 'top left'
+      } : undefined
+    })
+    const saved = await platform.savePNG(path, data)
+    status.value = saved ? `Exported ${saved}` : 'Export cancelled'
+  } finally {
+    restoreExportStyles()
+    canvas.value.classList.remove('exporting-image')
+  }
 }
 
 async function addNodeAt(typeId: string, position?: { x: number; y: number }) {
@@ -2186,8 +2300,8 @@ function toggleModuleCategory(category: string) {
       <div v-show="showRight" class="right-sidebar-splitter" @pointerdown="beginRightSidebarResize"></div>
       <aside v-show="showRight" class="sidebar sidebar-right">
         <div class="panel module-panel">
-          <div class="panel-title"><span class="chevron">⌄</span> 模块库</div>
-          <div class="search-box">⌕ <input v-model="moduleSearch" placeholder="搜索模块..." /></div>
+          <div class="panel-title"><span class="chevron">⌄</span> {{ menuText.module.title }}</div>
+          <div class="search-box">⌕ <input v-model="moduleSearch" :placeholder="menuText.module.searchPlaceholder" /></div>
           <div class="module-list">
             <section v-for="[category, items] in categories" :key="category" class="module-category-section" :class="{ open: isModuleCategoryExpanded(category) }">
               <button class="module-category" :aria-expanded="isModuleCategoryExpanded(category)" @click="toggleModuleCategory(category)">

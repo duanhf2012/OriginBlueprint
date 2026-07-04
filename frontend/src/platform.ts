@@ -28,6 +28,8 @@ type DesktopApp = {
   FindNodeReferences(root: string, typeId: string): Promise<NodeReferenceResult[]>
   RevealInFolder(path: string): Promise<void>
   ExportPNG(dataURL: string): Promise<string>
+  ChooseExportPNGPath(defaultDirectory: string): Promise<string>
+  SavePNG(path: string, dataURL: string): Promise<string>
   GetRecentFiles(): Promise<string[]>
   ValidateGraph(content: string): Promise<ValidationIssue[]>
   MigrateLegacyGraph(content: string): Promise<string>
@@ -193,6 +195,15 @@ export const platform = {
   async exportPNG(dataURL: string) {
     if (desktop()) return withDesktopLogging('ExportPNG', () => desktop()!.ExportPNG(dataURL))
     const anchor = document.createElement('a'); anchor.href = dataURL; anchor.download = 'OriginBlueprint.png'; anchor.click()
+    return anchor.download
+  },
+  async chooseExportPNGPath(defaultDirectory = '') {
+    if (desktop()) return withDesktopLogging('ChooseExportPNGPath', () => desktop()!.ChooseExportPNGPath(defaultDirectory))
+    return 'OriginBlueprint.png'
+  },
+  async savePNG(path: string, dataURL: string) {
+    if (desktop()) return withDesktopLogging('SavePNG', () => desktop()!.SavePNG(path, dataURL))
+    const anchor = document.createElement('a'); anchor.href = dataURL; anchor.download = path || 'OriginBlueprint.png'; anchor.click()
     return anchor.download
   }
 }

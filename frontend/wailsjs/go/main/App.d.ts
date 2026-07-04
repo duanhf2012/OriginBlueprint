@@ -4,6 +4,8 @@ import {main} from '../models';
 
 export function ChooseDataFile(arg1:string):Promise<string>;
 
+export function ChooseExportPNGPath(arg1:string):Promise<string>;
+
 export function ChooseWorkspace():Promise<string>;
 
 export function ClearRecentFiles():Promise<void>;
@@ -37,6 +39,8 @@ export function Quit():Promise<void>;
 export function RevealInFolder(arg1:string):Promise<void>;
 
 export function SaveGraph(arg1:string,arg2:string):Promise<string>;
+
+export function SavePNG(arg1:string,arg2:string):Promise<string>;
 
 export function SaveProjectSettings(arg1:string,arg2:string):Promise<string>;
 

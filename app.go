@@ -46,8 +46,9 @@ type NodeReferenceResult struct {
 }
 
 type appConfig struct {
-	RecentFiles        []string `json:"recentFiles"`
-	LastGraphDirectory string   `json:"lastGraphDirectory"`
+	RecentFiles         []string `json:"recentFiles"`
+	LastGraphDirectory  string   `json:"lastGraphDirectory"`
+	LastExportDirectory string   `json:"lastExportDirectory"`
 }
 
 const projectSettingsFileName = "originblueprint.project"
@@ -382,13 +383,25 @@ func isIgnoredWorkspaceDirectory(name string) bool {
 	}
 }
 
-func (a *App) ExportPNG(dataURL string) (string, error) {
+func (a *App) ChooseExportPNGPath(defaultDirectory string) (string, error) {
+	defaultDirectory = a.exportDefaultDirectory(defaultDirectory)
 	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
 		Title: "Export Graph Image", DefaultFilename: "OriginBlueprint.png",
-		Filters: []runtime.FileFilter{{DisplayName: "PNG Image (*.png)", Pattern: "*.png"}},
+		DefaultDirectory: defaultDirectory,
+		Filters:          []runtime.FileFilter{{DisplayName: "PNG Image (*.png)", Pattern: "*.png"}},
 	})
 	if err != nil || path == "" {
 		return "", err
+	}
+	if filepath.Ext(path) == "" {
+		path += ".png"
+	}
+	return path, nil
+}
+
+func (a *App) SavePNG(path string, dataURL string) (string, error) {
+	if path == "" {
+		return "", nil
 	}
 	if filepath.Ext(path) == "" {
 		path += ".png"
@@ -401,7 +414,19 @@ func (a *App) ExportPNG(dataURL string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return path, os.WriteFile(path, data, 0644)
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return "", err
+	}
+	a.recordExportDirectory(path)
+	return path, nil
+}
+
+func (a *App) ExportPNG(dataURL string) (string, error) {
+	path, err := a.ChooseExportPNGPath("")
+	if err != nil || path == "" {
+		return "", err
+	}
+	return a.SavePNG(path, dataURL)
 }
 
 func configPath() string {
@@ -465,6 +490,24 @@ func (a *App) lastGraphDirectory() string {
 	return ""
 }
 
+func validDirectory(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	if info, err := os.Stat(path); err == nil && info.IsDir() {
+		return path
+	}
+	return ""
+}
+
+func (a *App) exportDefaultDirectory(fallback string) string {
+	if path := validDirectory(readAppConfig().LastExportDirectory); path != "" {
+		return path
+	}
+	return validDirectory(fallback)
+}
+
 func (a *App) recordRecent(path string) {
 	config := readAppConfig()
 	items := a.GetRecentFiles()
@@ -478,5 +521,15 @@ func (a *App) recordRecent(path string) {
 	if dir := filepath.Dir(path); dir != "." {
 		config.LastGraphDirectory = dir
 	}
+	writeAppConfig(config)
+}
+
+func (a *App) recordExportDirectory(path string) {
+	dir := filepath.Dir(path)
+	if dir == "." {
+		return
+	}
+	config := readAppConfig()
+	config.LastExportDirectory = dir
 	writeAppConfig(config)
 }

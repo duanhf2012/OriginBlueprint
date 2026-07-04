@@ -80,6 +80,8 @@ export interface MenuLocaleText {
     closeTitle: string
   }
   module: {
+    title: string
+    searchPlaceholder: string
     functionCategory: string
     currentBlueprintFunctions: string
     workspaceFunctionLibrary: string
@@ -185,6 +187,8 @@ export const zhCN: MenuLocaleText = {
     closeTitle: '关闭检查结果'
   },
   module: {
+    title: '模块库',
+    searchPlaceholder: '搜索模块...',
     functionCategory: '函数',
     currentBlueprintFunctions: '当前蓝图函数',
     workspaceFunctionLibrary: '工程函数库',
