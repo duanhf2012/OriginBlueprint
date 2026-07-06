@@ -3,6 +3,7 @@ package blueprint
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -18,9 +19,36 @@ type ExecDefinitionConfig struct {
 
 // PortDefinition 描述节点定义中的单个端口。
 type PortDefinition struct {
+	Key      string `json:"key"`
 	PortType string `json:"type"`
 	DataType string `json:"data_type"`
 	PortID   int    `json:"port_id"`
+	// HasPortID 用于区分旧 port_id 缺省和显式声明为 0。
+	HasPortID bool `json:"-"`
+}
+
+func (p *PortDefinition) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		Key      string `json:"key"`
+		PortType string `json:"type"`
+		DataType string `json:"data_type"`
+		PortID   any    `json:"port_id"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	portID, hasPortID, err := parseJSONPortID(raw.PortID)
+	if err != nil {
+		return err
+	}
+	*p = PortDefinition{
+		Key:       raw.Key,
+		PortType:  raw.PortType,
+		DataType:  raw.DataType,
+		PortID:    portID,
+		HasPortID: hasPortID,
+	}
+	return nil
 }
 
 // LoadDefinitionsJSON 加载节点定义文件并注册可创建的节点。
@@ -29,10 +57,23 @@ type PortDefinition struct {
 func (r *Registry) LoadDefinitionsJSON(data []byte, factories []func() IExecNode) error {
 	var configs []ExecDefinitionConfig
 	if err := json.Unmarshal(data, &configs); err != nil {
+		var rawArray []json.RawMessage
+		if json.Unmarshal(data, &rawArray) == nil {
+			// 标准 JSON 数组里的字段类型错误应直接暴露；宽松解析只用于历史非标准节点文件。
+			return err
+		}
 		configs = parseLenientDefinitions(string(data))
 		if len(configs) == 0 {
 			return err
 		}
+	}
+	explicitNames := make(map[string]bool, len(configs))
+	for _, config := range configs {
+		if strings.TrimSpace(config.Name) == "" {
+			continue
+		}
+		nodeName, _, _ := parseEntranceClass(config.Name)
+		explicitNames[nodeName] = true
 	}
 
 	factoryByName := make(map[string]func() IExecNode, len(factories))
@@ -48,24 +89,40 @@ func (r *Registry) LoadDefinitionsJSON(data []byte, factories []func() IExecNode
 	}
 
 	for _, config := range configs {
+		derivedFromSchemaID := false
 		if strings.TrimSpace(config.Name) == "" {
+			// 新编辑器 schema 使用 id/key；执行器仍按旧 class 注册，因此已知 id-only 节点在这里桥接。
 			var ok bool
 			config, ok = executableConfigForSchemaID(config.ID)
 			if !ok {
 				continue
 			}
+			derivedFromSchemaID = true
 		}
 		nodeName, _, _ := parseEntranceClass(config.Name)
+		if derivedFromSchemaID && (explicitNames[nodeName] || registryHasDefinition(r, nodeName)) {
+			// 同一个 nodes 文件同时有新旧定义时，优先使用显式旧 name/port_id 定义。
+			continue
+		}
 		factory := factoryByName[nodeName]
 		if factory == nil {
 			return fmt.Errorf("exec %s has not been registered", nodeName)
 		}
 
-		inPorts, err := buildPorts(config.Inputs)
+		inputConfigs, err := normalizePortDefinitions(config.Inputs, schemaPortIndexes(config.ID, false))
 		if err != nil {
 			return fmt.Errorf("exec %s input ports: %w", nodeName, err)
 		}
-		outPorts, err := buildPorts(dynamicBranchDefinitionOutputs(config.Name, config.Outputs))
+		outputConfigs, err := normalizePortDefinitions(config.Outputs, schemaPortIndexes(config.ID, true))
+		if err != nil {
+			return fmt.Errorf("exec %s output ports: %w", nodeName, err)
+		}
+
+		inPorts, err := buildPorts(inputConfigs)
+		if err != nil {
+			return fmt.Errorf("exec %s input ports: %w", nodeName, err)
+		}
+		outPorts, err := buildPorts(dynamicBranchDefinitionOutputs(config.Name, outputConfigs))
 		if err != nil {
 			return fmt.Errorf("exec %s output ports: %w", nodeName, err)
 		}
@@ -75,6 +132,72 @@ func (r *Registry) LoadDefinitionsJSON(data []byte, factories []func() IExecNode
 	}
 
 	return nil
+}
+
+func registryHasDefinition(r *Registry, name string) bool {
+	return r != nil && r.Get(name) != nil
+}
+
+func parseJSONPortID(value any) (int, bool, error) {
+	if value == nil {
+		return 0, false, nil
+	}
+	switch typed := value.(type) {
+	case float64:
+		if math.Trunc(typed) != typed {
+			return 0, false, fmt.Errorf("invalid non-integer port_id %v", value)
+		}
+		portID := int(typed)
+		if portID < 0 {
+			return 0, false, fmt.Errorf("invalid negative port_id %d", portID)
+		}
+		return portID, true, nil
+	case string:
+		portID, err := strconv.Atoi(strings.TrimSpace(typed))
+		if err != nil {
+			return 0, false, fmt.Errorf("invalid port_id %q", typed)
+		}
+		if portID < 0 {
+			return 0, false, fmt.Errorf("invalid negative port_id %d", portID)
+		}
+		return portID, true, nil
+	default:
+		return 0, false, fmt.Errorf("invalid port_id %v", value)
+	}
+}
+
+func schemaPortIndexes(id string, output bool) map[string]int {
+	spec, ok := documentNodeSpecs[id]
+	if !ok {
+		return nil
+	}
+	if output {
+		return spec.outputs
+	}
+	return spec.inputs
+}
+
+func normalizePortDefinitions(configs []PortDefinition, keyIndexes map[string]int) ([]PortDefinition, error) {
+	result := make([]PortDefinition, 0, len(configs))
+	for _, config := range configs {
+		key := strings.TrimSpace(config.Key)
+		if key != "" {
+			// 新 schema 端口使用稳定 key；执行器需要数字 port_id，因此在边界处显式转换并校验漂移。
+			index, exists := keyIndexes[key]
+			if !exists && !config.HasPortID {
+				return nil, fmt.Errorf("port key %q has no port_id mapping", key)
+			}
+			if exists {
+				if config.HasPortID && config.PortID != index {
+					return nil, fmt.Errorf("port key %q maps to port_id %d but declares %d", key, index, config.PortID)
+				}
+				config.PortID = index
+				config.HasPortID = true
+			}
+		}
+		result = append(result, config)
+	}
+	return result, nil
 }
 
 func executableConfigForSchemaID(id string) (ExecDefinitionConfig, bool) {
@@ -91,6 +214,41 @@ func executableConfigForSchemaID(id string) (ExecDefinitionConfig, bool) {
 			Outputs: []PortDefinition{
 				{PortType: "exec", PortID: 0},
 				{PortType: "exec", PortID: 1},
+			},
+		}, true
+	case "origin.flow.equal-switch-new":
+		return ExecDefinitionConfig{
+			ID:   id,
+			Name: "EqualSwitch",
+			Inputs: []PortDefinition{
+				{PortType: "exec", PortID: 0},
+				{PortType: "data", DataType: "Integer", PortID: 1},
+				{PortType: "data", DataType: "Array", PortID: 2},
+			},
+			Outputs: []PortDefinition{
+				{PortType: "exec", PortID: 0},
+			},
+		}, true
+	case "origin.array.create-integer-new":
+		return ExecDefinitionConfig{
+			ID:   id,
+			Name: "CreateIntArray",
+			Inputs: []PortDefinition{
+				{PortType: "data", DataType: "Array", PortID: 0},
+			},
+			Outputs: []PortDefinition{
+				{PortType: "data", DataType: "Array", PortID: 0},
+			},
+		}, true
+	case "origin.array.create-string-new":
+		return ExecDefinitionConfig{
+			ID:   id,
+			Name: "CreateStringArray",
+			Inputs: []PortDefinition{
+				{PortType: "data", DataType: "Array", PortID: 0},
+			},
+			Outputs: []PortDefinition{
+				{PortType: "data", DataType: "Array", PortID: 0},
 			},
 		}, true
 	default:

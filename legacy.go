@@ -192,6 +192,12 @@ func migrateLegacyGraph(data []byte) (GraphDocument, error) {
 	fallbackSpecs := inferredRuntimeFallbackSpecs(legacy.Nodes, legacy.Edges, runtimeSpecs, maxInputs, maxOutputs)
 	for _, item := range legacy.Nodes {
 		spec, known := runtimeSpecs[item.Class]
+		if item.Class == "EqualSwitch" && legacyEqualSwitchUsesExpandedBranches(item, maxOutputs[item.ID]) {
+			// EqualSwitch 也是 equal-switch-new 的 legacy 导出 class。
+			// 如果旧文件里已使用超过 case4 的分支，迁移回扩展后的新节点以保留高编号端口。
+			spec = runtimeLegacySpec{legacyNodeSpec: legacyEqualSwitchNewSpec()}
+			known = true
+		}
 		if (len(spec.Inputs) > 0 && maxInputs[item.ID] >= len(spec.Inputs)) || (len(spec.Outputs) > 0 && maxOutputs[item.ID] >= len(spec.Outputs)) {
 			known = false
 		}
@@ -320,8 +326,10 @@ func exportLegacyGraph(document GraphDocument) ([]byte, error) {
 		module := node.Properties.LegacyModule
 		spec := runtimeLegacySpec{}
 		if node.TypeID == "origin.flow.equal-switch-new" {
+			// 外部旧解析器仍期望 EqualSwitch class；新编辑器可创建 case1..case50。
+			// 导出时使用更宽的端口表，避免静默丢失 case5+ 连线。
 			class = "EqualSwitch"
-			spec = runtimeLegacySpec{legacyNodeSpec: legacyNodeSpecs[class]}
+			spec = runtimeLegacySpec{legacyNodeSpec: legacyEqualSwitchNewSpec()}
 		}
 		if node.TypeID == "origin.array.create-integer-new" {
 			class = "CreateIntArray"
@@ -643,6 +651,8 @@ func runtimeLegacyNodeSpecs() map[string]runtimeLegacySpec {
 	}
 	loadResult := loadRuntimeNodeSchemaDocumentsWithEmbedded(runtimeNodeDirectories())
 	for _, document := range loadResult.Documents {
+		// 这里服务于 legacy .vgf 的 class/port_id 映射，只从旧 name/port_id 定义推导。
+		// 新 id/key schema 若需要 .vgf round-trip，应在静态映射或显式导出逻辑中维护。
 		for _, definition := range parseLegacyRuntimeNodeDefinitions([]byte(document.Content)) {
 			name := strings.TrimSpace(definition.Name)
 			if name == "" {
@@ -713,6 +723,35 @@ func legacyPortKeysFromPorts(ports []GraphLegacyPort) []string {
 		result = append(result, port.Key)
 	}
 	return result
+}
+
+func legacyEqualSwitchNewSpec() legacyNodeSpec {
+	return legacyNodeSpec{
+		TypeID:  "origin.flow.equal-switch-new",
+		Inputs:  []string{"exec", "value", "cases"},
+		Outputs: legacyDynamicCaseOutputs(50),
+	}
+}
+
+func legacyDynamicCaseOutputs(maxBranches int) []string {
+	outputs := make([]string, 0, maxBranches+2)
+	outputs = append(outputs, "otherwise")
+	// case0 是隐藏的 legacy 占位端口；保留它才能让 case1 导出为 source_port_id 2。
+	for index := 0; index <= maxBranches; index++ {
+		outputs = append(outputs, fmt.Sprintf("case%d", index))
+	}
+	return outputs
+}
+
+func legacyEqualSwitchUsesExpandedBranches(node legacyNode, maxOutput int) bool {
+	if maxOutput > 5 {
+		return true
+	}
+	if node.PortDefaults == nil {
+		return false
+	}
+	cases, ok := node.PortDefaults["2"].([]interface{})
+	return ok && len(cases) > 4
 }
 
 func legacyPortTypesFromPorts(ports []GraphLegacyPort) []string {

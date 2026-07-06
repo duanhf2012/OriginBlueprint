@@ -1,6 +1,9 @@
 package blueprint
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestRegistryLoadsNodeDefinitionsAndBindsRegisteredExec(t *testing.T) {
 	registry := NewRegistry()
@@ -76,5 +79,224 @@ func TestRegistryExtendsDynamicBranchExecOutputs(t *testing.T) {
 	}
 	if !definition.OutPorts[51].IsPortExec() {
 		t.Fatalf("case50 output should be exec")
+	}
+}
+
+func TestRegistryLoadsEqualSwitchNewSchemaWithoutLegacyPortIDs(t *testing.T) {
+	registry := NewRegistry()
+	err := registry.LoadDefinitionsJSON([]byte(`[
+		{
+			"id": "origin.flow.equal-switch-new",
+			"title": "Equal Switch New",
+			"category": "Flow",
+			"inputs": [
+				{"key": "exec", "label": "", "type": "exec"},
+				{"key": "value", "label": "Value", "type": "data", "data_type": "Integer"},
+				{"key": "cases", "label": "Cases", "type": "data", "data_type": "Array"}
+			],
+			"outputs": [
+				{"key": "otherwise", "label": "Otherwise", "type": "exec"}
+			],
+			"dynamicBranch": {
+				"controlInput": "cases",
+				"defaultOutput": "otherwise",
+				"outputPrefix": "case",
+				"outputStartIndex": 1,
+				"maxBranches": 50,
+				"outputTemplate": {"label": "", "type": "exec"}
+			}
+		}
+	]`), []func() IExecNode{
+		func() IExecNode { return &EqualSwitch{} },
+	})
+	if err != nil {
+		t.Fatalf("LoadDefinitionsJSON failed: %v", err)
+	}
+
+	definition := registry.Get("EqualSwitch")
+	if definition == nil {
+		t.Fatalf("definition not registered")
+	}
+	if len(definition.InPorts) != 3 {
+		t.Fatalf("in ports = %d, want 3", len(definition.InPorts))
+	}
+	if !definition.InPorts[0].IsPortExec() {
+		t.Fatalf("input 0 is not exec")
+	}
+	if _, ok := definition.InPorts[1].GetInt(); !ok {
+		t.Fatalf("input 1 is not int")
+	}
+	if _, ok := definition.InPorts[2].GetArray(); !ok {
+		t.Fatalf("input 2 is not array")
+	}
+	if len(definition.OutPorts) != 52 {
+		t.Fatalf("out ports = %d, want 52", len(definition.OutPorts))
+	}
+	if !definition.OutPorts[0].IsPortExec() || !definition.OutPorts[51].IsPortExec() {
+		t.Fatalf("otherwise and case50 outputs should be exec")
+	}
+}
+
+func TestRegistryLoadsNewArraySchemasWithoutLegacyPortIDs(t *testing.T) {
+	registry := NewRegistry()
+	err := registry.LoadDefinitionsJSON([]byte(`[
+		{
+			"id": "origin.array.create-integer-new",
+			"title": "Create Int Array New",
+			"category": "Array",
+			"inputs": [
+				{"key": "items", "label": "", "type": "data", "data_type": "Array"}
+			],
+			"outputs": [
+				{"key": "array", "label": "Array", "type": "data", "data_type": "Array"}
+			]
+		},
+		{
+			"id": "origin.array.create-string-new",
+			"title": "Create String Array New",
+			"category": "Array",
+			"inputs": [
+				{"key": "items", "label": "", "type": "data", "data_type": "Array"}
+			],
+			"outputs": [
+				{"key": "array", "label": "Array", "type": "data", "data_type": "Array"}
+			]
+		}
+	]`), []func() IExecNode{
+		func() IExecNode { return &CreateIntArray{} },
+		func() IExecNode { return &CreateStringArray{} },
+	})
+	if err != nil {
+		t.Fatalf("LoadDefinitionsJSON failed: %v", err)
+	}
+
+	for _, name := range []string{"CreateIntArray", "CreateStringArray"} {
+		definition := registry.Get(name)
+		if definition == nil {
+			t.Fatalf("%s definition not registered", name)
+		}
+		if len(definition.InPorts) != 1 {
+			t.Fatalf("%s in ports = %d, want 1", name, len(definition.InPorts))
+		}
+		if _, ok := definition.InPorts[0].GetArray(); !ok {
+			t.Fatalf("%s input 0 is not array", name)
+		}
+		if len(definition.OutPorts) != 1 {
+			t.Fatalf("%s out ports = %d, want 1", name, len(definition.OutPorts))
+		}
+		if _, ok := definition.OutPorts[0].GetArray(); !ok {
+			t.Fatalf("%s output 0 is not array", name)
+		}
+	}
+}
+
+func TestRegistryMapsSchemaPortKeysWhenLegacyNameIsPresent(t *testing.T) {
+	registry := NewRegistry()
+	err := registry.LoadDefinitionsJSON([]byte(`[
+		{
+			"id": "origin.flow.equal-switch-new",
+			"name": "EqualSwitch",
+			"inputs": [
+				{"key": "exec", "type": "exec"},
+				{"key": "value", "type": "data", "data_type": "Integer"},
+				{"key": "cases", "type": "data", "data_type": "Array"}
+			],
+			"outputs": [
+				{"key": "otherwise", "type": "exec"}
+			]
+		}
+	]`), []func() IExecNode{
+		func() IExecNode { return &EqualSwitch{} },
+	})
+	if err != nil {
+		t.Fatalf("LoadDefinitionsJSON failed: %v", err)
+	}
+
+	definition := registry.Get("EqualSwitch")
+	if definition == nil {
+		t.Fatalf("definition not registered")
+	}
+	if len(definition.InPorts) != 3 {
+		t.Fatalf("in ports = %d, want 3", len(definition.InPorts))
+	}
+	if !definition.InPorts[0].IsPortExec() {
+		t.Fatalf("input 0 is not exec")
+	}
+	if _, ok := definition.InPorts[1].GetInt(); !ok {
+		t.Fatalf("input 1 is not int")
+	}
+	if _, ok := definition.InPorts[2].GetArray(); !ok {
+		t.Fatalf("input 2 is not array")
+	}
+	if len(definition.OutPorts) != 52 {
+		t.Fatalf("out ports = %d, want 52", len(definition.OutPorts))
+	}
+}
+
+func TestRegistryReportsUnmappedSchemaPortKey(t *testing.T) {
+	registry := NewRegistry()
+	err := registry.LoadDefinitionsJSON([]byte(`[
+		{
+			"id": "origin.unknown.keyed-node",
+			"name": "EqualSwitch",
+			"inputs": [
+				{"key": "exec", "type": "exec"}
+			],
+			"outputs": []
+		}
+	]`), []func() IExecNode{
+		func() IExecNode { return &EqualSwitch{} },
+	})
+	if err == nil || !strings.Contains(err.Error(), `port key "exec" has no port_id mapping`) {
+		t.Fatalf("LoadDefinitionsJSON err = %v, want unmapped key error", err)
+	}
+}
+
+func TestRegistryReportsSchemaPortKeyAndPortIDMismatch(t *testing.T) {
+	registry := NewRegistry()
+	err := registry.LoadDefinitionsJSON([]byte(`[
+		{
+			"id": "origin.flow.equal-switch-new",
+			"name": "EqualSwitch",
+			"inputs": [
+				{"key": "value", "type": "data", "data_type": "Integer", "port_id": 9}
+			],
+			"outputs": []
+		}
+	]`), []func() IExecNode{
+		func() IExecNode { return &EqualSwitch{} },
+	})
+	if err == nil || !strings.Contains(err.Error(), `port key "value" maps to port_id 1 but declares 9`) {
+		t.Fatalf("LoadDefinitionsJSON err = %v, want key/port_id mismatch error", err)
+	}
+}
+
+func TestRegistryReportsInvalidPortIDValues(t *testing.T) {
+	tests := []struct {
+		name    string
+		portID  string
+		wantErr string
+	}{
+		{name: "non-integer", portID: `1.5`, wantErr: "invalid non-integer port_id 1.5"},
+		{name: "negative", portID: `-1`, wantErr: "invalid negative port_id -1"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			registry := NewRegistry()
+			err := registry.LoadDefinitionsJSON([]byte(`[
+				{
+					"name": "TestRecorder",
+					"inputs": [
+						{"type": "exec", "port_id": `+test.portID+`}
+					],
+					"outputs": []
+				}
+			]`), []func() IExecNode{
+				func() IExecNode { return &testRecorder{} },
+			})
+			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("LoadDefinitionsJSON err = %v, want %q", err, test.wantErr)
+			}
+		})
 	}
 }
