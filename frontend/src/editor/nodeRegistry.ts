@@ -50,7 +50,12 @@ function input(socket: ClassicPreset.Socket, label: string, value?: unknown, arr
   if (Array.isArray(value)) {
     port.addControl(new ArrayControl(arrayItemType, value))
   } else if (value !== undefined) {
-    port.addControl(new ClassicPreset.InputControl(typeof value === 'number' ? 'number' : 'text', { initial: value }))
+    if (socket.name === 'integer' || socket.name === 'float' || typeof value === 'number') {
+      const numberValue = typeof value === 'number' ? value : Number(value)
+      port.addControl(new ClassicPreset.InputControl('number', { initial: Number.isFinite(numberValue) ? numberValue : 0 }))
+    } else {
+      port.addControl(new ClassicPreset.InputControl('text', { initial: value as never }))
+    }
   }
   return port
 }
@@ -206,6 +211,25 @@ function functionSocket(type: FunctionSignaturePort['type']) {
   return sockets[type] ?? sockets.any
 }
 
+function functionDefaultValue(type: FunctionSignaturePort['type']) {
+  switch (type) {
+    case 'boolean':
+      return false
+    case 'integer':
+    case 'float':
+      return 0
+    case 'array':
+      return []
+    case 'string':
+    default:
+      return ''
+  }
+}
+
+function functionArrayItemType(type: FunctionSignaturePort['type']): 'string' | 'number' {
+  return type === 'array' ? 'string' : 'string'
+}
+
 function functionPortKey(prefix: 'input' | 'output', port: FunctionSignaturePort, index: number) {
   const key = String(port.id || port.name || `${index + 1}`).trim().replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-+|-+$/g, '')
   return `${prefix}_${key || index + 1}`
@@ -233,7 +257,7 @@ export function createFunctionCallNode(metadata: FunctionNodeMetadata) {
   const result = node('origin.function.call', spec.functionName, 'function', 'Function call', 245)
   result.addInput('exec', input(sockets.exec, ''))
   for (const [index, port] of spec.functionSignature?.inputs.entries() ?? []) {
-    result.addInput(functionPortKey('input', port, index), input(functionSocket(port.type), port.name))
+    result.addInput(functionPortKey('input', port, index), input(functionSocket(port.type), port.name, functionDefaultValue(port.type), functionArrayItemType(port.type)))
   }
   result.addOutput('exec', new ClassicPreset.Output(sockets.exec, ''))
   for (const [index, port] of spec.functionSignature?.outputs.entries() ?? []) {

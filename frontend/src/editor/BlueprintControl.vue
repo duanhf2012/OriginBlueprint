@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 
-const props = defineProps<{ data: { value?: unknown; itemType?: 'string' | 'number'; setValue: (value: unknown) => void } }>()
+const props = defineProps<{ data: { value?: unknown; type?: 'text' | 'number'; itemType?: 'string' | 'number'; setValue: (value: unknown) => void } }>()
 const value = ref<unknown>(Array.isArray(props.data.value) ? [...props.data.value] : props.data.value ?? '')
 const isArray = computed(() => Array.isArray(value.value))
 const isBoolean = computed(() => typeof value.value === 'boolean')
+const scalarInputType = computed(() => props.data.type === 'number' ? 'number' : 'text')
 
 watch(value, next => { props.data.setValue(next); document.dispatchEvent(new CustomEvent('origin-control-change')) }, { deep: true })
 
@@ -23,6 +24,11 @@ function updateItem(index: number, event: Event) {
   value.value[index] = props.data.itemType === 'number' ? Number(next) : next
 }
 
+function updateScalar(event: Event) {
+  const next = (event.target as HTMLInputElement).value
+  value.value = props.data.type === 'number' ? (next === '' ? '' : Number(next)) : next
+}
+
 </script>
 
 <template>
@@ -31,7 +37,7 @@ function updateItem(index: number, event: Event) {
     <div v-for="(item, index) in (value as Array<unknown>)" :key="index" class="array-item"><input :value="item" :type="data.itemType === 'number' ? 'number' : 'text'" @input="updateItem(index, $event)" /><button @click="removeItem(index)">×</button></div>
     <button class="array-add" @click="addItem">＋ Item</button>
   </div>
-  <input v-else v-model="value" class="node-input" @pointerdown.stop @dblclick.stop />
+  <input v-else :value="value" :type="scalarInputType" class="node-input" @pointerdown.stop @dblclick.stop @input="updateScalar" />
 </template>
 
 <style scoped>
