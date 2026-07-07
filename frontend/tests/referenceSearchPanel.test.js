@@ -294,6 +294,8 @@ assert(!style.includes('.function-library-actions'), 'removed workspace function
 assert(!style.includes('.function-library-panel-empty'), 'removed left function library empty state should not keep styling')
 assert(style.includes('.function-signature-editor'), 'function signature editor needs styling')
 assert(style.includes('.signature-port-row'), 'function signature port rows need styling')
+assert(style.includes('.function-terminal-actions button'), 'function terminal action buttons need explicit dark styling')
+assert(style.includes('.function-terminal-actions button:hover'), 'function terminal action buttons need a visible hover style')
 
 assert(types.includes('referenceHighlighted?: boolean'), 'blueprint nodes need an independent reference highlight state')
 assert(!types.includes('executionState'), 'nodes should not keep UI execution state when local running is disabled')

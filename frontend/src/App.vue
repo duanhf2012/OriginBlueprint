@@ -11,7 +11,7 @@ interface GraphTab { id: string; title: string; path: string; dirty: boolean; do
 interface WorkspaceTreeNode extends WorkspaceEntry { children: WorkspaceTreeNode[]; loaded: boolean; loading: boolean }
 interface VisibleWorkspaceNode { node: WorkspaceTreeNode; depth: number }
 type UnsavedCloseAction = 'save' | 'discard' | 'cancel'
-interface ModuleNodeMenuState { visible: boolean; x: number; y: number; node: NodeDefinition | null }
+interface ModuleNodeMenuState { visible: boolean; x: number; y: number; node: ModuleLibraryItem | null }
 interface NodeReferenceSearchState { visible: boolean; loading: boolean; nodeTitle: string; typeId: string; results: NodeReferenceResult[] }
 interface FileContextMenuState { visible: boolean; x: number; y: number; path: string; isDir: boolean; isFunction: boolean }
 interface CanvasToastState { visible: boolean; message: string; x: number; y: number }
@@ -2088,8 +2088,12 @@ function openContextMenu(event: MouseEvent) {
 }
 function createFromContext(typeId: string) { void addNodeAt(typeId, { x: contextMenu.value.clientX, y: contextMenu.value.clientY }); contextMenu.value.visible = false }
 
-function openModuleNodeMenu(event: MouseEvent, node: NodeDefinition) {
+function openModuleNodeMenu(event: MouseEvent, node: ModuleLibraryItem) {
   moduleNodeMenu.value = { visible: true, x: event.clientX, y: event.clientY, node }
+}
+
+function openModuleItemMenu(event: MouseEvent, item: ModuleLibraryItem) {
+  moduleNodeMenu.value = { visible: true, x: event.clientX, y: event.clientY, node: item }
 }
 
 function selectFunctionLibraryItem(item: ModuleLibraryItem) {
@@ -2103,7 +2107,7 @@ function closeModuleNodeMenu() {
 
 async function findModuleNodeReferences(node = moduleNodeMenu.value.node) {
   closeModuleNodeMenu()
-  if (!node) return
+  if (!node || node.functionPlaceholder) return
   if (!workspaceRoot.value) {
     status.value = '请先选择工程目录'
     return
@@ -2117,6 +2121,16 @@ async function findModuleNodeReferences(node = moduleNodeMenu.value.node) {
     nodeReferenceSearch.value.loading = false
     status.value = error instanceof Error ? error.message : String(error)
   }
+}
+
+async function openFunctionModuleItem(item = moduleNodeMenu.value.node) {
+  closeModuleNodeMenu()
+  if (!item?.functionPlaceholder) return
+  if (!item.path) {
+    status.value = '函数文件尚未保存'
+    return
+  }
+  await openGraph(item.path)
 }
 
 async function openNodeReference(result: NodeReferenceResult) {
@@ -2350,7 +2364,7 @@ function toggleModuleCategory(category: string) {
           <div v-if="isFunctionBlueprintTab && !selectedNode && !selectedVariable" class="node-detail function-signature-editor">
             <label>{{ menuText.detail.functionTitle }}<input v-model="functionTitle" :placeholder="menuText.detail.functionTitlePlaceholder" @change="syncFunctionTitleToGraph" /></label>
             <div class="detail-section-title">函数签名</div>
-            <div class="function-terminal-actions"><button @click="addFunctionEntryNodeToGraph">＋ 入口节点</button><button @click="addFunctionReturnNodeToGraph">＋ 出口节点</button></div>
+            <div class="function-terminal-actions"><button @click="addFunctionEntryNodeToGraph">＋ 入口参数</button><button @click="addFunctionReturnNodeToGraph">＋ 出口参数</button></div>
             <section class="signature-port-section">
               <header><span>输入参数</span><button @click="addFunctionSignaturePort('inputs')">＋</button></header>
               <div v-for="port in functionSignature.inputs" :key="port.id" class="signature-port-row">
@@ -2442,7 +2456,7 @@ function toggleModuleCategory(category: string) {
                 <small>{{ items.length }}</small>
               </button>
               <div v-if="isModuleCategoryExpanded(category)" class="module-items">
-                <button v-for="item in items" :key="item.id" class="module-item" :class="{ 'function-placeholder': item.functionPlaceholder }" :title="item.path || item.title" @click="selectFunctionLibraryItem(item)" @pointerdown.stop="beginModuleItemPointerDrag($event, item)" @contextmenu.stop.prevent="!item.functionPlaceholder && openModuleNodeMenu($event, item)" @dblclick="addModuleItemAt(item)"><span>{{ item.title }}</span><small v-if="item.functionPlaceholder">{{ item.functionSource === 'workspace' ? menuText.module.workspaceFunctionLibrary : menuText.module.currentBlueprintFunctions }}</small></button>
+                <button v-for="item in items" :key="item.id" class="module-item" :class="{ 'function-placeholder': item.functionPlaceholder }" :title="item.path || item.title" @click="selectFunctionLibraryItem(item)" @pointerdown.stop="beginModuleItemPointerDrag($event, item)" @contextmenu.stop.prevent="openModuleItemMenu($event, item)" @dblclick="addModuleItemAt(item)"><span>{{ item.title }}</span><small v-if="item.functionPlaceholder">{{ item.functionSource === 'workspace' ? menuText.module.workspaceFunctionLibrary : menuText.module.currentBlueprintFunctions }}</small></button>
               </div>
             </section>
             <div v-if="!functionLibraryItems.length" class="function-library-empty">{{ menuText.module.noFunctionLibrary }}</div>
@@ -2453,7 +2467,8 @@ function toggleModuleCategory(category: string) {
     </section>
     <div v-if="moduleNodeMenu.visible" class="module-node-menu" :style="{ left: `${moduleNodeMenu.x}px`, top: `${moduleNodeMenu.y}px` }" @pointerdown.stop>
       <div class="module-node-menu-title">{{ moduleNodeMenu.node?.title }}</div>
-      <button @click="findModuleNodeReferences()">查找所有引用</button>
+      <button v-if="moduleNodeMenu.node?.functionPlaceholder" @click="openFunctionModuleItem()">打开函数</button>
+      <button v-else @click="findModuleNodeReferences()">查找所有引用</button>
     </div>
     <div v-if="fileContextMenu.visible" class="file-context-menu" :style="{ left: `${fileContextMenu.x}px`, top: `${fileContextMenu.y}px` }" @pointerdown.stop>
       <button v-if="!fileContextMenu.isDir" @click="openFileContextGraph">{{ fileContextMenu.isFunction ? '打开函数' : '打开蓝图' }}</button>
