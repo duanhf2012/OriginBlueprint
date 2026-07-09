@@ -97,12 +97,15 @@ export const enUS: MenuLocaleText = {
   },
   detail: {
     functionTitle: 'Function Title',
-    functionTitlePlaceholder: 'Function display name'
+    functionTitlePlaceholder: 'Function display name',
+    functionCategory: 'Type',
+    functionCategoryPlaceholder: 'Select or enter a function type'
   },
   settings: {
     title: 'Project Settings',
     language: 'Language',
     uiScale: 'UI Font',
+    moduleScale: 'Module Library Font',
     nodeScale: 'Node Font',
     imageExportScale: 'Image Export Scale',
     showGrid: 'Show grid background',

@@ -16,7 +16,7 @@ interface NodeReferenceSearchState { visible: boolean; loading: boolean; nodeTit
 interface FileContextMenuState { visible: boolean; x: number; y: number; path: string; isDir: boolean; isFunction: boolean }
 interface CanvasToastState { visible: boolean; message: string; x: number; y: number }
 interface BlueprintFunction { id: string; name: string; readonly?: boolean }
-interface FunctionLibraryItem { id: string; functionId: string; name: string; path: string; source: 'current' | 'workspace' }
+interface FunctionLibraryItem { id: string; functionId: string; name: string; category: string; path: string; source: 'current' | 'workspace' }
 interface ModuleLibraryItem extends NodeDefinition { functionPlaceholder?: boolean; functionSource?: FunctionLibraryItem['source']; functionItem?: FunctionLibraryItem; path?: string }
 type UiScale = 'small' | 'normal' | 'large'
 type NodeScale = 'normal' | 'large'
@@ -24,7 +24,7 @@ type AutoSaveMode = 'off' | '1m' | '3m' | '5m'
 type ImageExportScale = 1 | 2 | 4
 interface ProjectSettings {
   version: number
-  appearance: { locale: LocaleId; uiScale: UiScale; nodeScale: NodeScale }
+  appearance: { locale: LocaleId; uiScale: UiScale; nodeScale: NodeScale; moduleScale: UiScale }
   layout: {
     panels: { files: number; tools: number; library: number; variables: number; test: number; references: number }
     visible: { tools: boolean; library: boolean; test: boolean }
@@ -70,6 +70,7 @@ const expandedWorkspacePaths = ref<Set<string>>(new Set())
 const selectedWorkspacePath = ref('')
 const functionTitleByPath = ref<Record<string, string>>({})
 const functionIdByPath = ref<Record<string, string>>({})
+const functionCategoryByPath = ref<Record<string, string>>({})
 const fileBrowserWidth = ref(savedPanelWidth('origin-blueprint-file-browser-width', 210))
 const leftToolsWidth = ref(savedPanelWidth('origin-blueprint-left-tools-width', 210, 160, 520))
 const rightSidebarWidth = ref(savedPanelWidth('origin-blueprint-right-sidebar-width', 230, 160, 460))
@@ -103,6 +104,8 @@ const variableGroups = ref<GraphVariableGroup[]>([{ id: 'default', name: 'Defaul
 const functionSignature = ref<FunctionSignature>(emptyFunctionSignature())
 const functionTitle = ref('')
 const functionId = ref('')
+const functionCategory = ref('')
+const functionCategoryDropdownOpen = ref(false)
 const functionSignatureTypeOptions: Array<{ value: VariableType; label: string }> = [
   { value: 'boolean', label: 'Boolean' },
   { value: 'integer', label: 'Integer' },
@@ -145,13 +148,13 @@ const groupedVariables = computed(() => variableGroups.value.map(group => ({
 })))
 const functionLibraryItems = computed(() => collectFunctionLibraryItems(workspaceTree.value))
 const callableFunctionItems = computed<FunctionLibraryItem[]>(() => [
-  ...blueprintFunctions.value.map(item => ({ id: item.id, functionId: item.id, name: item.name, path: activeTab.value?.path || activeTab.value?.title || '', source: 'current' as const })),
+  ...blueprintFunctions.value.map(item => ({ id: item.id, functionId: item.id, name: item.name, category: currentFunctionCategory(), path: activeTab.value?.path || activeTab.value?.title || '', source: 'current' as const })),
   ...functionLibraryItems.value
 ])
 const functionModuleItems = computed<ModuleLibraryItem[]>(() => callableFunctionItems.value.map(item => ({
   id: `origin.function.${item.source}.${item.functionId || item.id}`,
   title: item.name,
-  category: menuText.value.module.functionCategory,
+  category: functionModuleCategory(item.category),
   kind: 'function',
   functionPlaceholder: true,
   functionSource: item.source,
@@ -162,16 +165,29 @@ const functionModuleItems = computed<ModuleLibraryItem[]>(() => callableFunction
   }
 })))
 const filteredModuleItems = computed(() => nodeLibrary.value.filter(item => !isFunctionBlueprintTab.value || !item.ordinaryEntry))
+const functionCategoryOptions = computed(() => {
+  const values = new Set<string>()
+  const add = (value: unknown) => {
+    const clean = String(value ?? '').trim()
+    if (clean) values.add(clean)
+  }
+  add(functionCategory.value)
+  for (const item of functionLibraryItems.value) add(item.category)
+  for (const category of Object.values(functionCategoryByPath.value)) add(category)
+  values.delete(defaultFunctionCategory())
+  return [defaultFunctionCategory(), ...Array.from(values).sort((a, b) => a.localeCompare(b))]
+})
 const categories = computed(() => {
-  const result = new Map<string, ModuleLibraryItem[]>()
+  const ordinary = new Map<string, ModuleLibraryItem[]>()
+  const functions = new Map<string, ModuleLibraryItem[]>()
   const search = moduleSearch.value.trim().toLowerCase()
   for (const definition of filteredModuleItems.value.filter(item => !search || `${item.title} ${item.category} ${item.id}`.toLowerCase().includes(search))) {
-    const items = result.get(definition.category) ?? []; items.push(definition); result.set(definition.category, items)
+    const items = ordinary.get(definition.category) ?? []; items.push(definition); ordinary.set(definition.category, items)
   }
-  for (const definition of functionModuleItems.value.filter(item => !search || `${item.title} ${item.category} ${item.id} ${item.path ?? ''}`.toLowerCase().includes(search))) {
-    const items = result.get(definition.category) ?? []; items.push(definition); result.set(definition.category, items)
+  for (const definition of functionModuleItems.value.filter(item => !search || `${item.title} ${item.category} ${item.functionItem?.category ?? ''} ${item.id} ${item.path ?? ''}`.toLowerCase().includes(search))) {
+    const items = functions.get(definition.category) ?? []; items.push(definition); functions.set(definition.category, items)
   }
-  return Array.from(result.entries())
+  return [...ordinary.entries(), ...functions.entries()].sort(([left], [right]) => functionCategoryOrder(left) - functionCategoryOrder(right))
 })
 const filteredDefinitions = computed(() => {
   const search = contextMenu.value.search.trim().toLowerCase()
@@ -190,7 +206,8 @@ const applicationClasses = computed(() => ({
   'right-hidden': !showRight.value,
   'grid-hidden': !projectSettingsContent.value.export.showGrid,
   [`ui-scale-${projectSettingsContent.value.appearance.uiScale}`]: true,
-  [`node-scale-${projectSettingsContent.value.appearance.nodeScale}`]: true
+  [`node-scale-${projectSettingsContent.value.appearance.nodeScale}`]: true,
+  [`module-scale-${projectSettingsContent.value.appearance.moduleScale}`]: true
 }))
 const activeWorkspacePath = computed(() => activeTab.value?.path || '')
 const validationIssueCountLabel = computed(() => validationIssues.value.length ? menuText.value.validation.issueCount.replace('{count}', String(validationIssues.value.length)) : menuText.value.validation.noIssues)
@@ -260,7 +277,7 @@ function clampNumber(value: unknown, fallback: number, min: number, max: number)
 function defaultProjectSettings(): ProjectSettings {
   return {
     version: 1,
-    appearance: { locale: currentLocale.value, uiScale: 'normal', nodeScale: 'normal' },
+    appearance: { locale: currentLocale.value, uiScale: 'normal', nodeScale: 'normal', moduleScale: 'small' },
     layout: {
       panels: {
         files: fileBrowserWidth.value,
@@ -296,11 +313,12 @@ function normalizeProjectSettings(value: unknown): ProjectSettings {
   const locale = normalizeLocale(appearance.locale)
   const uiScale: UiScale = appearance.uiScale === 'small' || appearance.uiScale === 'large' ? appearance.uiScale : 'normal'
   const nodeScale: NodeScale = appearance.nodeScale === 'large' ? 'large' : 'normal'
+  const moduleScale: UiScale = appearance.moduleScale === 'normal' || appearance.moduleScale === 'large' ? appearance.moduleScale : 'small'
   const autoSave: AutoSaveMode = editorSettings.autoSave === '1m' || editorSettings.autoSave === '3m' || editorSettings.autoSave === '5m' ? editorSettings.autoSave : 'off'
   const imageScale: ImageExportScale = exportSettings.imageScale === 1 || exportSettings.imageScale === 4 ? exportSettings.imageScale : 2
   return {
     version: 1,
-    appearance: { locale, uiScale, nodeScale },
+    appearance: { locale, uiScale, nodeScale, moduleScale },
     layout: {
       panels: {
         files: clampNumber(panels.files, fallback.layout.panels.files, 140, 360),
@@ -564,7 +582,7 @@ function persistActive() { if (editor && activeTab.value) activeTab.value.docume
 async function newGraph() {
   persistActive(); untitledCount++
   const tab: GraphTab = { id: crypto.randomUUID(), title: `Untitled-${untitledCount} Graph`, path: '', dirty: false, document: null }
-  tabs.value.push(tab); activeTabId.value = tab.id; selectedVariableId.value = null; functionSignature.value = emptyFunctionSignature(); functionTitle.value = ''; functionId.value = ''; await editor?.newDocument()
+  tabs.value.push(tab); activeTabId.value = tab.id; selectedVariableId.value = null; functionSignature.value = emptyFunctionSignature(); functionTitle.value = ''; functionId.value = ''; functionCategory.value = ''; await editor?.newDocument()
 }
 
 async function switchTab(id: string) {
@@ -575,6 +593,7 @@ async function switchTab(id: string) {
   functionSignature.value = normalizeFunctionSignature(tab.document?.functionSignature)
   functionTitle.value = isFunctionBlueprintPath(tab.path || tab.title) ? functionTitleFromDocument(tab.document, tab.path || tab.title, tab.title) : ''
   functionId.value = isFunctionBlueprintPath(tab.path || tab.title) ? functionIdFromDocument(tab.document) : ''
+  functionCategory.value = isFunctionBlueprintPath(tab.path || tab.title) ? functionCategoryFromDocument(tab.document, tab.path || tab.title) : ''
   nextTick(() => scrollActiveTabIntoView())
 }
 
@@ -591,6 +610,7 @@ async function closeTab(id: string, event: MouseEvent) {
     functionSignature.value = normalizeFunctionSignature(tabs.value[0].document?.functionSignature)
     functionTitle.value = isFunctionBlueprintPath(tabs.value[0].path || tabs.value[0].title) ? functionTitleFromDocument(tabs.value[0].document, tabs.value[0].path || tabs.value[0].title, tabs.value[0].title) : ''
     functionId.value = isFunctionBlueprintPath(tabs.value[0].path || tabs.value[0].title) ? functionIdFromDocument(tabs.value[0].document) : ''
+    functionCategory.value = isFunctionBlueprintPath(tabs.value[0].path || tabs.value[0].title) ? functionCategoryFromDocument(tabs.value[0].document, tabs.value[0].path || tabs.value[0].title) : ''
     await editor?.loadDocument(tabs.value[0].document ?? blankDocument(tabs.value[0].title))
   }
 }
@@ -737,10 +757,74 @@ function activeFunctionTitle() {
   return functionTitle.value.trim() || functionNameFromPath(activeTab.value.path || activeTab.value.title, activeTab.value.title)
 }
 
+function defaultFunctionCategory() {
+  return menuText.value.module.functionCategory
+}
+
+function normalizeFunctionCategory(value: unknown, fallback = defaultFunctionCategory()) {
+  const clean = String(value ?? '').trim()
+  return clean || fallback
+}
+
+function inferredFunctionCategoryFromPath(path: string) {
+  const parts = path.replace(/\\/g, '/').split('/').filter(Boolean)
+  const fileName = parts.pop() ?? ''
+  const parent = parts[parts.length - 1] ?? ''
+  if (!fileName || !parent || /^functions?$/i.test(parent)) return defaultFunctionCategory()
+  return parent
+}
+
+function functionCategoryFromDocument(document: GraphDocument | Partial<GraphDocument> | null | undefined, path: string) {
+  return normalizeFunctionCategory(document?.functionCategory, inferredFunctionCategoryFromPath(path))
+}
+
+function currentFunctionCategory() {
+  return normalizeFunctionCategory(functionCategory.value)
+}
+
+function activeFunctionCategory() {
+  functionCategory.value = currentFunctionCategory()
+  return functionCategory.value
+}
+
+function functionModuleCategory(category: string) {
+  return `ƒ ${normalizeFunctionCategory(category)}`
+}
+
+function functionCategoryOrder(category: string) {
+  return category.startsWith('ƒ ') ? 1 : 0
+}
+
+function isFunctionModuleCategory(items: ModuleLibraryItem[]) {
+  return items.some(item => item.functionPlaceholder)
+}
+
+function displayModuleCategoryName(category: string) {
+  return category.startsWith('ƒ ') ? category.slice(2) : category
+}
+
+function openFunctionCategoryOptions() {
+  if (isFunctionBlueprintTab.value) functionCategoryDropdownOpen.value = true
+}
+
+function closeFunctionCategoryOptions(event: FocusEvent) {
+  const next = event.relatedTarget as Node | null
+  const current = event.currentTarget as Node | null
+  if (current && next && current.contains(next)) return
+  functionCategoryDropdownOpen.value = false
+}
+
+function selectFunctionCategory(category: string) {
+  functionCategory.value = normalizeFunctionCategory(category)
+  functionCategoryDropdownOpen.value = false
+  syncFunctionCategoryToGraph()
+}
+
 function documentWithFunctionSignature(document: GraphDocument, tab = activeTab.value) {
   if (isFunctionBlueprintPath(tab.path || tab.title)) {
     document.graphName = activeFunctionTitle()
     document.functionId = activeFunctionId()
+    document.functionCategory = activeFunctionCategory()
     document.functionSignature = normalizeFunctionSignature(functionSignature.value)
   }
   return document
@@ -1004,6 +1088,7 @@ async function createFunctionAtDirectory(directory: string) {
   const path = joinWorkspacePath(directory, `${graphName}.obpf`)
   const document = blankDocument(graphName)
   document.functionId = newFunctionId()
+  document.functionCategory = inferredFunctionCategoryFromPath(path)
   document.functionSignature = emptyFunctionSignature()
   const terminals = functionTerminalNodes(graphName, document.functionSignature, document.functionId)
   document.nodes = terminals.nodes
@@ -1106,15 +1191,25 @@ function touchFunctionSignature() {
   if (isFunctionBlueprintTab.value) activeTab.value.dirty = true
 }
 
+function syncFunctionCategoryToGraph() {
+  if (!isFunctionBlueprintTab.value) return
+  functionCategory.value = activeFunctionCategory()
+  if (activeTab.value.document) activeTab.value.document.functionCategory = functionCategory.value
+  if (activeTab.value.path) functionCategoryByPath.value = { ...functionCategoryByPath.value, [activeTab.value.path]: functionCategory.value }
+  touchFunctionSignature()
+}
+
 async function syncFunctionTitleToGraph() {
   if (!isFunctionBlueprintTab.value) return
   functionTitle.value = activeFunctionTitle()
   if (activeTab.value.document) {
     activeTab.value.document.graphName = functionTitle.value
     activeTab.value.document.functionId = activeFunctionId()
+    activeTab.value.document.functionCategory = activeFunctionCategory()
   }
   if (activeTab.value.path) functionTitleByPath.value = { ...functionTitleByPath.value, [activeTab.value.path]: functionTitle.value }
   if (activeTab.value.path) functionIdByPath.value = { ...functionIdByPath.value, [activeTab.value.path]: activeFunctionId() }
+  if (activeTab.value.path) functionCategoryByPath.value = { ...functionCategoryByPath.value, [activeTab.value.path]: activeFunctionCategory() }
   await syncFunctionSignatureToGraph()
 }
 
@@ -1197,6 +1292,7 @@ function normalizeDocument(value: any): GraphDocument {
     schemaVersion: 1,
     graphName: String(value.graphName ?? value.graph_name ?? 'Imported Graph'),
     functionId: String(value.functionId ?? '').trim() || undefined,
+    functionCategory: String(value.functionCategory ?? '').trim() || undefined,
     nodes: Array.isArray(value.nodes) ? value.nodes : [],
     connections: Array.isArray(value.connections) ? value.connections : [],
     groups: Array.isArray(value.groups) ? value.groups : [],
@@ -1308,8 +1404,10 @@ async function openGraph(path = '', highlightTypeId = '') {
     functionSignature.value = normalizeFunctionSignature(document.functionSignature)
     functionTitle.value = isFunctionBlueprintPath(file.path) ? functionTitleFromDocument(document, file.path, existing.title) : ''
     functionId.value = isFunctionBlueprintPath(file.path) ? functionIdFromDocument(document) : ''
+    functionCategory.value = isFunctionBlueprintPath(file.path) ? functionCategoryFromDocument(document, file.path) : ''
     if (isFunctionBlueprintPath(file.path)) functionTitleByPath.value = { ...functionTitleByPath.value, [file.path]: functionTitle.value }
     if (isFunctionBlueprintPath(file.path) && functionId.value) functionIdByPath.value = { ...functionIdByPath.value, [file.path]: functionId.value }
+    if (isFunctionBlueprintPath(file.path)) functionCategoryByPath.value = { ...functionCategoryByPath.value, [file.path]: functionCategory.value }
     await editor?.loadDocument(document)
     if (highlightTypeId) {
       const count = await editor?.highlightNodesByType(highlightTypeId) ?? 0
@@ -1325,8 +1423,10 @@ async function openGraph(path = '', highlightTypeId = '') {
   functionSignature.value = normalizeFunctionSignature(document.functionSignature)
   functionTitle.value = isFunctionBlueprintPath(file.path) ? functionTitleFromDocument(document, file.path, title) : ''
   functionId.value = isFunctionBlueprintPath(file.path) ? functionIdFromDocument(document) : ''
+  functionCategory.value = isFunctionBlueprintPath(file.path) ? functionCategoryFromDocument(document, file.path) : ''
   if (isFunctionBlueprintPath(file.path)) functionTitleByPath.value = { ...functionTitleByPath.value, [file.path]: functionTitle.value }
   if (isFunctionBlueprintPath(file.path) && functionId.value) functionIdByPath.value = { ...functionIdByPath.value, [file.path]: functionId.value }
+  if (isFunctionBlueprintPath(file.path)) functionCategoryByPath.value = { ...functionCategoryByPath.value, [file.path]: functionCategory.value }
   await editor?.loadDocument(document)
   if (document.legacy?.format === 'vgf') {
     const hiddenCount = document.legacy.hiddenNodes?.length ?? 0
@@ -1362,6 +1462,8 @@ async function saveGraph(saveAs: boolean) {
     functionTitleByPath.value = { ...functionTitleByPath.value, [path]: functionTitle.value }
     functionId.value = activeFunctionId()
     functionIdByPath.value = { ...functionIdByPath.value, [path]: functionId.value }
+    functionCategory.value = activeFunctionCategory()
+    functionCategoryByPath.value = { ...functionCategoryByPath.value, [path]: functionCategory.value }
     await syncOpenFunctionReferences(activeFunctionMetadata('call'))
   }
   recentFiles.value = await platform.recentFiles(); status.value = `Saved ${tab.title}`
@@ -1541,6 +1643,13 @@ function functionResourceId(node: WorkspaceEntry) {
   return openedId || functionIdByPath.value[node.path] || ''
 }
 
+function functionResourceCategory(node: WorkspaceEntry) {
+  const opened = tabs.value.find(tab => tab.path === node.path)
+  if (opened?.id === activeTabId.value && isFunctionBlueprintPath(opened.path || opened.title)) return currentFunctionCategory()
+  const openedCategory = String(opened?.document?.functionCategory ?? '').trim()
+  return openedCategory || functionCategoryByPath.value[node.path] || inferredFunctionCategoryFromPath(node.path)
+}
+
 function collectFunctionLibraryItems(nodes: WorkspaceTreeNode[]) {
   const items: FunctionLibraryItem[] = []
   const visit = (entry: WorkspaceTreeNode) => {
@@ -1550,6 +1659,7 @@ function collectFunctionLibraryItems(nodes: WorkspaceTreeNode[]) {
         id: id || encodeURIComponent(entry.path).replace(/%/g, '_'),
         functionId: id,
         name: functionResourceTitle(entry),
+        category: functionResourceCategory(entry),
         path: entry.path,
         source: 'workspace'
       })
@@ -1562,13 +1672,15 @@ function collectFunctionLibraryItems(nodes: WorkspaceTreeNode[]) {
 
 async function loadFunctionLibraryTitles(items: FunctionLibraryItem[]) {
   for (const item of items) {
-    if (!item.path || (functionTitleByPath.value[item.path] && functionIdByPath.value[item.path]) || loadingFunctionTitles.has(item.path)) continue
+    if (!item.path || (functionTitleByPath.value[item.path] && functionIdByPath.value[item.path] && functionCategoryByPath.value[item.path]) || loadingFunctionTitles.has(item.path)) continue
     const opened = tabs.value.find(tab => tab.path === item.path)
     if (opened?.document) {
       const title = String(opened.document.graphName ?? '').trim()
       const id = functionIdFromDocument(opened.document)
+      const category = functionCategoryFromDocument(opened.document, item.path)
       if (title) functionTitleByPath.value = { ...functionTitleByPath.value, [item.path]: title }
       if (id) functionIdByPath.value = { ...functionIdByPath.value, [item.path]: id }
+      functionCategoryByPath.value = { ...functionCategoryByPath.value, [item.path]: category }
       continue
     }
     loadingFunctionTitles.add(item.path)
@@ -1578,8 +1690,10 @@ async function loadFunctionLibraryTitles(items: FunctionLibraryItem[]) {
       const parsed = JSON.parse(file.content) as Partial<GraphDocument>
       const title = String(parsed.graphName ?? '').trim()
       const id = String(parsed.functionId ?? '').trim()
+      const category = functionCategoryFromDocument(parsed, item.path)
       if (title) functionTitleByPath.value = { ...functionTitleByPath.value, [item.path]: title }
       if (id) functionIdByPath.value = { ...functionIdByPath.value, [item.path]: id }
+      functionCategoryByPath.value = { ...functionCategoryByPath.value, [item.path]: category }
     } catch {
       // Function title loading is best-effort; fall back to the file name.
     } finally {
@@ -2363,6 +2477,15 @@ function toggleModuleCategory(category: string) {
           <div class="panel-title"><span class="chevron">⌄</span> 详情</div>
           <div v-if="isFunctionBlueprintTab && !selectedNode && !selectedVariable" class="node-detail function-signature-editor">
             <label>{{ menuText.detail.functionTitle }}<input v-model="functionTitle" :placeholder="menuText.detail.functionTitlePlaceholder" @change="syncFunctionTitleToGraph" /></label>
+            <label>{{ menuText.detail.functionCategory }}
+              <div class="function-category-combo" @focusin="openFunctionCategoryOptions" @focusout="closeFunctionCategoryOptions">
+                <input v-model="functionCategory" :placeholder="menuText.detail.functionCategoryPlaceholder" @input="openFunctionCategoryOptions" @change="syncFunctionCategoryToGraph" />
+                <button type="button" title="选择函数类型" @click="functionCategoryDropdownOpen = !functionCategoryDropdownOpen">▾</button>
+                <div v-if="functionCategoryDropdownOpen" class="function-category-options">
+                  <button v-for="option in functionCategoryOptions" :key="option" type="button" class="function-category-option" :class="{ selected: normalizeFunctionCategory(functionCategory) === option }" @pointerdown.prevent @click="selectFunctionCategory(option)">{{ option }}</button>
+                </div>
+              </div>
+            </label>
             <div class="detail-section-title">函数签名</div>
             <div class="function-terminal-actions"><button @click="addFunctionEntryNodeToGraph">＋ 入口参数</button><button @click="addFunctionReturnNodeToGraph">＋ 出口参数</button></div>
             <section class="signature-port-section">
@@ -2449,14 +2572,15 @@ function toggleModuleCategory(category: string) {
           <div class="panel-title"><span class="chevron">⌄</span> {{ menuText.module.title }}</div>
           <div class="search-box">⌕ <input v-model="moduleSearch" :placeholder="menuText.module.searchPlaceholder" /></div>
           <div class="module-list">
-            <section v-for="[category, items] in categories" :key="category" class="module-category-section" :class="{ open: isModuleCategoryExpanded(category) }">
+            <section v-for="[category, items] in categories" :key="category" class="module-category-section" :class="{ open: isModuleCategoryExpanded(category), 'function-module-category': isFunctionModuleCategory(items) }">
               <button class="module-category" :aria-expanded="isModuleCategoryExpanded(category)" @click="toggleModuleCategory(category)">
                 <span class="module-arrow">{{ isModuleCategoryExpanded(category) ? '⌄' : '›' }}</span>
-                <span class="module-category-name">{{ category }}</span>
+                <span class="module-category-icon" :class="isFunctionModuleCategory(items) ? 'function-icon' : 'node-icon'">{{ isFunctionModuleCategory(items) ? 'ƒ' : '' }}</span>
+                <span class="module-category-name">{{ displayModuleCategoryName(category) }}</span>
                 <small>{{ items.length }}</small>
               </button>
               <div v-if="isModuleCategoryExpanded(category)" class="module-items">
-                <button v-for="item in items" :key="item.id" class="module-item" :class="{ 'function-placeholder': item.functionPlaceholder }" :title="item.path || item.title" @click="selectFunctionLibraryItem(item)" @pointerdown.stop="beginModuleItemPointerDrag($event, item)" @contextmenu.stop.prevent="openModuleItemMenu($event, item)" @dblclick="addModuleItemAt(item)"><span>{{ item.title }}</span><small v-if="item.functionPlaceholder">{{ item.functionSource === 'workspace' ? menuText.module.workspaceFunctionLibrary : menuText.module.currentBlueprintFunctions }}</small></button>
+                <button v-for="item in items" :key="item.id" class="module-item" :class="{ 'function-placeholder': item.functionPlaceholder }" :title="item.path || item.title" @click="selectFunctionLibraryItem(item)" @pointerdown.stop="beginModuleItemPointerDrag($event, item)" @contextmenu.stop.prevent="openModuleItemMenu($event, item)" @dblclick="addModuleItemAt(item)"><span class="module-item-icon">{{ item.functionPlaceholder ? 'ƒ' : '◇' }}</span><span class="module-item-title">{{ item.title }}</span><small v-if="item.functionPlaceholder">{{ item.functionSource === 'workspace' ? menuText.module.workspaceFunctionLibrary : menuText.module.currentBlueprintFunctions }}</small></button>
               </div>
             </section>
             <div v-if="!functionLibraryItems.length" class="function-library-empty">{{ menuText.module.noFunctionLibrary }}</div>
@@ -2483,6 +2607,7 @@ function toggleModuleCategory(category: string) {
         <div class="settings-body">
           <label><span>{{ menuText.settings.language }}</span><select :value="currentLocale" @change="setLocale(($event.target as HTMLSelectElement).value as LocaleId)"><option value="zh-CN">中文</option><option value="en-US">English</option></select></label>
           <label><span>{{ menuText.settings.uiScale }}</span><select :value="projectSettingsContent.appearance.uiScale" @change="updateProjectSettings(settings => { settings.appearance.uiScale = ($event.target as HTMLSelectElement).value as UiScale })"><option value="small">{{ menuText.settings.small }}</option><option value="normal">{{ menuText.settings.normal }}</option><option value="large">{{ menuText.settings.large }}</option></select></label>
+          <label><span>{{ menuText.settings.moduleScale }}</span><select :value="projectSettingsContent.appearance.moduleScale" @change="updateProjectSettings(settings => { settings.appearance.moduleScale = ($event.target as HTMLSelectElement).value as UiScale })"><option value="small">{{ menuText.settings.small }}</option><option value="normal">{{ menuText.settings.normal }}</option><option value="large">{{ menuText.settings.large }}</option></select></label>
           <label><span>{{ menuText.settings.nodeScale }}</span><select :value="projectSettingsContent.appearance.nodeScale" @change="updateProjectSettings(settings => { settings.appearance.nodeScale = ($event.target as HTMLSelectElement).value as NodeScale })"><option value="normal">{{ menuText.settings.normal }}</option><option value="large">{{ menuText.settings.large }}</option></select></label>
           <label><span>{{ menuText.settings.imageExportScale }}</span><select :value="projectSettingsContent.export.imageScale" @change="updateProjectSettings(settings => { settings.export.imageScale = Number(($event.target as HTMLSelectElement).value) as ImageExportScale })"><option :value="1">1x</option><option :value="2">2x</option><option :value="4">4x</option></select></label>
           <label class="settings-check"><input type="checkbox" :checked="projectSettingsContent.export.showGrid" @change="updateProjectSettings(settings => { settings.export.showGrid = ($event.target as HTMLInputElement).checked })" /><span>{{ menuText.settings.showGrid }}</span></label>

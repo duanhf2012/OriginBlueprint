@@ -96,11 +96,14 @@ export interface MenuLocaleText {
   detail: {
     functionTitle: string
     functionTitlePlaceholder: string
+    functionCategory: string
+    functionCategoryPlaceholder: string
   }
   settings: {
     title: string
     language: string
     uiScale: string
+    moduleScale: string
     nodeScale: string
     imageExportScale: string
     showGrid: string
@@ -249,12 +252,15 @@ export const zhCN: MenuLocaleText = {
   },
   detail: {
     functionTitle: '函数名',
-    functionTitlePlaceholder: '函数显示名'
+    functionTitlePlaceholder: '函数显示名',
+    functionCategory: '类型',
+    functionCategoryPlaceholder: '选择或输入函数类型'
   },
   settings: {
     title: '工程设置',
     language: '语言',
     uiScale: '界面字体',
+    moduleScale: '模块库字体',
     nodeScale: '节点字体',
     imageExportScale: '图片导出倍率',
     showGrid: '显示网格背景',

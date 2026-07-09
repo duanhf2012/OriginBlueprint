@@ -116,6 +116,7 @@ export interface GraphDocument extends GraphSnapshot {
   schemaVersion: 1
   graphName: string
   functionId?: string
+  functionCategory?: string
   variables: GraphVariable[]
   variableGroups: GraphVariableGroup[]
   functionSignature?: FunctionSignature

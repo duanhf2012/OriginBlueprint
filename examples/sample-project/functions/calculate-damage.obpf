@@ -1,53 +1,116 @@
 {
   "schemaVersion": 1,
   "graphName": "CalculateDamage",
-  "functionId": "fn_calculate_damage",
   "nodes": [
     {
       "id": "entry",
       "typeId": "origin.function.entry",
-      "position": { "x": 120, "y": 130 },
+      "position": {
+        "x": 120,
+        "y": 130
+      },
       "values": {},
       "properties": {
         "label": "CalculateDamage Entry",
         "functionRole": "entry",
         "functionId": "fn_calculate_damage",
         "functionName": "CalculateDamage",
+        "functionSource": "workspace",
         "functionSignature": {
-          "inputs": [{ "id": "base", "name": "BaseDamage", "type": "integer" }],
-          "outputs": [{ "id": "damage", "name": "Damage", "type": "integer" }]
+          "inputs": [
+            {
+              "id": "base",
+              "name": "BaseDamage",
+              "type": "integer"
+            }
+          ],
+          "outputs": [
+            {
+              "id": "damage",
+              "name": "Damage",
+              "type": "integer"
+            }
+          ]
         }
       }
     },
     {
       "id": "return",
       "typeId": "origin.function.return",
-      "position": { "x": 470, "y": 130 },
+      "position": {
+        "x": 470,
+        "y": 130
+      },
       "values": {},
       "properties": {
         "label": "CalculateDamage Return",
         "functionRole": "return",
         "functionId": "fn_calculate_damage",
         "functionName": "CalculateDamage",
+        "functionSource": "workspace",
         "functionSignature": {
-          "inputs": [{ "id": "base", "name": "BaseDamage", "type": "integer" }],
-          "outputs": [{ "id": "damage", "name": "Damage", "type": "integer" }]
+          "inputs": [
+            {
+              "id": "base",
+              "name": "BaseDamage",
+              "type": "integer"
+            }
+          ],
+          "outputs": [
+            {
+              "id": "damage",
+              "name": "Damage",
+              "type": "integer"
+            }
+          ]
         }
       }
     }
   ],
   "connections": [
-    { "source": "entry", "sourceOutput": "exec", "target": "return", "targetInput": "exec" },
-    { "source": "entry", "sourceOutput": "input_base", "target": "return", "targetInput": "output_damage" }
+    {
+      "source": "entry",
+      "sourceOutput": "exec",
+      "target": "return",
+      "targetInput": "exec"
+    },
+    {
+      "source": "entry",
+      "sourceOutput": "input_base",
+      "target": "return",
+      "targetInput": "output_damage"
+    }
   ],
   "groups": [],
   "variables": [],
   "variableGroups": [
-    { "id": "default", "name": "Default" }
+    {
+      "id": "default",
+      "name": "Default",
+      "collapsed": false
+    }
   ],
-  "functionSignature": {
-    "inputs": [{ "id": "base", "name": "BaseDamage", "type": "integer" }],
-    "outputs": [{ "id": "damage", "name": "Damage", "type": "integer" }]
+  "view": {
+    "x": 4,
+    "y": 209.5,
+    "zoom": 1
   },
-  "view": { "x": 0, "y": 0, "zoom": 1 }
+  "functionId": "fn_calculate_damage",
+  "functionCategory": "函数2",
+  "functionSignature": {
+    "inputs": [
+      {
+        "id": "base",
+        "name": "BaseDamage",
+        "type": "integer"
+      }
+    ],
+    "outputs": [
+      {
+        "id": "damage",
+        "name": "Damage",
+        "type": "integer"
+      }
+    ]
+  }
 }
