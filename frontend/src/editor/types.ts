@@ -69,5 +69,11 @@ export class ArrayControl extends ClassicPreset.Control {
   }
 }
 
-export type BlueprintConnection = ClassicPreset.Connection<BlueprintNode, BlueprintNode> & { selected?: boolean; socketType?: SocketThemeName; hidden?: boolean }
+export type BlueprintConnection = ClassicPreset.Connection<BlueprintNode, BlueprintNode> & {
+  selected?: boolean
+  socketType?: SocketThemeName
+  hidden?: boolean
+  legacyEdgeId?: string
+  legacyOrdinal?: number
+}
 export type Schemes = GetSchemes<BlueprintNode, BlueprintConnection>

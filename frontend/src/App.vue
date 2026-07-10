@@ -1440,6 +1440,15 @@ async function openGraph(path = '', highlightTypeId = '') {
 }
 
 async function saveGraph(saveAs: boolean) {
+  try {
+    await saveGraphUnchecked(saveAs)
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    status.value = `${menuText.value.status.saveFailed}: ${detail}`
+  }
+}
+
+async function saveGraphUnchecked(saveAs: boolean) {
   if (!editor) return
   const tab = activeTab.value
   const document = documentWithFunctionSignature(editor.getDocument(tab.title, variables.value, variableGroups.value), tab)

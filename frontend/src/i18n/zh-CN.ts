@@ -68,6 +68,9 @@ export interface MenuLocaleText {
     test: string
     testTitle: string
   }
+  status: {
+    saveFailed: string
+  }
   canvas: {
     hint: string
   }
@@ -224,6 +227,9 @@ export const zhCN: MenuLocaleText = {
   toolbar: {
     test: '测试',
     testTitle: '检查蓝图 (F5)'
+  },
+  status: {
+    saveFailed: '保存失败'
   },
   canvas: {
     hint: '右键拖拽：平移  中键拖拽：平移  Ctrl：多选  Ctrl + 右键拖拽：切断连线  连线：点击后按 Delete 删除'

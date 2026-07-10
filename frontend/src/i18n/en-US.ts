@@ -70,6 +70,9 @@ export const enUS: MenuLocaleText = {
     test: 'Test',
     testTitle: 'Validate blueprint (F5)'
   },
+  status: {
+    saveFailed: 'Save failed'
+  },
   canvas: {
     hint: 'Right drag: pan  Middle drag: pan  Ctrl: multi-select  Ctrl + right drag: cut connections  Connection: click + Delete'
   },

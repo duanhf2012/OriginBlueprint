@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "test:layout": "node tests/nodePortSpacing.test.js && node tests/entryBindingMenuEvents.test.js && node tests/entrySourceVisuals.test.js && node tests/dynamicBranchOutputs.test.js && node tests/referenceSearchPanel.test.js && node tests/functionNodes.test.js && node tests/removedDataTypes.test.js",
+    "test:layout": "node tests/nodePortSpacing.test.js && node tests/entryBindingMenuEvents.test.js && node tests/entrySourceVisuals.test.js && node tests/dynamicBranchOutputs.test.js && node tests/referenceSearchPanel.test.js && node tests/functionNodes.test.js && node tests/removedDataTypes.test.js && node tests/legacyPersistence.test.js",
     "build": "vue-tsc --noEmit && npm exec vite -- build",
     "preview": "vite preview"
   },
