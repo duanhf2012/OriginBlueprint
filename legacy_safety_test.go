@@ -157,3 +157,116 @@ func TestExportLegacyGraphRejectsNegativeEdgeOrdinal(t *testing.T) {
 		t.Fatalf("error = %v, want negative ordinal", err)
 	}
 }
+
+func TestLegacySparsePortKeysUseDeclaredPortIDs(t *testing.T) {
+	keys := []string{"in2", "in14"}
+	if got, ok := legacyKeyIndex(keys, "in14", "in"); !ok || got != 14 {
+		t.Fatalf("legacyKeyIndex(in14) = %d,%v, want 14,true", got, ok)
+	}
+	if _, ok := legacyKeyIndex(keys, "in999", "in"); ok {
+		t.Fatalf("undeclared in999 should not be accepted")
+	}
+	if got := indexedKey(keys, 14, "in"); got != "in14" {
+		t.Fatalf("indexedKey(14) = %q, want in14", got)
+	}
+	if got := indexedKey(keys, 0, "in"); got != "in0" {
+		t.Fatalf("indexedKey(0) = %q, want in0", got)
+	}
+}
+
+func TestMapLegacyNodeDefaultsUsesDeclaredSparsePortIDs(t *testing.T) {
+	values, residual := mapLegacyNodeDefaults(
+		map[string]interface{}{"14": float64(7), "99": "keep"},
+		[]string{"in2", "in14"},
+	)
+	if !reflect.DeepEqual(values, map[string]interface{}{"in14": float64(7)}) {
+		t.Fatalf("values = %#v, want sparse in14 value", values)
+	}
+	if !reflect.DeepEqual(residual, map[string]interface{}{"99": "keep"}) {
+		t.Fatalf("residual = %#v, want unmapped default", residual)
+	}
+}
+
+func TestExportLegacyGraphRejectsIncompatiblePortTypes(t *testing.T) {
+	tests := []struct {
+		name       string
+		targetType string
+		targetPort string
+	}{
+		{name: "integer to string", targetType: "origin.literal.string", targetPort: "value"},
+		{name: "data to exec", targetType: "origin.action.print", targetPort: "exec"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			document := GraphDocument{
+				Nodes: []GraphNode{
+					{ID: "source", TypeID: "origin.math.add-integer"},
+					{ID: "target", TypeID: test.targetType},
+				},
+				Connections: []GraphConnection{{Source: "source", SourceOutput: "result", Target: "target", TargetInput: test.targetPort}},
+			}
+			_, err := exportLegacyGraph(document)
+			if err == nil || !strings.Contains(err.Error(), "incompatible") {
+				t.Fatalf("error = %v, want incompatible port types", err)
+			}
+		})
+	}
+}
+
+func TestLegacyAnyPortTypeIsCompatibleWithExec(t *testing.T) {
+	if !legacyPortTypesCompatible("any", "exec") {
+		t.Fatal("any output should be compatible with an exec input")
+	}
+	if !legacyPortTypesCompatible("exec", "any") {
+		t.Fatal("exec output should be compatible with an any input")
+	}
+}
+
+func TestLegacyRoundTripPreservesOriginalIncompatibleConnection(t *testing.T) {
+	input := []byte(`{"graph_name":"Malformed Legacy Edge","nodes":[{"id":"source","class":"EqualInteger","port_defaultv":{}},{"id":"target","class":"ModInt","port_defaultv":{}}],"edges":[{"edge_id":"legacy-mismatch","source_node_id":"source","source_port_id":0,"des_node_id":"target","des_port_id":0}],"groups":[],"variables":[]}`)
+	document, err := migrateLegacyGraph(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := exportLegacyGraph(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	graph := decodeLegacySafetyGraph(t, output)
+	if len(graph.Edges) != 1 || graph.Edges[0].EdgeID != "legacy-mismatch" {
+		t.Fatalf("edges = %#v, want original incompatible edge", graph.Edges)
+	}
+}
+
+func TestLegacyRoundTripPreservesMissingEdgeID(t *testing.T) {
+	input := []byte(`{"graph_name":"No Edge ID","nodes":[{"id":"left","class":"AddInt","port_defaultv":{}},{"id":"right","class":"AddInt","port_defaultv":{}}],"edges":[{"source_node_id":"left","source_port_id":0,"des_node_id":"right","des_port_id":0}],"groups":[],"variables":[]}`)
+	document, err := migrateLegacyGraph(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := exportLegacyGraph(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	graph := decodeLegacySafetyGraph(t, output)
+	if len(graph.Edges) != 1 || graph.Edges[0].EdgeID != "" {
+		t.Fatalf("edge id = %q, want empty", graph.Edges[0].EdgeID)
+	}
+}
+
+func TestPreferredLegacyExportClassesCoverDuplicateTypeIDs(t *testing.T) {
+	want := map[string]string{
+		"origin.flow.for-loop":       "Foreach",
+		"origin.flow.branch":         "BoolIf",
+		"origin.cast.integer-string": "Integer2String",
+		"origin.math.add-integer":    "AddInt",
+		"origin.array.length":        "GetArrayLen",
+		"origin.array.create-string": "CreateStringArray",
+		"origin.cast.any-string":     "Cast To",
+	}
+	for typeID, class := range want {
+		if got := preferredLegacyExportClassByType[typeID]; got != class {
+			t.Errorf("preferred class for %s = %q, want %q", typeID, got, class)
+		}
+	}
+}

@@ -130,7 +130,13 @@ var legacyNodeSpecs = map[string]legacyNodeSpec{
 }
 
 var preferredLegacyExportClassByType = map[string]string{
-	"origin.math.add-integer": "AddInt",
+	"origin.flow.for-loop":       "Foreach",
+	"origin.flow.branch":         "BoolIf",
+	"origin.cast.integer-string": "Integer2String",
+	"origin.math.add-integer":    "AddInt",
+	"origin.array.length":        "GetArrayLen",
+	"origin.array.create-string": "CreateStringArray",
+	"origin.cast.any-string":     "Cast To",
 }
 
 func (a *App) MigrateLegacyGraph(content string) (string, error) {
@@ -204,7 +210,9 @@ func migrateLegacyGraph(data []byte) (GraphDocument, error) {
 			spec = runtimeLegacySpec{legacyNodeSpec: legacyEqualSwitchNewSpec()}
 			known = true
 		}
-		if (len(spec.Inputs) > 0 && maxInputs[item.ID] >= len(spec.Inputs)) || (len(spec.Outputs) > 0 && maxOutputs[item.ID] >= len(spec.Outputs)) {
+		maxInput, hasInput := maxInputs[item.ID]
+		maxOutput, hasOutput := maxOutputs[item.ID]
+		if (hasInput && !runtimeLegacySpecHasPort(spec, false, maxInput)) || (hasOutput && !runtimeLegacySpecHasPort(spec, true, maxOutput)) {
 			known = false
 		}
 		properties := GraphNodeProperties{LegacyClass: item.Class, LegacyModule: item.Module}
@@ -249,22 +257,13 @@ func migrateLegacyGraph(data []byte) (GraphDocument, error) {
 		if len(item.Position) > 1 {
 			position.Y = item.Position[1]
 		}
-		node := GraphNode{ID: item.ID, TypeID: spec.TypeID, Position: position, Values: map[string]interface{}{}, Properties: properties}
-		for rawIndex, value := range item.PortDefaults {
-			index, mapped := canonicalLegacyDefaultIndex(rawIndex)
-			if mapped && index < len(spec.Inputs) {
-				node.Values[spec.Inputs[index]] = value
-				continue
-			}
+		values, residualDefaults := mapLegacyNodeDefaults(item.PortDefaults, spec.Inputs)
+		node := GraphNode{ID: item.ID, TypeID: spec.TypeID, Position: position, Values: values, Properties: properties}
+		if len(residualDefaults) > 0 {
 			if document.Legacy.ResidualNodeDefaults == nil {
 				document.Legacy.ResidualNodeDefaults = map[string]GraphLegacyResidualDefaults{}
 			}
-			residual := document.Legacy.ResidualNodeDefaults[item.ID]
-			if residual.Values == nil {
-				residual = GraphLegacyResidualDefaults{Class: item.Class, Values: map[string]interface{}{}}
-			}
-			residual.Values[rawIndex] = value
-			document.Legacy.ResidualNodeDefaults[item.ID] = residual
+			document.Legacy.ResidualNodeDefaults[item.ID] = GraphLegacyResidualDefaults{Class: item.Class, Values: residualDefaults}
 		}
 		document.Nodes = append(document.Nodes, node)
 		nodeByID[item.ID] = len(document.Nodes) - 1
@@ -321,7 +320,13 @@ func exportLegacyGraph(document GraphDocument) ([]byte, error) {
 	runtimeSpecs := runtimeLegacyNodeSpecs()
 	specByType := map[string]runtimeLegacySpec{}
 	classByType := map[string]string{}
-	for class, spec := range runtimeSpecs {
+	classes := make([]string, 0, len(runtimeSpecs))
+	for class := range runtimeSpecs {
+		classes = append(classes, class)
+	}
+	sort.Strings(classes)
+	for _, class := range classes {
+		spec := runtimeSpecs[class]
 		if _, exists := specByType[spec.TypeID]; !exists {
 			specByType[spec.TypeID] = spec
 			classByType[spec.TypeID] = class
@@ -463,8 +468,13 @@ func exportLegacyGraph(document GraphDocument) ([]byte, error) {
 		if !sourcePortOK || !targetPortOK {
 			return nil, fmt.Errorf("legacy export connection %d has unmappable ports %q -> %q", connectionIndex, connection.SourceOutput, connection.TargetInput)
 		}
+		sourceType := runtimeLegacySpecPortType(sourceSpec, true, sourceIndex)
+		targetType := runtimeLegacySpecPortType(targetSpec, false, targetIndex)
+		if !legacyPortTypesCompatible(sourceType, targetType) && connection.LegacyOrdinal == nil {
+			return nil, fmt.Errorf("legacy export connection %d has incompatible port types %q -> %q", connectionIndex, sourceType, targetType)
+		}
 		edgeID := connection.LegacyEdgeID
-		if edgeID == "" {
+		if edgeID == "" && connection.LegacyOrdinal == nil {
 			edgeID = uuid.NewString()
 		}
 		if err := registerLegacyExportOrdinal(usedOrdinals, connection.LegacyOrdinal, fmt.Sprintf("connection %d", connectionIndex)); err != nil {
@@ -538,6 +548,22 @@ func registerLegacyExportOrdinal(used map[int]string, ordinal *int, owner string
 func canonicalLegacyDefaultIndex(raw string) (int, bool) {
 	index, err := strconv.Atoi(raw)
 	return index, err == nil && index >= 0 && strconv.Itoa(index) == raw
+}
+
+func mapLegacyNodeDefaults(defaults map[string]interface{}, inputs []string) (map[string]interface{}, map[string]interface{}) {
+	values := map[string]interface{}{}
+	residual := map[string]interface{}{}
+	for rawIndex, value := range defaults {
+		index, mapped := canonicalLegacyDefaultIndex(rawIndex)
+		if mapped {
+			if key, exists := legacyPortKeyAtIndex(inputs, index, "in"); exists {
+				values[key] = value
+				continue
+			}
+		}
+		residual[rawIndex] = value
+	}
+	return values, residual
 }
 
 type inferredRuntimeFallbackPortSet struct {
@@ -704,15 +730,17 @@ func inferredLegacyPorts(types map[int]string, prefix string) []GraphLegacyPort 
 func runtimeLegacySpecPortType(spec runtimeLegacySpec, output bool, index int) string {
 	keys := spec.Inputs
 	ports := spec.InputPorts
+	prefix := "in"
 	staticPorts := map[string]string(nil)
 	if output {
 		keys = spec.Outputs
 		ports = spec.OutputPorts
+		prefix = "out"
 	}
-	if index < 0 || index >= len(keys) {
+	key, exists := legacyPortKeyAtIndex(keys, index, prefix)
+	if !exists {
 		return ""
 	}
-	key := keys[index]
 	for _, port := range ports {
 		if port.Key == key {
 			return port.Type
@@ -735,6 +763,30 @@ func runtimeLegacySpecPortType(spec runtimeLegacySpec, output bool, index int) s
 		return "exec"
 	}
 	return "any"
+}
+
+func runtimeLegacySpecHasPort(spec runtimeLegacySpec, output bool, index int) bool {
+	keys := spec.Inputs
+	prefix := "in"
+	if output {
+		keys = spec.Outputs
+		prefix = "out"
+	}
+	_, exists := legacyPortKeyAtIndex(keys, index, prefix)
+	return exists
+}
+
+func legacyPortTypesCompatible(source, target string) bool {
+	if source == "" || target == "" {
+		return false
+	}
+	if source == "any" || target == "any" {
+		return true
+	}
+	if source == "exec" || target == "exec" {
+		return source == target
+	}
+	return source == target
 }
 
 func runtimeLegacyNodeSpecs() map[string]runtimeLegacySpec {
@@ -873,14 +925,40 @@ func legacyRuntimePortType(port legacyPortDefinition) string {
 func legacyKeyIndex(keys []string, key, prefix string) (int, bool) {
 	for index, candidate := range keys {
 		if candidate == key {
+			if portID, ok := indexedLegacyPortID(candidate, prefix); ok {
+				return portID, true
+			}
 			return index, true
 		}
 	}
-	if strings.HasPrefix(key, prefix) {
-		index, err := strconv.Atoi(strings.TrimPrefix(key, prefix))
-		return index, err == nil
-	}
 	return 0, false
+}
+
+func legacyPortKeyAtIndex(keys []string, index int, prefix string) (string, bool) {
+	hasIndexedKeys := false
+	for _, key := range keys {
+		portID, indexed := indexedLegacyPortID(key, prefix)
+		if !indexed {
+			continue
+		}
+		hasIndexedKeys = true
+		if portID == index {
+			return key, true
+		}
+	}
+	if !hasIndexedKeys && index >= 0 && index < len(keys) {
+		return keys[index], true
+	}
+	return "", false
+}
+
+func indexedLegacyPortID(key, prefix string) (int, bool) {
+	if !strings.HasPrefix(key, prefix) {
+		return 0, false
+	}
+	raw := strings.TrimPrefix(key, prefix)
+	index, err := strconv.Atoi(raw)
+	return index, err == nil && index >= 0 && strconv.Itoa(index) == raw
 }
 
 func legacyPortsFromRuntimeSpec(keys []string, ports []GraphLegacyPort, prefix string) []GraphLegacyPort {
@@ -1079,8 +1157,8 @@ func legacyPortIndex(value interface{}, fallback int) int {
 	return number
 }
 func indexedKey(keys []string, index int, prefix string) string {
-	if index >= 0 && index < len(keys) {
-		return keys[index]
+	if key, exists := legacyPortKeyAtIndex(keys, index, prefix); exists {
+		return key
 	}
 	return fmt.Sprintf("%s%d", prefix, index)
 }
