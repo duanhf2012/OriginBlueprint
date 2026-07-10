@@ -52,6 +52,12 @@ type runtimeLegacySpec struct {
 	InputPorts, OutputPorts []GraphLegacyPort
 }
 
+type legacyExportEdge struct {
+	edge     legacyEdge
+	ordinal  *int
+	sequence int
+}
+
 type legacyRuntimeNodeDefinition struct {
 	Name    string                 `json:"name"`
 	ID      string                 `json:"id"`
@@ -245,15 +251,25 @@ func migrateLegacyGraph(data []byte) (GraphDocument, error) {
 		}
 		node := GraphNode{ID: item.ID, TypeID: spec.TypeID, Position: position, Values: map[string]interface{}{}, Properties: properties}
 		for rawIndex, value := range item.PortDefaults {
-			index, _ := strconv.Atoi(rawIndex)
-			if index >= 0 && index < len(spec.Inputs) {
+			index, mapped := canonicalLegacyDefaultIndex(rawIndex)
+			if mapped && index < len(spec.Inputs) {
 				node.Values[spec.Inputs[index]] = value
+				continue
 			}
+			if document.Legacy.ResidualNodeDefaults == nil {
+				document.Legacy.ResidualNodeDefaults = map[string]GraphLegacyResidualDefaults{}
+			}
+			residual := document.Legacy.ResidualNodeDefaults[item.ID]
+			if residual.Values == nil {
+				residual = GraphLegacyResidualDefaults{Class: item.Class, Values: map[string]interface{}{}}
+			}
+			residual.Values[rawIndex] = value
+			document.Legacy.ResidualNodeDefaults[item.ID] = residual
 		}
 		document.Nodes = append(document.Nodes, node)
 		nodeByID[item.ID] = len(document.Nodes) - 1
 	}
-	for _, edge := range legacy.Edges {
+	for ordinal, edge := range legacy.Edges {
 		sourceIndex := legacyPortIndex(edge.SourcePortID, edge.SourceIndex)
 		targetIndex := legacyPortIndex(edge.TargetPortID, edge.TargetIndex)
 		sourceSpec := nodeSpecs[edge.SourceNodeID]
@@ -262,11 +278,13 @@ func migrateLegacyGraph(data []byte) (GraphDocument, error) {
 		_, targetExists := nodeByID[edge.TargetNodeID]
 		if !sourceExists || !targetExists {
 			document.Legacy.HiddenEdges = append(document.Legacy.HiddenEdges, cloneLegacyEdge(edge))
+			document.Legacy.HiddenEdgeOrdinals = append(document.Legacy.HiddenEdgeOrdinals, ordinal)
 			continue
 		}
 		sourceKey := indexedKey(sourceSpec.Outputs, sourceIndex, "out")
 		targetKey := indexedKey(targetSpec.Inputs, targetIndex, "in")
-		document.Connections = append(document.Connections, GraphConnection{Source: edge.SourceNodeID, SourceOutput: sourceKey, Target: edge.TargetNodeID, TargetInput: targetKey, EntryConnectionVisible: edge.EntryConnectionVisible})
+		legacyOrdinal := ordinal
+		document.Connections = append(document.Connections, GraphConnection{Source: edge.SourceNodeID, SourceOutput: sourceKey, Target: edge.TargetNodeID, TargetInput: targetKey, EntryConnectionVisible: edge.EntryConnectionVisible, LegacyEdgeID: edge.EdgeID, LegacyOrdinal: &legacyOrdinal})
 	}
 	for _, group := range legacy.Groups {
 		positions := make([]GraphPosition, 0)
@@ -322,6 +340,12 @@ func exportLegacyGraph(document GraphDocument) ([]byte, error) {
 	nodeSpecs := map[string]runtimeLegacySpec{}
 	nodeIDs := map[string]bool{}
 	for _, node := range document.Nodes {
+		if strings.TrimSpace(node.ID) == "" {
+			return nil, fmt.Errorf("legacy export node id is empty")
+		}
+		if nodeIDs[node.ID] {
+			return nil, fmt.Errorf("legacy export duplicate node id %q", node.ID)
+		}
 		class := node.Properties.LegacyClass
 		module := node.Properties.LegacyModule
 		spec := runtimeLegacySpec{}
@@ -342,7 +366,7 @@ func exportLegacyGraph(document GraphDocument) ([]byte, error) {
 		if node.TypeID == "origin.variable.get" || node.TypeID == "origin.variable.set" {
 			variable, exists := variablesByID[node.Properties.VariableID]
 			if !exists || variable.Name == "" {
-				continue
+				return nil, fmt.Errorf("legacy export node %q references missing variable %q", node.ID, node.Properties.VariableID)
 			}
 			if node.TypeID == "origin.variable.get" {
 				if class == "" {
@@ -366,7 +390,7 @@ func exportLegacyGraph(document GraphDocument) ([]byte, error) {
 			class = classByType[node.TypeID]
 		}
 		if class == "" {
-			continue
+			return nil, fmt.Errorf("legacy export node %q type %q has no legacy class", node.ID, node.TypeID)
 		}
 		if spec.TypeID == "" {
 			spec = runtimeSpecs[class]
@@ -386,11 +410,16 @@ func exportLegacyGraph(document GraphDocument) ([]byte, error) {
 			spec = specByType[node.TypeID]
 		}
 		if spec.TypeID == "" {
-			continue
+			return nil, fmt.Errorf("legacy export node %q class %q has no legacy port specification", node.ID, class)
 		}
 		nodeSpecs[node.ID] = spec
 		nodeIDs[node.ID] = true
 		portDefaults := map[string]interface{}{}
+		if document.Legacy != nil {
+			if residual, exists := document.Legacy.ResidualNodeDefaults[node.ID]; exists && residual.Class == class {
+				portDefaults = cloneInterfaceMap(residual.Values)
+			}
+		}
 		for key, value := range node.Values {
 			if index, ok := legacyKeyIndex(spec.Inputs, key, "in"); ok {
 				portDefaults[strconv.Itoa(index)] = value
@@ -409,24 +438,40 @@ func exportLegacyGraph(document GraphDocument) ([]byte, error) {
 	}
 	if document.Legacy != nil {
 		for _, node := range document.Legacy.HiddenNodes {
+			if strings.TrimSpace(node.ID) == "" {
+				return nil, fmt.Errorf("legacy export hidden node id is empty")
+			}
+			if nodeIDs[node.ID] {
+				return nil, fmt.Errorf("legacy export duplicate node id %q", node.ID)
+			}
 			legacy.Nodes = append(legacy.Nodes, cloneLegacyNode(node))
 			nodeIDs[node.ID] = true
 		}
 	}
 
-	for _, connection := range document.Connections {
+	exportEdges := make([]legacyExportEdge, 0, len(document.Connections))
+	usedOrdinals := map[int]string{}
+	sequence := 0
+	for connectionIndex, connection := range document.Connections {
 		sourceSpec, sourceOK := nodeSpecs[connection.Source]
 		targetSpec, targetOK := nodeSpecs[connection.Target]
 		if !sourceOK || !targetOK {
-			continue
+			return nil, fmt.Errorf("legacy export connection %d references unmappable nodes %q -> %q", connectionIndex, connection.Source, connection.Target)
 		}
 		sourceIndex, sourcePortOK := legacyKeyIndex(sourceSpec.Outputs, connection.SourceOutput, "out")
 		targetIndex, targetPortOK := legacyKeyIndex(targetSpec.Inputs, connection.TargetInput, "in")
 		if !sourcePortOK || !targetPortOK {
-			continue
+			return nil, fmt.Errorf("legacy export connection %d has unmappable ports %q -> %q", connectionIndex, connection.SourceOutput, connection.TargetInput)
 		}
-		legacy.Edges = append(legacy.Edges, legacyEdge{
-			EdgeID:                 uuid.NewString(),
+		edgeID := connection.LegacyEdgeID
+		if edgeID == "" {
+			edgeID = uuid.NewString()
+		}
+		if err := registerLegacyExportOrdinal(usedOrdinals, connection.LegacyOrdinal, fmt.Sprintf("connection %d", connectionIndex)); err != nil {
+			return nil, err
+		}
+		exportEdges = append(exportEdges, legacyExportEdge{edge: legacyEdge{
+			EdgeID:                 edgeID,
 			SourceNodeID:           connection.Source,
 			SourceIndex:            sourceIndex,
 			SourcePortID:           sourceIndex,
@@ -434,17 +479,65 @@ func exportLegacyGraph(document GraphDocument) ([]byte, error) {
 			TargetIndex:            targetIndex,
 			TargetPortID:           targetIndex,
 			EntryConnectionVisible: connection.EntryConnectionVisible,
-		})
+		}, ordinal: connection.LegacyOrdinal, sequence: sequence})
+		sequence++
 	}
 	if document.Legacy != nil {
-		for _, edge := range document.Legacy.HiddenEdges {
-			if nodeIDs[edge.SourceNodeID] && nodeIDs[edge.TargetNodeID] {
-				legacy.Edges = append(legacy.Edges, cloneLegacyEdge(edge))
-			}
+		hasHiddenOrdinals := len(document.Legacy.HiddenEdgeOrdinals) > 0
+		if hasHiddenOrdinals && len(document.Legacy.HiddenEdgeOrdinals) != len(document.Legacy.HiddenEdges) {
+			return nil, fmt.Errorf("legacy export hidden edge ordinals length %d does not match hidden edges %d", len(document.Legacy.HiddenEdgeOrdinals), len(document.Legacy.HiddenEdges))
 		}
+		for hiddenIndex, edge := range document.Legacy.HiddenEdges {
+			if !nodeIDs[edge.SourceNodeID] || !nodeIDs[edge.TargetNodeID] {
+				return nil, fmt.Errorf("legacy export hidden edge %q references missing nodes %q -> %q", edge.EdgeID, edge.SourceNodeID, edge.TargetNodeID)
+			}
+			var ordinal *int
+			if hasHiddenOrdinals {
+				value := document.Legacy.HiddenEdgeOrdinals[hiddenIndex]
+				ordinal = &value
+			}
+			if err := registerLegacyExportOrdinal(usedOrdinals, ordinal, fmt.Sprintf("hidden edge %q", edge.EdgeID)); err != nil {
+				return nil, err
+			}
+			exportEdges = append(exportEdges, legacyExportEdge{edge: cloneLegacyEdge(edge), ordinal: ordinal, sequence: sequence})
+			sequence++
+		}
+	}
+	sort.SliceStable(exportEdges, func(i, j int) bool {
+		left, right := exportEdges[i], exportEdges[j]
+		if left.ordinal == nil {
+			return right.ordinal == nil && left.sequence < right.sequence
+		}
+		if right.ordinal == nil {
+			return true
+		}
+		return *left.ordinal < *right.ordinal
+	})
+	legacy.Edges = make([]legacyEdge, 0, len(exportEdges))
+	for _, item := range exportEdges {
+		legacy.Edges = append(legacy.Edges, item.edge)
 	}
 
 	return json.MarshalIndent(legacy, "", "  ")
+}
+
+func registerLegacyExportOrdinal(used map[int]string, ordinal *int, owner string) error {
+	if ordinal == nil {
+		return nil
+	}
+	if *ordinal < 0 {
+		return fmt.Errorf("legacy export %s has negative ordinal %d", owner, *ordinal)
+	}
+	if previous, exists := used[*ordinal]; exists {
+		return fmt.Errorf("legacy export ordinal %d is shared by %s and %s", *ordinal, previous, owner)
+	}
+	used[*ordinal] = owner
+	return nil
+}
+
+func canonicalLegacyDefaultIndex(raw string) (int, bool) {
+	index, err := strconv.Atoi(raw)
+	return index, err == nil && index >= 0 && strconv.Itoa(index) == raw
 }
 
 type inferredRuntimeFallbackPortSet struct {

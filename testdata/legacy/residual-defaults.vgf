@@ -1,0 +1,23 @@
+{
+  "graph_name": "Residual Defaults",
+  "time": "",
+  "nodes": [
+    {
+      "id": "add",
+      "class": "AddInt",
+      "module": "tools.json_node_loader",
+      "pos": [10, 20],
+      "port_defaultv": {
+        "0": null,
+        "1": false,
+        "3": 0,
+        "01": "",
+        "name": "keep-name",
+        "-1": "keep-negative"
+      }
+    }
+  ],
+  "edges": [],
+  "groups": [],
+  "variables": []
+}
