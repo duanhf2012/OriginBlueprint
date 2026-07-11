@@ -3,7 +3,29 @@ package blueprint
 import (
 	"sync"
 	"testing"
+	"time"
 )
+
+func TestGraphInstanceReleaseDoesNotWaitForInFlightLease(t *testing.T) {
+	instance := &GraphInstance{releasedCh: make(chan struct{})}
+	if !instance.tryAcquireLease() {
+		t.Fatal("initial lease was rejected")
+	}
+	done := make(chan struct{})
+	go func() {
+		instance.markReleasedAndDrainTimers()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("release waited for in-flight lease")
+	}
+	if instance.tryAcquireLease() {
+		t.Fatal("new lease acquired after release")
+	}
+	instance.releaseLease()
+}
 
 func TestBlueprintCreateAndDoUsesCompiledGraph(t *testing.T) {
 	var recorder *testRecorder

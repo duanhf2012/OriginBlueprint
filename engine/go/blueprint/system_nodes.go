@@ -540,21 +540,43 @@ func (n *CreateTimer) Exec() (int, error) {
 	if n.graph.module != nil {
 		graphID := n.graph.graphID
 		addition, _ := n.GetInPortArray(2)
+		var token uint64
+		if n.graph.instance != nil {
+			var active bool
+			token, active = n.graph.instance.beginExternalTimer()
+			if !active {
+				return -1, ErrGraphReleased
+			}
+		}
 		n.graph.module.SafeAfterFunc(&timerID, time.Duration(delay)*time.Millisecond, nil, func(id uint64, additionData any) {
+			if n.graph.instance != nil {
+				if !n.graph.instance.tryAcquireLease() {
+					return
+				}
+				defer n.graph.instance.releaseLease()
+				if !n.graph.instance.fireExternalTimer(token) {
+					return
+				}
+			}
 			_ = n.graph.module.TriggerEvent(graphID, EntranceIDTimer, PortInt(id), addition)
 			n.graph.module.CancelTimerId(graphID, &id)
 		})
 		if n.graph.instance != nil {
-			n.graph.instance.timerMu.Lock()
-			if n.graph.instance.timers == nil {
-				n.graph.instance.timers = map[uint64]struct{}{}
+			if n.graph.instance.bindExternalTimer(token, timerID) {
+				n.graph.module.CancelTimerId(graphID, &timerID)
 			}
-			n.graph.instance.timers[timerID] = struct{}{}
-			n.graph.instance.timerMu.Unlock()
 		}
 	} else {
-		timer := time.AfterFunc(time.Duration(delay)*time.Millisecond, func() {})
-		timerID = n.graph.addTimer(timer)
+		if n.graph.instance != nil {
+			var active bool
+			timerID, active = n.graph.instance.startLocalTimer(time.Duration(delay) * time.Millisecond)
+			if !active {
+				return -1, ErrGraphReleased
+			}
+		} else {
+			timer := time.AfterFunc(time.Duration(delay)*time.Millisecond, func() {})
+			timerID = n.graph.addTimer(timer)
+		}
 	}
 	n.SetOutPortInt(1, PortInt(timerID))
 	return 0, nil
@@ -574,6 +596,10 @@ func (n *CloseTimer) Exec() (int, error) {
 		}
 		return 0, nil
 	}
-	n.graph.cancelTimer(id)
+	if n.graph.instance != nil {
+		n.graph.instance.cancelLocalTimer(id)
+	} else {
+		n.graph.cancelTimer(id)
+	}
 	return 0, nil
 }

@@ -48,3 +48,37 @@ func TestSleepNodeResumesAfterDelay(t *testing.T) {
 		t.Fatalf("recorder did not signal completion")
 	}
 }
+
+func TestReleaseGraphPreventsSleepContinuation(t *testing.T) {
+	done := make(chan struct{})
+	entrance := NewExecNode("entrance", NewNodeDefinition("TestEntrance", func() IExecNode { return &testEntrance{} }, nil, []IPort{NewPortExec()}))
+	sleep := NewExecNode("sleep", NewSleepNodeDefinition())
+	record := NewExecNode("record", NewNodeDefinition("TestSignalRecorder", func() IExecNode { return &testSignalRecorder{done: done} }, []IPort{NewPortExec()}, nil))
+	sleep.DefaultIn[1] = 40
+	entrance.Next = []*ExecNode{sleep}
+	sleep.Next = []*ExecNode{record}
+	sleep.BeConnect = true
+	record.BeConnect = true
+
+	var bp Blueprint
+	bp.AddCompiledGraph("sleep", &CompiledGraph{Entrances: map[int64]*ExecNode{1: entrance}, NodeCount: 3})
+	graphID := bp.Create("sleep")
+	if _, err := bp.Do(graphID, 1); err != nil {
+		t.Fatal(err)
+	}
+	bp.ReleaseGraph(graphID)
+	select {
+	case <-done:
+		t.Fatal("sleep continuation ran after graph release")
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+func TestContinuationResumeReturnsGraphReleased(t *testing.T) {
+	instance := &GraphInstance{releasedCh: make(chan struct{})}
+	instance.markReleasedAndDrainTimers()
+	continuation := &Continuation{graph: &Graph{instance: instance}}
+	if err := continuation.Resume(); err != ErrGraphReleased {
+		t.Fatalf("Resume error = %v, want ErrGraphReleased", err)
+	}
+}

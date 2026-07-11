@@ -9,6 +9,8 @@ import (
 // ErrContinuationResumed 表示同一个异步续点被重复恢复。
 var ErrContinuationResumed = errors.New("golang blueprint continuation already resumed")
 
+var ErrGraphReleased = errors.New("golang blueprint graph released")
+
 // Continuation 保存暂停节点继续执行所需的最小上下文。
 type Continuation struct {
 	graph     *Graph
@@ -45,6 +47,12 @@ func (n *BaseExecNode) Suspend(nextIndex int) (*Continuation, error) {
 func (c *Continuation) Resume(outPortArgs ...any) error {
 	if c == nil {
 		return fmt.Errorf("continuation is nil")
+	}
+	if c.graph != nil && c.graph.instance != nil {
+		if !c.graph.instance.tryAcquireLease() {
+			return ErrGraphReleased
+		}
+		defer c.graph.instance.releaseLease()
 	}
 
 	c.mu.Lock()
