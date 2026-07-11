@@ -353,6 +353,9 @@ func (i *GraphInstance) startLocalTimer(delay time.Duration) (uint64, bool) {
 		i.lifecycleMu.Unlock()
 		return 0, false
 	}
+	if i.releasedCh == nil {
+		i.releasedCh = make(chan struct{})
+	}
 	i.timerMu.Lock()
 	i.localTimerID++
 	id := i.localTimerID
