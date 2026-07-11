@@ -44,7 +44,7 @@ type strictLegacyRuntimeGraph struct {
 	Time      string                    `json:"time"`
 	Nodes     []strictLegacyRuntimeNode `json:"nodes"`
 	Edges     []strictLegacyRuntimeEdge `json:"edges"`
-	Variables []map[string]interface{} `json:"variables"`
+	Variables []map[string]interface{}  `json:"variables"`
 }
 
 type strictLegacyRuntimeNode struct {
@@ -294,14 +294,28 @@ func legacyEdgeSignatures(edges []legacyEdge) []string {
 		sourcePort := legacyPortIndex(edge.SourcePortID, edge.SourceIndex)
 		targetPort := legacyPortIndex(edge.TargetPortID, edge.TargetIndex)
 		result = append(result, strings.Join([]string{
+			edge.EdgeID,
 			edge.SourceNodeID,
 			strconv.Itoa(sourcePort),
 			edge.TargetNodeID,
 			strconv.Itoa(targetPort),
+			strconv.FormatBool(edge.EntryConnectionVisible),
 		}, "->"))
 	}
-	sort.Strings(result)
 	return result
+}
+
+func TestLegacyEdgeSignaturesPreserveIdentityAndOrder(t *testing.T) {
+	first := legacyEdge{EdgeID: "first", SourceNodeID: "a", SourcePortID: 0, TargetNodeID: "b", TargetPortID: 1}
+	second := legacyEdge{EdgeID: "second", SourceNodeID: "c", SourcePortID: 2, TargetNodeID: "d", TargetPortID: 3}
+	baseline := legacyEdgeSignatures([]legacyEdge{first, second})
+	if reflect.DeepEqual(baseline, legacyEdgeSignatures([]legacyEdge{second, first})) {
+		t.Fatal("edge signatures must preserve source order")
+	}
+	first.EdgeID = "changed"
+	if reflect.DeepEqual(baseline, legacyEdgeSignatures([]legacyEdge{first, second})) {
+		t.Fatal("edge signatures must include edge identity")
+	}
 }
 
 func normalizedJSONEqual(left, right interface{}) bool {

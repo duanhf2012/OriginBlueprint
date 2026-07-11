@@ -191,9 +191,18 @@ func migrateLegacyGraph(data []byte) (GraphDocument, error) {
 	nodeByID := map[string]int{}
 	nodeSpecs := map[string]runtimeLegacySpec{}
 	maxInputs, maxOutputs := map[string]int{}, map[string]int{}
+	inputIndexes, outputIndexes := map[string]map[int]bool{}, map[string]map[int]bool{}
 	for _, edge := range legacy.Edges {
 		sourceIndex := legacyPortIndex(edge.SourcePortID, edge.SourceIndex)
 		targetIndex := legacyPortIndex(edge.TargetPortID, edge.TargetIndex)
+		if outputIndexes[edge.SourceNodeID] == nil {
+			outputIndexes[edge.SourceNodeID] = map[int]bool{}
+		}
+		outputIndexes[edge.SourceNodeID][sourceIndex] = true
+		if inputIndexes[edge.TargetNodeID] == nil {
+			inputIndexes[edge.TargetNodeID] = map[int]bool{}
+		}
+		inputIndexes[edge.TargetNodeID][targetIndex] = true
 		if current, exists := maxOutputs[edge.SourceNodeID]; !exists || sourceIndex > current {
 			maxOutputs[edge.SourceNodeID] = sourceIndex
 		}
@@ -210,9 +219,7 @@ func migrateLegacyGraph(data []byte) (GraphDocument, error) {
 			spec = runtimeLegacySpec{legacyNodeSpec: legacyEqualSwitchNewSpec()}
 			known = true
 		}
-		maxInput, hasInput := maxInputs[item.ID]
-		maxOutput, hasOutput := maxOutputs[item.ID]
-		if (hasInput && !runtimeLegacySpecHasPort(spec, false, maxInput)) || (hasOutput && !runtimeLegacySpecHasPort(spec, true, maxOutput)) {
+		if !runtimeLegacySpecHasPorts(spec, false, inputIndexes[item.ID]) || !runtimeLegacySpecHasPorts(spec, true, outputIndexes[item.ID]) {
 			known = false
 		}
 		properties := GraphNodeProperties{LegacyClass: item.Class, LegacyModule: item.Module}
@@ -377,12 +384,25 @@ func exportLegacyGraph(document GraphDocument) ([]byte, error) {
 				if class == "" {
 					class = "Get_" + variable.Name
 				}
-				spec = runtimeLegacySpec{legacyNodeSpec: legacyNodeSpec{TypeID: node.TypeID, Outputs: []string{"value"}}}
+				spec = runtimeLegacySpec{
+					legacyNodeSpec: legacyNodeSpec{TypeID: node.TypeID, Outputs: []string{"value"}},
+					OutputPorts:    []GraphLegacyPort{{Key: "value", Type: variable.Type}},
+				}
 			} else {
 				if class == "" {
 					class = "Set_" + variable.Name
 				}
-				spec = runtimeLegacySpec{legacyNodeSpec: legacyNodeSpec{TypeID: node.TypeID, Inputs: []string{"exec", "value"}, Outputs: []string{"exec", "value"}}}
+				spec = runtimeLegacySpec{
+					legacyNodeSpec: legacyNodeSpec{TypeID: node.TypeID, Inputs: []string{"exec", "value"}, Outputs: []string{"exec", "value"}},
+					InputPorts: []GraphLegacyPort{
+						{Key: "exec", Type: "exec"},
+						{Key: "value", Type: variable.Type},
+					},
+					OutputPorts: []GraphLegacyPort{
+						{Key: "exec", Type: "exec"},
+						{Key: "value", Type: variable.Type},
+					},
+				}
 			}
 			if module == "" {
 				module = "nodes.VariableNode"
@@ -421,7 +441,10 @@ func exportLegacyGraph(document GraphDocument) ([]byte, error) {
 		nodeIDs[node.ID] = true
 		portDefaults := map[string]interface{}{}
 		if document.Legacy != nil {
-			if residual, exists := document.Legacy.ResidualNodeDefaults[node.ID]; exists && residual.Class == class {
+			if residual, exists := document.Legacy.ResidualNodeDefaults[node.ID]; exists {
+				if residual.Class != class {
+					return nil, fmt.Errorf("legacy export node %q residual defaults belong to class %q, not %q", node.ID, residual.Class, class)
+				}
 				portDefaults = cloneInterfaceMap(residual.Values)
 			}
 		}
@@ -774,6 +797,15 @@ func runtimeLegacySpecHasPort(spec runtimeLegacySpec, output bool, index int) bo
 	}
 	_, exists := legacyPortKeyAtIndex(keys, index, prefix)
 	return exists
+}
+
+func runtimeLegacySpecHasPorts(spec runtimeLegacySpec, output bool, indexes map[int]bool) bool {
+	for index := range indexes {
+		if !runtimeLegacySpecHasPort(spec, output, index) {
+			return false
+		}
+	}
+	return true
 }
 
 func legacyPortTypesCompatible(source, target string) bool {

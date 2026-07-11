@@ -45,6 +45,19 @@ func TestLegacyRoundTripPreservesUnmappedDefaultKeys(t *testing.T) {
 	}
 }
 
+func TestExportLegacyGraphRejectsResidualDefaultsForDifferentClass(t *testing.T) {
+	document := GraphDocument{
+		Nodes: []GraphNode{{ID: "node", TypeID: "origin.math.add-integer", Properties: GraphNodeProperties{LegacyClass: "AddInt"}}},
+		Legacy: &GraphLegacyState{ResidualNodeDefaults: map[string]GraphLegacyResidualDefaults{
+			"node": {Class: "SubInt", Values: map[string]interface{}{"99": 7}},
+		}},
+	}
+	_, err := exportLegacyGraph(document)
+	if err == nil || !strings.Contains(err.Error(), "residual defaults") || !strings.Contains(err.Error(), "node") {
+		t.Fatalf("error = %v, want residual class mismatch", err)
+	}
+}
+
 func TestLegacyRoundTripPreservesVisibleHiddenEdgeOrder(t *testing.T) {
 	input := readLegacySafetyFixture(t, "interleaved-hidden-edge.vgf")
 	document, err := migrateLegacyGraph(input)
@@ -62,6 +75,32 @@ func TestLegacyRoundTripPreservesVisibleHiddenEdgeOrder(t *testing.T) {
 	}
 	want := []string{"visible-1", "hidden-1", "visible-2"}
 	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("edge ids = %v, want %v", got, want)
+	}
+}
+
+func TestExportLegacyGraphAppendsEdgesWithoutOrdinalsDeterministically(t *testing.T) {
+	document := GraphDocument{
+		Nodes: []GraphNode{
+			{ID: "source", TypeID: "origin.math.add-integer"},
+			{ID: "target", TypeID: "origin.math.add-integer"},
+		},
+		Connections: []GraphConnection{{Source: "source", SourceOutput: "result", Target: "target", TargetInput: "a", LegacyEdgeID: "visible"}},
+		Legacy: &GraphLegacyState{
+			HiddenNodes: []legacyNode{
+				{ID: "hidden-source", Class: "UnknownSource", PortDefaults: map[string]interface{}{}},
+				{ID: "hidden-target", Class: "UnknownTarget", PortDefaults: map[string]interface{}{}},
+			},
+			HiddenEdges: []legacyEdge{{EdgeID: "hidden", SourceNodeID: "hidden-source", TargetNodeID: "hidden-target"}},
+		},
+	}
+	output, err := exportLegacyGraph(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	graph := decodeLegacySafetyGraph(t, output)
+	got := []string{graph.Edges[0].EdgeID, graph.Edges[1].EdgeID}
+	if want := []string{"visible", "hidden"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("edge ids = %v, want %v", got, want)
 	}
 }
@@ -213,6 +252,21 @@ func TestExportLegacyGraphRejectsIncompatiblePortTypes(t *testing.T) {
 	}
 }
 
+func TestExportLegacyGraphRejectsVariableTypeMismatch(t *testing.T) {
+	document := GraphDocument{
+		Variables: []GraphVariable{{ID: "score", Name: "Score", Type: "integer", DefaultValue: 0}},
+		Nodes: []GraphNode{
+			{ID: "source", TypeID: "origin.variable.get", Properties: GraphNodeProperties{VariableID: "score", VariableAccess: "get"}},
+			{ID: "target", TypeID: "origin.literal.string"},
+		},
+		Connections: []GraphConnection{{Source: "source", SourceOutput: "value", Target: "target", TargetInput: "value"}},
+	}
+	_, err := exportLegacyGraph(document)
+	if err == nil || !strings.Contains(err.Error(), "incompatible") {
+		t.Fatalf("error = %v, want variable type mismatch", err)
+	}
+}
+
 func TestLegacyAnyPortTypeIsCompatibleWithExec(t *testing.T) {
 	if !legacyPortTypesCompatible("any", "exec") {
 		t.Fatal("any output should be compatible with an exec input")
@@ -235,6 +289,21 @@ func TestLegacyRoundTripPreservesOriginalIncompatibleConnection(t *testing.T) {
 	graph := decodeLegacySafetyGraph(t, output)
 	if len(graph.Edges) != 1 || graph.Edges[0].EdgeID != "legacy-mismatch" {
 		t.Fatalf("edges = %#v, want original incompatible edge", graph.Edges)
+	}
+}
+
+func TestLegacyRoundTripPreservesNodeWithMixedValidAndInvalidPortIDs(t *testing.T) {
+	input := []byte(`{"graph_name":"Mixed Port IDs","nodes":[{"id":"source","class":"AddInt","port_defaultv":{}},{"id":"target","class":"AddInt","port_defaultv":{}}],"edges":[{"edge_id":"invalid","source_node_id":"source","source_port_id":0,"des_node_id":"target","des_port_id":-1},{"edge_id":"valid-max","source_node_id":"source","source_port_id":0,"des_node_id":"target","des_port_id":1}],"groups":[],"variables":[]}`)
+	document, err := migrateLegacyGraph(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := exportLegacyGraph(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := decodeLegacySafetyGraph(t, output).Edges, decodeLegacySafetyGraph(t, input).Edges; !reflect.DeepEqual(got, want) {
+		t.Fatalf("edges = %#v, want %#v", got, want)
 	}
 }
 
