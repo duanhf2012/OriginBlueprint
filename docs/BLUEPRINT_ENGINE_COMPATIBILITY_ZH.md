@@ -76,7 +76,9 @@
 - 收集服务器当前实际注册的所有自定义节点，逐个确认 `GetName()` 与节点 JSON 中的 `name` 去入口后缀后的类名一致。
 - 对照自定义节点的输入输出端口，确认 `port_id`、`type`、`data_type` 与旧定义一致。
 - 抽取真实服务器 `.vgf/.obp/.obpf` 文件跑离线加载和执行测试。
-- RPC 类异步节点接入前，确认回调只调用一次 `Continuation.ResumeAsync(...)`。
+- 只有固定后续出口的异步节点使用 `Suspend(nextIndex)`/`Continuation.Resume(...)`；RPC 等需要按结果选择成功、失败出口的节点使用 `SuspendForResume()`/`Continuation.ResumeTo(nextIndex, outputs...)`。
+- `ResumeTo` 的 `nextIndex` 是节点输出端口下标，不是第几个已连线节点；目标必须是 Exec 输出端口。`outputs` 按该节点的数据输出端口顺序回填，然后再执行选定分支。
+- RPC 回调必须检查 `ResumeTo` 返回的错误。continuation 只允许成功恢复一次，Execution 取消后到达的响应也会被拒绝，回调不得再次推进蓝图。
 - Timer 回调应选择蓝图函数，由运行时通过稳定函数 ID 启动独立 Execution；不要自行构造 Timer 事件入口。
 - 大规模开启 trace 前必须加业务侧过滤，只对指定 graph/object 开启。
 - 灰度期间保留旧库回退开关，先按模块或对象范围逐步替换。
@@ -88,3 +90,29 @@ go test ./engine/go/blueprint -run 'TestBlueprintLegacyFacadeIntegrationPath|Tes
 go test ./engine/go/blueprint -race -count=1
 go test ./...
 ```
+
+## 异步业务节点示例
+
+下面的节点有两个 Exec 输出：下标 `0` 为成功，下标 `1` 为失败；其后的参数按节点数据输出端口顺序传递。`Start` 创建的 Execution 会把恢复任务提交回配置的 Dispatcher，因此 RPC 回调线程不会直接执行后续蓝图节点。
+
+```go
+func (n *QueryRoleNode) Exec() (int, error) {
+	continuation, err := n.SuspendForResume()
+	if err != nil {
+		return -1, err
+	}
+
+	n.client.QueryRole(n.roleID, func(role Role, callErr error) {
+		if callErr != nil {
+			// 输出端口 1：Failed；数据输出：错误码、错误信息。
+			_ = continuation.ResumeTo(1, errorCode(callErr), callErr.Error())
+			return
+		}
+		// 输出端口 0：Succeeded；数据输出：角色数据。
+		_ = continuation.ResumeTo(0, role)
+	})
+	return -1, blueprint.ErrExecutionSuspended
+}
+```
+
+生产节点不应直接忽略示例中的恢复错误；应记录重复回调、Execution 已取消或实例已释放等情况。这里省略日志仅为了突出控制流。

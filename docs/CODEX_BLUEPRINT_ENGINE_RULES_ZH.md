@@ -73,8 +73,12 @@ go test ./engine/go/blueprint -run '^$' -bench 'BenchmarkBlueprintDo(Shared|Comp
 
 ## 5. 异步与函数规则
 
-- 异步节点通过 `Suspend(nextIndex)` 捕获 continuation。
-- 异步回调通过 `Continuation.Resume(...)` 回到原执行位置。
+- 只有一个固定后续执行出口的异步节点，通过 `Suspend(nextIndex)` 捕获 continuation，并由回调调用 `Continuation.Resume(...)`。
+- 需要由异步结果选择成功、失败等执行出口的业务节点，通过 `SuspendForResume()` 捕获动态 continuation，并由回调调用 `Continuation.ResumeTo(nextIndex, outputs...)`。
+- `ResumeTo` 的 `nextIndex` 是当前节点的输出端口下标，且必须指向 Exec 输出；传入数据端口或越界下标必须报错，并且不得消耗 continuation。
+- 动态 continuation 不允许调用 `Resume`/`ResumeAsync`，固定出口 continuation 不允许调用 `ResumeTo`，避免业务回调意外走错分支。
+- continuation 只能成功恢复一次。RPC 等宿主回调必须处理恢复错误；超时、取消与正常响应发生竞争时，以第一次成功恢复或 Execution 终止为准。
+- Execution 管理的 continuation 必须通过其 Dispatcher 恢复，不得在 RPC 回调 goroutine 内直接继续执行节点链。
 - continuation resume 后继续执行的是同一个 suspended `Graph` session。
 - 函数调用每次创建 child `Graph` session、独立变量表和独立变量锁；只共享 host module、实例生命周期门禁和 trace。函数变量不得污染调用方或下一次调用。
 - `FunctionReturn` 负责收集函数输出，并通过 caller continuation 回到调用点。

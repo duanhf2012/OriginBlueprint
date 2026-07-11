@@ -51,6 +51,7 @@ type Execution struct {
 	cancelSeq       uint64
 	cancelHooks     map[uint64]func()
 	pending         *Continuation
+	pendingNext     int
 	pendingArgs     []any
 	completionHooks []func(*Execution)
 }
@@ -152,6 +153,10 @@ func (e *Execution) beginRun() bool {
 }
 
 func (e *Execution) scheduleContinuation(c *Continuation, args ...any) error {
+	return e.scheduleContinuationAt(c, c.nextIndex, args...)
+}
+
+func (e *Execution) scheduleContinuationAt(c *Continuation, nextIndex int, args ...any) error {
 	if err := c.reserve(); err != nil {
 		return err
 	}
@@ -168,13 +173,14 @@ func (e *Execution) scheduleContinuation(c *Continuation, args ...any) error {
 			return ErrExecutionPending
 		}
 		e.pending = c
+		e.pendingNext = nextIndex
 		e.pendingArgs = append([]any(nil), args...)
 		e.mu.Unlock()
 		return nil
 	case ExecutionSuspended:
 		e.state = ExecutionPending
 		e.mu.Unlock()
-		return e.submitReservedContinuation(c, args...)
+		return e.submitReservedContinuation(c, nextIndex, args...)
 	default:
 		state := e.state
 		stateErr := e.err
@@ -189,7 +195,7 @@ func (e *Execution) scheduleContinuation(c *Continuation, args ...any) error {
 	}
 }
 
-func (e *Execution) submitReservedContinuation(c *Continuation, args ...any) error {
+func (e *Execution) submitReservedContinuation(c *Continuation, nextIndex int, args ...any) error {
 	if err := e.dispatcher.Submit(func() {
 		if !e.beginRun() {
 			return
@@ -201,7 +207,7 @@ func (e *Execution) submitReservedContinuation(c *Continuation, args ...any) err
 					err = fmt.Errorf("blueprint continuation panic: %v", recovered)
 				}
 			}()
-			err = c.resumeReserved(args...)
+			err = c.resumeReservedAt(nextIndex, args...)
 		}()
 		e.finishRun(e.graph.resultSnapshot(), err)
 	}); err != nil {
@@ -221,12 +227,14 @@ func (e *Execution) finishRun(result PortArray, err error) {
 		if !e.state.terminal() {
 			if e.pending != nil {
 				continuation := e.pending
+				nextIndex := e.pendingNext
 				args := e.pendingArgs
 				e.pending = nil
+				e.pendingNext = -1
 				e.pendingArgs = nil
 				e.state = ExecutionPending
 				e.mu.Unlock()
-				if submitErr := e.submitReservedContinuation(continuation, args...); submitErr != nil {
+				if submitErr := e.submitReservedContinuation(continuation, nextIndex, args...); submitErr != nil {
 					e.finish(ExecutionFailed, nil, submitErr)
 				}
 				return
@@ -263,6 +271,7 @@ func (e *Execution) finish(state ExecutionState, result PortArray, err error) bo
 	}
 	e.cancelHooks = nil
 	e.pending = nil
+	e.pendingNext = -1
 	e.pendingArgs = nil
 	completionHooks := append([]func(*Execution){}, e.completionHooks...)
 	e.completionHooks = nil

@@ -367,6 +367,225 @@ func (n *resumeBeforeSuspendReturns) Exec() (int, error) {
 	return -1, ErrExecutionSuspended
 }
 
+type dynamicContinuationNode struct {
+	BaseExecNode
+	target **Continuation
+}
+
+type dynamicResumeBeforeSuspendReturns struct {
+	BaseExecNode
+	nextIndex int
+	value     PortInt
+}
+
+func (n *dynamicResumeBeforeSuspendReturns) GetName() string {
+	return "DynamicResumeBeforeSuspendReturns"
+}
+func (n *dynamicResumeBeforeSuspendReturns) Exec() (int, error) {
+	continuation, err := n.SuspendForResume()
+	if err != nil {
+		return -1, err
+	}
+	if err := continuation.ResumeTo(n.nextIndex, n.value); err != nil {
+		return -1, err
+	}
+	return -1, ErrExecutionSuspended
+}
+
+func (n *dynamicContinuationNode) GetName() string { return "DynamicContinuation" }
+func (n *dynamicContinuationNode) Exec() (int, error) {
+	continuation, err := n.SuspendForResume()
+	if err != nil {
+		return -1, err
+	}
+	*n.target = continuation
+	return -1, ErrExecutionSuspended
+}
+
+func newDynamicContinuationExecution(t *testing.T) (*manualExecutionDispatcher, *Execution, **Continuation, *[]PortInt, *[]PortInt) {
+	t.Helper()
+	dispatcher := &manualExecutionDispatcher{}
+	var continuation *Continuation
+	var successValues []PortInt
+	var failureValues []PortInt
+	entrance := NewExecNode("entrance", NewNodeDefinition("ExecutionEntrance", func() IExecNode { return &testEntrance{} }, nil, []IPort{NewPortExec()}))
+	wait := NewExecNode("wait", NewNodeDefinition("DynamicContinuation", func() IExecNode {
+		return &dynamicContinuationNode{target: &continuation}
+	}, []IPort{NewPortExec()}, []IPort{NewPortExec(), NewPortExec(), NewPortInt()}))
+	success := NewExecNode("success", NewNodeDefinition("SuccessRecorder", func() IExecNode { return &testAppendRecorder{values: &successValues} }, []IPort{NewPortExec(), NewPortInt()}, nil))
+	failure := NewExecNode("failure", NewNodeDefinition("FailureRecorder", func() IExecNode { return &testAppendRecorder{values: &failureValues} }, []IPort{NewPortExec(), NewPortInt()}, nil))
+	entrance.Next = []*ExecNode{wait}
+	wait.Next = []*ExecNode{success, failure}
+	wait.BeConnect = true
+	success.BeConnect = true
+	failure.BeConnect = true
+	success.PreInPort[1] = &PrePortNode{Node: wait, OutPortID: 2}
+	failure.PreInPort[1] = &PrePortNode{Node: wait, OutPortID: 2}
+
+	bp := &Blueprint{}
+	bp.SetExecutionDispatcher(dispatcher)
+	bp.AddCompiledGraph("dynamic-continuation", &CompiledGraph{Entrances: map[int64]*ExecNode{1: entrance}, NodeCount: 4})
+	execution, err := bp.Start(context.Background(), bp.Create("dynamic-continuation"), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatcher.runNext(t)
+	if continuation == nil || execution.State() != ExecutionSuspended {
+		t.Fatalf("continuation=%v state=%v", continuation, execution.State())
+	}
+	return dispatcher, execution, &continuation, &successValues, &failureValues
+}
+
+func TestContinuationResumeToSuccessBranch(t *testing.T) {
+	dispatcher, execution, continuation, successValues, failureValues := newDynamicContinuationExecution(t)
+	if err := (*continuation).ResumeTo(0, 41); err != nil {
+		t.Fatal(err)
+	}
+	if len(*successValues) != 0 || dispatcher.len() != 1 {
+		t.Fatalf("resume ran inline: success=%v queued=%d", *successValues, dispatcher.len())
+	}
+	dispatcher.runNext(t)
+	if len(*successValues) != 1 || (*successValues)[0] != 41 || len(*failureValues) != 0 {
+		t.Fatalf("success=%v failure=%v", *successValues, *failureValues)
+	}
+	if execution.State() != ExecutionCompleted {
+		t.Fatalf("state=%v, want completed", execution.State())
+	}
+}
+
+func TestContinuationResumeToFailureBranch(t *testing.T) {
+	dispatcher, execution, continuation, successValues, failureValues := newDynamicContinuationExecution(t)
+	if err := (*continuation).ResumeTo(1, 42); err != nil {
+		t.Fatal(err)
+	}
+	dispatcher.runNext(t)
+	if len(*failureValues) != 1 || (*failureValues)[0] != 42 || len(*successValues) != 0 {
+		t.Fatalf("success=%v failure=%v", *successValues, *failureValues)
+	}
+	if execution.State() != ExecutionCompleted {
+		t.Fatalf("state=%v, want completed", execution.State())
+	}
+}
+
+func TestContinuationResumeToEarlyCallbackKeepsSelectedBranch(t *testing.T) {
+	dispatcher := &manualExecutionDispatcher{}
+	var successValues []PortInt
+	var failureValues []PortInt
+	entrance := NewExecNode("entrance", NewNodeDefinition("ExecutionEntrance", func() IExecNode { return &testEntrance{} }, nil, []IPort{NewPortExec()}))
+	wait := NewExecNode("wait", NewNodeDefinition("DynamicResumeBeforeSuspendReturns", func() IExecNode {
+		return &dynamicResumeBeforeSuspendReturns{nextIndex: 1, value: 73}
+	}, []IPort{NewPortExec()}, []IPort{NewPortExec(), NewPortExec(), NewPortInt()}))
+	success := NewExecNode("success", NewNodeDefinition("SuccessRecorder", func() IExecNode { return &testAppendRecorder{values: &successValues} }, []IPort{NewPortExec(), NewPortInt()}, nil))
+	failure := NewExecNode("failure", NewNodeDefinition("FailureRecorder", func() IExecNode { return &testAppendRecorder{values: &failureValues} }, []IPort{NewPortExec(), NewPortInt()}, nil))
+	entrance.Next = []*ExecNode{wait}
+	wait.Next = []*ExecNode{success, failure}
+	wait.BeConnect = true
+	success.BeConnect = true
+	failure.BeConnect = true
+	success.PreInPort[1] = &PrePortNode{Node: wait, OutPortID: 2}
+	failure.PreInPort[1] = &PrePortNode{Node: wait, OutPortID: 2}
+
+	bp := &Blueprint{}
+	bp.SetExecutionDispatcher(dispatcher)
+	bp.AddCompiledGraph("dynamic-early", &CompiledGraph{Entrances: map[int64]*ExecNode{1: entrance}, NodeCount: 4})
+	execution, err := bp.Start(context.Background(), bp.Create("dynamic-early"), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatcher.runNext(t)
+	if len(successValues) != 0 || len(failureValues) != 0 || dispatcher.len() != 1 {
+		t.Fatalf("early callback ran inline: success=%v failure=%v queued=%d", successValues, failureValues, dispatcher.len())
+	}
+	dispatcher.runNext(t)
+	if len(successValues) != 0 || len(failureValues) != 1 || failureValues[0] != 73 {
+		t.Fatalf("success=%v failure=%v", successValues, failureValues)
+	}
+	if execution.State() != ExecutionCompleted {
+		t.Fatalf("state=%v", execution.State())
+	}
+}
+
+func TestContinuationDynamicAPIValidation(t *testing.T) {
+	t.Run("invalid target does not consume continuation", func(t *testing.T) {
+		dispatcher, _, continuation, successValues, _ := newDynamicContinuationExecution(t)
+		if err := (*continuation).ResumeTo(2, 10); err == nil {
+			t.Fatal("data output was accepted as an exec target")
+		}
+		if err := (*continuation).ResumeTo(0, 11); err != nil {
+			t.Fatalf("valid retry failed: %v", err)
+		}
+		dispatcher.runNext(t)
+		if len(*successValues) != 1 || (*successValues)[0] != 11 {
+			t.Fatalf("success values=%v", *successValues)
+		}
+	})
+
+	t.Run("dynamic continuation requires ResumeTo", func(t *testing.T) {
+		dispatcher, _, continuation, successValues, _ := newDynamicContinuationExecution(t)
+		if err := (*continuation).Resume(12); !errors.Is(err, ErrContinuationTargetRequired) {
+			t.Fatalf("Resume error=%v", err)
+		}
+		if err := (*continuation).ResumeAsync(12); !errors.Is(err, ErrContinuationTargetRequired) {
+			t.Fatalf("ResumeAsync error=%v", err)
+		}
+		if err := (*continuation).ResumeTo(0, 12); err != nil {
+			t.Fatal(err)
+		}
+		dispatcher.runNext(t)
+		if len(*successValues) != 1 || (*successValues)[0] != 12 {
+			t.Fatalf("success values=%v", *successValues)
+		}
+	})
+
+	t.Run("fixed continuation rejects ResumeTo", func(t *testing.T) {
+		dispatcher := &manualExecutionDispatcher{}
+		var continuation *Continuation
+		entrance := NewExecNode("entrance", NewNodeDefinition("ExecutionEntrance", func() IExecNode { return &testEntrance{} }, nil, []IPort{NewPortExec()}))
+		wait := NewExecNode("wait", NewNodeDefinition("ExecutionWait", func() IExecNode { return &captureSingleContinuation{target: &continuation} }, []IPort{NewPortExec()}, []IPort{NewPortExec()}))
+		entrance.Next = []*ExecNode{wait}
+		wait.BeConnect = true
+		bp := &Blueprint{}
+		bp.SetExecutionDispatcher(dispatcher)
+		bp.AddCompiledGraph("fixed-continuation", &CompiledGraph{Entrances: map[int64]*ExecNode{1: entrance}, NodeCount: 2})
+		if _, err := bp.Start(context.Background(), bp.Create("fixed-continuation"), 1); err != nil {
+			t.Fatal(err)
+		}
+		dispatcher.runNext(t)
+		if err := continuation.ResumeTo(0); !errors.Is(err, ErrContinuationTargetFixed) {
+			t.Fatalf("ResumeTo error=%v", err)
+		}
+		if err := continuation.Resume(); err != nil {
+			t.Fatalf("fixed Resume failed after rejected ResumeTo: %v", err)
+		}
+	})
+
+	t.Run("duplicate response is rejected", func(t *testing.T) {
+		dispatcher, _, continuation, _, _ := newDynamicContinuationExecution(t)
+		if err := (*continuation).ResumeTo(0, 13); err != nil {
+			t.Fatal(err)
+		}
+		if err := (*continuation).ResumeTo(1, 14); !errors.Is(err, ErrContinuationResumed) {
+			t.Fatalf("second response error=%v", err)
+		}
+		if dispatcher.len() != 1 {
+			t.Fatalf("queued tasks=%d, want 1", dispatcher.len())
+		}
+	})
+
+	t.Run("canceled execution rejects late response", func(t *testing.T) {
+		dispatcher, execution, continuation, _, _ := newDynamicContinuationExecution(t)
+		if !execution.Cancel() {
+			t.Fatal("Cancel returned false")
+		}
+		if err := (*continuation).ResumeTo(0, 15); !errors.Is(err, ErrExecutionCanceled) {
+			t.Fatalf("late response error=%v", err)
+		}
+		if dispatcher.len() != 0 {
+			t.Fatalf("late response queued %d task(s)", dispatcher.len())
+		}
+	})
+}
+
 func TestContinuationResumeBeforeSuspendReturnsUsesDispatcher(t *testing.T) {
 	dispatcher := &manualExecutionDispatcher{}
 	var values []PortInt
