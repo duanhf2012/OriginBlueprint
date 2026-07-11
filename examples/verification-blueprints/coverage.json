@@ -1,0 +1,212 @@
+﻿{
+    "schemaVersion":  1,
+    "description":  "顶层系统节点的样本覆盖矩阵。visual 表示第 1 阶段人工检查；execution/async 留给后续阶段。",
+    "nodes":  {
+                  "origin.event.entry-array":  [
+                                                   "03_array_data_lab.obp:visual"
+                                               ],
+                  "origin.event.entry-two-integers":  [
+                                                          "02_control_flow_maze.obp:execution",
+                                                          "04_deterministic_algorithm.obp:execution",
+                                                          "05_function_orchestrator.obp:execution",
+                                                          "06_timer_lifecycle.obp:async"
+                                                      ],
+                  "origin.event.timer":  [
+                                             "06_timer_lifecycle.obp:async"
+                                         ],
+                  "origin.debug.output":  [
+                                              "01_legacy_all_nodes_showcase.vgf:visual",
+                                              "04_deterministic_algorithm.obp:visual",
+                                              "06_timer_lifecycle.obp:async"
+                                          ],
+                  "origin.cast.integer-string":  [
+                                                     "03_array_data_lab.obp:visual",
+                                                     "04_deterministic_algorithm.obp:visual"
+                                                 ],
+                  "origin.cast.float-string":  [
+                                                   "04_deterministic_algorithm.obp:visual"
+                                               ],
+                  "origin.cast.any-string":  [
+                                                 "02_control_flow_maze.obp:visual",
+                                                 "03_array_data_lab.obp:visual"
+                                             ],
+                  "origin.literal.string":  [
+                                                "03_array_data_lab.obp:visual",
+                                                "functions/10_score_kernel.obpf:visual"
+                                            ],
+                  "origin.math.add-integer":  [
+                                                  "01_legacy_all_nodes_showcase.vgf:execution",
+                                                  "02_control_flow_maze.obp:execution",
+                                                  "04_deterministic_algorithm.obp:execution"
+                                              ],
+                  "origin.math.subtract-integer":  [
+                                                       "01_legacy_all_nodes_showcase.vgf:visual",
+                                                       "04_deterministic_algorithm.obp:execution"
+                                                   ],
+                  "origin.math.multiply-integer":  [
+                                                       "01_legacy_all_nodes_showcase.vgf:visual",
+                                                       "04_deterministic_algorithm.obp:execution"
+                                                   ],
+                  "origin.math.divide-integer":  [
+                                                     "01_legacy_all_nodes_showcase.vgf:visual",
+                                                     "04_deterministic_algorithm.obp:execution"
+                                                 ],
+                  "origin.math.modulo-integer":  [
+                                                     "01_legacy_all_nodes_showcase.vgf:visual",
+                                                     "04_deterministic_algorithm.obp:execution"
+                                                 ],
+                  "origin.math.random-integer":  [
+                                                     "01_legacy_all_nodes_showcase.vgf:visual",
+                                                     "04_deterministic_algorithm.obp:execution"
+                                                 ],
+                  "origin.math.add-float":  [
+                                                "04_deterministic_algorithm.obp:visual"
+                                            ],
+                  "origin.math.subtract-float":  [
+                                                     "04_deterministic_algorithm.obp:visual"
+                                                 ],
+                  "origin.math.multiply-float":  [
+                                                     "04_deterministic_algorithm.obp:visual"
+                                                 ],
+                  "origin.math.divide-float":  [
+                                                   "04_deterministic_algorithm.obp:visual"
+                                               ],
+                  "origin.compare.greater-integer":  [
+                                                         "04_deterministic_algorithm.obp:execution"
+                                                     ],
+                  "origin.flow.sequence":  [
+                                               "01_legacy_all_nodes_showcase.vgf:execution",
+                                               "02_control_flow_maze.obp:execution",
+                                               "functions/12_nested_control_function.obpf:visual"
+                                           ],
+                  "origin.flow.for-loop":  [
+                                               "01_legacy_all_nodes_showcase.vgf:execution",
+                                               "02_control_flow_maze.obp:execution"
+                                           ],
+                  "origin.flow.branch":  [
+                                             "01_legacy_all_nodes_showcase.vgf:execution",
+                                             "02_control_flow_maze.obp:execution"
+                                         ],
+                  "origin.flow.greater-integer":  [
+                                                      "01_legacy_all_nodes_showcase.vgf:visual",
+                                                      "02_control_flow_maze.obp:visual"
+                                                  ],
+                  "origin.flow.less-integer":  [
+                                                   "01_legacy_all_nodes_showcase.vgf:visual",
+                                                   "02_control_flow_maze.obp:visual"
+                                               ],
+                  "origin.flow.equal-integer":  [
+                                                    "01_legacy_all_nodes_showcase.vgf:visual",
+                                                    "02_control_flow_maze.obp:visual"
+                                                ],
+                  "origin.flow.foreach-integer-array":  [
+                                                            "01_legacy_all_nodes_showcase.vgf:execution",
+                                                            "02_control_flow_maze.obp:execution"
+                                                        ],
+                  "origin.flow.while":  [
+                                            "02_control_flow_maze.obp:execution",
+                                            "functions/12_nested_control_function.obpf:visual"
+                                        ],
+                  "origin.flow.for-loop-break":  [
+                                                     "02_control_flow_maze.obp:execution",
+                                                     "functions/12_nested_control_function.obpf:visual"
+                                                 ],
+                  "origin.flow.foreach-array":  [
+                                                    "02_control_flow_maze.obp:visual"
+                                                ],
+                  "origin.flow.probability":  [
+                                                  "01_legacy_all_nodes_showcase.vgf:visual",
+                                                  "02_control_flow_maze.obp:execution",
+                                                  "functions/10_score_kernel.obpf:visual"
+                                              ],
+                  "origin.flow.range-compare":  [
+                                                    "01_legacy_all_nodes_showcase.vgf:execution",
+                                                    "02_control_flow_maze.obp:execution"
+                                                ],
+                  "origin.flow.equal-switch":  [
+                                                   "01_legacy_all_nodes_showcase.vgf:execution",
+                                                   "02_control_flow_maze.obp:visual"
+                                               ],
+                  "origin.flow.equal-switch-new":  [
+                                                       "02_control_flow_maze.obp:visual",
+                                                       "04_deterministic_algorithm.obp:execution"
+                                                   ],
+                  "origin.array.get-integer":  [
+                                                   "03_array_data_lab.obp:visual",
+                                                   "functions/11_array_fold_and_format.obpf:visual"
+                                               ],
+                  "origin.array.get-string":  [
+                                                  "03_array_data_lab.obp:visual"
+                                              ],
+                  "origin.array.get-any":  [
+                                               "03_array_data_lab.obp:visual"
+                                           ],
+                  "origin.array.length":  [
+                                              "03_array_data_lab.obp:execution"
+                                          ],
+                  "origin.array.create-integer":  [
+                                                      "03_array_data_lab.obp:visual"
+                                                  ],
+                  "origin.array.create-integer-new":  [
+                                                          "02_control_flow_maze.obp:execution",
+                                                          "03_array_data_lab.obp:execution"
+                                                      ],
+                  "origin.array.create-string":  [
+                                                     "03_array_data_lab.obp:visual"
+                                                 ],
+                  "origin.array.create-string-new":  [
+                                                         "02_control_flow_maze.obp:visual",
+                                                         "03_array_data_lab.obp:execution"
+                                                     ],
+                  "origin.array.append-string":  [
+                                                     "03_array_data_lab.obp:execution"
+                                                 ],
+                  "origin.array.append-integer":  [
+                                                      "03_array_data_lab.obp:execution"
+                                                  ],
+                  "origin.result.append-integer":  [
+                                                       "01_legacy_all_nodes_showcase.vgf:execution",
+                                                       "02_control_flow_maze.obp:execution",
+                                                       "04_deterministic_algorithm.obp:execution"
+                                                   ],
+                  "origin.result.append-string":  [
+                                                      "01_legacy_all_nodes_showcase.vgf:execution",
+                                                      "02_control_flow_maze.obp:execution",
+                                                      "04_deterministic_algorithm.obp:execution"
+                                                  ],
+                  "origin.timer.create":  [
+                                              "06_timer_lifecycle.obp:async"
+                                          ],
+                  "origin.timer.close":  [
+                                             "06_timer_lifecycle.obp:async"
+                                         ],
+                  "origin.string.split":  [
+                                              "03_array_data_lab.obp:visual"
+                                          ],
+                  "origin.variable.get":  [
+                                              "03_array_data_lab.obp:visual",
+                                              "functions/13_local_state_isolation.obpf:visual"
+                                          ],
+                  "origin.variable.set":  [
+                                              "03_array_data_lab.obp:visual",
+                                              "functions/13_local_state_isolation.obpf:visual"
+                                          ],
+                  "origin.function.entry":  [
+                                                "functions/10_score_kernel.obpf:visual",
+                                                "functions/11_array_fold_and_format.obpf:visual",
+                                                "functions/12_nested_control_function.obpf:visual",
+                                                "functions/13_local_state_isolation.obpf:visual"
+                                            ],
+                  "origin.function.return":  [
+                                                 "functions/10_score_kernel.obpf:execution",
+                                                 "functions/11_array_fold_and_format.obpf:execution",
+                                                 "functions/12_nested_control_function.obpf:execution",
+                                                 "functions/13_local_state_isolation.obpf:execution"
+                                             ],
+                  "origin.function.call":  [
+                                               "05_function_orchestrator.obp:execution",
+                                               "06_timer_lifecycle.obp:async",
+                                               "functions/11_array_fold_and_format.obpf:visual"
+                                           ]
+              }
+}

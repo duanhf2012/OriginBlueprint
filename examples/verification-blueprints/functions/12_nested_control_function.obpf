@@ -1,0 +1,390 @@
+﻿{
+    "schemaVersion":  1,
+    "graphName":  "嵌套控制流",
+    "nodes":  [
+                  {
+                      "id":  "entry",
+                      "typeId":  "origin.function.entry",
+                      "position":  {
+                                       "x":  80,
+                                       "y":  130
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+                                         "label":  "嵌套控制流 Entry",
+                                         "functionRole":  "entry",
+                                         "functionSource":  "workspace",
+                                         "functionId":  "functions/12_nested_control_function.obpf",
+                                         "functionSignature":  {
+                                                                   "inputs":  [
+                                                                                  {
+                                                                                      "id":  "start",
+                                                                                      "name":  "起始值",
+                                                                                      "type":  "integer"
+                                                                                  },
+                                                                                  {
+                                                                                      "id":  "limit",
+                                                                                      "name":  "上限",
+                                                                                      "type":  "integer"
+                                                                                  }
+                                                                              ],
+                                                                   "outputs":  [
+                                                                                   {
+                                                                                       "id":  "count",
+                                                                                       "name":  "次数",
+                                                                                       "type":  "integer"
+                                                                                   },
+                                                                                   {
+                                                                                       "id":  "trace",
+                                                                                       "name":  "轨迹",
+                                                                                       "type":  "string"
+                                                                                   }
+                                                                               ]
+                                                               },
+                                         "functionName":  "嵌套控制流"
+                                     }
+                  },
+                  {
+                      "id":  "sequence",
+                      "typeId":  "origin.flow.sequence",
+                      "position":  {
+                                       "x":  330,
+                                       "y":  120
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+                                         "dynamicOutputCount":  4,
+                                         "label":  "函数序列"
+                                     }
+                  },
+                  {
+                      "id":  "outer",
+                      "typeId":  "origin.flow.for-loop",
+                      "position":  {
+                                       "x":  570,
+                                       "y":  80
+                                   },
+                      "values":  {
+                                     "start":  0,
+                                     "end":  3
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "inner_values",
+                      "typeId":  "origin.array.create-integer-new",
+                      "position":  {
+                                       "x":  570,
+                                       "y":  250
+                                   },
+                      "values":  {
+                                     "items":  [
+                                                   1,
+                                                   2,
+                                                   3
+                                               ]
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "inner",
+                      "typeId":  "origin.flow.foreach-integer-array",
+                      "position":  {
+                                       "x":  820,
+                                       "y":  80
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "break",
+                      "typeId":  "origin.flow.for-loop-break",
+                      "position":  {
+                                       "x":  570,
+                                       "y":  470
+                                   },
+                      "values":  {
+                                     "start":  0,
+                                     "end":  4
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "while",
+                      "typeId":  "origin.flow.while",
+                      "position":  {
+                                       "x":  820,
+                                       "y":  470
+                                   },
+                      "values":  {
+                                     "condition":  false
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "range",
+                      "typeId":  "origin.flow.range-compare",
+                      "position":  {
+                                       "x":  1070,
+                                       "y":  80
+                                   },
+                      "values":  {
+                                     "ranges":  [
+                                                    2,
+                                                    4,
+                                                    8
+                                                ],
+                                     "value":  4
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "switch",
+                      "typeId":  "origin.flow.equal-switch-new",
+                      "position":  {
+                                       "x":  1070,
+                                       "y":  300
+                                   },
+                      "values":  {
+                                     "cases":  [
+                                                   1,
+                                                   2,
+                                                   3
+                                               ],
+                                     "value":  2
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "trace",
+                      "typeId":  "origin.literal.string",
+                      "position":  {
+                                       "x":  1320,
+                                       "y":  300
+                                   },
+                      "values":  {
+                                     "value":  "nested-control:complete"
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "count",
+                      "typeId":  "origin.math.add-integer",
+                      "position":  {
+                                       "x":  1320,
+                                       "y":  80
+                                   },
+                      "values":  {
+                                     "a":  3,
+                                     "b":  6
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "return",
+                      "typeId":  "origin.function.return",
+                      "position":  {
+                                       "x":  1570,
+                                       "y":  130
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+                                         "label":  "嵌套控制流 Return",
+                                         "functionRole":  "return",
+                                         "functionSource":  "workspace",
+                                         "functionId":  "functions/12_nested_control_function.obpf",
+                                         "functionSignature":  {
+                                                                   "inputs":  [
+                                                                                  {
+                                                                                      "id":  "start",
+                                                                                      "name":  "起始值",
+                                                                                      "type":  "integer"
+                                                                                  },
+                                                                                  {
+                                                                                      "id":  "limit",
+                                                                                      "name":  "上限",
+                                                                                      "type":  "integer"
+                                                                                  }
+                                                                              ],
+                                                                   "outputs":  [
+                                                                                   {
+                                                                                       "id":  "count",
+                                                                                       "name":  "次数",
+                                                                                       "type":  "integer"
+                                                                                   },
+                                                                                   {
+                                                                                       "id":  "trace",
+                                                                                       "name":  "轨迹",
+                                                                                       "type":  "string"
+                                                                                   }
+                                                                               ]
+                                                               },
+                                         "functionName":  "嵌套控制流"
+                                     }
+                  }
+              ],
+    "connections":  [
+                        {
+                            "source":  "entry",
+                            "sourceOutput":  "exec",
+                            "target":  "return",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "count",
+                            "sourceOutput":  "result",
+                            "target":  "return",
+                            "targetInput":  "output_count"
+                        },
+                        {
+                            "source":  "trace",
+                            "sourceOutput":  "value",
+                            "target":  "return",
+                            "targetInput":  "output_trace"
+                        },
+                        {
+                            "source":  "sequence",
+                            "sourceOutput":  "then0",
+                            "target":  "outer",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "outer",
+                            "sourceOutput":  "body",
+                            "target":  "inner",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "inner_values",
+                            "sourceOutput":  "array",
+                            "target":  "inner",
+                            "targetInput":  "array"
+                        },
+                        {
+                            "source":  "sequence",
+                            "sourceOutput":  "then1",
+                            "target":  "break",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "sequence",
+                            "sourceOutput":  "then2",
+                            "target":  "while",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "sequence",
+                            "sourceOutput":  "then3",
+                            "target":  "range",
+                            "targetInput":  "exec"
+                        }
+                    ],
+    "groups":  [
+                   {
+                       "id":  "nested-flow",
+                       "title":  "嵌套 Sequence、循环、break 和 while",
+                       "x":  35,
+                       "y":  35,
+                       "width":  1160,
+                       "height":  650,
+                       "nodeIds":  [
+                                       "entry",
+                                       "sequence",
+                                       "outer",
+                                       "inner_values",
+                                       "inner",
+                                       "break",
+                                       "while",
+                                       "range",
+                                       "switch"
+                                   ]
+                   },
+                   {
+                       "id":  "function-result",
+                       "title":  "确定性函数返回值",
+                       "x":  1260,
+                       "y":  35,
+                       "width":  560,
+                       "height":  420,
+                       "nodeIds":  [
+                                       "trace",
+                                       "count",
+                                       "return"
+                                   ]
+                   }
+               ],
+    "variables":  [
+
+                  ],
+    "variableGroups":  [
+                           {
+                               "id":  "default",
+                               "name":  "默认",
+                               "collapsed":  false
+                           },
+                           {
+                               "id":  "local",
+                               "name":  "局部状态",
+                               "collapsed":  false
+                           }
+                       ],
+    "view":  {
+                 "x":  0,
+                 "y":  0,
+                 "zoom":  0.72
+             },
+    "functionCategory":  "验证函数",
+    "functionSignature":  {
+                              "inputs":  [
+                                             {
+                                                 "id":  "start",
+                                                 "name":  "起始值",
+                                                 "type":  "integer"
+                                             },
+                                             {
+                                                 "id":  "limit",
+                                                 "name":  "上限",
+                                                 "type":  "integer"
+                                             }
+                                         ],
+                              "outputs":  [
+                                              {
+                                                  "id":  "count",
+                                                  "name":  "次数",
+                                                  "type":  "integer"
+                                              },
+                                              {
+                                                  "id":  "trace",
+                                                  "name":  "轨迹",
+                                                  "type":  "string"
+                                              }
+                                          ]
+                          },
+    "functionId":  "functions/12_nested_control_function.obpf"
+}

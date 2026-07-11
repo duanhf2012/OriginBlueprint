@@ -1,0 +1,634 @@
+﻿{
+    "schemaVersion":  1,
+    "graphName":  "确定性评分算法",
+    "nodes":  [
+                  {
+                      "id":  "entry",
+                      "typeId":  "origin.event.entry-two-integers",
+                      "position":  {
+                                       "x":  80,
+                                       "y":  120
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "sequence",
+                      "typeId":  "origin.flow.sequence",
+                      "position":  {
+                                       "x":  290,
+                                       "y":  120
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+                                         "dynamicOutputCount":  3,
+                                         "label":  "评分算法序列"
+                                     }
+                  },
+                  {
+                      "id":  "add",
+                      "typeId":  "origin.math.add-integer",
+                      "position":  {
+                                       "x":  510,
+                                       "y":  80
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "subtract",
+                      "typeId":  "origin.math.subtract-integer",
+                      "position":  {
+                                       "x":  730,
+                                       "y":  80
+                                   },
+                      "values":  {
+                                     "absolute":  false,
+                                     "b":  3
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "multiply",
+                      "typeId":  "origin.math.multiply-integer",
+                      "position":  {
+                                       "x":  950,
+                                       "y":  80
+                                   },
+                      "values":  {
+                                     "b":  2
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "divide",
+                      "typeId":  "origin.math.divide-integer",
+                      "position":  {
+                                       "x":  1170,
+                                       "y":  80
+                                   },
+                      "values":  {
+                                     "round":  false,
+                                     "b":  3
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "modulo",
+                      "typeId":  "origin.math.modulo-integer",
+                      "position":  {
+                                       "x":  1390,
+                                       "y":  80
+                                   },
+                      "values":  {
+                                     "b":  7
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "random_fixed",
+                      "typeId":  "origin.math.random-integer",
+                      "position":  {
+                                       "x":  1610,
+                                       "y":  80
+                                   },
+                      "values":  {
+                                     "min":  42,
+                                     "seed":  77,
+                                     "max":  42
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "score_return",
+                      "typeId":  "origin.result.append-integer",
+                      "position":  {
+                                       "x":  1840,
+                                       "y":  80
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "mod_return",
+                      "typeId":  "origin.result.append-integer",
+                      "position":  {
+                                       "x":  1840,
+                                       "y":  230
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "random_return",
+                      "typeId":  "origin.result.append-integer",
+                      "position":  {
+                                       "x":  1840,
+                                       "y":  380
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "compare_data",
+                      "typeId":  "origin.compare.greater-integer",
+                      "position":  {
+                                       "x":  510,
+                                       "y":  500
+                                   },
+                      "values":  {
+                                     "b":  10
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "branch",
+                      "typeId":  "origin.flow.branch",
+                      "position":  {
+                                       "x":  760,
+                                       "y":  500
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "high_text",
+                      "typeId":  "origin.result.append-string",
+                      "position":  {
+                                       "x":  1010,
+                                       "y":  450
+                                   },
+                      "values":  {
+                                     "value":  "score-high"
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "low_text",
+                      "typeId":  "origin.result.append-string",
+                      "position":  {
+                                       "x":  1010,
+                                       "y":  570
+                                   },
+                      "values":  {
+                                     "value":  "score-low"
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "range",
+                      "typeId":  "origin.flow.range-compare",
+                      "position":  {
+                                       "x":  1260,
+                                       "y":  500
+                                   },
+                      "values":  {
+                                     "ranges":  [
+                                                    5,
+                                                    10,
+                                                    20
+                                                ],
+                                     "value":  12
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "range_text",
+                      "typeId":  "origin.result.append-string",
+                      "position":  {
+                                       "x":  1510,
+                                       "y":  500
+                                   },
+                      "values":  {
+                                     "value":  "range-case-3"
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "switch",
+                      "typeId":  "origin.flow.equal-switch-new",
+                      "position":  {
+                                       "x":  1260,
+                                       "y":  700
+                                   },
+                      "values":  {
+                                     "cases":  [
+                                                   1,
+                                                   2,
+                                                   3
+                                               ],
+                                     "value":  2
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "switch_text",
+                      "typeId":  "origin.result.append-string",
+                      "position":  {
+                                       "x":  1510,
+                                       "y":  700
+                                   },
+                      "values":  {
+                                     "value":  "switch-case-2"
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "add_float",
+                      "typeId":  "origin.math.add-float",
+                      "position":  {
+                                       "x":  510,
+                                       "y":  920
+                                   },
+                      "values":  {
+                                     "a":  1.5,
+                                     "b":  2.25
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "sub_float",
+                      "typeId":  "origin.math.subtract-float",
+                      "position":  {
+                                       "x":  730,
+                                       "y":  920
+                                   },
+                      "values":  {
+                                     "a":  6.5,
+                                     "b":  1.25
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "mul_float",
+                      "typeId":  "origin.math.multiply-float",
+                      "position":  {
+                                       "x":  950,
+                                       "y":  920
+                                   },
+                      "values":  {
+                                     "a":  2.5,
+                                     "b":  4
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "div_float",
+                      "typeId":  "origin.math.divide-float",
+                      "position":  {
+                                       "x":  1170,
+                                       "y":  920
+                                   },
+                      "values":  {
+                                     "a":  9,
+                                     "b":  2
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "float_cast",
+                      "typeId":  "origin.cast.float-string",
+                      "position":  {
+                                       "x":  1390,
+                                       "y":  920
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "float_return",
+                      "typeId":  "origin.result.append-string",
+                      "position":  {
+                                       "x":  1610,
+                                       "y":  920
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "integer_cast",
+                      "typeId":  "origin.cast.integer-string",
+                      "position":  {
+                                       "x":  1390,
+                                       "y":  1050
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "debug",
+                      "typeId":  "origin.debug.output",
+                      "position":  {
+                                       "x":  1610,
+                                       "y":  1050
+                                   },
+                      "values":  {
+                                     "integer":  42,
+                                     "array":  [
+                                                   1,
+                                                   2,
+                                                   3
+                                               ],
+                                     "string":  "deterministic-algorithm"
+                                 },
+                      "properties":  {
+
+                                     }
+                  }
+              ],
+    "connections":  [
+                        {
+                            "source":  "entry",
+                            "sourceOutput":  "exec",
+                            "target":  "sequence",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "entry",
+                            "sourceOutput":  "param1",
+                            "target":  "add",
+                            "targetInput":  "a"
+                        },
+                        {
+                            "source":  "entry",
+                            "sourceOutput":  "param2",
+                            "target":  "add",
+                            "targetInput":  "b"
+                        },
+                        {
+                            "source":  "add",
+                            "sourceOutput":  "result",
+                            "target":  "subtract",
+                            "targetInput":  "a"
+                        },
+                        {
+                            "source":  "subtract",
+                            "sourceOutput":  "result",
+                            "target":  "multiply",
+                            "targetInput":  "a"
+                        },
+                        {
+                            "source":  "multiply",
+                            "sourceOutput":  "result",
+                            "target":  "divide",
+                            "targetInput":  "a"
+                        },
+                        {
+                            "source":  "divide",
+                            "sourceOutput":  "result",
+                            "target":  "modulo",
+                            "targetInput":  "a"
+                        },
+                        {
+                            "source":  "sequence",
+                            "sourceOutput":  "then0",
+                            "target":  "score_return",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "divide",
+                            "sourceOutput":  "result",
+                            "target":  "score_return",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "score_return",
+                            "sourceOutput":  "exec",
+                            "target":  "mod_return",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "modulo",
+                            "sourceOutput":  "result",
+                            "target":  "mod_return",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "mod_return",
+                            "sourceOutput":  "exec",
+                            "target":  "random_return",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "random_fixed",
+                            "sourceOutput":  "result",
+                            "target":  "random_return",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "sequence",
+                            "sourceOutput":  "then1",
+                            "target":  "branch",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "divide",
+                            "sourceOutput":  "result",
+                            "target":  "compare_data",
+                            "targetInput":  "a"
+                        },
+                        {
+                            "source":  "compare_data",
+                            "sourceOutput":  "result",
+                            "target":  "branch",
+                            "targetInput":  "condition"
+                        },
+                        {
+                            "source":  "branch",
+                            "sourceOutput":  "true",
+                            "target":  "high_text",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "branch",
+                            "sourceOutput":  "false",
+                            "target":  "low_text",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "sequence",
+                            "sourceOutput":  "then2",
+                            "target":  "range",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "range",
+                            "sourceOutput":  "case3",
+                            "target":  "range_text",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "range_text",
+                            "sourceOutput":  "exec",
+                            "target":  "switch",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "switch",
+                            "sourceOutput":  "case2",
+                            "target":  "switch_text",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "div_float",
+                            "sourceOutput":  "result",
+                            "target":  "float_cast",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "float_cast",
+                            "sourceOutput":  "result",
+                            "target":  "float_return",
+                            "targetInput":  "value"
+                        }
+                    ],
+    "groups":  [
+                   {
+                       "id":  "integer-algorithm",
+                       "title":  "整数评分、取模和固定随机数",
+                       "x":  35,
+                       "y":  30,
+                       "width":  2020,
+                       "height":  430,
+                       "nodeIds":  [
+                                       "entry",
+                                       "sequence",
+                                       "add",
+                                       "subtract",
+                                       "multiply",
+                                       "divide",
+                                       "modulo",
+                                       "random_fixed",
+                                       "score_return",
+                                       "mod_return",
+                                       "random_return"
+                                   ]
+                   },
+                   {
+                       "id":  "classification",
+                       "title":  "数据比较、Branch、Range 与 Switch 分类",
+                       "x":  455,
+                       "y":  450,
+                       "width":  1250,
+                       "height":  340,
+                       "nodeIds":  [
+                                       "compare_data",
+                                       "branch",
+                                       "high_text",
+                                       "low_text",
+                                       "range",
+                                       "range_text",
+                                       "switch",
+                                       "switch_text"
+                                   ]
+                   },
+                   {
+                       "id":  "float-gallery",
+                       "title":  "浮点运算、转换和调试输出",
+                       "x":  455,
+                       "y":  870,
+                       "width":  1400,
+                       "height":  260,
+                       "nodeIds":  [
+                                       "add_float",
+                                       "sub_float",
+                                       "mul_float",
+                                       "div_float",
+                                       "float_cast",
+                                       "float_return",
+                                       "integer_cast",
+                                       "debug"
+                                   ]
+                   }
+               ],
+    "variables":  [
+
+                  ],
+    "variableGroups":  [
+                           {
+                               "id":  "default",
+                               "name":  "默认",
+                               "collapsed":  false
+                           },
+                           {
+                               "id":  "local",
+                               "name":  "局部状态",
+                               "collapsed":  false
+                           }
+                       ],
+    "view":  {
+                 "x":  0,
+                 "y":  0,
+                 "zoom":  0.72
+             }
+}

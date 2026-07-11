@@ -1,0 +1,609 @@
+﻿{
+    "schemaVersion":  1,
+    "graphName":  "控制流迷宫",
+    "nodes":  [
+                  {
+                      "id":  "entry",
+                      "typeId":  "origin.event.entry-two-integers",
+                      "position":  {
+                                       "x":  80,
+                                       "y":  130
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "sequence",
+                      "typeId":  "origin.flow.sequence",
+                      "position":  {
+                                       "x":  300,
+                                       "y":  130
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+                                         "dynamicOutputCount":  4,
+                                         "label":  "四路序列"
+                                     }
+                  },
+                  {
+                      "id":  "outer_loop",
+                      "typeId":  "origin.flow.for-loop",
+                      "position":  {
+                                       "x":  540,
+                                       "y":  80
+                                   },
+                      "values":  {
+                                     "start":  0,
+                                     "end":  3
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "numbers",
+                      "typeId":  "origin.array.create-integer-new",
+                      "position":  {
+                                       "x":  535,
+                                       "y":  250
+                                   },
+                      "values":  {
+                                     "items":  [
+                                                   2,
+                                                   4,
+                                                   6
+                                               ]
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "inner_loop",
+                      "typeId":  "origin.flow.foreach-integer-array",
+                      "position":  {
+                                       "x":  780,
+                                       "y":  80
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "sum",
+                      "typeId":  "origin.math.add-integer",
+                      "position":  {
+                                       "x":  1000,
+                                       "y":  80
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "loop_return",
+                      "typeId":  "origin.result.append-integer",
+                      "position":  {
+                                       "x":  1210,
+                                       "y":  80
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "range",
+                      "typeId":  "origin.flow.range-compare",
+                      "position":  {
+                                       "x":  540,
+                                       "y":  430
+                                   },
+                      "values":  {
+                                     "ranges":  [
+                                                    3,
+                                                    6,
+                                                    10
+                                                ],
+                                     "value":  4
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "branch",
+                      "typeId":  "origin.flow.branch",
+                      "position":  {
+                                       "x":  780,
+                                       "y":  430
+                                   },
+                      "values":  {
+                                     "condition":  true
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "range_text",
+                      "typeId":  "origin.result.append-string",
+                      "position":  {
+                                       "x":  1010,
+                                       "y":  430
+                                   },
+                      "values":  {
+                                     "value":  "range-branch-true"
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "break_loop",
+                      "typeId":  "origin.flow.for-loop-break",
+                      "position":  {
+                                       "x":  540,
+                                       "y":  670
+                                   },
+                      "values":  {
+                                     "start":  0,
+                                     "end":  5
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "break_value",
+                      "typeId":  "origin.result.append-integer",
+                      "position":  {
+                                       "x":  780,
+                                       "y":  670
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "break_done",
+                      "typeId":  "origin.result.append-string",
+                      "position":  {
+                                       "x":  1010,
+                                       "y":  670
+                                   },
+                      "values":  {
+                                     "value":  "break-loop-complete"
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "probability",
+                      "typeId":  "origin.flow.probability",
+                      "position":  {
+                                       "x":  540,
+                                       "y":  900
+                                   },
+                      "values":  {
+                                     "probability":  10000
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "probability_text",
+                      "typeId":  "origin.result.append-string",
+                      "position":  {
+                                       "x":  780,
+                                       "y":  900
+                                   },
+                      "values":  {
+                                     "value":  "probability-hit"
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "while",
+                      "typeId":  "origin.flow.while",
+                      "position":  {
+                                       "x":  1020,
+                                       "y":  900
+                                   },
+                      "values":  {
+                                     "condition":  false
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "while_done",
+                      "typeId":  "origin.result.append-string",
+                      "position":  {
+                                       "x":  1240,
+                                       "y":  900
+                                   },
+                      "values":  {
+                                     "value":  "while-complete"
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "greater",
+                      "typeId":  "origin.flow.greater-integer",
+                      "position":  {
+                                       "x":  80,
+                                       "y":  1120
+                                   },
+                      "values":  {
+                                     "b":  4,
+                                     "orEqual":  false,
+                                     "a":  9
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "less",
+                      "typeId":  "origin.flow.less-integer",
+                      "position":  {
+                                       "x":  300,
+                                       "y":  1120
+                                   },
+                      "values":  {
+                                     "b":  4,
+                                     "orEqual":  true,
+                                     "a":  4
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "equal",
+                      "typeId":  "origin.flow.equal-integer",
+                      "position":  {
+                                       "x":  520,
+                                       "y":  1120
+                                   },
+                      "values":  {
+                                     "a":  7,
+                                     "b":  7
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "switch_legacy",
+                      "typeId":  "origin.flow.equal-switch",
+                      "position":  {
+                                       "x":  760,
+                                       "y":  1120
+                                   },
+                      "values":  {
+                                     "cases":  [
+                                                   1,
+                                                   7,
+                                                   9
+                                               ],
+                                     "value":  7
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "switch_new",
+                      "typeId":  "origin.flow.equal-switch-new",
+                      "position":  {
+                                       "x":  1030,
+                                       "y":  1120
+                                   },
+                      "values":  {
+                                     "cases":  [
+                                                   2,
+                                                   8,
+                                                   10
+                                               ],
+                                     "value":  8
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "string_items",
+                      "typeId":  "origin.array.create-string-new",
+                      "position":  {
+                                       "x":  80,
+                                       "y":  1330
+                                   },
+                      "values":  {
+                                     "items":  [
+                                                   "alpha",
+                                                   "beta",
+                                                   "gamma"
+                                               ]
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "foreach_any",
+                      "typeId":  "origin.flow.foreach-array",
+                      "position":  {
+                                       "x":  330,
+                                       "y":  1330
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "cast_any",
+                      "typeId":  "origin.cast.any-string",
+                      "position":  {
+                                       "x":  580,
+                                       "y":  1330
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "any_text",
+                      "typeId":  "origin.result.append-string",
+                      "position":  {
+                                       "x":  840,
+                                       "y":  1330
+                                   },
+                      "values":  {
+                                     "value":  "foreach-array-visible"
+                                 },
+                      "properties":  {
+
+                                     }
+                  }
+              ],
+    "connections":  [
+                        {
+                            "source":  "entry",
+                            "sourceOutput":  "exec",
+                            "target":  "sequence",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "sequence",
+                            "sourceOutput":  "then0",
+                            "target":  "outer_loop",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "outer_loop",
+                            "sourceOutput":  "body",
+                            "target":  "inner_loop",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "numbers",
+                            "sourceOutput":  "array",
+                            "target":  "inner_loop",
+                            "targetInput":  "array"
+                        },
+                        {
+                            "source":  "inner_loop",
+                            "sourceOutput":  "body",
+                            "target":  "loop_return",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "outer_loop",
+                            "sourceOutput":  "index",
+                            "target":  "sum",
+                            "targetInput":  "a"
+                        },
+                        {
+                            "source":  "inner_loop",
+                            "sourceOutput":  "value",
+                            "target":  "sum",
+                            "targetInput":  "b"
+                        },
+                        {
+                            "source":  "sum",
+                            "sourceOutput":  "result",
+                            "target":  "loop_return",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "sequence",
+                            "sourceOutput":  "then1",
+                            "target":  "range",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "range",
+                            "sourceOutput":  "case2",
+                            "target":  "branch",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "branch",
+                            "sourceOutput":  "true",
+                            "target":  "range_text",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "sequence",
+                            "sourceOutput":  "then2",
+                            "target":  "break_loop",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "break_loop",
+                            "sourceOutput":  "body",
+                            "target":  "break_value",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "break_loop",
+                            "sourceOutput":  "index",
+                            "target":  "break_value",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "break_loop",
+                            "sourceOutput":  "completed",
+                            "target":  "break_done",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "sequence",
+                            "sourceOutput":  "then3",
+                            "target":  "probability",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "probability",
+                            "sourceOutput":  "hit",
+                            "target":  "probability_text",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "probability_text",
+                            "sourceOutput":  "exec",
+                            "target":  "while",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "while",
+                            "sourceOutput":  "completed",
+                            "target":  "while_done",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "string_items",
+                            "sourceOutput":  "array",
+                            "target":  "foreach_any",
+                            "targetInput":  "array"
+                        },
+                        {
+                            "source":  "foreach_any",
+                            "sourceOutput":  "body",
+                            "target":  "cast_any",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "foreach_any",
+                            "sourceOutput":  "value",
+                            "target":  "cast_any",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "cast_any",
+                            "sourceOutput":  "exec",
+                            "target":  "any_text",
+                            "targetInput":  "exec"
+                        }
+                    ],
+    "groups":  [
+                   {
+                       "id":  "main-flow",
+                       "title":  "主执行路径：嵌套循环与分支",
+                       "x":  35,
+                       "y":  25,
+                       "width":  1360,
+                       "height":  1020,
+                       "nodeIds":  [
+                                       "entry",
+                                       "sequence",
+                                       "outer_loop",
+                                       "numbers",
+                                       "inner_loop",
+                                       "sum",
+                                       "loop_return",
+                                       "range",
+                                       "branch",
+                                       "range_text",
+                                       "break_loop",
+                                       "break_value",
+                                       "break_done",
+                                       "probability",
+                                       "probability_text",
+                                       "while",
+                                       "while_done"
+                                   ]
+                   },
+                   {
+                       "id":  "flow-gallery",
+                       "title":  "控制流节点陈列：比较、Switch 与任意数组循环",
+                       "x":  35,
+                       "y":  1070,
+                       "width":  1360,
+                       "height":  360,
+                       "nodeIds":  [
+                                       "greater",
+                                       "less",
+                                       "equal",
+                                       "switch_legacy",
+                                       "switch_new",
+                                       "string_items",
+                                       "foreach_any",
+                                       "cast_any",
+                                       "any_text"
+                                   ]
+                   }
+               ],
+    "variables":  [
+
+                  ],
+    "variableGroups":  [
+                           {
+                               "id":  "default",
+                               "name":  "默认",
+                               "collapsed":  false
+                           },
+                           {
+                               "id":  "local",
+                               "name":  "局部状态",
+                               "collapsed":  false
+                           }
+                       ],
+    "view":  {
+                 "x":  0,
+                 "y":  0,
+                 "zoom":  0.72
+             }
+}

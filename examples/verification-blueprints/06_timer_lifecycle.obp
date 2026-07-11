@@ -1,0 +1,320 @@
+﻿{
+    "schemaVersion":  1,
+    "graphName":  "定时器生命周期",
+    "nodes":  [
+                  {
+                      "id":  "entry",
+                      "typeId":  "origin.event.entry-two-integers",
+                      "position":  {
+                                       "x":  80,
+                                       "y":  130
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "sequence",
+                      "typeId":  "origin.flow.sequence",
+                      "position":  {
+                                       "x":  300,
+                                       "y":  130
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+                                         "dynamicOutputCount":  2,
+                                         "label":  "定时器生命周期"
+                                     }
+                  },
+                  {
+                      "id":  "params",
+                      "typeId":  "origin.array.create-integer-new",
+                      "position":  {
+                                       "x":  520,
+                                       "y":  250
+                                   },
+                      "values":  {
+                                     "items":  [
+                                                   7,
+                                                   11,
+                                                   13
+                                               ]
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "create_timer",
+                      "typeId":  "origin.timer.create",
+                      "position":  {
+                                       "x":  540,
+                                       "y":  80
+                                   },
+                      "values":  {
+                                     "milliseconds":  250
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "debug_create",
+                      "typeId":  "origin.debug.output",
+                      "position":  {
+                                       "x":  780,
+                                       "y":  80
+                                   },
+                      "values":  {
+                                     "string":  "timer-created"
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "close_timer",
+                      "typeId":  "origin.timer.close",
+                      "position":  {
+                                       "x":  1020,
+                                       "y":  80
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "timer_entry",
+                      "typeId":  "origin.event.timer",
+                      "position":  {
+                                       "x":  80,
+                                       "y":  520
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "timer_debug",
+                      "typeId":  "origin.debug.output",
+                      "position":  {
+                                       "x":  320,
+                                       "y":  520
+                                   },
+                      "values":  {
+                                     "string":  "timer-fired"
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "timer_call",
+                      "typeId":  "origin.function.call",
+                      "position":  {
+                                       "x":  580,
+                                       "y":  520
+                                   },
+                      "values":  {
+                                     "input_seed":  11
+                                 },
+                      "properties":  {
+                                         "functionName":  "局部状态隔离",
+                                         "functionSource":  "workspace",
+                                         "functionSignature":  {
+                                                                   "inputs":  [
+                                                                                  {
+                                                                                      "id":  "seed",
+                                                                                      "name":  "种子",
+                                                                                      "type":  "integer"
+                                                                                  }
+                                                                              ],
+                                                                   "outputs":  [
+                                                                                   {
+                                                                                       "id":  "result",
+                                                                                       "name":  "局部结果",
+                                                                                       "type":  "integer"
+                                                                                   }
+                                                                               ]
+                                                               },
+                                         "label":  "Call 局部状态隔离",
+                                         "functionId":  "functions/13_local_state_isolation.obpf"
+                                     }
+                  },
+                  {
+                      "id":  "timer_result",
+                      "typeId":  "origin.result.append-integer",
+                      "position":  {
+                                       "x":  870,
+                                       "y":  520
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "timer_text",
+                      "typeId":  "origin.literal.string",
+                      "position":  {
+                                       "x":  580,
+                                       "y":  700
+                                   },
+                      "values":  {
+                                     "value":  "timer-event-path"
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "timer_text_return",
+                      "typeId":  "origin.result.append-string",
+                      "position":  {
+                                       "x":  870,
+                                       "y":  700
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  }
+              ],
+    "connections":  [
+                        {
+                            "source":  "entry",
+                            "sourceOutput":  "exec",
+                            "target":  "sequence",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "sequence",
+                            "sourceOutput":  "then0",
+                            "target":  "create_timer",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "params",
+                            "sourceOutput":  "array",
+                            "target":  "create_timer",
+                            "targetInput":  "params"
+                        },
+                        {
+                            "source":  "create_timer",
+                            "sourceOutput":  "exec",
+                            "target":  "debug_create",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "sequence",
+                            "sourceOutput":  "then1",
+                            "target":  "close_timer",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "create_timer",
+                            "sourceOutput":  "timerId",
+                            "target":  "close_timer",
+                            "targetInput":  "timerId"
+                        },
+                        {
+                            "source":  "timer_entry",
+                            "sourceOutput":  "exec",
+                            "target":  "timer_debug",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "timer_debug",
+                            "sourceOutput":  "exec",
+                            "target":  "timer_call",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "timer_call",
+                            "sourceOutput":  "exec",
+                            "target":  "timer_result",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "timer_call",
+                            "sourceOutput":  "output_result",
+                            "target":  "timer_result",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "timer_text",
+                            "sourceOutput":  "value",
+                            "target":  "timer_text_return",
+                            "targetInput":  "value"
+                        }
+                    ],
+    "groups":  [
+                   {
+                       "id":  "timer-create-close",
+                       "title":  "常规入口：创建、观察与关闭定时器",
+                       "x":  35,
+                       "y":  30,
+                       "width":  1250,
+                       "height":  330,
+                       "nodeIds":  [
+                                       "entry",
+                                       "sequence",
+                                       "params",
+                                       "create_timer",
+                                       "debug_create",
+                                       "close_timer"
+                                   ]
+                   },
+                   {
+                       "id":  "timer-event",
+                       "title":  "Timer 事件入口：回调处理和函数调用",
+                       "x":  35,
+                       "y":  470,
+                       "width":  1050,
+                       "height":  320,
+                       "nodeIds":  [
+                                       "timer_entry",
+                                       "timer_debug",
+                                       "timer_call",
+                                       "timer_result",
+                                       "timer_text",
+                                       "timer_text_return"
+                                   ]
+                   }
+               ],
+    "variables":  [
+
+                  ],
+    "variableGroups":  [
+                           {
+                               "id":  "default",
+                               "name":  "默认",
+                               "collapsed":  false
+                           },
+                           {
+                               "id":  "local",
+                               "name":  "局部状态",
+                               "collapsed":  false
+                           }
+                       ],
+    "view":  {
+                 "x":  0,
+                 "y":  0,
+                 "zoom":  0.72
+             }
+}

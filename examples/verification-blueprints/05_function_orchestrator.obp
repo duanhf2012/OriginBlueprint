@@ -1,0 +1,555 @@
+﻿{
+    "schemaVersion":  1,
+    "graphName":  "函数编排主图",
+    "nodes":  [
+                  {
+                      "id":  "entry",
+                      "typeId":  "origin.event.entry-two-integers",
+                      "position":  {
+                                       "x":  80,
+                                       "y":  130
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "sequence",
+                      "typeId":  "origin.flow.sequence",
+                      "position":  {
+                                       "x":  300,
+                                       "y":  130
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+                                         "dynamicOutputCount":  4,
+                                         "label":  "函数编排序列"
+                                     }
+                  },
+                  {
+                      "id":  "score_call",
+                      "typeId":  "origin.function.call",
+                      "position":  {
+                                       "x":  540,
+                                       "y":  80
+                                   },
+                      "values":  {
+                                     "input_base":  10,
+                                     "input_bonus":  5,
+                                     "input_multiplier":  2
+                                 },
+                      "properties":  {
+                                         "functionName":  "评分核心",
+                                         "functionSource":  "workspace",
+                                         "functionSignature":  {
+                                                                   "inputs":  [
+                                                                                  {
+                                                                                      "id":  "base",
+                                                                                      "name":  "基础分",
+                                                                                      "type":  "integer"
+                                                                                  },
+                                                                                  {
+                                                                                      "id":  "bonus",
+                                                                                      "name":  "附加分",
+                                                                                      "type":  "integer"
+                                                                                  },
+                                                                                  {
+                                                                                      "id":  "multiplier",
+                                                                                      "name":  "倍率",
+                                                                                      "type":  "integer"
+                                                                                  }
+                                                                              ],
+                                                                   "outputs":  [
+                                                                                   {
+                                                                                       "id":  "score",
+                                                                                       "name":  "评分",
+                                                                                       "type":  "integer"
+                                                                                   },
+                                                                                   {
+                                                                                       "id":  "tier",
+                                                                                       "name":  "等级",
+                                                                                       "type":  "string"
+                                                                                   }
+                                                                               ]
+                                                               },
+                                         "label":  "Call 评分核心",
+                                         "functionId":  "functions/10_score_kernel.obpf"
+                                     }
+                  },
+                  {
+                      "id":  "score_return",
+                      "typeId":  "origin.result.append-integer",
+                      "position":  {
+                                       "x":  830,
+                                       "y":  80
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "score_text",
+                      "typeId":  "origin.result.append-string",
+                      "position":  {
+                                       "x":  1040,
+                                       "y":  80
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "array_source",
+                      "typeId":  "origin.array.create-integer-new",
+                      "position":  {
+                                       "x":  540,
+                                       "y":  330
+                                   },
+                      "values":  {
+                                     "items":  [
+                                                   3,
+                                                   1,
+                                                   4,
+                                                   1,
+                                                   5
+                                               ]
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "array_call",
+                      "typeId":  "origin.function.call",
+                      "position":  {
+                                       "x":  800,
+                                       "y":  330
+                                   },
+                      "values":  {
+                                     "input_weight":  2
+                                 },
+                      "properties":  {
+                                         "functionName":  "数组折叠与格式化",
+                                         "functionSource":  "workspace",
+                                         "functionSignature":  {
+                                                                   "inputs":  [
+                                                                                  {
+                                                                                      "id":  "items",
+                                                                                      "name":  "整数数组",
+                                                                                      "type":  "array"
+                                                                                  },
+                                                                                  {
+                                                                                      "id":  "weight",
+                                                                                      "name":  "权重",
+                                                                                      "type":  "integer"
+                                                                                  }
+                                                                              ],
+                                                                   "outputs":  [
+                                                                                   {
+                                                                                       "id":  "sum",
+                                                                                       "name":  "累计值",
+                                                                                       "type":  "integer"
+                                                                                   },
+                                                                                   {
+                                                                                       "id":  "summary",
+                                                                                       "name":  "摘要",
+                                                                                       "type":  "string"
+                                                                                   }
+                                                                               ]
+                                                               },
+                                         "label":  "Call 数组折叠与格式化",
+                                         "functionId":  "functions/11_array_fold_and_format.obpf"
+                                     }
+                  },
+                  {
+                      "id":  "array_return",
+                      "typeId":  "origin.result.append-integer",
+                      "position":  {
+                                       "x":  1090,
+                                       "y":  330
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "summary_return",
+                      "typeId":  "origin.result.append-string",
+                      "position":  {
+                                       "x":  1300,
+                                       "y":  330
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "control_call",
+                      "typeId":  "origin.function.call",
+                      "position":  {
+                                       "x":  540,
+                                       "y":  580
+                                   },
+                      "values":  {
+                                     "input_start":  0,
+                                     "input_limit":  4
+                                 },
+                      "properties":  {
+                                         "functionName":  "嵌套控制流",
+                                         "functionSource":  "workspace",
+                                         "functionSignature":  {
+                                                                   "inputs":  [
+                                                                                  {
+                                                                                      "id":  "start",
+                                                                                      "name":  "起始值",
+                                                                                      "type":  "integer"
+                                                                                  },
+                                                                                  {
+                                                                                      "id":  "limit",
+                                                                                      "name":  "上限",
+                                                                                      "type":  "integer"
+                                                                                  }
+                                                                              ],
+                                                                   "outputs":  [
+                                                                                   {
+                                                                                       "id":  "count",
+                                                                                       "name":  "次数",
+                                                                                       "type":  "integer"
+                                                                                   },
+                                                                                   {
+                                                                                       "id":  "trace",
+                                                                                       "name":  "轨迹",
+                                                                                       "type":  "string"
+                                                                                   }
+                                                                               ]
+                                                               },
+                                         "label":  "Call 嵌套控制流",
+                                         "functionId":  "functions/12_nested_control_function.obpf"
+                                     }
+                  },
+                  {
+                      "id":  "control_return",
+                      "typeId":  "origin.result.append-string",
+                      "position":  {
+                                       "x":  830,
+                                       "y":  580
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "local_call_a",
+                      "typeId":  "origin.function.call",
+                      "position":  {
+                                       "x":  540,
+                                       "y":  830
+                                   },
+                      "values":  {
+                                     "input_seed":  7
+                                 },
+                      "properties":  {
+                                         "functionName":  "局部状态隔离",
+                                         "functionSource":  "workspace",
+                                         "functionSignature":  {
+                                                                   "inputs":  [
+                                                                                  {
+                                                                                      "id":  "seed",
+                                                                                      "name":  "种子",
+                                                                                      "type":  "integer"
+                                                                                  }
+                                                                              ],
+                                                                   "outputs":  [
+                                                                                   {
+                                                                                       "id":  "result",
+                                                                                       "name":  "局部结果",
+                                                                                       "type":  "integer"
+                                                                                   }
+                                                                               ]
+                                                               },
+                                         "label":  "Call 局部状态隔离",
+                                         "functionId":  "functions/13_local_state_isolation.obpf"
+                                     }
+                  },
+                  {
+                      "id":  "local_call_b",
+                      "typeId":  "origin.function.call",
+                      "position":  {
+                                       "x":  820,
+                                       "y":  830
+                                   },
+                      "values":  {
+                                     "input_seed":  7
+                                 },
+                      "properties":  {
+                                         "functionName":  "局部状态隔离",
+                                         "functionSource":  "workspace",
+                                         "functionSignature":  {
+                                                                   "inputs":  [
+                                                                                  {
+                                                                                      "id":  "seed",
+                                                                                      "name":  "种子",
+                                                                                      "type":  "integer"
+                                                                                  }
+                                                                              ],
+                                                                   "outputs":  [
+                                                                                   {
+                                                                                       "id":  "result",
+                                                                                       "name":  "局部结果",
+                                                                                       "type":  "integer"
+                                                                                   }
+                                                                               ]
+                                                               },
+                                         "label":  "Call 局部状态隔离",
+                                         "functionId":  "functions/13_local_state_isolation.obpf"
+                                     }
+                  },
+                  {
+                      "id":  "local_return_a",
+                      "typeId":  "origin.result.append-integer",
+                      "position":  {
+                                       "x":  1100,
+                                       "y":  770
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "local_return_b",
+                      "typeId":  "origin.result.append-integer",
+                      "position":  {
+                                       "x":  1100,
+                                       "y":  900
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  }
+              ],
+    "connections":  [
+                        {
+                            "source":  "entry",
+                            "sourceOutput":  "exec",
+                            "target":  "sequence",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "sequence",
+                            "sourceOutput":  "then0",
+                            "target":  "score_call",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "score_call",
+                            "sourceOutput":  "exec",
+                            "target":  "score_return",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "score_call",
+                            "sourceOutput":  "output_score",
+                            "target":  "score_return",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "score_return",
+                            "sourceOutput":  "exec",
+                            "target":  "score_text",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "score_call",
+                            "sourceOutput":  "output_tier",
+                            "target":  "score_text",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "sequence",
+                            "sourceOutput":  "then1",
+                            "target":  "array_call",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "array_source",
+                            "sourceOutput":  "array",
+                            "target":  "array_call",
+                            "targetInput":  "input_items"
+                        },
+                        {
+                            "source":  "array_call",
+                            "sourceOutput":  "exec",
+                            "target":  "array_return",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "array_call",
+                            "sourceOutput":  "output_sum",
+                            "target":  "array_return",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "array_return",
+                            "sourceOutput":  "exec",
+                            "target":  "summary_return",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "array_call",
+                            "sourceOutput":  "output_summary",
+                            "target":  "summary_return",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "sequence",
+                            "sourceOutput":  "then2",
+                            "target":  "control_call",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "control_call",
+                            "sourceOutput":  "exec",
+                            "target":  "control_return",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "control_call",
+                            "sourceOutput":  "output_trace",
+                            "target":  "control_return",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "sequence",
+                            "sourceOutput":  "then3",
+                            "target":  "local_call_a",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "local_call_a",
+                            "sourceOutput":  "exec",
+                            "target":  "local_call_b",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "local_call_a",
+                            "sourceOutput":  "output_result",
+                            "target":  "local_return_a",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "local_call_b",
+                            "sourceOutput":  "exec",
+                            "target":  "local_return_b",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "local_call_b",
+                            "sourceOutput":  "output_result",
+                            "target":  "local_return_b",
+                            "targetInput":  "value"
+                        }
+                    ],
+    "groups":  [
+                   {
+                       "id":  "score-call",
+                       "title":  "评分函数调用",
+                       "x":  35,
+                       "y":  30,
+                       "width":  1160,
+                       "height":  220,
+                       "nodeIds":  [
+                                       "entry",
+                                       "sequence",
+                                       "score_call",
+                                       "score_return",
+                                       "score_text"
+                                   ]
+                   },
+                   {
+                       "id":  "array-call",
+                       "title":  "数组折叠函数调用",
+                       "x":  480,
+                       "y":  280,
+                       "width":  1050,
+                       "height":  230,
+                       "nodeIds":  [
+                                       "array_source",
+                                       "array_call",
+                                       "array_return",
+                                       "summary_return"
+                                   ]
+                   },
+                   {
+                       "id":  "control-call",
+                       "title":  "嵌套控制流函数调用",
+                       "x":  480,
+                       "y":  530,
+                       "width":  650,
+                       "height":  180,
+                       "nodeIds":  [
+                                       "control_call",
+                                       "control_return"
+                                   ]
+                   },
+                   {
+                       "id":  "local-isolation",
+                       "title":  "同输入连续调用：局部状态必须隔离",
+                       "x":  480,
+                       "y":  760,
+                       "width":  980,
+                       "height":  220,
+                       "nodeIds":  [
+                                       "local_call_a",
+                                       "local_call_b",
+                                       "local_return_a",
+                                       "local_return_b"
+                                   ]
+                   }
+               ],
+    "variables":  [
+
+                  ],
+    "variableGroups":  [
+                           {
+                               "id":  "default",
+                               "name":  "默认",
+                               "collapsed":  false
+                           },
+                           {
+                               "id":  "local",
+                               "name":  "局部状态",
+                               "collapsed":  false
+                           }
+                       ],
+    "view":  {
+                 "x":  0,
+                 "y":  0,
+                 "zoom":  0.72
+             }
+}

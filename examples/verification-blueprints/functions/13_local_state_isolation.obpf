@@ -1,0 +1,287 @@
+﻿{
+    "schemaVersion":  1,
+    "graphName":  "局部状态隔离",
+    "nodes":  [
+                  {
+                      "id":  "entry",
+                      "typeId":  "origin.function.entry",
+                      "position":  {
+                                       "x":  80,
+                                       "y":  130
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+                                         "label":  "局部状态隔离 Entry",
+                                         "functionRole":  "entry",
+                                         "functionSource":  "workspace",
+                                         "functionId":  "functions/13_local_state_isolation.obpf",
+                                         "functionSignature":  {
+                                                                   "inputs":  [
+                                                                                  {
+                                                                                      "id":  "seed",
+                                                                                      "name":  "种子",
+                                                                                      "type":  "integer"
+                                                                                  }
+                                                                              ],
+                                                                   "outputs":  [
+                                                                                   {
+                                                                                       "id":  "result",
+                                                                                       "name":  "局部结果",
+                                                                                       "type":  "integer"
+                                                                                   }
+                                                                               ]
+                                                               },
+                                         "functionName":  "局部状态隔离"
+                                     }
+                  },
+                  {
+                      "id":  "get_before",
+                      "typeId":  "origin.variable.get",
+                      "position":  {
+                                       "x":  340,
+                                       "y":  120
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+                                         "label":  "Get CallCounter",
+                                         "variableAccess":  "get",
+                                         "variableId":  "call_counter"
+                                     }
+                  },
+                  {
+                      "id":  "add",
+                      "typeId":  "origin.math.add-integer",
+                      "position":  {
+                                       "x":  580,
+                                       "y":  120
+                                   },
+                      "values":  {
+                                     "b":  1
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "set_after",
+                      "typeId":  "origin.variable.set",
+                      "position":  {
+                                       "x":  800,
+                                       "y":  120
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+                                         "label":  "Set CallCounter",
+                                         "variableAccess":  "set",
+                                         "variableId":  "call_counter"
+                                     }
+                  },
+                  {
+                      "id":  "array",
+                      "typeId":  "origin.array.create-integer-new",
+                      "position":  {
+                                       "x":  580,
+                                       "y":  330
+                                   },
+                      "values":  {
+                                     "items":  [
+                                                   1,
+                                                   1,
+                                                   2,
+                                                   3,
+                                                   5
+                                               ]
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "loop",
+                      "typeId":  "origin.flow.foreach-integer-array",
+                      "position":  {
+                                       "x":  800,
+                                       "y":  330
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "branch",
+                      "typeId":  "origin.flow.branch",
+                      "position":  {
+                                       "x":  1040,
+                                       "y":  330
+                                   },
+                      "values":  {
+                                     "condition":  true
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "return",
+                      "typeId":  "origin.function.return",
+                      "position":  {
+                                       "x":  1270,
+                                       "y":  130
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+                                         "label":  "局部状态隔离 Return",
+                                         "functionRole":  "return",
+                                         "functionSource":  "workspace",
+                                         "functionId":  "functions/13_local_state_isolation.obpf",
+                                         "functionSignature":  {
+                                                                   "inputs":  [
+                                                                                  {
+                                                                                      "id":  "seed",
+                                                                                      "name":  "种子",
+                                                                                      "type":  "integer"
+                                                                                  }
+                                                                              ],
+                                                                   "outputs":  [
+                                                                                   {
+                                                                                       "id":  "result",
+                                                                                       "name":  "局部结果",
+                                                                                       "type":  "integer"
+                                                                                   }
+                                                                               ]
+                                                               },
+                                         "functionName":  "局部状态隔离"
+                                     }
+                  }
+              ],
+    "connections":  [
+                        {
+                            "source":  "entry",
+                            "sourceOutput":  "exec",
+                            "target":  "set_after",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "entry",
+                            "sourceOutput":  "input_seed",
+                            "target":  "add",
+                            "targetInput":  "a"
+                        },
+                        {
+                            "source":  "add",
+                            "sourceOutput":  "result",
+                            "target":  "set_after",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "set_after",
+                            "sourceOutput":  "exec",
+                            "target":  "return",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "add",
+                            "sourceOutput":  "result",
+                            "target":  "return",
+                            "targetInput":  "output_result"
+                        },
+                        {
+                            "source":  "array",
+                            "sourceOutput":  "array",
+                            "target":  "loop",
+                            "targetInput":  "array"
+                        },
+                        {
+                            "source":  "loop",
+                            "sourceOutput":  "body",
+                            "target":  "branch",
+                            "targetInput":  "exec"
+                        }
+                    ],
+    "groups":  [
+                   {
+                       "id":  "local-main",
+                       "title":  "局部变量读写与函数返回",
+                       "x":  35,
+                       "y":  50,
+                       "width":  1500,
+                       "height":  240,
+                       "nodeIds":  [
+                                       "entry",
+                                       "get_before",
+                                       "add",
+                                       "set_after",
+                                       "return"
+                                   ]
+                   },
+                   {
+                       "id":  "local-branch",
+                       "title":  "函数内部数组循环与分支",
+                       "x":  520,
+                       "y":  280,
+                       "width":  760,
+                       "height":  260,
+                       "nodeIds":  [
+                                       "array",
+                                       "loop",
+                                       "branch"
+                                   ]
+                   }
+               ],
+    "variables":  [
+                      {
+                          "id":  "call_counter",
+                          "name":  "CallCounter",
+                          "type":  "integer",
+                          "defaultValue":  0,
+                          "groupId":  "local",
+                          "description":  "每次函数调用都必须重新初始化的局部变量"
+                      }
+                  ],
+    "variableGroups":  [
+                           {
+                               "id":  "default",
+                               "name":  "默认",
+                               "collapsed":  false
+                           },
+                           {
+                               "id":  "local",
+                               "name":  "局部状态",
+                               "collapsed":  false
+                           }
+                       ],
+    "view":  {
+                 "x":  0,
+                 "y":  0,
+                 "zoom":  0.72
+             },
+    "functionCategory":  "验证函数",
+    "functionSignature":  {
+                              "inputs":  [
+                                             {
+                                                 "id":  "seed",
+                                                 "name":  "种子",
+                                                 "type":  "integer"
+                                             }
+                                         ],
+                              "outputs":  [
+                                              {
+                                                  "id":  "result",
+                                                  "name":  "局部结果",
+                                                  "type":  "integer"
+                                              }
+                                          ]
+                          },
+    "functionId":  "functions/13_local_state_isolation.obpf"
+}

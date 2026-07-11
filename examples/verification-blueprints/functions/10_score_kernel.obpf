@@ -1,0 +1,366 @@
+﻿{
+    "schemaVersion":  1,
+    "graphName":  "评分核心",
+    "nodes":  [
+                  {
+                      "id":  "entry",
+                      "typeId":  "origin.function.entry",
+                      "position":  {
+                                       "x":  80,
+                                       "y":  130
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+                                         "label":  "评分核心 Entry",
+                                         "functionRole":  "entry",
+                                         "functionSource":  "workspace",
+                                         "functionId":  "functions/10_score_kernel.obpf",
+                                         "functionSignature":  {
+                                                                   "inputs":  [
+                                                                                  {
+                                                                                      "id":  "base",
+                                                                                      "name":  "基础分",
+                                                                                      "type":  "integer"
+                                                                                  },
+                                                                                  {
+                                                                                      "id":  "bonus",
+                                                                                      "name":  "附加分",
+                                                                                      "type":  "integer"
+                                                                                  },
+                                                                                  {
+                                                                                      "id":  "multiplier",
+                                                                                      "name":  "倍率",
+                                                                                      "type":  "integer"
+                                                                                  }
+                                                                              ],
+                                                                   "outputs":  [
+                                                                                   {
+                                                                                       "id":  "score",
+                                                                                       "name":  "评分",
+                                                                                       "type":  "integer"
+                                                                                   },
+                                                                                   {
+                                                                                       "id":  "tier",
+                                                                                       "name":  "等级",
+                                                                                       "type":  "string"
+                                                                                   }
+                                                                               ]
+                                                               },
+                                         "functionName":  "评分核心"
+                                     }
+                  },
+                  {
+                      "id":  "add",
+                      "typeId":  "origin.math.add-integer",
+                      "position":  {
+                                       "x":  340,
+                                       "y":  120
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "multiply",
+                      "typeId":  "origin.math.multiply-integer",
+                      "position":  {
+                                       "x":  560,
+                                       "y":  120
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "range",
+                      "typeId":  "origin.flow.range-compare",
+                      "position":  {
+                                       "x":  780,
+                                       "y":  120
+                                   },
+                      "values":  {
+                                     "ranges":  [
+                                                    5,
+                                                    10,
+                                                    20
+                                                ],
+                                     "value":  12
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "switch",
+                      "typeId":  "origin.flow.equal-switch-new",
+                      "position":  {
+                                       "x":  1010,
+                                       "y":  120
+                                   },
+                      "values":  {
+                                     "cases":  [
+                                                   1,
+                                                   2,
+                                                   3
+                                               ],
+                                     "value":  2
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "probability",
+                      "typeId":  "origin.flow.probability",
+                      "position":  {
+                                       "x":  1240,
+                                       "y":  120
+                                   },
+                      "values":  {
+                                     "probability":  10000
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "tier",
+                      "typeId":  "origin.literal.string",
+                      "position":  {
+                                       "x":  1020,
+                                       "y":  350
+                                   },
+                      "values":  {
+                                     "value":  "gold"
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "local_set",
+                      "typeId":  "origin.variable.set",
+                      "position":  {
+                                       "x":  560,
+                                       "y":  430
+                                   },
+                      "values":  {
+                                     "value":  0
+                                 },
+                      "properties":  {
+                                         "label":  "Set ScoreLocal",
+                                         "variableAccess":  "set",
+                                         "variableId":  "score_local"
+                                     }
+                  },
+                  {
+                      "id":  "local_get",
+                      "typeId":  "origin.variable.get",
+                      "position":  {
+                                       "x":  790,
+                                       "y":  430
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+                                         "label":  "Get ScoreLocal",
+                                         "variableAccess":  "get",
+                                         "variableId":  "score_local"
+                                     }
+                  },
+                  {
+                      "id":  "return",
+                      "typeId":  "origin.function.return",
+                      "position":  {
+                                       "x":  1500,
+                                       "y":  130
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+                                         "label":  "评分核心 Return",
+                                         "functionRole":  "return",
+                                         "functionSource":  "workspace",
+                                         "functionId":  "functions/10_score_kernel.obpf",
+                                         "functionSignature":  {
+                                                                   "inputs":  [
+                                                                                  {
+                                                                                      "id":  "base",
+                                                                                      "name":  "基础分",
+                                                                                      "type":  "integer"
+                                                                                  },
+                                                                                  {
+                                                                                      "id":  "bonus",
+                                                                                      "name":  "附加分",
+                                                                                      "type":  "integer"
+                                                                                  },
+                                                                                  {
+                                                                                      "id":  "multiplier",
+                                                                                      "name":  "倍率",
+                                                                                      "type":  "integer"
+                                                                                  }
+                                                                              ],
+                                                                   "outputs":  [
+                                                                                   {
+                                                                                       "id":  "score",
+                                                                                       "name":  "评分",
+                                                                                       "type":  "integer"
+                                                                                   },
+                                                                                   {
+                                                                                       "id":  "tier",
+                                                                                       "name":  "等级",
+                                                                                       "type":  "string"
+                                                                                   }
+                                                                               ]
+                                                               },
+                                         "functionName":  "评分核心"
+                                     }
+                  }
+              ],
+    "connections":  [
+                        {
+                            "source":  "entry",
+                            "sourceOutput":  "exec",
+                            "target":  "return",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "entry",
+                            "sourceOutput":  "input_base",
+                            "target":  "add",
+                            "targetInput":  "a"
+                        },
+                        {
+                            "source":  "entry",
+                            "sourceOutput":  "input_bonus",
+                            "target":  "add",
+                            "targetInput":  "b"
+                        },
+                        {
+                            "source":  "add",
+                            "sourceOutput":  "result",
+                            "target":  "multiply",
+                            "targetInput":  "a"
+                        },
+                        {
+                            "source":  "entry",
+                            "sourceOutput":  "input_multiplier",
+                            "target":  "multiply",
+                            "targetInput":  "b"
+                        },
+                        {
+                            "source":  "multiply",
+                            "sourceOutput":  "result",
+                            "target":  "return",
+                            "targetInput":  "output_score"
+                        },
+                        {
+                            "source":  "tier",
+                            "sourceOutput":  "value",
+                            "target":  "return",
+                            "targetInput":  "output_tier"
+                        }
+                    ],
+    "groups":  [
+                   {
+                       "id":  "score-main",
+                       "title":  "函数主路径：输入、计算和返回",
+                       "x":  35,
+                       "y":  55,
+                       "width":  1740,
+                       "height":  240,
+                       "nodeIds":  [
+                                       "entry",
+                                       "add",
+                                       "multiply",
+                                       "range",
+                                       "switch",
+                                       "probability",
+                                       "tier",
+                                       "return"
+                                   ]
+                   },
+                   {
+                       "id":  "score-local",
+                       "title":  "局部变量隔离展示",
+                       "x":  500,
+                       "y":  380,
+                       "width":  600,
+                       "height":  180,
+                       "nodeIds":  [
+                                       "local_set",
+                                       "local_get"
+                                   ]
+                   }
+               ],
+    "variables":  [
+                      {
+                          "id":  "score_local",
+                          "name":  "ScoreLocal",
+                          "type":  "integer",
+                          "defaultValue":  0,
+                          "groupId":  "local",
+                          "description":  "函数调用专属局部变量"
+                      }
+                  ],
+    "variableGroups":  [
+                           {
+                               "id":  "default",
+                               "name":  "默认",
+                               "collapsed":  false
+                           },
+                           {
+                               "id":  "local",
+                               "name":  "局部状态",
+                               "collapsed":  false
+                           }
+                       ],
+    "view":  {
+                 "x":  0,
+                 "y":  0,
+                 "zoom":  0.72
+             },
+    "functionCategory":  "验证函数",
+    "functionSignature":  {
+                              "inputs":  [
+                                             {
+                                                 "id":  "base",
+                                                 "name":  "基础分",
+                                                 "type":  "integer"
+                                             },
+                                             {
+                                                 "id":  "bonus",
+                                                 "name":  "附加分",
+                                                 "type":  "integer"
+                                             },
+                                             {
+                                                 "id":  "multiplier",
+                                                 "name":  "倍率",
+                                                 "type":  "integer"
+                                             }
+                                         ],
+                              "outputs":  [
+                                              {
+                                                  "id":  "score",
+                                                  "name":  "评分",
+                                                  "type":  "integer"
+                                              },
+                                              {
+                                                  "id":  "tier",
+                                                  "name":  "等级",
+                                                  "type":  "string"
+                                              }
+                                          ]
+                          },
+    "functionId":  "functions/10_score_kernel.obpf"
+}

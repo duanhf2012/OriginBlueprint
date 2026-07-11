@@ -1,0 +1,385 @@
+﻿{
+    "schemaVersion":  1,
+    "graphName":  "数组折叠与格式化",
+    "nodes":  [
+                  {
+                      "id":  "entry",
+                      "typeId":  "origin.function.entry",
+                      "position":  {
+                                       "x":  80,
+                                       "y":  130
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+                                         "label":  "数组折叠与格式化 Entry",
+                                         "functionRole":  "entry",
+                                         "functionSource":  "workspace",
+                                         "functionId":  "functions/11_array_fold_and_format.obpf",
+                                         "functionSignature":  {
+                                                                   "inputs":  [
+                                                                                  {
+                                                                                      "id":  "items",
+                                                                                      "name":  "整数数组",
+                                                                                      "type":  "array"
+                                                                                  },
+                                                                                  {
+                                                                                      "id":  "weight",
+                                                                                      "name":  "权重",
+                                                                                      "type":  "integer"
+                                                                                  }
+                                                                              ],
+                                                                   "outputs":  [
+                                                                                   {
+                                                                                       "id":  "sum",
+                                                                                       "name":  "累计值",
+                                                                                       "type":  "integer"
+                                                                                   },
+                                                                                   {
+                                                                                       "id":  "summary",
+                                                                                       "name":  "摘要",
+                                                                                       "type":  "string"
+                                                                                   }
+                                                                               ]
+                                                               },
+                                         "functionName":  "数组折叠与格式化"
+                                     }
+                  },
+                  {
+                      "id":  "loop",
+                      "typeId":  "origin.flow.foreach-integer-array",
+                      "position":  {
+                                       "x":  340,
+                                       "y":  120
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "sum",
+                      "typeId":  "origin.math.add-integer",
+                      "position":  {
+                                       "x":  580,
+                                       "y":  120
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "count_loop",
+                      "typeId":  "origin.flow.for-loop",
+                      "position":  {
+                                       "x":  800,
+                                       "y":  120
+                                   },
+                      "values":  {
+                                     "start":  0,
+                                     "end":  3
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "get_item",
+                      "typeId":  "origin.array.get-integer",
+                      "position":  {
+                                       "x":  1040,
+                                       "y":  120
+                                   },
+                      "values":  {
+                                     "index":  1
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "append",
+                      "typeId":  "origin.array.append-integer",
+                      "position":  {
+                                       "x":  1040,
+                                       "y":  340
+                                   },
+                      "values":  {
+                                     "value":  8
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "cast",
+                      "typeId":  "origin.cast.integer-string",
+                      "position":  {
+                                       "x":  1250,
+                                       "y":  120
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "summary",
+                      "typeId":  "origin.literal.string",
+                      "position":  {
+                                       "x":  1250,
+                                       "y":  340
+                                   },
+                      "values":  {
+                                     "value":  "array-fold:fixed"
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "score_call",
+                      "typeId":  "origin.function.call",
+                      "position":  {
+                                       "x":  800,
+                                       "y":  520
+                                   },
+                      "values":  {
+                                     "input_base":  5,
+                                     "input_bonus":  3,
+                                     "input_multiplier":  2
+                                 },
+                      "properties":  {
+                                         "functionName":  "评分核心",
+                                         "functionSource":  "workspace",
+                                         "functionSignature":  {
+                                                                   "inputs":  [
+                                                                                  {
+                                                                                      "id":  "base",
+                                                                                      "name":  "基础分",
+                                                                                      "type":  "integer"
+                                                                                  },
+                                                                                  {
+                                                                                      "id":  "bonus",
+                                                                                      "name":  "附加分",
+                                                                                      "type":  "integer"
+                                                                                  },
+                                                                                  {
+                                                                                      "id":  "multiplier",
+                                                                                      "name":  "倍率",
+                                                                                      "type":  "integer"
+                                                                                  }
+                                                                              ],
+                                                                   "outputs":  [
+                                                                                   {
+                                                                                       "id":  "score",
+                                                                                       "name":  "评分",
+                                                                                       "type":  "integer"
+                                                                                   },
+                                                                                   {
+                                                                                       "id":  "tier",
+                                                                                       "name":  "等级",
+                                                                                       "type":  "string"
+                                                                                   }
+                                                                               ]
+                                                               },
+                                         "label":  "Call 评分核心",
+                                         "functionId":  "functions/10_score_kernel.obpf"
+                                     }
+                  },
+                  {
+                      "id":  "local_set",
+                      "typeId":  "origin.variable.set",
+                      "position":  {
+                                       "x":  580,
+                                       "y":  520
+                                   },
+                      "values":  {
+                                     "value":  0
+                                 },
+                      "properties":  {
+                                         "label":  "Set FoldSum",
+                                         "variableAccess":  "set",
+                                         "variableId":  "fold_sum"
+                                     }
+                  },
+                  {
+                      "id":  "return",
+                      "typeId":  "origin.function.return",
+                      "position":  {
+                                       "x":  1510,
+                                       "y":  130
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+                                         "label":  "数组折叠与格式化 Return",
+                                         "functionRole":  "return",
+                                         "functionSource":  "workspace",
+                                         "functionId":  "functions/11_array_fold_and_format.obpf",
+                                         "functionSignature":  {
+                                                                   "inputs":  [
+                                                                                  {
+                                                                                      "id":  "items",
+                                                                                      "name":  "整数数组",
+                                                                                      "type":  "array"
+                                                                                  },
+                                                                                  {
+                                                                                      "id":  "weight",
+                                                                                      "name":  "权重",
+                                                                                      "type":  "integer"
+                                                                                  }
+                                                                              ],
+                                                                   "outputs":  [
+                                                                                   {
+                                                                                       "id":  "sum",
+                                                                                       "name":  "累计值",
+                                                                                       "type":  "integer"
+                                                                                   },
+                                                                                   {
+                                                                                       "id":  "summary",
+                                                                                       "name":  "摘要",
+                                                                                       "type":  "string"
+                                                                                   }
+                                                                               ]
+                                                               },
+                                         "functionName":  "数组折叠与格式化"
+                                     }
+                  }
+              ],
+    "connections":  [
+                        {
+                            "source":  "entry",
+                            "sourceOutput":  "exec",
+                            "target":  "return",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "entry",
+                            "sourceOutput":  "input_items",
+                            "target":  "loop",
+                            "targetInput":  "array"
+                        },
+                        {
+                            "source":  "loop",
+                            "sourceOutput":  "value",
+                            "target":  "sum",
+                            "targetInput":  "a"
+                        },
+                        {
+                            "source":  "entry",
+                            "sourceOutput":  "input_weight",
+                            "target":  "sum",
+                            "targetInput":  "b"
+                        },
+                        {
+                            "source":  "sum",
+                            "sourceOutput":  "result",
+                            "target":  "return",
+                            "targetInput":  "output_sum"
+                        },
+                        {
+                            "source":  "summary",
+                            "sourceOutput":  "value",
+                            "target":  "return",
+                            "targetInput":  "output_summary"
+                        }
+                    ],
+    "groups":  [
+                   {
+                       "id":  "fold-main",
+                       "title":  "函数主路径与数组循环",
+                       "x":  35,
+                       "y":  50,
+                       "width":  1740,
+                       "height":  240,
+                       "nodeIds":  [
+                                       "entry",
+                                       "loop",
+                                       "sum",
+                                       "count_loop",
+                                       "get_item",
+                                       "append",
+                                       "cast",
+                                       "summary",
+                                       "return"
+                                   ]
+                   },
+                   {
+                       "id":  "fold-nested",
+                       "title":  "嵌套函数调用和局部变量",
+                       "x":  500,
+                       "y":  470,
+                       "width":  850,
+                       "height":  180,
+                       "nodeIds":  [
+                                       "score_call",
+                                       "local_set"
+                                   ]
+                   }
+               ],
+    "variables":  [
+                      {
+                          "id":  "fold_sum",
+                          "name":  "FoldSum",
+                          "type":  "integer",
+                          "defaultValue":  0,
+                          "groupId":  "local",
+                          "description":  "数组折叠函数局部累计值"
+                      }
+                  ],
+    "variableGroups":  [
+                           {
+                               "id":  "default",
+                               "name":  "默认",
+                               "collapsed":  false
+                           },
+                           {
+                               "id":  "local",
+                               "name":  "局部状态",
+                               "collapsed":  false
+                           }
+                       ],
+    "view":  {
+                 "x":  0,
+                 "y":  0,
+                 "zoom":  0.72
+             },
+    "functionCategory":  "验证函数",
+    "functionSignature":  {
+                              "inputs":  [
+                                             {
+                                                 "id":  "items",
+                                                 "name":  "整数数组",
+                                                 "type":  "array"
+                                             },
+                                             {
+                                                 "id":  "weight",
+                                                 "name":  "权重",
+                                                 "type":  "integer"
+                                             }
+                                         ],
+                              "outputs":  [
+                                              {
+                                                  "id":  "sum",
+                                                  "name":  "累计值",
+                                                  "type":  "integer"
+                                              },
+                                              {
+                                                  "id":  "summary",
+                                                  "name":  "摘要",
+                                                  "type":  "string"
+                                              }
+                                          ]
+                          },
+    "functionId":  "functions/11_array_fold_and_format.obpf"
+}

@@ -1,0 +1,389 @@
+﻿{
+    "graph_name":  "Legacy All Nodes Showcase",
+    "time":  "2026-07-11T00:00:00Z",
+    "nodes":  [
+                  {
+                      "id":  "entry_int",
+                      "class":  "Entrance_IntParam_000001",
+                      "module":  "verification.fixture",
+                      "pos":  [
+                                  80,
+                                  120
+                              ],
+                      "port_defaultv":  {
+
+                                        }
+                  },
+                  {
+                      "id":  "sequence",
+                      "class":  "Sequence",
+                      "module":  "verification.fixture",
+                      "pos":  [
+                                  310,
+                                  120
+                              ],
+                      "port_defaultv":  {
+
+                                        }
+                  },
+                  {
+                      "id":  "for_loop",
+                      "class":  "Foreach",
+                      "module":  "verification.fixture",
+                      "pos":  [
+                                  530,
+                                  120
+                              ],
+                      "port_defaultv":  {
+                                            "2":  3,
+                                            "1":  0
+                                        }
+                  },
+                  {
+                      "id":  "int_array",
+                      "class":  "CreateIntArray",
+                      "module":  "verification.fixture",
+                      "pos":  [
+                                  520,
+                                  300
+                              ],
+                      "port_defaultv":  {
+                                            "0":  [
+                                                      2,
+                                                      4,
+                                                      6
+                                                  ]
+                                        }
+                  },
+                  {
+                      "id":  "array_loop",
+                      "class":  "ForeachIntArray",
+                      "module":  "verification.fixture",
+                      "pos":  [
+                                  760,
+                                  120
+                              ],
+                      "port_defaultv":  {
+
+                                        }
+                  },
+                  {
+                      "id":  "add",
+                      "class":  "AddInt",
+                      "module":  "verification.fixture",
+                      "pos":  [
+                                  980,
+                                  120
+                              ],
+                      "port_defaultv":  {
+
+                                        }
+                  },
+                  {
+                      "id":  "append",
+                      "class":  "AppendIntReturn",
+                      "module":  "verification.fixture",
+                      "pos":  [
+                                  1190,
+                                  120
+                              ],
+                      "port_defaultv":  {
+
+                                        }
+                  },
+                  {
+                      "id":  "range",
+                      "class":  "RangeCompare",
+                      "module":  "verification.fixture",
+                      "pos":  [
+                                  520,
+                                  510
+                              ],
+                      "port_defaultv":  {
+                                            "2":  [
+                                                      3,
+                                                      6,
+                                                      9
+                                                  ],
+                                            "1":  4
+                                        }
+                  },
+                  {
+                      "id":  "switch",
+                      "class":  "EqualSwitch",
+                      "module":  "verification.fixture",
+                      "pos":  [
+                                  760,
+                                  510
+                              ],
+                      "port_defaultv":  {
+                                            "2":  [
+                                                      1,
+                                                      7,
+                                                      9
+                                                  ],
+                                            "1":  7
+                                        }
+                  },
+                  {
+                      "id":  "append_text",
+                      "class":  "AppendStringReturn",
+                      "module":  "verification.fixture",
+                      "pos":  [
+                                  1000,
+                                  510
+                              ],
+                      "port_defaultv":  {
+                                            "1":  "legacy-switch-hit"
+                                        }
+                  },
+                  {
+                      "id":  "entry_array",
+                      "class":  "Entrance_ArrayParam_000002",
+                      "module":  "verification.fixture",
+                      "pos":  [
+                                  80,
+                                  760
+                              ],
+                      "port_defaultv":  {
+
+                                        }
+                  },
+                  {
+                      "id":  "entry_timer",
+                      "class":  "Entrance_Timer_000003",
+                      "module":  "verification.fixture",
+                      "pos":  [
+                                  80,
+                                  930
+                              ],
+                      "port_defaultv":  {
+
+                                        }
+                  },
+                  {
+                      "id":  "debug",
+                      "class":  "DebugOutput",
+                      "module":  "verification.fixture",
+                      "pos":  [
+                                  320,
+                                  760
+                              ],
+                      "port_defaultv":  {
+                                            "2":  "legacy showcase",
+                                            "1":  9,
+                                            "3":  [
+                                                      1,
+                                                      2
+                                                  ]
+                                        }
+                  },
+                  {
+                      "id":  "sub",
+                      "class":  "SubInt",
+                      "module":  "verification.fixture",
+                      "pos":  [
+                                  520,
+                                  760
+                              ],
+                      "port_defaultv":  {
+                                            "2":  false,
+                                            "1":  4,
+                                            "0":  11
+                                        }
+                  },
+                  {
+                      "id":  "mul",
+                      "class":  "MulInt",
+                      "module":  "verification.fixture",
+                      "pos":  [
+                                  720,
+                                  760
+                              ],
+                      "port_defaultv":  {
+                                            "1":  7,
+                                            "0":  3
+                                        }
+                  },
+                  {
+                      "id":  "div",
+                      "class":  "DivInt",
+                      "module":  "verification.fixture",
+                      "pos":  [
+                                  920,
+                                  760
+                              ],
+                      "port_defaultv":  {
+                                            "2":  true,
+                                            "1":  3,
+                                            "0":  20
+                                        }
+                  },
+                  {
+                      "id":  "mod",
+                      "class":  "ModInt",
+                      "module":  "verification.fixture",
+                      "pos":  [
+                                  1120,
+                                  760
+                              ],
+                      "port_defaultv":  {
+                                            "1":  6,
+                                            "0":  20
+                                        }
+                  },
+                  {
+                      "id":  "random",
+                      "class":  "RandNumber",
+                      "module":  "verification.fixture",
+                      "pos":  [
+                                  1320,
+                                  760
+                              ],
+                      "port_defaultv":  {
+                                            "2":  42,
+                                            "1":  42,
+                                            "0":  99
+                                        }
+                  },
+                  {
+                      "id":  "bool_if",
+                      "class":  "BoolIf",
+                      "module":  "verification.fixture",
+                      "pos":  [
+                                  520,
+                                  930
+                              ],
+                      "port_defaultv":  {
+                                            "1":  true
+                                        }
+                  },
+                  {
+                      "id":  "greater",
+                      "class":  "GreaterThanInteger",
+                      "module":  "verification.fixture",
+                      "pos":  [
+                                  720,
+                                  930
+                              ],
+                      "port_defaultv":  {
+                                            "2":  9,
+                                            "1":  false,
+                                            "3":  4
+                                        }
+                  },
+                  {
+                      "id":  "less",
+                      "class":  "LessThanInteger",
+                      "module":  "verification.fixture",
+                      "pos":  [
+                                  920,
+                                  930
+                              ],
+                      "port_defaultv":  {
+                                            "2":  4,
+                                            "1":  true,
+                                            "3":  4
+                                        }
+                  },
+                  {
+                      "id":  "equal",
+                      "class":  "EqualInteger",
+                      "module":  "verification.fixture",
+                      "pos":  [
+                                  1120,
+                                  930
+                              ],
+                      "port_defaultv":  {
+                                            "2":  4,
+                                            "1":  4
+                                        }
+                  },
+                  {
+                      "id":  "probability",
+                      "class":  "Probability",
+                      "module":  "verification.fixture",
+                      "pos":  [
+                                  1320,
+                                  930
+                              ],
+                      "port_defaultv":  {
+                                            "1":  10000
+                                        }
+                  }
+              ],
+    "edges":  [
+                  {
+                      "source_node_id":  "entry_int",
+                      "source_port_id":  0,
+                      "des_node_id":  "sequence",
+                      "des_port_id":  0
+                  },
+                  {
+                      "source_node_id":  "sequence",
+                      "source_port_id":  0,
+                      "des_node_id":  "for_loop",
+                      "des_port_id":  0
+                  },
+                  {
+                      "source_node_id":  "for_loop",
+                      "source_port_id":  0,
+                      "des_node_id":  "array_loop",
+                      "des_port_id":  0
+                  },
+                  {
+                      "source_node_id":  "int_array",
+                      "source_port_id":  0,
+                      "des_node_id":  "array_loop",
+                      "des_port_id":  1
+                  },
+                  {
+                      "source_node_id":  "array_loop",
+                      "source_port_id":  0,
+                      "des_node_id":  "append",
+                      "des_port_id":  0
+                  },
+                  {
+                      "source_node_id":  "for_loop",
+                      "source_port_id":  2,
+                      "des_node_id":  "add",
+                      "des_port_id":  0
+                  },
+                  {
+                      "source_node_id":  "array_loop",
+                      "source_port_id":  3,
+                      "des_node_id":  "add",
+                      "des_port_id":  1
+                  },
+                  {
+                      "source_node_id":  "add",
+                      "source_port_id":  0,
+                      "des_node_id":  "append",
+                      "des_port_id":  1
+                  },
+                  {
+                      "source_node_id":  "sequence",
+                      "source_port_id":  1,
+                      "des_node_id":  "range",
+                      "des_port_id":  0
+                  },
+                  {
+                      "source_node_id":  "range",
+                      "source_port_id":  3,
+                      "des_node_id":  "switch",
+                      "des_port_id":  0
+                  },
+                  {
+                      "source_node_id":  "switch",
+                      "source_port_id":  3,
+                      "des_node_id":  "append_text",
+                      "des_port_id":  0
+                  }
+              ],
+    "groups":  [
+
+               ],
+    "variables":  [
+
+                  ]
+}

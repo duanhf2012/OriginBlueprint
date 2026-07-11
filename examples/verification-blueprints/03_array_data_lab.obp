@@ -1,0 +1,557 @@
+﻿{
+    "schemaVersion":  1,
+    "graphName":  "数组数据实验室",
+    "nodes":  [
+                  {
+                      "id":  "entry",
+                      "typeId":  "origin.event.entry-array",
+                      "position":  {
+                                       "x":  80,
+                                       "y":  120
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "sequence",
+                      "typeId":  "origin.flow.sequence",
+                      "position":  {
+                                       "x":  290,
+                                       "y":  120
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+                                         "dynamicOutputCount":  3,
+                                         "label":  "数组实验序列"
+                                     }
+                  },
+                  {
+                      "id":  "integers_old",
+                      "typeId":  "origin.array.create-integer",
+                      "position":  {
+                                       "x":  510,
+                                       "y":  80
+                                   },
+                      "values":  {
+                                     "items":  [
+                                                   3,
+                                                   1,
+                                                   4,
+                                                   1,
+                                                   5
+                                               ]
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "integers_new",
+                      "typeId":  "origin.array.create-integer-new",
+                      "position":  {
+                                       "x":  510,
+                                       "y":  230
+                                   },
+                      "values":  {
+                                     "items":  [
+                                                   3,
+                                                   1,
+                                                   4,
+                                                   1,
+                                                   5
+                                               ]
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "append_integer",
+                      "typeId":  "origin.array.append-integer",
+                      "position":  {
+                                       "x":  760,
+                                       "y":  230
+                                   },
+                      "values":  {
+                                     "value":  9
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "get_integer",
+                      "typeId":  "origin.array.get-integer",
+                      "position":  {
+                                       "x":  1010,
+                                       "y":  230
+                                   },
+                      "values":  {
+                                     "index":  2
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "length",
+                      "typeId":  "origin.array.length",
+                      "position":  {
+                                       "x":  1010,
+                                       "y":  360
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "contains",
+                      "typeId":  "origin.variable.set",
+                      "position":  {
+                                       "x":  1010,
+                                       "y":  500
+                                   },
+                      "values":  {
+                                     "value":  0
+                                 },
+                      "properties":  {
+                                         "label":  "Set ArraySum",
+                                         "variableAccess":  "set",
+                                         "variableId":  "array_sum"
+                                     }
+                  },
+                  {
+                      "id":  "sum_get",
+                      "typeId":  "origin.variable.get",
+                      "position":  {
+                                       "x":  1220,
+                                       "y":  500
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+                                         "label":  "Get ArraySum",
+                                         "variableAccess":  "get",
+                                         "variableId":  "array_sum"
+                                     }
+                  },
+                  {
+                      "id":  "integer_return",
+                      "typeId":  "origin.result.append-integer",
+                      "position":  {
+                                       "x":  1460,
+                                       "y":  230
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "length_return",
+                      "typeId":  "origin.result.append-integer",
+                      "position":  {
+                                       "x":  1460,
+                                       "y":  360
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "strings_old",
+                      "typeId":  "origin.array.create-string",
+                      "position":  {
+                                       "x":  510,
+                                       "y":  700
+                                   },
+                      "values":  {
+                                     "items":  [
+                                                   "red",
+                                                   "green",
+                                                   "blue"
+                                               ]
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "strings_new",
+                      "typeId":  "origin.array.create-string-new",
+                      "position":  {
+                                       "x":  510,
+                                       "y":  850
+                                   },
+                      "values":  {
+                                     "items":  [
+                                                   "red",
+                                                   "green",
+                                                   "blue"
+                                               ]
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "append_string",
+                      "typeId":  "origin.array.append-string",
+                      "position":  {
+                                       "x":  760,
+                                       "y":  850
+                                   },
+                      "values":  {
+                                     "value":  "violet"
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "get_string",
+                      "typeId":  "origin.array.get-string",
+                      "position":  {
+                                       "x":  1010,
+                                       "y":  850
+                                   },
+                      "values":  {
+                                     "index":  1
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "string_return",
+                      "typeId":  "origin.result.append-string",
+                      "position":  {
+                                       "x":  1260,
+                                       "y":  850
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "literal",
+                      "typeId":  "origin.literal.string",
+                      "position":  {
+                                       "x":  510,
+                                       "y":  1130
+                                   },
+                      "values":  {
+                                     "value":  "east|west|north"
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "split",
+                      "typeId":  "origin.string.split",
+                      "position":  {
+                                       "x":  760,
+                                       "y":  1130
+                                   },
+                      "values":  {
+                                     "delimiter":  "|"
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "get_any",
+                      "typeId":  "origin.array.get-any",
+                      "position":  {
+                                       "x":  1010,
+                                       "y":  1130
+                                   },
+                      "values":  {
+                                     "index":  2
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "cast_any",
+                      "typeId":  "origin.cast.any-string",
+                      "position":  {
+                                       "x":  1260,
+                                       "y":  1130
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "any_return",
+                      "typeId":  "origin.result.append-string",
+                      "position":  {
+                                       "x":  1510,
+                                       "y":  1130
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "label_set",
+                      "typeId":  "origin.variable.set",
+                      "position":  {
+                                       "x":  760,
+                                       "y":  1290
+                                   },
+                      "values":  {
+                                     "value":  "array-lab"
+                                 },
+                      "properties":  {
+                                         "label":  "Set ArrayLabel",
+                                         "variableAccess":  "set",
+                                         "variableId":  "array_label"
+                                     }
+                  },
+                  {
+                      "id":  "label_get",
+                      "typeId":  "origin.variable.get",
+                      "position":  {
+                                       "x":  1010,
+                                       "y":  1290
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+                                         "label":  "Get ArrayLabel",
+                                         "variableAccess":  "get",
+                                         "variableId":  "array_label"
+                                     }
+                  }
+              ],
+    "connections":  [
+                        {
+                            "source":  "entry",
+                            "sourceOutput":  "exec",
+                            "target":  "sequence",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "sequence",
+                            "sourceOutput":  "then0",
+                            "target":  "integer_return",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "integers_new",
+                            "sourceOutput":  "array",
+                            "target":  "append_integer",
+                            "targetInput":  "array"
+                        },
+                        {
+                            "source":  "append_integer",
+                            "sourceOutput":  "array",
+                            "target":  "get_integer",
+                            "targetInput":  "array"
+                        },
+                        {
+                            "source":  "get_integer",
+                            "sourceOutput":  "value",
+                            "target":  "integer_return",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "sequence",
+                            "sourceOutput":  "then1",
+                            "target":  "length_return",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "append_integer",
+                            "sourceOutput":  "array",
+                            "target":  "length",
+                            "targetInput":  "array"
+                        },
+                        {
+                            "source":  "length",
+                            "sourceOutput":  "length",
+                            "target":  "length_return",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "sequence",
+                            "sourceOutput":  "then2",
+                            "target":  "string_return",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "strings_new",
+                            "sourceOutput":  "array",
+                            "target":  "append_string",
+                            "targetInput":  "array"
+                        },
+                        {
+                            "source":  "append_string",
+                            "sourceOutput":  "array",
+                            "target":  "get_string",
+                            "targetInput":  "array"
+                        },
+                        {
+                            "source":  "get_string",
+                            "sourceOutput":  "value",
+                            "target":  "string_return",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "literal",
+                            "sourceOutput":  "value",
+                            "target":  "split",
+                            "targetInput":  "text"
+                        },
+                        {
+                            "source":  "split",
+                            "sourceOutput":  "array",
+                            "target":  "get_any",
+                            "targetInput":  "array"
+                        },
+                        {
+                            "source":  "get_any",
+                            "sourceOutput":  "value",
+                            "target":  "cast_any",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "cast_any",
+                            "sourceOutput":  "exec",
+                            "target":  "any_return",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "cast_any",
+                            "sourceOutput":  "result",
+                            "target":  "any_return",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "label_set",
+                            "sourceOutput":  "exec",
+                            "target":  "contains",
+                            "targetInput":  "exec"
+                        }
+                    ],
+    "groups":  [
+                   {
+                       "id":  "integer-arrays",
+                       "title":  "整数数组：创建、追加、读取与长度",
+                       "x":  35,
+                       "y":  30,
+                       "width":  1600,
+                       "height":  580,
+                       "nodeIds":  [
+                                       "entry",
+                                       "sequence",
+                                       "integers_old",
+                                       "integers_new",
+                                       "append_integer",
+                                       "get_integer",
+                                       "length",
+                                       "contains",
+                                       "sum_get",
+                                       "integer_return",
+                                       "length_return"
+                                   ]
+                   },
+                   {
+                       "id":  "string-arrays",
+                       "title":  "字符串数组：创建、追加和读取",
+                       "x":  455,
+                       "y":  650,
+                       "width":  980,
+                       "height":  340,
+                       "nodeIds":  [
+                                       "strings_old",
+                                       "strings_new",
+                                       "append_string",
+                                       "get_string",
+                                       "string_return"
+                                   ]
+                   },
+                   {
+                       "id":  "text-arrays",
+                       "title":  "字符串切分、任意项读取和局部变量",
+                       "x":  455,
+                       "y":  1080,
+                       "width":  1150,
+                       "height":  290,
+                       "nodeIds":  [
+                                       "literal",
+                                       "split",
+                                       "get_any",
+                                       "cast_any",
+                                       "any_return",
+                                       "label_set",
+                                       "label_get"
+                                   ]
+                   }
+               ],
+    "variables":  [
+                      {
+                          "id":  "array_sum",
+                          "name":  "ArraySum",
+                          "type":  "integer",
+                          "defaultValue":  0,
+                          "groupId":  "local",
+                          "description":  "数组实验室中的累计值"
+                      },
+                      {
+                          "id":  "array_label",
+                          "name":  "ArrayLabel",
+                          "type":  "string",
+                          "defaultValue":  "cold",
+                          "groupId":  "local",
+                          "description":  "局部字符串变量"
+                      }
+                  ],
+    "variableGroups":  [
+                           {
+                               "id":  "default",
+                               "name":  "默认",
+                               "collapsed":  false
+                           },
+                           {
+                               "id":  "local",
+                               "name":  "局部状态",
+                               "collapsed":  false
+                           }
+                       ],
+    "view":  {
+                 "x":  0,
+                 "y":  0,
+                 "zoom":  0.72
+             }
+}
