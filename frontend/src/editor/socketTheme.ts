@@ -6,7 +6,8 @@ export const socketThemes = {
   boolean: { color: '#d00000', fill: '#180000', label: '#ff3333' },
   string: { color: '#d85cff' },
   array: { color: '#f0c230' },
-  any: { color: '#00a8e8', label: '#55bfff' }
+  any: { color: '#00a8e8', label: '#55bfff' },
+  timerhandle: { color: '#45d6c8', fill: '#173f3c', label: '#69e7dc' }
 } as const
 
 export type SocketThemeName = keyof typeof socketThemes

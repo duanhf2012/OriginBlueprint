@@ -1,152 +1,39 @@
 {
     "schemaVersion":  1,
-    "graphName":  "定时器生命周期",
+    "graphName":  "新定时器生命周期",
     "nodes":  [
                   {
                       "id":  "entry",
                       "typeId":  "origin.event.entry-two-integers",
                       "position":  {
                                        "x":  80,
+                                       "y":  180
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "set_timer",
+                      "typeId":  "origin.timer.set-by-function",
+                      "position":  {
+                                       "x":  330,
                                        "y":  130
                                    },
                       "values":  {
-
-                                 },
-                      "properties":  {
-
-                                     }
-                  },
-                  {
-                      "id":  "sequence",
-                      "typeId":  "origin.flow.sequence",
-                      "position":  {
-                                       "x":  300,
-                                       "y":  130
-                                   },
-                      "values":  {
-
-                                 },
-                      "properties":  {
-                                         "dynamicOutputCount":  2,
-                                         "label":  "定时器生命周期"
-                                     }
-                  },
-                  {
-                      "id":  "params",
-                      "typeId":  "origin.array.create-integer-new",
-                      "position":  {
-                                       "x":  520,
-                                       "y":  250
-                                   },
-                      "values":  {
-                                     "items":  [
-                                                   7,
-                                                   11,
-                                                   13
-                                               ]
-                                 },
-                      "properties":  {
-
-                                     }
-                  },
-                  {
-                      "id":  "create_timer",
-                      "typeId":  "origin.timer.create",
-                      "position":  {
-                                       "x":  540,
-                                       "y":  80
-                                   },
-                      "values":  {
-                                     "milliseconds":  250
-                                 },
-                      "properties":  {
-
-                                     }
-                  },
-                  {
-                      "id":  "debug_create",
-                      "typeId":  "origin.debug.output",
-                      "position":  {
-                                       "x":  780,
-                                       "y":  80
-                                   },
-                      "values":  {
-                                     "string":  "timer-created"
-                                 },
-                      "properties":  {
-
-                                     }
-                  },
-                  {
-                      "id":  "close_timer",
-                      "typeId":  "origin.timer.close",
-                      "position":  {
-                                       "x":  1020,
-                                       "y":  80
-                                   },
-                      "values":  {
-
-                                 },
-                      "properties":  {
-
-                                     }
-                  },
-                  {
-                      "id":  "timer_entry",
-                      "typeId":  "origin.event.timer",
-                      "position":  {
-                                       "x":  80,
-                                       "y":  520
-                                   },
-                      "values":  {
-
-                                 },
-                      "properties":  {
-
-                                     }
-                  },
-                  {
-                      "id":  "timer_debug",
-                      "typeId":  "origin.debug.output",
-                      "position":  {
-                                       "x":  320,
-                                       "y":  520
-                                   },
-                      "values":  {
-                                     "string":  "timer-fired"
-                                 },
-                      "properties":  {
-
-                                     }
-                  },
-                  {
-                      "id":  "timer_sequence",
-                      "typeId":  "origin.flow.sequence",
-                      "position":  {
-                                       "x":  560,
-                                       "y":  520
-                                   },
-                      "values":  {
-
-                                 },
-                      "properties":  {
-                                         "dynamicOutputCount":  2,
-                                         "label":  "Timer 结果序列"
-                                     }
-                  },
-                  {
-                      "id":  "timer_call",
-                      "typeId":  "origin.function.call",
-                      "position":  {
-                                       "x":  820,
-                                       "y":  520
-                                   },
-                      "values":  {
+                                     "looping":  true,
+                                     "time":  250,
+                                     "firstDelay":  -1,
                                      "input_seed":  11
                                  },
                       "properties":  {
-                                         "functionName":  "局部状态隔离",
+                                         "label":  "局部状态隔离 timer",
+                                         "functionRole":  "timer",
                                          "functionSource":  "workspace",
+                                         "functionId":  "functions/13_local_state_isolation.obpf",
                                          "functionSignature":  {
                                                                    "inputs":  [
                                                                                   {
@@ -163,16 +50,43 @@
                                                                                    }
                                                                                ]
                                                                },
-                                         "label":  "Call 局部状态隔离",
-                                         "functionId":  "functions/13_local_state_isolation.obpf"
+                                         "functionName":  "局部状态隔离"
                                      }
                   },
                   {
-                      "id":  "timer_result",
-                      "typeId":  "origin.result.append-integer",
+                      "id":  "debug_create",
+                      "typeId":  "origin.debug.output",
                       "position":  {
-                                       "x":  1110,
-                                       "y":  520
+                                       "x":  650,
+                                       "y":  130
+                                   },
+                      "values":  {
+                                     "string":  "timer-created"
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "delay_before_pause",
+                      "typeId":  "origin.flow.delay",
+                      "position":  {
+                                       "x":  900,
+                                       "y":  130
+                                   },
+                      "values":  {
+                                     "duration":  500
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "pause_timer",
+                      "typeId":  "origin.timer.pause",
+                      "position":  {
+                                       "x":  1150,
+                                       "y":  130
                                    },
                       "values":  {
 
@@ -182,25 +96,291 @@
                                      }
                   },
                   {
-                      "id":  "timer_text",
+                      "id":  "is_paused",
+                      "typeId":  "origin.timer.is-paused",
+                      "position":  {
+                                       "x":  1320,
+                                       "y":  360
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "paused_branch",
+                      "typeId":  "origin.flow.branch",
+                      "position":  {
+                                       "x":  1420,
+                                       "y":  130
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "paused_error_text",
                       "typeId":  "origin.literal.string",
                       "position":  {
-                                       "x":  820,
-                                       "y":  700
+                                       "x":  1420,
+                                       "y":  500
                                    },
                       "values":  {
-                                     "value":  "timer-event-path"
+                                     "value":  "timer-not-paused"
                                  },
                       "properties":  {
 
                                      }
                   },
                   {
-                      "id":  "timer_text_return",
+                      "id":  "paused_error_return",
                       "typeId":  "origin.result.append-string",
                       "position":  {
-                                       "x":  1110,
-                                       "y":  700
+                                       "x":  1680,
+                                       "y":  430
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "delay_paused",
+                      "typeId":  "origin.flow.delay",
+                      "position":  {
+                                       "x":  1680,
+                                       "y":  130
+                                   },
+                      "values":  {
+                                     "duration":  100
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "unpause_timer",
+                      "typeId":  "origin.timer.unpause",
+                      "position":  {
+                                       "x":  1930,
+                                       "y":  130
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "is_valid",
+                      "typeId":  "origin.timer.is-valid",
+                      "position":  {
+                                       "x":  2100,
+                                       "y":  360
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "valid_branch",
+                      "typeId":  "origin.flow.branch",
+                      "position":  {
+                                       "x":  2180,
+                                       "y":  130
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "invalid_error_text",
+                      "typeId":  "origin.literal.string",
+                      "position":  {
+                                       "x":  2180,
+                                       "y":  500
+                                   },
+                      "values":  {
+                                     "value":  "timer-handle-invalid"
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "invalid_error_return",
+                      "typeId":  "origin.result.append-string",
+                      "position":  {
+                                       "x":  2440,
+                                       "y":  430
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "delay_before_clear",
+                      "typeId":  "origin.flow.delay",
+                      "position":  {
+                                       "x":  2440,
+                                       "y":  130
+                                   },
+                      "values":  {
+                                     "duration":  300
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "remaining",
+                      "typeId":  "origin.timer.remaining",
+                      "position":  {
+                                       "x":  2600,
+                                       "y":  360
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "elapsed",
+                      "typeId":  "origin.timer.elapsed",
+                      "position":  {
+                                       "x":  2850,
+                                       "y":  360
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "add_timing",
+                      "typeId":  "origin.math.add-integer",
+                      "position":  {
+                                       "x":  3100,
+                                       "y":  360
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "debug_timing",
+                      "typeId":  "origin.debug.output",
+                      "position":  {
+                                       "x":  3100,
+                                       "y":  130
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "is_active",
+                      "typeId":  "origin.timer.is-active",
+                      "position":  {
+                                       "x":  3350,
+                                       "y":  360
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "active_branch",
+                      "typeId":  "origin.flow.branch",
+                      "position":  {
+                                       "x":  3400,
+                                       "y":  130
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "inactive_debug",
+                      "typeId":  "origin.debug.output",
+                      "position":  {
+                                       "x":  3650,
+                                       "y":  300
+                                   },
+                      "values":  {
+                                     "string":  "timer-inactive"
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "clear_timer",
+                      "typeId":  "origin.timer.clear",
+                      "position":  {
+                                       "x":  3900,
+                                       "y":  130
+                                   },
+                      "values":  {
+                                     "cancelRunningCallback":  true
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "result_text",
+                      "typeId":  "origin.literal.string",
+                      "position":  {
+                                       "x":  3900,
+                                       "y":  340
+                                   },
+                      "values":  {
+                                     "value":  "timer-lifecycle-complete"
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "return_result",
+                      "typeId":  "origin.result.append-string",
+                      "position":  {
+                                       "x":  4170,
+                                       "y":  130
                                    },
                       "values":  {
 
@@ -214,114 +394,243 @@
                         {
                             "source":  "entry",
                             "sourceOutput":  "exec",
-                            "target":  "sequence",
+                            "target":  "set_timer",
                             "targetInput":  "exec"
                         },
                         {
-                            "source":  "sequence",
-                            "sourceOutput":  "then0",
-                            "target":  "create_timer",
-                            "targetInput":  "exec"
-                        },
-                        {
-                            "source":  "params",
-                            "sourceOutput":  "array",
-                            "target":  "create_timer",
-                            "targetInput":  "params"
-                        },
-                        {
-                            "source":  "create_timer",
-                            "sourceOutput":  "exec",
+                            "source":  "set_timer",
+                            "sourceOutput":  "then",
                             "target":  "debug_create",
                             "targetInput":  "exec"
                         },
                         {
-                            "source":  "sequence",
-                            "sourceOutput":  "then1",
-                            "target":  "close_timer",
-                            "targetInput":  "exec"
-                        },
-                        {
-                            "source":  "create_timer",
-                            "sourceOutput":  "timerId",
-                            "target":  "close_timer",
-                            "targetInput":  "timerId"
-                        },
-                        {
-                            "source":  "timer_entry",
+                            "source":  "debug_create",
                             "sourceOutput":  "exec",
-                            "target":  "timer_debug",
+                            "target":  "delay_before_pause",
                             "targetInput":  "exec"
                         },
                         {
-                            "source":  "timer_debug",
-                            "sourceOutput":  "exec",
-                            "target":  "timer_sequence",
+                            "source":  "delay_before_pause",
+                            "sourceOutput":  "completed",
+                            "target":  "pause_timer",
                             "targetInput":  "exec"
                         },
                         {
-                            "source":  "timer_sequence",
-                            "sourceOutput":  "then0",
-                            "target":  "timer_call",
+                            "source":  "set_timer",
+                            "sourceOutput":  "timerHandle",
+                            "target":  "pause_timer",
+                            "targetInput":  "timerHandle"
+                        },
+                        {
+                            "source":  "pause_timer",
+                            "sourceOutput":  "then",
+                            "target":  "paused_branch",
                             "targetInput":  "exec"
                         },
                         {
-                            "source":  "timer_call",
-                            "sourceOutput":  "exec",
-                            "target":  "timer_result",
+                            "source":  "set_timer",
+                            "sourceOutput":  "timerHandle",
+                            "target":  "is_paused",
+                            "targetInput":  "timerHandle"
+                        },
+                        {
+                            "source":  "is_paused",
+                            "sourceOutput":  "paused",
+                            "target":  "paused_branch",
+                            "targetInput":  "condition"
+                        },
+                        {
+                            "source":  "paused_branch",
+                            "sourceOutput":  "true",
+                            "target":  "delay_paused",
                             "targetInput":  "exec"
                         },
                         {
-                            "source":  "timer_call",
-                            "sourceOutput":  "output_result",
-                            "target":  "timer_result",
+                            "source":  "paused_branch",
+                            "sourceOutput":  "false",
+                            "target":  "paused_error_return",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "paused_error_text",
+                            "sourceOutput":  "value",
+                            "target":  "paused_error_return",
                             "targetInput":  "value"
                         },
                         {
-                            "source":  "timer_sequence",
-                            "sourceOutput":  "then1",
-                            "target":  "timer_text_return",
+                            "source":  "delay_paused",
+                            "sourceOutput":  "completed",
+                            "target":  "unpause_timer",
                             "targetInput":  "exec"
                         },
                         {
-                            "source":  "timer_text",
+                            "source":  "set_timer",
+                            "sourceOutput":  "timerHandle",
+                            "target":  "unpause_timer",
+                            "targetInput":  "timerHandle"
+                        },
+                        {
+                            "source":  "unpause_timer",
+                            "sourceOutput":  "then",
+                            "target":  "valid_branch",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "set_timer",
+                            "sourceOutput":  "timerHandle",
+                            "target":  "is_valid",
+                            "targetInput":  "timerHandle"
+                        },
+                        {
+                            "source":  "is_valid",
+                            "sourceOutput":  "valid",
+                            "target":  "valid_branch",
+                            "targetInput":  "condition"
+                        },
+                        {
+                            "source":  "valid_branch",
+                            "sourceOutput":  "true",
+                            "target":  "delay_before_clear",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "valid_branch",
+                            "sourceOutput":  "false",
+                            "target":  "invalid_error_return",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "invalid_error_text",
                             "sourceOutput":  "value",
-                            "target":  "timer_text_return",
+                            "target":  "invalid_error_return",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "delay_before_clear",
+                            "sourceOutput":  "completed",
+                            "target":  "debug_timing",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "set_timer",
+                            "sourceOutput":  "timerHandle",
+                            "target":  "remaining",
+                            "targetInput":  "timerHandle"
+                        },
+                        {
+                            "source":  "set_timer",
+                            "sourceOutput":  "timerHandle",
+                            "target":  "elapsed",
+                            "targetInput":  "timerHandle"
+                        },
+                        {
+                            "source":  "remaining",
+                            "sourceOutput":  "remaining",
+                            "target":  "add_timing",
+                            "targetInput":  "a"
+                        },
+                        {
+                            "source":  "elapsed",
+                            "sourceOutput":  "elapsed",
+                            "target":  "add_timing",
+                            "targetInput":  "b"
+                        },
+                        {
+                            "source":  "add_timing",
+                            "sourceOutput":  "result",
+                            "target":  "debug_timing",
+                            "targetInput":  "integer"
+                        },
+                        {
+                            "source":  "debug_timing",
+                            "sourceOutput":  "exec",
+                            "target":  "active_branch",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "set_timer",
+                            "sourceOutput":  "timerHandle",
+                            "target":  "is_active",
+                            "targetInput":  "timerHandle"
+                        },
+                        {
+                            "source":  "is_active",
+                            "sourceOutput":  "active",
+                            "target":  "active_branch",
+                            "targetInput":  "condition"
+                        },
+                        {
+                            "source":  "active_branch",
+                            "sourceOutput":  "true",
+                            "target":  "clear_timer",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "active_branch",
+                            "sourceOutput":  "false",
+                            "target":  "inactive_debug",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "inactive_debug",
+                            "sourceOutput":  "exec",
+                            "target":  "clear_timer",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "set_timer",
+                            "sourceOutput":  "timerHandle",
+                            "target":  "clear_timer",
+                            "targetInput":  "timerHandle"
+                        },
+                        {
+                            "source":  "clear_timer",
+                            "sourceOutput":  "then",
+                            "target":  "return_result",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "result_text",
+                            "sourceOutput":  "value",
+                            "target":  "return_result",
                             "targetInput":  "value"
                         }
                     ],
     "groups":  [
                    {
-                       "id":  "timer-create-close",
-                       "title":  "常规入口：创建、观察与关闭定时器",
+                       "id":  "timer-lifecycle",
+                       "title":  "按函数设置循环定时器：创建、暂停、恢复、查询与清除",
                        "x":  35,
-                       "y":  30,
-                       "width":  1250,
-                       "height":  330,
+                       "y":  40,
+                       "width":  4400,
+                       "height":  620,
                        "nodeIds":  [
                                        "entry",
-                                       "sequence",
-                                       "params",
-                                       "create_timer",
+                                       "set_timer",
                                        "debug_create",
-                                       "close_timer"
-                                   ]
-                   },
-                   {
-                       "id":  "timer-event",
-                       "title":  "Timer 事件入口：回调处理和函数调用",
-                       "x":  35,
-                       "y":  470,
-                       "width":  1320,
-                       "height":  320,
-                       "nodeIds":  [
-                                       "timer_entry",
-                                       "timer_debug",
-                                       "timer_sequence",
-                                       "timer_call",
-                                       "timer_result",
-                                       "timer_text",
-                                       "timer_text_return"
+                                       "delay_before_pause",
+                                       "pause_timer",
+                                       "is_paused",
+                                       "paused_branch",
+                                       "paused_error_text",
+                                       "paused_error_return",
+                                       "delay_paused",
+                                       "unpause_timer",
+                                       "is_valid",
+                                       "valid_branch",
+                                       "invalid_error_text",
+                                       "invalid_error_return",
+                                       "delay_before_clear",
+                                       "remaining",
+                                       "elapsed",
+                                       "add_timing",
+                                       "debug_timing",
+                                       "is_active",
+                                       "active_branch",
+                                       "inactive_debug",
+                                       "clear_timer",
+                                       "result_text",
+                                       "return_result"
                                    ]
                    }
                ],

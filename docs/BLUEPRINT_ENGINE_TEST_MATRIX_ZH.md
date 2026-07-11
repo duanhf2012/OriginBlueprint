@@ -65,7 +65,7 @@
   - `TestBuiltinMathNodes`
   - `TestBuiltinArrayNodes`
   - `TestBuiltinBranchNodes`
-  - `TestBuiltinEntranceTimerAndDebugNodes`
+  - `TestBuiltinEntranceAndDebugNodes`
   - `TestBuiltinReturnNodesAppendGraphResults`
 - `engine/go/blueprint/flow_integration_test.go`
   - `TestLegacyBlueprintFileRunsComplexBranchAndNestedLoopFlow`
@@ -74,12 +74,13 @@
 
 节点行为覆盖清单：
 
-- 入口节点：`Entrance_IntParam`、`Entrance_ArrayParam`、`Entrance_Timer`
+- 入口节点：`Entrance_IntParam`、`Entrance_ArrayParam`
 - 基础数组节点：`CreateIntArray`、`CreateStringArray`、`GetArrayInt`、`GetArrayString`、`GetArrayLen`、`AppendIntegerToArray`、`AppendStringToArray`
 - 返回节点：`AppendIntReturn`、`AppendStringReturn`
 - 数学节点：`AddInt`、`SubInt`、`MulInt`、`DivInt`、`ModInt`、`RandNumber`
 - 流程节点：`Sequence`、`Foreach`、`ForeachIntArray`、`BoolIf`、`GreaterThanInteger`、`LessThanInteger`、`EqualInteger`、`RangeCompare`、`EqualSwitch`、`Probability`
-- 事件节点：`CreateTimer`、`CloseTimer`
+- 异步节点：`Delay`、`SetTimerByFunction`、`ClearTimer`、`PauseTimer`、`UnpauseTimer`
+- 定时器查询节点：`IsTimerActive`、`IsTimerPaused`、`IsTimerValid`、`GetTimerRemaining`、`GetTimerElapsed`
 - 测试节点：`DebugOutput`
 
 ## 组合流程用例
@@ -143,7 +144,7 @@
 
 异步流程：
 
-- 覆盖文件：`engine/go/blueprint/session_test.go`、`engine/go/blueprint/sleep_test.go`、`engine/go/blueprint/timer_test.go`、`engine/go/blueprint/functions_test.go`
+- 覆盖文件：`engine/go/blueprint/execution_session_test.go`、`engine/go/blueprint/session_test.go`、`engine/go/blueprint/scheduler_test.go`、`engine/go/blueprint/timer_runtime_test.go`、`engine/go/blueprint/functions_test.go`
 - 预期：节点挂起后保存 continuation，回调时恢复同一执行位置；函数内部异步返回时能回到 caller 并继续 caller 后续节点。
 
 ## 删除范围验证
@@ -239,19 +240,39 @@ go test ./engine/go/blueprint -run '^$' -bench 'BenchmarkFunctionCall' -benchtim
 - 打开后按实际执行顺序记录 `Step`、图名、图实例 ID、节点 ID、节点名称、执行输入口、下一个执行分支、输入端口值、输出端口值和错误文本。
 - 函数子图继承 caller 的 trace 状态，异步 continuation 后续节点仍走同一 trace logger。
 
-## 老接口替换验证
+## Execution、Delay 与定时器验证
 
 覆盖测试：
 
-- `engine/go/blueprint/compatibility_test.go`
-  - `TestBlueprintLegacyFacadeIntegrationPath`
-  - `TestBlueprintReleaseGraphCancelsInstanceTimersThroughLegacyCallback`
+- `engine/go/blueprint/execution_session_test.go`
+  - `TestExecutionContextCancelCompletesSuspendedExecution`
+  - `TestBlueprintCloseCancelsExecutionsAndRejectsNewWork`
+  - `TestBlueprintStartRejectsWithoutRetainingExecution`
+  - `TestExecutionCancelBeforeDispatchPreventsNodeExecution`
+  - `TestContinuationResumeUsesExecutionDispatcher`
+- `engine/go/blueprint/scheduler_test.go`
+  - `TestDelaySuspendsAndResumesExecutionThroughScheduler`
+  - `TestCancelExecutionRemovesScheduledDelay`
+  - `TestDelayRejectsNegativeAndOverflowMilliseconds`
+- `engine/go/blueprint/timer_runtime_test.go`
+  - `TestSetTimerByFunctionRejectsUnknownFunction`
+  - `TestSetTimerByFunctionContinuesImmediatelyAndInvokesFunction`
+  - `TestTimerPauseResumeAndClearLifecycle`
+  - `TestClearTimerCanCancelRunningDelayedCallback`
+  - `TestReleaseGraphCancelsRuntimeTimers`
+- `engine/go/blueprint/scheduler_benchmark_test.go`
+  - `BenchmarkSharedTimerSchedulerScheduleCancel`
 
 覆盖内容：
 
-- 使用旧 facade 路径完成 `RegisterExecNode`、`Init`、`Create`、`TriggerEvent`、`Do`、`ReleaseGraph`、`StartHotReload`、`GetLogger`、`GetGraphName`。
-- `ReleaseGraph` 会清理实例 timer；有 module 时走 `IBlueprintModule.CancelTimerId`，无 module 时走旧 `cancelTimer` 回调。
-- 详细接入清单见 `docs/BLUEPRINT_ENGINE_COMPATIBILITY_ZH.md`。
+- `Start` 只提交执行并快速返回 `Execution`，不在调用方 goroutine 内运行用户节点。
+- `Do` 和 `DoContext` 是阻塞便利接口；遇到 `Delay` 时等待恢复和最终结果，服务器主循环应使用 `Start`。
+- `Delay` 使用共享最小堆调度器，不为每个等待创建 goroutine；取消 Execution 会删除未到期任务。
+- Timer 通过稳定函数 ID 启动独立函数 Execution，每次回调的函数局部变量彼此隔离。
+- `ReleaseGraph` 会取消该实例的 Execution、Delay、Timer 及可选的运行中 Timer 回调。
+- 运行中节点采用协作式取消：取消后 `Done` 等待当前节点退出，且后续节点不得继续执行。
+- 共享 Scheduler 批量注册/取消 benchmark 记录 `ns/op`、`B/op` 和 `allocs/op`，用于后续最小堆或时间轮实现的性能回归比较。
+- 旧 `Timer事件入口`、`CreateTimer`、`CloseTimer` 及模块 timer 回调接口已经删除，不提供运行时兼容。
 
 ## 蓝图生成到 Go 执行全链路验证
 

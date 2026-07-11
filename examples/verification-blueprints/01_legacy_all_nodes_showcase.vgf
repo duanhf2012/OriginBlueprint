@@ -150,18 +150,6 @@
                                         }
                   },
                   {
-                      "id":  "entry_timer",
-                      "class":  "Entrance_Timer_000003",
-                      "module":  "verification.fixture",
-                      "pos":  [
-                                  80,
-                                  930
-                              ],
-                      "port_defaultv":  {
-
-                                        }
-                  },
-                  {
                       "id":  "debug",
                       "class":  "DebugOutput",
                       "module":  "verification.fixture",
@@ -464,8 +452,8 @@
                       "des_port_id":  0
                   },
                   {
-                      "source_node_id":  "entry_timer",
-                      "source_port_id":  0,
+                      "source_node_id":  "probability",
+                      "source_port_id":  1,
                       "des_node_id":  "timer_debug",
                       "des_port_id":  0
                   },

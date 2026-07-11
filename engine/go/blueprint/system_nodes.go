@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
-	"time"
 )
 
 const (
@@ -12,15 +11,13 @@ const (
 	EntranceIDIntParam int64 = 1
 	// EntranceIDArrayParam 是数组参数入口的固定 ID。
 	EntranceIDArrayParam int64 = 2
-	// EntranceIDTimer 是 timer 回调入口的固定 ID。
-	EntranceIDTimer int64 = 3
-	returnVariable        = "g_Return"
+	returnVariable             = "g_Return"
 )
 
 // BuiltinExecNodeFactories 返回内置系统节点工厂。
 func BuiltinExecNodeFactories() []func() IExecNode {
 	return []func() IExecNode{
-		NewExecNodeFactory[EntranceIntParam, *EntranceIntParam](), NewExecNodeFactory[EntranceArrayParam, *EntranceArrayParam](), NewExecNodeFactory[EntranceTimer, *EntranceTimer](),
+		NewExecNodeFactory[EntranceIntParam, *EntranceIntParam](), NewExecNodeFactory[EntranceArrayParam, *EntranceArrayParam](),
 		NewExecNodeFactory[DebugOutput, *DebugOutput](), NewExecNodeFactory[Sequence, *Sequence](), NewExecNodeFactory[Foreach, *Foreach](), NewExecNodeFactory[ForeachIntArray, *ForeachIntArray](),
 		NewExecNodeFactory[BoolIf, *BoolIf](), NewExecNodeFactory[GreaterThanInteger, *GreaterThanInteger](), NewExecNodeFactory[LessThanInteger, *LessThanInteger](), NewExecNodeFactory[EqualInteger, *EqualInteger](),
 		NewExecNodeFactory[RangeCompare, *RangeCompare](), NewExecNodeFactory[EqualSwitch, *EqualSwitch](), NewExecNodeFactory[Probability, *Probability](),
@@ -30,8 +27,10 @@ func BuiltinExecNodeFactories() []func() IExecNode {
 		NewExecNodeFactory[CreateIntArray, *CreateIntArray](), NewExecNodeFactory[CreateStringArray, *CreateStringArray](), NewExecNodeFactory[AppendIntegerToArray, *AppendIntegerToArray](), NewExecNodeFactory[AppendStringToArray, *AppendStringToArray](),
 		NewExecNodeFactory[IntInArray, *IntInArray](),
 		NewExecNodeFactory[AppendIntReturn, *AppendIntReturn](), NewExecNodeFactory[AppendStringReturn, *AppendStringReturn](),
-		NewExecNodeFactory[CreateTimer, *CreateTimer](), NewExecNodeFactory[CloseTimer, *CloseTimer](),
 		NewExecNodeFactory[SleepNode, *SleepNode](),
+		NewExecNodeFactory[SetTimerByFunctionNode, *SetTimerByFunctionNode](), NewExecNodeFactory[ClearTimerNode, *ClearTimerNode](), NewExecNodeFactory[PauseTimerNode, *PauseTimerNode](), NewExecNodeFactory[UnpauseTimerNode, *UnpauseTimerNode](),
+		NewExecNodeFactory[IsTimerActiveNode, *IsTimerActiveNode](), NewExecNodeFactory[IsTimerPausedNode, *IsTimerPausedNode](), NewExecNodeFactory[IsTimerValidNode, *IsTimerValidNode](),
+		NewExecNodeFactory[GetTimerRemainingNode, *GetTimerRemainingNode](), NewExecNodeFactory[GetTimerElapsedNode, *GetTimerElapsedNode](),
 		NewExecNodeFactory[LiteralString, *LiteralString](), NewExecNodeFactory[CastIntegerString, *CastIntegerString](), NewExecNodeFactory[CastFloatString, *CastFloatString](), NewExecNodeFactory[CastAnyString, *CastAnyString](),
 		NewExecNodeFactory[AddFloat, *AddFloat](), NewExecNodeFactory[SubFloat, *SubFloat](), NewExecNodeFactory[MulFloat, *MulFloat](), NewExecNodeFactory[DivFloat, *DivFloat](), NewExecNodeFactory[CompareGreaterInteger, *CompareGreaterInteger](),
 		NewExecNodeFactory[StringSplit, *StringSplit](), NewExecNodeFactory[GetArrayAny, *GetArrayAny](),
@@ -58,19 +57,12 @@ type EntranceIntParam struct{ BaseExecNode }
 // EntranceArrayParam 是带数组参数的蓝图入口节点。
 type EntranceArrayParam struct{ BaseExecNode }
 
-// EntranceTimer 是 timer 回调入口节点。
-type EntranceTimer struct{ BaseExecNode }
-
 func (n *EntranceIntParam) GetName() string   { return "Entrance_IntParam" }
 func (n *EntranceArrayParam) GetName() string { return "Entrance_ArrayParam" }
-func (n *EntranceTimer) GetName() string      { return "Entrance_Timer" }
 func (n *EntranceIntParam) Exec() (int, error) {
 	return 0, nil
 }
 func (n *EntranceArrayParam) Exec() (int, error) {
-	return 0, nil
-}
-func (n *EntranceTimer) Exec() (int, error) {
 	return 0, nil
 }
 
@@ -520,86 +512,5 @@ func (n *IntInArray) Exec() (int, error) {
 		}
 	}
 	n.SetOutPortBool(1, false)
-	return 0, nil
-}
-
-// CreateTimer 创建服务器 timer，并在回调时触发 timer 入口。
-type CreateTimer struct{ BaseExecNode }
-
-// CloseTimer 关闭指定 timer。
-type CloseTimer struct{ BaseExecNode }
-
-func (n *CreateTimer) GetName() string { return "CreateTimer" }
-func (n *CloseTimer) GetName() string  { return "CloseTimer" }
-func (n *CreateTimer) Exec() (int, error) {
-	delay, ok := n.GetInPortInt(1)
-	if !ok {
-		return -1, fmt.Errorf("CreateTimer delay input not found")
-	}
-	var timerID uint64
-	if n.graph.module != nil {
-		graphID := n.graph.graphID
-		addition, _ := n.GetInPortArray(2)
-		var token uint64
-		if n.graph.instance != nil {
-			var active bool
-			token, active = n.graph.instance.beginExternalTimer()
-			if !active {
-				return -1, ErrGraphReleased
-			}
-		}
-		n.graph.module.SafeAfterFunc(&timerID, time.Duration(delay)*time.Millisecond, nil, func(id uint64, additionData any) {
-			if n.graph.instance != nil {
-				if !n.graph.instance.tryAcquireLease() {
-					return
-				}
-				defer n.graph.instance.releaseLease()
-				if !n.graph.instance.fireExternalTimer(token) {
-					return
-				}
-			}
-			_ = n.graph.module.TriggerEvent(graphID, EntranceIDTimer, PortInt(id), addition)
-			n.graph.module.CancelTimerId(graphID, &id)
-		})
-		if n.graph.instance != nil {
-			if n.graph.instance.bindExternalTimer(token, timerID) {
-				n.graph.module.CancelTimerId(graphID, &timerID)
-			}
-		}
-	} else {
-		if n.graph.instance != nil {
-			var active bool
-			timerID, active = n.graph.instance.startLocalTimer(time.Duration(delay) * time.Millisecond)
-			if !active {
-				return -1, ErrGraphReleased
-			}
-		} else {
-			timer := time.AfterFunc(time.Duration(delay)*time.Millisecond, func() {})
-			timerID = n.graph.addTimer(timer)
-		}
-	}
-	n.SetOutPortInt(1, PortInt(timerID))
-	return 0, nil
-}
-func (n *CloseTimer) Exec() (int, error) {
-	timerID, ok := n.GetInPortInt(1)
-	if !ok {
-		return -1, fmt.Errorf("CloseTimer id input not found")
-	}
-	id := uint64(timerID)
-	if n.graph.module != nil {
-		n.graph.module.CancelTimerId(n.graph.graphID, &id)
-		if n.graph.instance != nil {
-			n.graph.instance.timerMu.Lock()
-			delete(n.graph.instance.timers, id)
-			n.graph.instance.timerMu.Unlock()
-		}
-		return 0, nil
-	}
-	if n.graph.instance != nil {
-		n.graph.instance.cancelLocalTimer(id)
-	} else {
-		n.graph.cancelTimer(id)
-	}
 	return 0, nil
 }

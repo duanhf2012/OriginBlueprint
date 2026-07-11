@@ -1,64 +1,144 @@
 [
   {
-		"name": "CreateTimer",
-		"title": "创建定时器",
-		"package": "基础",
-		"description": "创建定时器",
-		"is_pure": true,
-		"inputs": [{
-				"name": "",
-				"type": "exec",
-				"port_id": 0
-			} ,{
-				"name": "时间(毫秒)",
-				"type": "data",
-				"data_type": "Integer",
-				"has_input": true,
-				"port_id": 1
-			},
-          {
-            "name": "附加参数",
-            "type": "data",
-            "data_type": "Array",
-            "has_input": true,
-			"port_id": 2
-          }
-        ],
-		"outputs": [{
-				"name": "",
-				"type": "exec",
-				"port_id": 0
-			} ,
-        {
-				"name": "定时器ID",
-				"type": "data",
-				"data_type": "Integer",
-				"has_input": false,
-				"port_id": 1
-			}]
-	},
+    "name": "Delay",
+    "title": "延迟",
+    "title_en": "Delay",
+    "package": "定时器",
+    "package_en": "Timers",
+    "description": "延迟指定时间后继续当前执行流",
+    "description_en": "Continue the current execution after a delay",
+    "inputs": [
+      { "name": "", "name_en": "", "type": "exec", "port_id": 0 },
+      { "name": "时间（毫秒）", "name_en": "Duration (ms)", "type": "data", "data_type": "Integer", "has_input": true, "default_value": 0, "port_id": 1 }
+    ],
+    "outputs": [
+      { "name": "完成", "name_en": "Completed", "type": "exec", "port_id": 0 }
+    ]
+  },
   {
-		"name": "CloseTimer",
-		"title": "关闭定时器",
-		"package": "基础",
-		"description": "关闭定时器",
-		"is_pure": true,
-		"inputs": [{
-				"name": "",
-				"type": "exec",
-				"port_id": 0
-			} ,{
-				"name": "定时器ID",
-				"type": "data",
-				"data_type": "Integer",
-				"has_input": true,
-				"port_id": 1
-			}
-        ],
-		"outputs": [{
-				"name": "",
-				"type": "exec",
-				"port_id": 0
-			} ]
-	}
+    "name": "SetTimerByFunction",
+    "title": "按函数设置定时器",
+    "title_en": "Set Timer by Function",
+    "package": "定时器",
+    "package_en": "Timers",
+    "description": "定时调用指定蓝图函数",
+    "description_en": "Call a blueprint function on a timer",
+    "inputs": [
+      { "name": "", "name_en": "", "type": "exec", "port_id": 0 },
+      { "name": "时间（毫秒）", "name_en": "Time (ms)", "type": "data", "data_type": "Integer", "has_input": true, "default_value": 1000, "port_id": 1 },
+      { "name": "循环", "name_en": "Looping", "type": "data", "data_type": "Boolean", "has_input": true, "default_value": false, "port_id": 2 },
+      { "name": "首次延迟（毫秒）", "name_en": "First Delay (ms)", "type": "data", "data_type": "Integer", "has_input": true, "default_value": -1, "port_id": 3 }
+    ],
+    "outputs": [
+      { "name": "Then", "name_en": "Then", "type": "exec", "port_id": 0 },
+      { "name": "定时器句柄", "name_en": "Timer Handle", "type": "data", "data_type": "TimerHandle", "port_id": 1 }
+    ]
+  },
+  {
+    "name": "ClearTimer",
+    "title": "清除定时器",
+    "title_en": "Clear Timer",
+    "package": "定时器",
+    "package_en": "Timers",
+    "description": "停止定时器，并可取消正在运行的回调",
+    "description_en": "Stop a timer and optionally cancel its running callback",
+    "inputs": [
+      { "name": "", "name_en": "", "type": "exec", "port_id": 0 },
+      { "name": "定时器句柄", "name_en": "Timer Handle", "type": "data", "data_type": "TimerHandle", "port_id": 1 },
+      { "name": "取消运行中回调", "name_en": "Cancel Running Callback", "type": "data", "data_type": "Boolean", "has_input": true, "default_value": false, "port_id": 2 }
+    ],
+    "outputs": [
+      { "name": "Then", "name_en": "Then", "type": "exec", "port_id": 0 },
+      { "name": "成功", "name_en": "Success", "type": "data", "data_type": "Boolean", "port_id": 1 }
+    ]
+  },
+  {
+    "name": "PauseTimer",
+    "title": "暂停定时器",
+    "title_en": "Pause Timer",
+    "package": "定时器",
+    "package_en": "Timers",
+    "description": "暂停有效定时器",
+    "description_en": "Pause an active timer",
+    "inputs": [
+      { "name": "", "name_en": "", "type": "exec", "port_id": 0 },
+      { "name": "定时器句柄", "name_en": "Timer Handle", "type": "data", "data_type": "TimerHandle", "port_id": 1 }
+    ],
+    "outputs": [
+      { "name": "Then", "name_en": "Then", "type": "exec", "port_id": 0 },
+      { "name": "成功", "name_en": "Success", "type": "data", "data_type": "Boolean", "port_id": 1 }
+    ]
+  },
+  {
+    "name": "UnpauseTimer",
+    "title": "恢复定时器",
+    "title_en": "Unpause Timer",
+    "package": "定时器",
+    "package_en": "Timers",
+    "description": "恢复已暂停的定时器",
+    "description_en": "Resume a paused timer",
+    "inputs": [
+      { "name": "", "name_en": "", "type": "exec", "port_id": 0 },
+      { "name": "定时器句柄", "name_en": "Timer Handle", "type": "data", "data_type": "TimerHandle", "port_id": 1 }
+    ],
+    "outputs": [
+      { "name": "Then", "name_en": "Then", "type": "exec", "port_id": 0 },
+      { "name": "成功", "name_en": "Success", "type": "data", "data_type": "Boolean", "port_id": 1 }
+    ]
+  },
+  {
+    "name": "IsTimerActive",
+    "title": "定时器是否活动",
+    "title_en": "Is Timer Active",
+    "package": "定时器",
+    "package_en": "Timers",
+    "description": "判断定时器是否正在计时",
+    "description_en": "Check whether a timer is actively counting down",
+    "inputs": [{ "name": "定时器句柄", "name_en": "Timer Handle", "type": "data", "data_type": "TimerHandle", "port_id": 0 }],
+    "outputs": [{ "name": "活动", "name_en": "Active", "type": "data", "data_type": "Boolean", "port_id": 0 }]
+  },
+  {
+    "name": "IsTimerPaused",
+    "title": "定时器是否暂停",
+    "title_en": "Is Timer Paused",
+    "package": "定时器",
+    "package_en": "Timers",
+    "description": "判断定时器是否暂停",
+    "description_en": "Check whether a timer is paused",
+    "inputs": [{ "name": "定时器句柄", "name_en": "Timer Handle", "type": "data", "data_type": "TimerHandle", "port_id": 0 }],
+    "outputs": [{ "name": "暂停", "name_en": "Paused", "type": "data", "data_type": "Boolean", "port_id": 0 }]
+  },
+  {
+    "name": "IsTimerValid",
+    "title": "定时器句柄是否有效",
+    "title_en": "Is Timer Handle Valid",
+    "package": "定时器",
+    "package_en": "Timers",
+    "description": "判断定时器句柄是否仍然有效",
+    "description_en": "Check whether a timer handle is still valid",
+    "inputs": [{ "name": "定时器句柄", "name_en": "Timer Handle", "type": "data", "data_type": "TimerHandle", "port_id": 0 }],
+    "outputs": [{ "name": "有效", "name_en": "Valid", "type": "data", "data_type": "Boolean", "port_id": 0 }]
+  },
+  {
+    "name": "GetTimerRemaining",
+    "title": "获取定时器剩余时间",
+    "title_en": "Get Timer Remaining",
+    "package": "定时器",
+    "package_en": "Timers",
+    "description": "获取当前周期剩余毫秒数",
+    "description_en": "Get milliseconds remaining in the current timer period",
+    "inputs": [{ "name": "定时器句柄", "name_en": "Timer Handle", "type": "data", "data_type": "TimerHandle", "port_id": 0 }],
+    "outputs": [{ "name": "剩余时间（毫秒）", "name_en": "Remaining (ms)", "type": "data", "data_type": "Integer", "port_id": 0 }]
+  },
+  {
+    "name": "GetTimerElapsed",
+    "title": "获取定时器已用时间",
+    "title_en": "Get Timer Elapsed",
+    "package": "定时器",
+    "package_en": "Timers",
+    "description": "获取当前周期已用毫秒数",
+    "description_en": "Get milliseconds elapsed in the current timer period",
+    "inputs": [{ "name": "定时器句柄", "name_en": "Timer Handle", "type": "data", "data_type": "TimerHandle", "port_id": 0 }],
+    "outputs": [{ "name": "已用时间（毫秒）", "name_en": "Elapsed (ms)", "type": "data", "data_type": "Integer", "port_id": 0 }]
+  }
 ]

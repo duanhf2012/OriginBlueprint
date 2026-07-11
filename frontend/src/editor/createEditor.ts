@@ -7,7 +7,7 @@ import BlueprintControl from './BlueprintControl.vue'
 import BlueprintConnectionComponent from './BlueprintConnection.vue'
 import BlueprintNodeComponent from './BlueprintNode.vue'
 import BlueprintSocket from './BlueprintSocket.vue'
-import { createFunctionCallNode, createFunctionEntryNode as createFunctionEntryNodeFromSpec, createFunctionReturnNode as createFunctionReturnNodeFromSpec, createLegacyNode, createNode, createVariableNode, hasNodeDefinition, nodeTitleWidth } from './nodeRegistry'
+import { applyTimerFunctionMetadata, createFunctionCallNode, createFunctionEntryNode as createFunctionEntryNodeFromSpec, createFunctionReturnNode as createFunctionReturnNodeFromSpec, createLegacyNode, createNode, createSetTimerByFunctionNode, createVariableNode, hasNodeDefinition, nodeTitleWidth } from './nodeRegistry'
 import { normalizeSocketName } from './socketTheme'
 import { BlueprintNode, type Schemes } from './types'
 import { describeEntryBinding, entryBindingCandidateGroups, isEntryOutputConnection, type EntryBindingNode } from './implicitEntryLinks'
@@ -125,6 +125,7 @@ export interface BlueprintEditorHandle {
   toggleGroupSelected(): Promise<void>
   fitSelected(): Promise<void>
   setVariables(variables: GraphVariable[], variableGroups?: GraphVariableGroup[], refreshNodes?: boolean): Promise<void>
+  setCallableFunctions(functions: FunctionNodeMetadata[]): Promise<void>
   focusNode(id: string): Promise<void>
   highlightNodesByType(typeId: string): Promise<number>
   highlightFunctionReferences(functionKey: string): Promise<number>
@@ -142,6 +143,7 @@ interface Callbacks {
   onVariableGroups(groups: GraphVariableGroup[]): void
   onSelection(node: SelectedNodeInfo | null): void
   canAddEntryNodes?(): boolean
+  locale?(): string
 }
 
 function controlValues(node: BlueprintNode) {
@@ -220,6 +222,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   let currentVariables: GraphVariable[] = []
   let currentVariableGroups: GraphVariableGroup[] = []
   let currentLegacy: LegacyGraphState | undefined
+  let callableFunctions: FunctionNodeMetadata[] = []
   let insertionOffset = 0
   const visibleEntryConnectionIds = new Set<string>()
 
@@ -448,6 +451,38 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     return createFunctionCallNode(metadata)
   }
 
+  function createTimerFunctionNodeFromProperties(properties?: NodeProperties) {
+    const selected = properties?.functionId || properties?.functionName ? { ...functionMetadataFromProperties(properties), functionRole: 'timer' as const } : undefined
+    return createSetTimerByFunctionNode(callableFunctions, selected, callbacks.locale?.() ?? 'zh-CN', (node, functionId) => { void changeTimerFunction(node, functionId) })
+  }
+
+  async function changeTimerFunction(node: BlueprintNode, functionId: string) {
+    const metadata = callableFunctions.find(item => item.functionId === functionId)
+    if (!metadata) {
+      callbacks.onStatus('选择的函数不存在或尚未加载')
+      return
+    }
+    await mutate('Timer callback changed', async () => {
+      const previousValues = controlValues(node)
+      const nextInputs = new Map((metadata.functionSignature?.inputs ?? []).map((port, index) => [
+        functionPortKey('input', port, index),
+        normalizeSocketName(port.type),
+      ]))
+      for (const connection of [...editor.getConnections()]) {
+        if (connection.target !== node.id || !String(connection.targetInput).startsWith('input_')) continue
+        const key = String(connection.targetInput)
+        const currentType = normalizeSocketName(node.inputs[key]?.socket.name)
+        if (!nextInputs.has(key) || nextInputs.get(key) !== currentType) await editor.removeConnection(connection.id)
+      }
+      applyTimerFunctionMetadata(node, { ...metadata, functionRole: 'timer' })
+      setControlValues(node, previousValues)
+      node.functionReferenceMissing = false
+      await area.update('node', node.id)
+      await refreshPortStates(true)
+      callbacks.onSelection(selectedNodeInfo(node))
+    })
+  }
+
   function createRestoredNode(item: Pick<NodeSnapshot, 'typeId' | 'properties'>, typeId: string) {
     const variableAccess = item.properties?.variableAccess ?? (typeId === 'origin.variable.set' ? 'set' : 'get')
     const variable = currentVariables.find(entry => entry.id === item.properties?.variableId)
@@ -457,6 +492,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
         variableAccess
       )
     }
+    if (typeId === 'origin.timer.set-by-function') return createTimerFunctionNodeFromProperties(item.properties)
     if (typeId.startsWith('origin.function.')) return createFunctionNodeFromProperties(item.properties)
     if (typeId === 'origin.legacy.placeholder') return createLegacyNode(item.properties ?? {})
     if (hasNodeDefinition(typeId)) return createNode(typeId)
@@ -471,19 +507,27 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
 
   function functionNodePortsFromSnapshot(node: NodeSnapshot) {
     const signature = cloneFunctionSignatureFromProperties(node.properties?.functionSignature) ?? { inputs: [], outputs: [] }
-    const inputs = new Set<string>()
-    const outputs = new Set<string>()
+    const inputs = new Map<string, string>()
+    const outputs = new Map<string, string>()
     if (node.typeId === 'origin.function.entry') {
-      outputs.add('exec')
-      signature.inputs.forEach((port, index) => outputs.add(functionPortKey('input', port, index)))
+      outputs.set('exec', 'exec')
+      signature.inputs.forEach((port, index) => outputs.set(functionPortKey('input', port, index), normalizeSocketName(port.type)))
     } else if (node.typeId === 'origin.function.return') {
-      inputs.add('exec')
-      signature.outputs.forEach((port, index) => inputs.add(functionPortKey('output', port, index)))
+      inputs.set('exec', 'exec')
+      signature.outputs.forEach((port, index) => inputs.set(functionPortKey('output', port, index), normalizeSocketName(port.type)))
     } else if (node.typeId === 'origin.function.call') {
-      inputs.add('exec')
-      outputs.add('exec')
-      signature.inputs.forEach((port, index) => inputs.add(functionPortKey('input', port, index)))
-      signature.outputs.forEach((port, index) => outputs.add(functionPortKey('output', port, index)))
+      inputs.set('exec', 'exec')
+      outputs.set('exec', 'exec')
+      signature.inputs.forEach((port, index) => inputs.set(functionPortKey('input', port, index), normalizeSocketName(port.type)))
+      signature.outputs.forEach((port, index) => outputs.set(functionPortKey('output', port, index), normalizeSocketName(port.type)))
+    } else if (node.typeId === 'origin.timer.set-by-function') {
+      inputs.set('exec', 'exec')
+      inputs.set('time', 'integer')
+      inputs.set('looping', 'boolean')
+      inputs.set('firstDelay', 'integer')
+      outputs.set('then', 'exec')
+      outputs.set('timerHandle', 'timerhandle')
+      signature.inputs.forEach((port, index) => inputs.set(functionPortKey('input', port, index), normalizeSocketName(port.type)))
     }
     return { inputs, outputs }
   }
@@ -495,6 +539,11 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
       if (sourcePorts && !sourcePorts.outputs.has(connection.sourceOutput)) return false
       const targetPorts = portsByNode.get(connection.target)
       if (targetPorts && !targetPorts.inputs.has(connection.targetInput)) return false
+      const sourceType = sourcePorts?.outputs.get(connection.sourceOutput)
+        ?? normalizeSocketName(editor.getNode(connection.source)?.outputs[connection.sourceOutput]?.socket.name)
+      const targetType = targetPorts?.inputs.get(connection.targetInput)
+        ?? normalizeSocketName(editor.getNode(connection.target)?.inputs[connection.targetInput]?.socket.name)
+      if (sourceType && targetType && sourceType !== targetType && sourceType !== 'any' && targetType !== 'any') return false
       return true
     })
   }
@@ -879,7 +928,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   }
 
   async function addNode(typeId: string, clientPosition?: Position, options?: AddNodeOptions) {
-    const node = createNode(typeId)
+    const node = typeId === 'origin.timer.set-by-function' ? createTimerFunctionNodeFromProperties() : createNode(typeId)
     if (node.entrySourceKey && !canAddOrdinaryEntryNode(options)) throw new Error('函数蓝图不能添加普通入口节点')
     if (isDuplicateEntryNode(node)) throw new Error('该入口节点已存在，不能重复添加')
     await mutate('Node created', async () => {
@@ -891,6 +940,25 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
       await selectable.select(node.id, false)
       callbacks.onSelection(selectedNodeInfo(node))
     })
+  }
+
+  async function setCallableFunctions(functions: FunctionNodeMetadata[]) {
+    callableFunctions = functions.map(item => ({
+      ...item,
+      functionSignature: item.functionSignature ? {
+        inputs: item.functionSignature.inputs.map(port => ({ ...port })),
+        outputs: item.functionSignature.outputs.map(port => ({ ...port }))
+      } : { inputs: [], outputs: [] }
+    }))
+    const options = callableFunctions.map(item => ({ id: item.functionId, label: item.functionName }))
+    const timerNodes = editor.getNodes().filter(node => node.typeId === 'origin.timer.set-by-function')
+    for (const node of timerNodes) {
+      node.functionOptions = options
+      node.functionSelectorLabel = callbacks.locale?.() === 'en-US' ? 'Callback Function' : '回调函数'
+      node.functionMissingLabel = callbacks.locale?.() === 'en-US' ? 'Missing function' : '函数不存在'
+      node.functionReferenceMissing = Boolean(node.functionId && !options.some(option => option.id === node.functionId))
+      await area.update('node', node.id)
+    }
   }
 
   async function addFunctionCallNode(spec: FunctionNodeMetadata, clientPosition?: Position) {
@@ -943,10 +1011,10 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
       const changedNodeIds = new Set<string>()
       let changed = false
       for (const node of data.nodes) {
-        if (!node.typeId.startsWith('origin.function.')) continue
+        if (!node.typeId.startsWith('origin.function.') && node.typeId !== 'origin.timer.set-by-function') continue
         const role = node.properties?.functionRole
         const isTerminal = role === 'entry' || role === 'return'
-        const isMatchingCall = role === 'call' && sameFunctionReference(node.properties, spec)
+        const isMatchingCall = (role === 'call' || role === 'timer') && sameFunctionReference(node.properties, spec)
         if (!isTerminal && !isMatchingCall) continue
         node.properties = {
           ...node.properties,
@@ -1087,6 +1155,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     redoStack.push(historySnapshot())
     await restoreHistory(previous)
     callbacks.onStatus('Undo')
+    callbacks.onDirty()
   }
 
   async function redo() {
@@ -1095,6 +1164,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     undoStack.push(historySnapshot())
     await restoreHistory(next)
     callbacks.onStatus('Redo')
+    callbacks.onDirty()
   }
 
   function getDocument(graphName = 'Untitled', variables?: GraphVariable[], variableGroups?: GraphVariableGroup[]): GraphDocument {
@@ -1512,7 +1582,11 @@ function nodeSize(node: BlueprintNode) {
 
   async function highlightFunctionReferences(functionKey: string) {
     const key = functionKey.trim()
-    const matches = editor.getNodes().filter(node => node.typeId === 'origin.function.call' && key && (node.functionId === key || node.functionName === key))
+    const matches = editor.getNodes().filter(node =>
+      (node.typeId === 'origin.function.call' || node.typeId === 'origin.timer.set-by-function')
+      && key
+      && (node.functionId === key || node.functionName === key),
+    )
     for (const node of editor.getNodes()) {
       const highlighted = matches.includes(node)
       if (node.referenceHighlighted !== highlighted) {
@@ -1795,6 +1869,7 @@ function nodeSize(node: BlueprintNode) {
     toggleGroupSelected,
     fitSelected,
     setVariables,
+    setCallableFunctions,
     focusNode,
     highlightNodesByType,
     highlightFunctionReferences,

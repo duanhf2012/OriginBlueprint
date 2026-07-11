@@ -1,6 +1,9 @@
 package blueprint
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 type testCaptureAsync struct {
 	BaseExecNode
@@ -31,7 +34,7 @@ func (n *testAppendRecorder) Exec() (int, error) {
 	return -1, nil
 }
 
-func TestBlueprintDoCreatesIndependentExecutionSessions(t *testing.T) {
+func TestBlueprintStartCreatesIndependentExecutionSessions(t *testing.T) {
 	var continuations []*Continuation
 	var values []PortInt
 	entrance := NewExecNode("entrance", NewNodeDefinition("TestEntrance", func() IExecNode {
@@ -51,15 +54,21 @@ func TestBlueprintDoCreatesIndependentExecutionSessions(t *testing.T) {
 	record.PreInPort[1] = &PrePortNode{Node: wait, OutPortID: 1}
 
 	var bp Blueprint
+	dispatcher := &manualExecutionDispatcher{}
+	bp.SetExecutionDispatcher(dispatcher)
 	bp.AddCompiledGraph("test", &CompiledGraph{Entrances: map[int64]*ExecNode{1: entrance}})
 	graphID := bp.Create("test")
 
-	if _, err := bp.Do(graphID, 1); err != nil {
-		t.Fatalf("first Do failed: %v", err)
+	first, err := bp.Start(context.Background(), graphID, 1)
+	if err != nil {
+		t.Fatalf("first Start failed: %v", err)
 	}
-	if _, err := bp.Do(graphID, 1); err != nil {
-		t.Fatalf("second Do failed: %v", err)
+	second, err := bp.Start(context.Background(), graphID, 1)
+	if err != nil {
+		t.Fatalf("second Start failed: %v", err)
 	}
+	dispatcher.runNext(t)
+	dispatcher.runNext(t)
 	if len(continuations) != 2 {
 		t.Fatalf("continuations = %d, want 2", len(continuations))
 	}
@@ -73,7 +82,12 @@ func TestBlueprintDoCreatesIndependentExecutionSessions(t *testing.T) {
 	if err := continuations[1].Resume(22); err != nil {
 		t.Fatalf("second Resume failed: %v", err)
 	}
+	dispatcher.runNext(t)
+	dispatcher.runNext(t)
 	if len(values) != 2 || values[0] != 11 || values[1] != 22 {
 		t.Fatalf("values = %v, want [11 22]", values)
+	}
+	if !first.IsDone() || !second.IsDone() {
+		t.Fatalf("executions did not complete: first=%v second=%v", first.State(), second.State())
 	}
 }

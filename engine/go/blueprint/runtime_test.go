@@ -257,8 +257,8 @@ func TestAsyncContinuationResumeContinuesFromSuspendedNode(t *testing.T) {
 	record.PreInPort[1] = &PrePortNode{Node: wait, OutPortID: 1}
 
 	graph := NewGraph(&CompiledGraph{Entrances: map[int64]*ExecNode{1: entrance}})
-	if _, err := graph.Do(1); err != nil {
-		t.Fatalf("Do failed: %v", err)
+	if _, err := graph.Do(1); err != ErrExecutionSuspended {
+		t.Fatalf("Do error = %v, want ErrExecutionSuspended", err)
 	}
 	if async == nil || async.continuation == nil {
 		t.Fatalf("async node did not suspend")
@@ -290,8 +290,8 @@ func TestContinuationResumeOnlyOnce(t *testing.T) {
 	wait.BeConnect = true
 
 	graph := NewGraph(&CompiledGraph{Entrances: map[int64]*ExecNode{1: entrance}})
-	if _, err := graph.Do(1); err != nil {
-		t.Fatalf("Do failed: %v", err)
+	if _, err := graph.Do(1); err != ErrExecutionSuspended {
+		t.Fatalf("Do error = %v, want ErrExecutionSuspended", err)
 	}
 	if err := async.continuation.Resume(42); err != nil {
 		t.Fatalf("first Resume failed: %v", err)

@@ -156,7 +156,7 @@ assert(app.includes('renderModuleSearchText'), 'module library search should ren
 assert(app.includes('v-html="renderModuleSearchText'), 'module library search should highlight matching names and categories')
 assert(app.includes('item.description'), 'ordinary module search should include node descriptions')
 assert(nodeRegistry.includes('description?: string'), 'node definitions should retain a searchable description')
-assert(nodeRegistry.includes('description: schema.subtitle'), 'node definitions should copy schema subtitles into searchable descriptions')
+assert(nodeRegistry.includes('description: subtitle'), 'node definitions should copy the localized schema subtitle into searchable descriptions')
 assert(!app.includes('item.id} ${item.path'), 'function module search should not match function paths or ids')
 assert(app.includes('item.functionItem?.category'), 'function module search should include function categories')
 assert(!app.includes("toggleMenu('project')"), 'workspace actions should stay in the File menu instead of a top-level Project menu')

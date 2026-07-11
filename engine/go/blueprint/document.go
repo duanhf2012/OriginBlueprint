@@ -77,7 +77,6 @@ type documentNodeSpec struct {
 var documentNodeSpecs = map[string]documentNodeSpec{
 	"origin.event.entry-array":          {class: "Entrance_ArrayParam_2", outputs: map[string]int{"exec": 0, "objectId": 1, "params": 2}},
 	"origin.event.entry-two-integers":   {class: "Entrance_IntParam_1", outputs: map[string]int{"exec": 0, "objectId": 1, "param1": 2, "param2": 3}},
-	"origin.event.timer":                {class: "Entrance_Timer_3", outputs: map[string]int{"exec": 0, "timerId": 1, "params": 2}},
 	"origin.debug.output":               {class: "DebugOutput", inputs: map[string]int{"exec": 0, "integer": 1, "string": 2, "array": 3}, outputs: map[string]int{"exec": 0}},
 	"origin.cast.integer-string":        {class: "CastIntegerString", inputs: map[string]int{"value": 0}, outputs: map[string]int{"result": 0}},
 	"origin.cast.float-string":          {class: "CastFloatString", inputs: map[string]int{"value": 0}, outputs: map[string]int{"result": 0}},
@@ -120,8 +119,15 @@ var documentNodeSpecs = map[string]documentNodeSpec{
 	"origin.array.append-integer":       {class: "AppendIntegerToArray", inputs: map[string]int{"array": 0, "value": 1}, outputs: map[string]int{"array": 0}},
 	"origin.result.append-integer":      {class: "AppendIntReturn", inputs: map[string]int{"exec": 0, "value": 1}, outputs: map[string]int{"exec": 0}},
 	"origin.result.append-string":       {class: "AppendStringReturn", inputs: map[string]int{"exec": 0, "value": 1}, outputs: map[string]int{"exec": 0}},
-	"origin.timer.create":               {class: "CreateTimer", inputs: map[string]int{"exec": 0, "milliseconds": 1, "params": 2}, outputs: map[string]int{"exec": 0, "timerId": 1}},
-	"origin.timer.close":                {class: "CloseTimer", inputs: map[string]int{"exec": 0, "timerId": 1}, outputs: map[string]int{"exec": 0}},
+	"origin.flow.delay":                 {class: "Delay", inputs: map[string]int{"exec": 0, "duration": 1}, outputs: map[string]int{"completed": 0}},
+	"origin.timer.clear":                {class: "ClearTimer", inputs: map[string]int{"exec": 0, "timerHandle": 1, "cancelRunningCallback": 2}, outputs: map[string]int{"then": 0, "success": 1}},
+	"origin.timer.pause":                {class: "PauseTimer", inputs: map[string]int{"exec": 0, "timerHandle": 1}, outputs: map[string]int{"then": 0, "success": 1}},
+	"origin.timer.unpause":              {class: "UnpauseTimer", inputs: map[string]int{"exec": 0, "timerHandle": 1}, outputs: map[string]int{"then": 0, "success": 1}},
+	"origin.timer.is-active":            {class: "IsTimerActive", inputs: map[string]int{"timerHandle": 0}, outputs: map[string]int{"active": 0}},
+	"origin.timer.is-paused":            {class: "IsTimerPaused", inputs: map[string]int{"timerHandle": 0}, outputs: map[string]int{"paused": 0}},
+	"origin.timer.is-valid":             {class: "IsTimerValid", inputs: map[string]int{"timerHandle": 0}, outputs: map[string]int{"valid": 0}},
+	"origin.timer.remaining":            {class: "GetTimerRemaining", inputs: map[string]int{"timerHandle": 0}, outputs: map[string]int{"remaining": 0}},
+	"origin.timer.elapsed":              {class: "GetTimerElapsed", inputs: map[string]int{"timerHandle": 0}, outputs: map[string]int{"elapsed": 0}},
 	"origin.string.split":               {class: "StringSplit", inputs: map[string]int{"exec": 0, "text": 1, "delimiter": 2}, outputs: map[string]int{"exec": 0, "array": 1}},
 }
 
@@ -197,6 +203,10 @@ func documentNodeToConfig(node graphDocumentNode, variables map[string]graphDocu
 		signature := node.Properties.FunctionSignature
 		spec := functionCallSpec(signature)
 		return NodeConfig{ID: node.ID, Class: "FunctionCall", FunctionID: node.Properties.FunctionID, FunctionName: node.Properties.FunctionName, FunctionInputTypes: signatureTypes(signature.Inputs), FunctionOutputTypes: signatureTypes(signature.Outputs), PortDefault: documentDefaults(node.Values, spec.inputs)}, spec, nil
+	case "origin.timer.set-by-function":
+		signature := node.Properties.FunctionSignature
+		spec := setTimerByFunctionSpec(signature)
+		return NodeConfig{ID: node.ID, Class: "SetTimerByFunction", FunctionID: node.Properties.FunctionID, FunctionName: node.Properties.FunctionName, FunctionInputTypes: signatureTypes(signature.Inputs), PortDefault: documentDefaults(node.Values, spec.inputs)}, spec, nil
 	case "origin.flow.sequence":
 		count := node.Properties.DynamicOutputCount
 		if count <= 0 {
@@ -274,6 +284,18 @@ func functionCallSpec(signature graphDocumentFuncSignature) documentNodeSpec {
 		outputs[functionPortKey("output", port, index)] = index + 1
 	}
 	return documentNodeSpec{class: "FunctionCall", inputs: inputs, outputs: outputs}
+}
+
+func setTimerByFunctionSpec(signature graphDocumentFuncSignature) documentNodeSpec {
+	inputs := map[string]int{"exec": 0, "time": 1, "looping": 2, "firstDelay": 3}
+	for index, port := range signature.Inputs {
+		inputs[functionPortKey("input", port, index)] = index + 4
+	}
+	return documentNodeSpec{
+		class:   "SetTimerByFunction",
+		inputs:  inputs,
+		outputs: map[string]int{"then": 0, "timerHandle": 1},
+	}
 }
 
 // functionPortKey 生成函数参数端口在文档中的稳定 key。

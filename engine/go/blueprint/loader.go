@@ -6,16 +6,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 )
 
-// IBlueprintModule 由业务层实现，用于接入服务器 timer 和事件触发。
-//
-// 运行时优先使用模块接口，缺省时才使用 Init 传入的 cancelTimer。
+// IBlueprintModule 由业务层实现，用于接入服务器事件触发。
 type IBlueprintModule interface {
-	SafeAfterFunc(timerID *uint64, d time.Duration, additionData any, cb func(uint64, any))
 	TriggerEvent(graphID int64, eventID int64, args ...any) error
-	CancelTimerId(graphID int64, timerID *uint64) bool
 }
 
 // IBlueprintLogger 保留旧接口的日志对象类型。
@@ -34,11 +29,10 @@ func (b *Blueprint) RegisterExecNode(factory func() IExecNode) {
 // Init 加载节点定义和蓝图目录，并初始化运行时依赖。
 //
 // 该方法兼容旧版 Blueprint 的初始化入口。
-func (b *Blueprint) Init(execDefFilePath string, graphFilePath string, blueprintModule IBlueprintModule, cancelTimer func(*uint64) bool, logger ...IBlueprintLogger) error {
+func (b *Blueprint) Init(execDefFilePath string, graphFilePath string, blueprintModule IBlueprintModule, logger ...IBlueprintLogger) error {
 	b.mu.Lock()
 	b.ensureLocked()
 	b.module = blueprintModule
-	b.cancelTimer = cancelTimer
 	b.execDefPath = execDefFilePath
 	b.graphPath = graphFilePath
 	if len(logger) > 0 {

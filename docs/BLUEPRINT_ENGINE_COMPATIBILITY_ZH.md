@@ -23,18 +23,26 @@
 服务器侧优先只依赖以下 facade：
 
 - `RegisterExecNode(factory func() IExecNode)`
-- `Init(execDefFilePath, graphFilePath string, module IBlueprintModule, cancelTimer func(*uint64) bool, logger ...IBlueprintLogger) error`
+- `Init(execDefFilePath, graphFilePath string, module IBlueprintModule, logger ...IBlueprintLogger) error`
 - `Create(graphName string) int64`
+- `Start(ctx context.Context, graphID int64, entranceID int64, args ...any) (*Execution, error)`
 - `Do(graphID int64, entranceID int64, args ...any) (PortArray, error)`
+- `DoContext(ctx context.Context, graphID int64, entranceID int64, args ...any) (PortArray, error)`
 - `TriggerEvent(graphID int64, eventID int64, args ...any) error`
 - `ReleaseGraph(graphID int64)`
-- `CancelTimerId(graphID int64, timerID *uint64) bool`
+- `Close() error`
 - `StartHotReload() (func(), error)`
 - `GetLogger() IBlueprintLogger`
 - `GetGraphName(graphID int64) string`
 
-新增排障入口：
+`Start` 是服务器事件循环推荐入口：它把执行提交到 Dispatcher 并立即返回，后续通过 `Execution.Done()`、`Result()` 和 `Cancel()` 管理生命周期。`Do`/`DoContext` 会阻塞当前 goroutine，直到包含 `Delay` 的完整执行结束，适合命令行、测试或明确允许阻塞的工作协程。
 
+低层 `NewGraph(...).Do(...)` 只支持同步执行；遇到异步节点时返回 `ErrExecutionSuspended`，不会等待，也不会静默返回 `(nil, nil)`。
+
+新增配置与排障入口：
+
+- `SetExecutionDispatcher(dispatcher ExecutionDispatcher)`
+- `SetTimerScheduler(scheduler TimerScheduler)`
 - `SetTraceLogger(logger BlueprintTraceLogger)`
 - `SetTraceEnabled(enabled bool)`
 
@@ -44,7 +52,10 @@
 
 - `engine/go/blueprint/compatibility_test.go`
   - `TestBlueprintLegacyFacadeIntegrationPath`
-  - `TestBlueprintReleaseGraphCancelsInstanceTimersThroughLegacyCallback`
+- `engine/go/blueprint/execution_session_test.go`
+  - `TestBlueprintCloseCancelsExecutionsAndRejectsNewWork`
+- `engine/go/blueprint/timer_runtime_test.go`
+  - `TestReleaseGraphCancelsRuntimeTimers`
 
 覆盖内容：
 
@@ -55,22 +66,25 @@
 - `Init` 传入的 logger 可通过 `GetLogger` 取回。
 - logger 实现 `BlueprintTraceLogger` 时，可配合 `SetTraceEnabled(true)` 接收节点执行步骤、输入和输出。
 - `StartHotReload` 可重新加载图并返回可执行的替换函数。
-- `ReleaseGraph` 后再次 `Do` 不报错且不会继续执行实例。
-- `ReleaseGraph` 会清理实例 timer；有 `IBlueprintModule` 时走 module，没有 module 时走旧 `cancelTimer` 回调。
+- `ReleaseGraph` 后再次 `Do` 返回 `ErrGraphNotFound`，不会继续执行实例。
+- `ReleaseGraph` 会直接清理实例的 Execution、Delay 和 Timer，不再委托 module 或旧 `cancelTimer` 回调。
+- Running Execution 采用协作式取消：当前节点返回后停止后续节点并关闭 `Done`；`ReleaseGraph` 不等待可能长期阻塞的宿主节点。
+- 旧 `Timer事件入口`、`CreateTimer`、`CloseTimer`、`CancelTimerId` 和 `IBlueprintModule` timer 方法已删除；这些定时器从未正式投入使用，因此不保留运行时兼容层。
 
 ## 接入前人工核对
 
 - 收集服务器当前实际注册的所有自定义节点，逐个确认 `GetName()` 与节点 JSON 中的 `name` 去入口后缀后的类名一致。
 - 对照自定义节点的输入输出端口，确认 `port_id`、`type`、`data_type` 与旧定义一致。
 - 抽取真实服务器 `.vgf/.obp/.obpf` 文件跑离线加载和执行测试。
-- timer/RPC 类异步节点接入前，确认回调只调用一次 `Continuation.Resume(...)`。
+- RPC 类异步节点接入前，确认回调只调用一次 `Continuation.ResumeAsync(...)`。
+- Timer 回调应选择蓝图函数，由运行时通过稳定函数 ID 启动独立 Execution；不要自行构造 Timer 事件入口。
 - 大规模开启 trace 前必须加业务侧过滤，只对指定 graph/object 开启。
 - 灰度期间保留旧库回退开关，先按模块或对象范围逐步替换。
 
 ## 推荐验证命令
 
 ```powershell
-go test ./engine/go/blueprint -run 'TestBlueprintLegacyFacadeIntegrationPath|TestBlueprintReleaseGraphCancelsInstanceTimersThroughLegacyCallback' -count=1
+go test ./engine/go/blueprint -run 'TestBlueprintLegacyFacadeIntegrationPath|TestReleaseGraphCancelsRuntimeTimers' -count=1
 go test ./engine/go/blueprint -race -count=1
 go test ./...
 ```

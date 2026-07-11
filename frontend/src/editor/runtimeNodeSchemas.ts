@@ -2,13 +2,16 @@ import type { NodeSchema, PortSchema } from './nodeRegistry'
 import type { DynamicBranchConfig } from './types'
 import type { NodeKind } from './types'
 
-type SocketType = 'exec' | 'integer' | 'boolean' | 'string' | 'float' | 'array' | 'any'
+type SocketType = 'exec' | 'integer' | 'boolean' | 'string' | 'float' | 'array' | 'any' | 'timerhandle'
 
 interface LegacyNodeDefinition {
   name?: string
   title?: string
+  title_en?: string
   package?: string
+  package_en?: string
   description?: string
+  description_en?: string
   width?: number
   inputs?: LegacyPortDefinition[]
   outputs?: LegacyPortDefinition[]
@@ -16,12 +19,14 @@ interface LegacyNodeDefinition {
 
 interface LegacyPortDefinition {
   name?: string
+  name_en?: string
   type?: string
   data_type?: string
   has_input?: boolean
   pin_widget?: string
   port_id?: number | string
   hide_icon?: boolean
+  default_value?: unknown
 }
 
 interface LegacyNodeSpec {
@@ -66,9 +71,16 @@ const legacyNodeSpecs: Record<string, LegacyNodeSpec> = {
   AppendStringReturn: { typeId: 'origin.result.append-string', inputs: ['exec', 'value'], outputs: ['exec'] },
   Entrance_ArrayParam_000002: { typeId: 'origin.event.entry-array', outputs: ['exec', 'objectId', 'params'] },
   Entrance_IntParam_000001: { typeId: 'origin.event.entry-two-integers', outputs: ['exec', 'objectId', 'param1', 'param2'] },
-  Entrance_Timer_000003: { typeId: 'origin.event.timer', outputs: ['exec', 'timerId', 'params'] },
-  CreateTimer: { typeId: 'origin.timer.create', inputs: ['exec', 'milliseconds', 'params'], outputs: ['exec', 'timerId'] },
-  CloseTimer: { typeId: 'origin.timer.close', inputs: ['exec', 'timerId'], outputs: ['exec'] },
+  Delay: { typeId: 'origin.flow.delay', inputs: ['exec', 'duration'], outputs: ['completed'] },
+  SetTimerByFunction: { typeId: 'origin.timer.set-by-function', inputs: ['exec', 'time', 'looping', 'firstDelay'], outputs: ['then', 'timerHandle'] },
+  ClearTimer: { typeId: 'origin.timer.clear', inputs: ['exec', 'timerHandle', 'cancelRunningCallback'], outputs: ['then', 'success'] },
+  PauseTimer: { typeId: 'origin.timer.pause', inputs: ['exec', 'timerHandle'], outputs: ['then', 'success'] },
+  UnpauseTimer: { typeId: 'origin.timer.unpause', inputs: ['exec', 'timerHandle'], outputs: ['then', 'success'] },
+  IsTimerActive: { typeId: 'origin.timer.is-active', inputs: ['timerHandle'], outputs: ['active'] },
+  IsTimerPaused: { typeId: 'origin.timer.is-paused', inputs: ['timerHandle'], outputs: ['paused'] },
+  IsTimerValid: { typeId: 'origin.timer.is-valid', inputs: ['timerHandle'], outputs: ['valid'] },
+  GetTimerRemaining: { typeId: 'origin.timer.remaining', inputs: ['timerHandle'], outputs: ['remaining'] },
+  GetTimerElapsed: { typeId: 'origin.timer.elapsed', inputs: ['timerHandle'], outputs: ['elapsed'] },
   ForeachIntArray: { typeId: 'origin.flow.foreach-integer-array', inputs: ['exec', 'array'], outputs: ['body', 'completed', 'index', 'value'] },
   Probability: { typeId: 'origin.flow.probability', inputs: ['exec', 'probability'], outputs: ['miss', 'hit'] },
   DebugOutput: { typeId: 'origin.debug.output', inputs: ['exec', 'integer', 'string', 'array'], outputs: ['exec'] },
@@ -111,9 +123,12 @@ function convertLegacyNodeDefinition(definition: LegacyNodeDefinition, index: nu
     id,
     sourceName: name,
     title: firstNonEmpty(definition.title, name),
+    titleEn: firstNonEmpty(definition.title_en, definition.title, name),
     category: firstNonEmpty(definition.package, 'Custom'),
+    categoryEn: firstNonEmpty(definition.package_en, definition.package, 'Custom'),
     kind: inferNodeKind(id, inputs, outputs),
     subtitle: firstNonEmpty(definition.description, definition.package),
+    subtitleEn: firstNonEmpty(definition.description_en, definition.description, definition.package_en, definition.package),
     width: definition.width,
     inputs,
     outputs,
@@ -145,8 +160,9 @@ function convertLegacyPort(port: LegacyPortDefinition, keys: Map<number, string>
   return {
     key: keys.get(index) || `${prefix}${index}`,
     label: String(port.name ?? ''),
+    labelEn: String(port.name_en ?? port.name ?? ''),
     type,
-    defaultValue: input && type !== 'exec' && (port.has_input || itemType) ? defaultPortValue(type) : undefined,
+    defaultValue: input && type !== 'exec' && (port.has_input || itemType) ? (port.default_value ?? defaultPortValue(type)) : undefined,
     arrayItemType: itemType,
     hideIcon: port.hide_icon
   }
@@ -204,6 +220,9 @@ function normalizeSocketType(portType?: string, dataType?: string): SocketType {
     case 'any':
     case '':
       return 'any'
+    case 'timerhandle':
+    case 'timer_handle':
+      return 'timerhandle'
     default:
       return 'string'
   }
@@ -213,6 +232,7 @@ function defaultPortValue(type: SocketType): unknown {
   if (type === 'integer' || type === 'float') return 0
   if (type === 'boolean') return false
   if (type === 'array') return []
+  if (type === 'timerhandle') return undefined
   return ''
 }
 

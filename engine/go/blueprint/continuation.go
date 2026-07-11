@@ -48,6 +48,40 @@ func (c *Continuation) Resume(outPortArgs ...any) error {
 	if c == nil {
 		return fmt.Errorf("continuation is nil")
 	}
+	if c.graph != nil && c.graph.execution != nil {
+		return c.graph.execution.scheduleContinuation(c, outPortArgs...)
+	}
+	if err := c.reserve(); err != nil {
+		return err
+	}
+	return c.resumeReserved(outPortArgs...)
+}
+
+// ResumeAsync 恢复外部异步节点；若当前执行仍在退出调用栈，则先登记并在挂起状态落定后投递。
+func (c *Continuation) ResumeAsync(outPortArgs ...any) error {
+	if c == nil {
+		return fmt.Errorf("continuation is nil")
+	}
+	if c.graph != nil && c.graph.execution != nil {
+		return c.graph.execution.scheduleContinuation(c, outPortArgs...)
+	}
+	if err := c.reserve(); err != nil {
+		return err
+	}
+	return defaultExecutionDispatcher.Submit(func() { _ = c.resumeReserved(outPortArgs...) })
+}
+
+func (c *Continuation) reserve() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.resumed {
+		return ErrContinuationResumed
+	}
+	c.resumed = true
+	return nil
+}
+
+func (c *Continuation) resumeReserved(outPortArgs ...any) error {
 	if c.graph != nil && c.graph.instance != nil {
 		if !c.graph.instance.tryAcquireLease() {
 			return ErrGraphReleased
@@ -55,19 +89,11 @@ func (c *Continuation) Resume(outPortArgs ...any) error {
 		defer c.graph.instance.releaseLease()
 	}
 
-	c.mu.Lock()
-	if c.resumed {
-		c.mu.Unlock()
-		return ErrContinuationResumed
-	}
 	if err := c.node.applyOutputArgs(c.ctx, outPortArgs...); err != nil {
-		c.mu.Unlock()
 		return err
 	}
-	c.resumed = true
 	c.graph.setContext(c.node, c.ctx)
 	nextIndex := c.nextIndex
-	c.mu.Unlock()
 
 	return c.node.doNext(c.graph, nextIndex)
 }

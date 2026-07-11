@@ -75,6 +75,51 @@ func TestGraphContentForLegacyPathExportsVGF(t *testing.T) {
 	}
 }
 
+func TestGraphContentRejectsNativeTimerDocumentAtVGFPath(t *testing.T) {
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		GraphName:     "Timer",
+		Nodes: []GraphNode{{
+			ID:         "timer",
+			TypeID:     "origin.timer.set-by-function",
+			Properties: GraphNodeProperties{FunctionID: "callback"},
+		}},
+	}
+	content, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := graphContentForPath("timer.vgf", string(content)); err == nil {
+		t.Fatal("native timer document was accepted at a legacy .vgf path")
+	}
+}
+
+func TestSaveGraphAddsOBPExtensionForNativeTimerDocument(t *testing.T) {
+	t.Setenv("ORIGIN_BLUEPRINT_CONFIG_PATH", filepath.Join(t.TempDir(), "config.json"))
+	app := NewApp()
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		GraphName:     "Timer",
+		Nodes: []GraphNode{{
+			ID:         "timer",
+			TypeID:     "origin.timer.set-by-function",
+			Properties: GraphNodeProperties{FunctionID: "callback"},
+		}},
+	}
+	content, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := filepath.Join(t.TempDir(), "timer")
+	path, err := app.SaveGraph(base, string(content))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != base+".obp" {
+		t.Fatalf("saved path = %q, want %q", path, base+".obp")
+	}
+}
+
 func TestLegacyVGFMigrationPreservesKnownAndUnknownContent(t *testing.T) {
 	legacy := legacyGraph{
 		GraphName: "Compat Sample",
@@ -143,7 +188,7 @@ func TestSampleProjectBlueprintDocumentsParse(t *testing.T) {
 	}
 }
 
-func TestGraphContentForLegacyPathKeepsNativeWhenFunctionNodesExist(t *testing.T) {
+func TestGraphContentForLegacyPathRejectsFunctionNodes(t *testing.T) {
 	document := GraphDocument{
 		SchemaVersion: GraphSchemaVersion,
 		GraphName:     "Function Calls",
@@ -167,19 +212,8 @@ func TestGraphContentForLegacyPathKeepsNativeWhenFunctionNodesExist(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, err := graphContentForPath("choiceskill_dead.vgf", string(content))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var saved GraphDocument
-	if err := json.Unmarshal(data, &saved); err != nil {
-		t.Fatal(err)
-	}
-	if saved.SchemaVersion != GraphSchemaVersion || len(saved.Nodes) != 1 || saved.Nodes[0].TypeID != "origin.function.call" {
-		t.Fatalf("function node was not preserved in native graph JSON: %s", data)
-	}
-	if !strings.Contains(string(data), "functionSignature") {
-		t.Fatalf("function metadata was not preserved: %s", data)
+	if _, err := graphContentForPath("choiceskill_dead.vgf", string(content)); err == nil {
+		t.Fatal("function graph was accepted at a legacy .vgf path")
 	}
 }
 
@@ -514,6 +548,19 @@ func TestValidateGraphReportsMissingVariableAndTypeMismatch(t *testing.T) {
 	}
 	if issues[0].Code != "variable.missing" || issues[1].Code != "connection.type-mismatch" {
 		t.Fatalf("unexpected issues: %#v", issues)
+	}
+}
+
+func TestValidateGraphReportsTimerWithoutFunction(t *testing.T) {
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		Nodes: []GraphNode{
+			{ID: "timer", TypeID: "origin.timer.set-by-function"},
+		},
+	}
+	issues := validateGraph(document)
+	if !hasIssue(issues, "timer.function-missing", "timer") {
+		t.Fatalf("missing timer function issue not reported: %#v", issues)
 	}
 }
 
@@ -1568,6 +1615,7 @@ func TestFindNodeReferencesMatchesFunctionCalls(t *testing.T) {
 		GraphName:     "main",
 		Nodes: []GraphNode{
 			{ID: "call1", TypeID: "origin.function.call", Properties: callProperties},
+			{ID: "timer1", TypeID: "origin.timer.set-by-function", Properties: callProperties},
 			{ID: "other", TypeID: "origin.function.call", Properties: GraphNodeProperties{FunctionID: "functions/Other.obpf", FunctionName: "Other"}},
 		},
 	})
@@ -1589,7 +1637,7 @@ func TestFindNodeReferencesMatchesFunctionCalls(t *testing.T) {
 	if results[0].Name != "worker.obpf" || results[0].Count != 1 {
 		t.Fatalf("first result = %#v", results[0])
 	}
-	if results[1].Name != "main.obp" || results[1].Count != 1 {
+	if results[1].Name != "main.obp" || results[1].Count != 2 {
 		t.Fatalf("second result = %#v", results[1])
 	}
 

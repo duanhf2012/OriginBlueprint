@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
-	"time"
 )
 
 // ErrExecutionSuspended 表示节点主动暂停，等待异步回调恢复。
@@ -90,6 +89,14 @@ func (n *BaseExecNode) GetInPortArray(index int) (PortArray, bool) {
 	return port.GetArray()
 }
 
+func (n *BaseExecNode) GetInPortTimerHandle(index int) (TimerHandle, bool) {
+	port := n.GetInPort(index)
+	if port == nil {
+		return TimerHandle{}, false
+	}
+	return port.GetTimerHandle()
+}
+
 func (n *BaseExecNode) GetOutPort(index int) IPort {
 	if n == nil || n.ctx == nil || index < 0 || index >= len(n.ctx.OutputPorts) {
 		return nil
@@ -127,6 +134,14 @@ func (n *BaseExecNode) SetOutPortBool(index int, value PortBool) bool {
 		return false
 	}
 	return port.SetBool(value)
+}
+
+func (n *BaseExecNode) SetOutPortTimerHandle(index int, value TimerHandle) bool {
+	port := n.GetOutPort(index)
+	if port == nil {
+		return false
+	}
+	return port.SetTimerHandle(value)
 }
 
 func (n *BaseExecNode) SetOutPort(index int, value IPort) bool {
@@ -343,6 +358,11 @@ func (n *ExecNode) Do(graph *Graph, outPortArgs ...any) error {
 }
 
 func (n *ExecNode) doWithInput(graph *Graph, execInputPortID int, outPortArgs ...any) error {
+	if graph != nil && graph.execution != nil {
+		if err := graph.execution.cancellationError(); err != nil {
+			return err
+		}
+	}
 	if n == nil || n.Definition == nil {
 		return fmt.Errorf("exec node is invalid")
 	}
@@ -385,6 +405,11 @@ func (n *ExecNode) doWithInput(graph *Graph, execInputPortID int, outPortArgs ..
 }
 
 func (n *ExecNode) doNext(graph *Graph, index int) error {
+	if graph != nil && graph.execution != nil {
+		if err := graph.execution.cancellationError(); err != nil {
+			return err
+		}
+	}
 	if index == -1 {
 		return nil
 	}
@@ -520,10 +545,9 @@ type Graph struct {
 	callDepth          int
 	variables          map[string]IPort
 	variableMu         *sync.RWMutex
-	timers             map[uint64]*time.Timer
-	timerSeq           uint64
 	logger             IBlueprintLogger
 	trace              *blueprintTraceRuntime
+	execution          *Execution
 }
 
 // NewGraph 创建一次执行用的运行对象。
@@ -533,11 +557,13 @@ func NewGraph(compiled *CompiledGraph) *Graph {
 	return &Graph{compiled: compiled}
 }
 
-// Do 执行指定入口，并把蓝图返回值转换为 PortArray。
+// Do 同步执行指定入口，并把蓝图返回值转换为 PortArray。
+//
+// 遇到异步挂起时返回 ErrExecutionSuspended；需要等待异步结果的调用方应使用 Blueprint.Start 或 DoContext。
 func (g *Graph) Do(entranceID int64, args ...any) (PortArray, error) {
 	returns, err := g.runEntrance(entranceID, args...)
 	if errors.Is(err, ErrExecutionSuspended) {
-		return nil, nil
+		return nil, ErrExecutionSuspended
 	}
 	if errors.Is(err, ErrFunctionReturned) {
 		return returns, nil
@@ -580,6 +606,21 @@ func (g *Graph) runEntrance(entranceID int64, args ...any) (PortArray, error) {
 		}
 	}
 	return append(PortArray(nil), g.returns...), nil
+}
+
+func (g *Graph) resultSnapshot() PortArray {
+	if g == nil {
+		return nil
+	}
+	if len(g.returns) != 0 {
+		return append(PortArray(nil), g.returns...)
+	}
+	if g.returnPort != nil {
+		if returns, ok := g.returnPort.GetArray(); ok {
+			return append(PortArray(nil), returns...)
+		}
+	}
+	return nil
 }
 
 func (g *Graph) initialVariables() map[string]IPort {
@@ -703,24 +744,6 @@ func (g *Graph) completeFunction(values []any) error {
 		return g.onFunctionComplete(values)
 	}
 	return nil
-}
-
-func (g *Graph) addTimer(timer *time.Timer) uint64 {
-	if g.timers == nil {
-		g.timers = map[uint64]*time.Timer{}
-	}
-	id := atomic.AddUint64(&g.timerSeq, 1)
-	g.timers[id] = timer
-	return id
-}
-
-func (g *Graph) cancelTimer(id uint64) bool {
-	timer := g.timers[id]
-	if timer == nil {
-		return false
-	}
-	delete(g.timers, id)
-	return timer.Stop()
 }
 
 func firstDataOutPort(ports []IPort) int {

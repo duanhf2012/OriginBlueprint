@@ -1,6 +1,7 @@
 package blueprint
 
 import (
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -13,7 +14,7 @@ func TestGraphInstanceReleaseDoesNotWaitForInFlightLease(t *testing.T) {
 	}
 	done := make(chan struct{})
 	go func() {
-		instance.markReleasedAndDrainTimers()
+		instance.markReleased()
 		close(done)
 	}()
 	select {
@@ -66,8 +67,8 @@ func TestBlueprintReleaseGraphRemovesInstance(t *testing.T) {
 	}
 
 	bp.ReleaseGraph(graphID)
-	if _, err := bp.Do(graphID, 1); err != nil {
-		t.Fatalf("Do after release returned error: %v", err)
+	if _, err := bp.Do(graphID, 1); !errors.Is(err, ErrGraphNotFound) {
+		t.Fatalf("Do after release error = %v, want ErrGraphNotFound", err)
 	}
 }
 
@@ -78,7 +79,7 @@ func TestBlueprintCreateMissingGraphReturnsZero(t *testing.T) {
 	}
 }
 
-func TestBlueprintCreateLazilyAllocatesTimerMap(t *testing.T) {
+func TestBlueprintCreateLazilyAllocatesRuntimeTimerMap(t *testing.T) {
 	var bp Blueprint
 	bp.AddCompiledGraph("test", &CompiledGraph{Entrances: map[int64]*ExecNode{}})
 
@@ -86,8 +87,8 @@ func TestBlueprintCreateLazilyAllocatesTimerMap(t *testing.T) {
 	if graphID == 0 {
 		t.Fatalf("Create returned 0")
 	}
-	if bp.instances[graphID].timers != nil {
-		t.Fatalf("Create allocated timers map before a timer was registered")
+	if bp.instances[graphID].runtimeTimers != nil {
+		t.Fatalf("Create allocated runtime timer map before a timer was registered")
 	}
 }
 

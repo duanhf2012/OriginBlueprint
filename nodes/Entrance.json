@@ -54,30 +54,5 @@
 				"has_input": true,
 				"port_id": 3
 			}]
-	},
-  {
-		"name": "Entrance_Timer_000003",
-		"title": "Timer事件入口",
-		"package": "入口",
-		"description": "定时器到时事件",
-		"is_pure": true,
-		"inputs": [],
-		"outputs": [{
-				"name": "",
-				"type": "exec",
-				"port_id": 0
-			},{
-				"name": "定时器ID",
-				"type": "data",
-				"data_type": "Integer",
-				"has_input": true,
-				"port_id": 1
-			}, {
-				"name": "附加参数",
-				"type": "data",
-				"data_type": "Array",
-				"has_input": false,
-				"port_id": 2
-      }]
 	}
 ]

@@ -2,6 +2,8 @@
     [string]$OutputRoot = (Join-Path (Split-Path -Parent $PSScriptRoot) 'examples/verification-blueprints')
 )
 
+# Windows PowerShell 5 may decode UTF-8 scripts without a BOM using the system
+# code page. Run generate-verification-blueprints.cmd to guarantee UTF-8 input.
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
@@ -133,7 +135,7 @@ $localSignature = [ordered]@{
     outputs = @((Port 'result' '局部结果' 'integer'))
 }
 
-# 01: legacy 格式。三个入口分别形成整数、数组控制流和 Timer 事件路径。
+# 01: legacy 格式。两个入口分别形成整数与数组控制流。
 $legacyNodes = @(
     (LegacyNode 'entry_int' 'Entrance_IntParam_000001' 80 120),
     (LegacyNode 'sequence' 'Sequence' 310 120),
@@ -146,7 +148,6 @@ $legacyNodes = @(
     (LegacyNode 'switch' 'EqualSwitch' 760 510 @{ '1' = 7; '2' = @(1, 7, 9) }),
     (LegacyNode 'append_text' 'AppendStringReturn' 1000 510 @{ '1' = 'legacy-switch-hit' }),
     (LegacyNode 'entry_array' 'Entrance_ArrayParam_000002' 80 760),
-    (LegacyNode 'entry_timer' 'Entrance_Timer_000003' 80 930),
     (LegacyNode 'debug' 'DebugOutput' 320 760 @{ '1' = 9; '2' = 'legacy showcase'; '3' = @(1, 2) }),
     (LegacyNode 'sub' 'SubInt' 520 760 @{ '0' = 11; '1' = 4; '2' = $false }),
     (LegacyNode 'mul' 'MulInt' 720 760 @{ '0' = 3; '1' = 7 }),
@@ -184,7 +185,7 @@ $legacyEdges = @(
     (LegacyEdge 'mul' 0 'div' 0),
     (LegacyEdge 'div' 0 'mod' 0),
     (LegacyEdge 'mod' 0 'random' 0),
-    (LegacyEdge 'entry_timer' 0 'timer_debug' 0),
+    (LegacyEdge 'probability' 1 'timer_debug' 0),
     (LegacyEdge 'random' 0 'timer_debug' 1)
 )
 WriteArtifact '01_legacy_all_nodes_showcase.vgf' ([ordered]@{ graph_name = 'Legacy All Nodes Showcase'; time = '2026-07-11T00:00:00Z'; nodes = $legacyNodes; edges = $legacyEdges; groups = @(); variables = @() })
@@ -583,40 +584,73 @@ WriteArtifact '05_function_orchestrator.obp' (NativeDocument '函数编排主图
     (New-GraphGroup 'local-isolation' '同输入连续调用：局部状态必须隔离' 480 740 1100 250 @('local_call_a','local_sequence','local_call_b','local_return_a','local_return_b'))
 ))
 
-# 06: 定时器生命周期。正常入口创建/关闭，Timer 入口表示回调到达后的处理路径。
+# 06: 新定时器生命周期。Timer 直接绑定函数，不再使用 Timer 事件入口。
 $timerNodes = @(
-    (Node 'entry' 'origin.event.entry-two-integers' 80 130),
-    (Node 'sequence' 'origin.flow.sequence' 300 130 @{} @{ label = '定时器生命周期'; dynamicOutputCount = 2 }),
-    (Node 'params' 'origin.array.create-integer-new' 520 250 @{ items = @(7, 11, 13) }),
-    (Node 'create_timer' 'origin.timer.create' 540 80 @{ milliseconds = 250 }),
-    (Node 'debug_create' 'origin.debug.output' 780 80 @{ string = 'timer-created' }),
-    (Node 'close_timer' 'origin.timer.close' 1020 80),
-    (Node 'timer_entry' 'origin.event.timer' 80 520),
-    (Node 'timer_debug' 'origin.debug.output' 320 520 @{ string = 'timer-fired' }),
-    (Node 'timer_sequence' 'origin.flow.sequence' 560 520 @{} @{ label = 'Timer 结果序列'; dynamicOutputCount = 2 }),
-    (Node 'timer_call' 'origin.function.call' 820 520 @{ input_seed = 11 } (FunctionCallProperties 'functions/13_local_state_isolation.obpf' '局部状态隔离' $localSignature)),
-    (Node 'timer_result' 'origin.result.append-integer' 1110 520),
-    (Node 'timer_text' 'origin.literal.string' 820 700 @{ value = 'timer-event-path' }),
-    (Node 'timer_text_return' 'origin.result.append-string' 1110 700)
+    (Node 'entry' 'origin.event.entry-two-integers' 80 180),
+    (Node 'set_timer' 'origin.timer.set-by-function' 330 130 @{ time = 250; looping = $true; firstDelay = -1; input_seed = 11 } (FunctionProperties 'timer' 'functions/13_local_state_isolation.obpf' '局部状态隔离' $localSignature)),
+    (Node 'debug_create' 'origin.debug.output' 650 130 @{ string = 'timer-created' }),
+    (Node 'delay_before_pause' 'origin.flow.delay' 900 130 @{ duration = 500 }),
+    (Node 'pause_timer' 'origin.timer.pause' 1150 130),
+    (Node 'is_paused' 'origin.timer.is-paused' 1320 360),
+    (Node 'paused_branch' 'origin.flow.branch' 1420 130),
+    (Node 'paused_error_text' 'origin.literal.string' 1420 500 @{ value = 'timer-not-paused' }),
+    (Node 'paused_error_return' 'origin.result.append-string' 1680 430),
+    (Node 'delay_paused' 'origin.flow.delay' 1680 130 @{ duration = 100 }),
+    (Node 'unpause_timer' 'origin.timer.unpause' 1930 130),
+    (Node 'is_valid' 'origin.timer.is-valid' 2100 360),
+    (Node 'valid_branch' 'origin.flow.branch' 2180 130),
+    (Node 'invalid_error_text' 'origin.literal.string' 2180 500 @{ value = 'timer-handle-invalid' }),
+    (Node 'invalid_error_return' 'origin.result.append-string' 2440 430),
+    (Node 'delay_before_clear' 'origin.flow.delay' 2440 130 @{ duration = 300 }),
+    (Node 'remaining' 'origin.timer.remaining' 2600 360),
+    (Node 'elapsed' 'origin.timer.elapsed' 2850 360),
+    (Node 'add_timing' 'origin.math.add-integer' 3100 360),
+    (Node 'debug_timing' 'origin.debug.output' 3100 130),
+    (Node 'is_active' 'origin.timer.is-active' 3350 360),
+    (Node 'active_branch' 'origin.flow.branch' 3400 130),
+    (Node 'inactive_debug' 'origin.debug.output' 3650 300 @{ string = 'timer-inactive' }),
+    (Node 'clear_timer' 'origin.timer.clear' 3900 130 @{ cancelRunningCallback = $true }),
+    (Node 'result_text' 'origin.literal.string' 3900 340 @{ value = 'timer-lifecycle-complete' }),
+    (Node 'return_result' 'origin.result.append-string' 4170 130)
 )
 $timerLinks = @(
-    (Link 'entry' 'exec' 'sequence' 'exec'),
-    (Link 'sequence' 'then0' 'create_timer' 'exec'),
-    (Link 'params' 'array' 'create_timer' 'params'),
-    (Link 'create_timer' 'exec' 'debug_create' 'exec'),
-    (Link 'sequence' 'then1' 'close_timer' 'exec'),
-    (Link 'create_timer' 'timerId' 'close_timer' 'timerId'),
-    (Link 'timer_entry' 'exec' 'timer_debug' 'exec'),
-    (Link 'timer_debug' 'exec' 'timer_sequence' 'exec'),
-    (Link 'timer_sequence' 'then0' 'timer_call' 'exec'),
-    (Link 'timer_call' 'exec' 'timer_result' 'exec'),
-    (Link 'timer_call' 'output_result' 'timer_result' 'value'),
-    (Link 'timer_sequence' 'then1' 'timer_text_return' 'exec'),
-    (Link 'timer_text' 'value' 'timer_text_return' 'value')
+    (Link 'entry' 'exec' 'set_timer' 'exec'),
+    (Link 'set_timer' 'then' 'debug_create' 'exec'),
+    (Link 'debug_create' 'exec' 'delay_before_pause' 'exec'),
+    (Link 'delay_before_pause' 'completed' 'pause_timer' 'exec'),
+    (Link 'set_timer' 'timerHandle' 'pause_timer' 'timerHandle'),
+    (Link 'pause_timer' 'then' 'paused_branch' 'exec'),
+    (Link 'set_timer' 'timerHandle' 'is_paused' 'timerHandle'),
+    (Link 'is_paused' 'paused' 'paused_branch' 'condition'),
+    (Link 'paused_branch' 'true' 'delay_paused' 'exec'),
+    (Link 'paused_branch' 'false' 'paused_error_return' 'exec'),
+    (Link 'paused_error_text' 'value' 'paused_error_return' 'value'),
+    (Link 'delay_paused' 'completed' 'unpause_timer' 'exec'),
+    (Link 'set_timer' 'timerHandle' 'unpause_timer' 'timerHandle'),
+    (Link 'unpause_timer' 'then' 'valid_branch' 'exec'),
+    (Link 'set_timer' 'timerHandle' 'is_valid' 'timerHandle'),
+    (Link 'is_valid' 'valid' 'valid_branch' 'condition'),
+    (Link 'valid_branch' 'true' 'delay_before_clear' 'exec'),
+    (Link 'valid_branch' 'false' 'invalid_error_return' 'exec'),
+    (Link 'invalid_error_text' 'value' 'invalid_error_return' 'value'),
+    (Link 'delay_before_clear' 'completed' 'debug_timing' 'exec'),
+    (Link 'set_timer' 'timerHandle' 'remaining' 'timerHandle'),
+    (Link 'set_timer' 'timerHandle' 'elapsed' 'timerHandle'),
+    (Link 'remaining' 'remaining' 'add_timing' 'a'),
+    (Link 'elapsed' 'elapsed' 'add_timing' 'b'),
+    (Link 'add_timing' 'result' 'debug_timing' 'integer'),
+    (Link 'debug_timing' 'exec' 'active_branch' 'exec'),
+    (Link 'set_timer' 'timerHandle' 'is_active' 'timerHandle'),
+    (Link 'is_active' 'active' 'active_branch' 'condition'),
+    (Link 'active_branch' 'true' 'clear_timer' 'exec'),
+    (Link 'active_branch' 'false' 'inactive_debug' 'exec'),
+    (Link 'inactive_debug' 'exec' 'clear_timer' 'exec'),
+    (Link 'set_timer' 'timerHandle' 'clear_timer' 'timerHandle'),
+    (Link 'clear_timer' 'then' 'return_result' 'exec'),
+    (Link 'result_text' 'value' 'return_result' 'value')
 )
-WriteArtifact '06_timer_lifecycle.obp' (NativeDocument '定时器生命周期' $timerNodes $timerLinks @(
-    (New-GraphGroup 'timer-create-close' '常规入口：创建、观察与关闭定时器' 35 30 1250 330 @('entry','sequence','params','create_timer','debug_create','close_timer')),
-    (New-GraphGroup 'timer-event' 'Timer 事件入口：回调处理和函数调用' 35 470 1320 320 @('timer_entry','timer_debug','timer_sequence','timer_call','timer_result','timer_text','timer_text_return'))
+WriteArtifact '06_timer_lifecycle.obp' (NativeDocument '新定时器生命周期' $timerNodes $timerLinks @(
+    (New-GraphGroup 'timer-lifecycle' '按函数设置循环定时器：创建、暂停、恢复、查询与清除' 35 40 4400 620 @('entry','set_timer','debug_create','delay_before_pause','pause_timer','is_paused','paused_branch','paused_error_text','paused_error_return','delay_paused','unpause_timer','is_valid','valid_branch','invalid_error_text','invalid_error_return','delay_before_clear','remaining','elapsed','add_timing','debug_timing','is_active','active_branch','inactive_debug','clear_timer','result_text','return_result'))
 ))
 
 $coverage = [ordered]@{
@@ -625,9 +659,8 @@ $coverage = [ordered]@{
     nodes = [ordered]@{
         'origin.event.entry-array' = @('03_array_data_lab.obp:visual')
         'origin.event.entry-two-integers' = @('02_control_flow_maze.obp:execution','04_deterministic_algorithm.obp:execution','05_function_orchestrator.obp:execution','06_timer_lifecycle.obp:async')
-        'origin.event.timer' = @('06_timer_lifecycle.obp:async')
         'origin.debug.output' = @('01_legacy_all_nodes_showcase.vgf:visual','04_deterministic_algorithm.obp:visual','06_timer_lifecycle.obp:async')
-        'origin.cast.integer-string' = @('03_array_data_lab.obp:visual','04_deterministic_algorithm.obp:visual')
+        'origin.cast.integer-string' = @('04_deterministic_algorithm.obp:visual')
         'origin.cast.float-string' = @('04_deterministic_algorithm.obp:visual')
         'origin.cast.any-string' = @('02_control_flow_maze.obp:visual','03_array_data_lab.obp:visual')
         'origin.literal.string' = @('03_array_data_lab.obp:visual','functions/10_score_kernel.obpf:visual')
@@ -668,14 +701,22 @@ $coverage = [ordered]@{
         'origin.array.append-integer' = @('03_array_data_lab.obp:execution')
         'origin.result.append-integer' = @('01_legacy_all_nodes_showcase.vgf:execution','02_control_flow_maze.obp:execution','04_deterministic_algorithm.obp:execution')
         'origin.result.append-string' = @('01_legacy_all_nodes_showcase.vgf:execution','02_control_flow_maze.obp:execution','04_deterministic_algorithm.obp:execution')
-        'origin.timer.create' = @('06_timer_lifecycle.obp:async')
-        'origin.timer.close' = @('06_timer_lifecycle.obp:async')
+        'origin.flow.delay' = @('06_timer_lifecycle.obp:async')
+        'origin.timer.set-by-function' = @('06_timer_lifecycle.obp:async')
+        'origin.timer.clear' = @('06_timer_lifecycle.obp:async')
+        'origin.timer.pause' = @('06_timer_lifecycle.obp:async')
+        'origin.timer.unpause' = @('06_timer_lifecycle.obp:async')
+        'origin.timer.is-active' = @('06_timer_lifecycle.obp:async')
+        'origin.timer.is-paused' = @('06_timer_lifecycle.obp:async')
+        'origin.timer.is-valid' = @('06_timer_lifecycle.obp:async')
+        'origin.timer.remaining' = @('06_timer_lifecycle.obp:async')
+        'origin.timer.elapsed' = @('06_timer_lifecycle.obp:async')
         'origin.string.split' = @('03_array_data_lab.obp:visual')
         'origin.variable.get' = @('03_array_data_lab.obp:visual','functions/13_local_state_isolation.obpf:visual')
         'origin.variable.set' = @('03_array_data_lab.obp:visual','functions/13_local_state_isolation.obpf:visual')
         'origin.function.entry' = @('functions/10_score_kernel.obpf:visual','functions/11_array_fold_and_format.obpf:visual','functions/12_nested_control_function.obpf:visual','functions/13_local_state_isolation.obpf:visual')
         'origin.function.return' = @('functions/10_score_kernel.obpf:execution','functions/11_array_fold_and_format.obpf:execution','functions/12_nested_control_function.obpf:execution','functions/13_local_state_isolation.obpf:execution')
-        'origin.function.call' = @('05_function_orchestrator.obp:execution','06_timer_lifecycle.obp:async','functions/11_array_fold_and_format.obpf:visual')
+        'origin.function.call' = @('05_function_orchestrator.obp:execution','functions/11_array_fold_and_format.obpf:visual')
     }
 }
 WriteArtifact 'coverage.json' $coverage
@@ -693,7 +734,7 @@ $readme = @'
 4. `04_deterministic_algorithm.obp`：确认算术、浮点、比较、Branch、Range、Switch 和固定随机数的端口。
 5. 打开 `functions/` 下四个 `.obpf`：确认函数入口/返回的参数名、类型和函数内变量显示。
 6. `05_function_orchestrator.obp`：确认外部函数调用节点的输入输出端口，以及连续两次调用局部状态函数的可读性。
-7. `06_timer_lifecycle.obp`：确认普通入口、Timer 入口、创建和关闭定时器节点的显示；本阶段不要实际依赖它的计时结果。
+7. `06_timer_lifecycle.obp`：确认 Delay、按函数设置定时器、暂停、恢复、状态查询和清除节点的显示与完整连线。
 
 ## 关键预期
 
@@ -702,6 +743,16 @@ $readme = @'
 - 图中每个分组标题应完整可读，节点不应重叠遮挡端口。
 - `13_local_state_isolation.obpf` 的变量属于函数局部状态；`05_function_orchestrator.obp` 连续调用它两次，是后续隔离验证的样本入口。
 - `coverage.json` 记录全部当前系统节点的样本位置和阶段覆盖范围。
+
+## 重新生成
+
+在仓库根目录运行：
+
+```powershell
+.\scripts\generate-verification-blueprints.cmd
+```
+
+请勿在 Windows PowerShell 5 中直接执行 `.ps1`；它可能用系统代码页误读无 BOM 的 UTF-8 中文文本。
 
 ## 后续阶段
 

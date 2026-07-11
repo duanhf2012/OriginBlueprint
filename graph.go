@@ -190,6 +190,14 @@ func functionNodePortDefinition(node GraphNode) portDefinition {
 	return portDefinition{Inputs: inputs, Outputs: outputs}
 }
 
+func timerFunctionNodePortDefinition(node GraphNode) portDefinition {
+	inputs := map[string]string{"exec": "exec", "time": "integer", "looping": "boolean", "firstDelay": "integer"}
+	for index, port := range node.Properties.FunctionSignature.Inputs {
+		inputs[functionPortKey("input", port, index)] = port.Type
+	}
+	return portDefinition{Inputs: inputs, Outputs: map[string]string{"then": "exec", "timerHandle": "timerhandle"}}
+}
+
 var graphNodePorts = map[string]portDefinition{
 	"origin.event.begin": {
 		Outputs: map[string]string{"exec": "exec"},
@@ -282,15 +290,15 @@ var graphNodePorts = map[string]portDefinition{
 	"origin.event.entry-two-integers": {
 		Outputs: map[string]string{"exec": "exec", "objectId": "integer", "param1": "integer", "param2": "integer"},
 	},
-	"origin.event.timer": {
-		Outputs: map[string]string{"exec": "exec", "timerId": "integer", "params": "array"},
-	},
-	"origin.timer.create": {
-		Inputs: map[string]string{"exec": "exec", "milliseconds": "integer", "params": "array"}, Outputs: map[string]string{"exec": "exec", "timerId": "integer"},
-	},
-	"origin.timer.close": {
-		Inputs: map[string]string{"exec": "exec", "timerId": "integer"}, Outputs: map[string]string{"exec": "exec"},
-	},
+	"origin.flow.delay":      {Inputs: map[string]string{"exec": "exec", "duration": "integer"}, Outputs: map[string]string{"completed": "exec"}},
+	"origin.timer.clear":     {Inputs: map[string]string{"exec": "exec", "timerHandle": "timerhandle", "cancelRunningCallback": "boolean"}, Outputs: map[string]string{"then": "exec", "success": "boolean"}},
+	"origin.timer.pause":     {Inputs: map[string]string{"exec": "exec", "timerHandle": "timerhandle"}, Outputs: map[string]string{"then": "exec", "success": "boolean"}},
+	"origin.timer.unpause":   {Inputs: map[string]string{"exec": "exec", "timerHandle": "timerhandle"}, Outputs: map[string]string{"then": "exec", "success": "boolean"}},
+	"origin.timer.is-active": {Inputs: map[string]string{"timerHandle": "timerhandle"}, Outputs: map[string]string{"active": "boolean"}},
+	"origin.timer.is-paused": {Inputs: map[string]string{"timerHandle": "timerhandle"}, Outputs: map[string]string{"paused": "boolean"}},
+	"origin.timer.is-valid":  {Inputs: map[string]string{"timerHandle": "timerhandle"}, Outputs: map[string]string{"valid": "boolean"}},
+	"origin.timer.remaining": {Inputs: map[string]string{"timerHandle": "timerhandle"}, Outputs: map[string]string{"remaining": "integer"}},
+	"origin.timer.elapsed":   {Inputs: map[string]string{"timerHandle": "timerhandle"}, Outputs: map[string]string{"elapsed": "integer"}},
 	"origin.flow.foreach-integer-array": {
 		Inputs: map[string]string{"exec": "exec", "array": "array"}, Outputs: map[string]string{"body": "exec", "completed": "exec", "index": "integer", "value": "integer"},
 	},
@@ -391,7 +399,7 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 
 	variables := make(map[string]GraphVariable, len(document.Variables))
 	variableNames := make(map[string]bool, len(document.Variables))
-	variableTypes := map[string]bool{"boolean": true, "integer": true, "float": true, "string": true, "array": true}
+	variableTypes := map[string]bool{"boolean": true, "integer": true, "float": true, "string": true, "array": true, "timerhandle": true}
 	variableGroups := map[string]bool{"default": true}
 	variableGroupNames := map[string]bool{"Default": true}
 	for _, group := range document.VariableGroups {
@@ -462,6 +470,18 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 		if strings.HasPrefix(node.TypeID, "origin.function.") {
 			definition = functionNodePortDefinition(node)
 			known = true
+		}
+		if node.TypeID == "origin.timer.set-by-function" {
+			definition = timerFunctionNodePortDefinition(node)
+			known = true
+			if strings.TrimSpace(node.Properties.FunctionID) == "" {
+				issues = append(issues, ValidationIssue{
+					Severity: "error",
+					Code:     "timer.function-missing",
+					Message:  "按函数设置定时器节点尚未选择回调函数",
+					NodeID:   node.ID,
+				})
+			}
 		}
 		if node.TypeID == "origin.variable.get" || node.TypeID == "origin.variable.set" {
 			variable, exists := variables[node.Properties.VariableID]

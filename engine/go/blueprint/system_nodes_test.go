@@ -30,8 +30,9 @@ func TestBuiltinFactoriesCoverAllTopLevelNodeDefinitions(t *testing.T) {
 	for _, name := range []string{
 		"GetArrayInt", "GetArrayString", "GetArrayLen", "CreateIntArray", "CreateStringArray",
 		"AppendStringToArray", "AppendIntegerToArray", "AppendIntReturn", "AppendStringReturn",
-		"Entrance_ArrayParam", "Entrance_IntParam", "Entrance_Timer",
-		"CreateTimer", "CloseTimer",
+		"Entrance_ArrayParam", "Entrance_IntParam",
+		"Delay", "SetTimerByFunction", "ClearTimer", "PauseTimer", "UnpauseTimer",
+		"IsTimerActive", "IsTimerPaused", "IsTimerValid", "GetTimerRemaining", "GetTimerElapsed",
 		"AddInt", "SubInt", "MulInt", "DivInt", "ModInt", "RandNumber",
 		"Sequence", "Foreach", "ForeachIntArray", "BoolIf", "GreaterThanInteger",
 		"LessThanInteger", "EqualInteger", "RangeCompare", "EqualSwitch", "Probability",
@@ -73,9 +74,16 @@ func TestTopLevelSystemNodeBehaviorCoverage(t *testing.T) {
 		"IntInArray":           true,
 		"Entrance_ArrayParam":  true,
 		"Entrance_IntParam":    true,
-		"Entrance_Timer":       true,
-		"CreateTimer":          true,
-		"CloseTimer":           true,
+		"Delay":                true,
+		"SetTimerByFunction":   true,
+		"ClearTimer":           true,
+		"PauseTimer":           true,
+		"UnpauseTimer":         true,
+		"IsTimerActive":        true,
+		"IsTimerPaused":        true,
+		"IsTimerValid":         true,
+		"GetTimerRemaining":    true,
+		"GetTimerElapsed":      true,
 		"DebugOutput":          true,
 	}
 
@@ -210,30 +218,14 @@ func TestBuiltinBranchNodes(t *testing.T) {
 	assertNextIndex(t, &Probability{}, []IPort{NewPortExec(), intPort(10000)}, 1)
 }
 
-func TestBuiltinEntranceTimerAndDebugNodes(t *testing.T) {
-	for _, node := range []IExecNode{&EntranceIntParam{}, &EntranceArrayParam{}, &EntranceTimer{}, &DebugOutput{}} {
+func TestBuiltinEntranceAndDebugNodes(t *testing.T) {
+	for _, node := range []IExecNode{&EntranceIntParam{}, &EntranceArrayParam{}, &DebugOutput{}} {
 		t.Run(node.GetName(), func(t *testing.T) {
 			bindNode(t, node, nil, []IPort{NewPortExec()})
 			if next, err := node.Exec(); err != nil || next != 0 {
 				t.Fatalf("%s Exec = %d,%v want 0,nil", node.GetName(), next, err)
 			}
 		})
-	}
-
-	timer := &CreateTimer{}
-	timerCtx := bindNode(t, timer, []IPort{NewPortExec(), intPort(1000), arrayPort(7)}, []IPort{NewPortExec(), NewPortInt()})
-	if next, err := timer.Exec(); err != nil || next != 0 {
-		t.Fatalf("CreateTimer Exec = %d,%v want 0,nil", next, err)
-	}
-	timerID, ok := timerCtx.OutputPorts[1].GetInt()
-	if !ok || timerID == 0 {
-		t.Fatalf("CreateTimer timer id = %d,%v want non-zero,true", timerID, ok)
-	}
-
-	closeTimer := &CloseTimer{}
-	bindNodeWithGraph(t, closeTimer, timer.graph, []IPort{NewPortExec(), intPort(timerID)}, []IPort{NewPortExec()})
-	if next, err := closeTimer.Exec(); err != nil || next != 0 {
-		t.Fatalf("CloseTimer Exec = %d,%v want 0,nil", next, err)
 	}
 }
 

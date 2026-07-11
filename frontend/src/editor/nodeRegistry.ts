@@ -21,19 +21,23 @@ const sockets = {
   string: new ClassicPreset.Socket('string'),
   float: new ClassicPreset.Socket('float'),
   array: new ClassicPreset.Socket('array'),
-  any: new ClassicPreset.Socket('any')
+  any: new ClassicPreset.Socket('any'),
+  timerhandle: new ClassicPreset.Socket('timerhandle')
 }
 
 type SocketType = keyof typeof sockets
 type PortKind = SocketType | 'data'
-export interface PortSchema { key: string; label: string; type: PortKind; data_type?: string; defaultValue?: unknown; arrayItemType?: 'string' | 'number'; hideIcon?: boolean }
+export interface PortSchema { key: string; label: string; labelEn?: string; type: PortKind; data_type?: string; defaultValue?: unknown; arrayItemType?: 'string' | 'number'; hideIcon?: boolean }
 export interface NodeSchema {
   id: string
   sourceName?: string
   title: string
+  titleEn?: string
   category: string
+  categoryEn?: string
   kind?: NodeKind
   subtitle?: string
+  subtitleEn?: string
   width?: number
   inputs?: PortSchema[]
   outputs?: PortSchema[]
@@ -43,11 +47,12 @@ export interface NodeSchema {
 }
 
 let allNodeDefinitions: NodeDefinition[] = []
-const hiddenNodeTypes = new Set(['origin.event.timer', 'origin.timer.create', 'origin.timer.close'])
+const hiddenNodeTypes = new Set<string>()
 export let nodeDefinitions: NodeDefinition[] = []
 
 function input(socket: ClassicPreset.Socket, label: string, value?: unknown, arrayItemType: 'string' | 'number' = 'string') {
   const port = new ClassicPreset.Input(socket, label)
+	if (socket.name === 'timerhandle') return port
   if (Array.isArray(value)) {
     port.addControl(new ArrayControl(arrayItemType, value))
   } else if (value !== undefined) {
@@ -97,6 +102,9 @@ function socketTypeForDataType(value?: string): SocketType {
     case 'array':
     case 'list':
       return 'array'
+    case 'timerhandle':
+    case 'timer_handle':
+      return 'timerhandle'
     case 'any':
     default:
       return 'any'
@@ -130,7 +138,11 @@ function isLegacyEntryClass(value?: string) {
   return String(value ?? '').trim().toLowerCase().startsWith('entrance_')
 }
 
-function fromSchema(schema: NodeSchema): NodeDefinition {
+function fromSchema(schema: NodeSchema, locale: string): NodeDefinition {
+  const english = locale === 'en-US'
+  const title = english ? schema.titleEn || schema.title : schema.title
+  const category = english ? schema.categoryEn || schema.category : schema.category
+  const subtitle = english ? schema.subtitleEn || schema.subtitle : schema.subtitle
   const kind = inferKind(schema)
   const ordinaryEntry = isOrdinaryEntrySchema(schema, kind)
   const dynamicBranch = schema.dynamicBranch ? {
@@ -141,13 +153,13 @@ function fromSchema(schema: NodeSchema): NodeDefinition {
   return {
     id: schema.id,
     sourceName: schema.sourceName,
-    title: schema.title,
-    category: schema.category,
-    description: schema.subtitle,
+    title,
+    category,
+    description: subtitle,
     kind,
     ordinaryEntry,
     create() {
-      const result = node(schema.id, schema.title, kind, schema.subtitle ?? schema.category, schema.width ?? 230)
+      const result = node(schema.id, title, kind, subtitle ?? category, schema.width ?? 230)
       if (ordinaryEntry) {
         result.entrySourceKey = schema.sourceName || schema.id
         result.entrySourceColor = entrySourceColor(schema.sourceName || schema.id)
@@ -158,12 +170,12 @@ function fromSchema(schema: NodeSchema): NodeDefinition {
       for (const port of schema.inputs ?? []) {
         const socketType = socketTypeForPort(port)
         const defaultValue = dynamicBranch?.controlInput === port.key && port.defaultValue === undefined ? [] : port.defaultValue
-        result.addInput(port.key, input(sockets[socketType] ?? sockets.any, port.label, defaultValue, port.arrayItemType))
+        result.addInput(port.key, input(sockets[socketType] ?? sockets.any, english ? port.labelEn || port.label : port.label, defaultValue, port.arrayItemType))
       }
       for (const port of schema.outputs ?? []) {
         if (dynamicBranch && port.key.startsWith(dynamicBranch.outputPrefix)) continue
         const socketType = socketTypeForPort(port)
-        result.addOutput(port.key, new ClassicPreset.Output(sockets[socketType] ?? sockets.any, port.label))
+        result.addOutput(port.key, new ClassicPreset.Output(sockets[socketType] ?? sockets.any, english ? port.labelEn || port.label : port.label))
       }
       return result
     }
@@ -178,11 +190,11 @@ export function getNodeDefinitions() {
   return nodeDefinitions
 }
 
-export function registerNodeSchemas(schemas: NodeSchema[]) {
+export function registerNodeSchemas(schemas: NodeSchema[], locale = 'zh-CN') {
   const byId = new Map<string, NodeDefinition>()
   for (const schema of schemas) {
     if (!schema.id || !schema.title) continue
-    byId.set(schema.id, fromSchema(schema))
+    byId.set(schema.id, fromSchema(schema, locale))
   }
   allNodeDefinitions = Array.from(byId.values())
   nodeDefinitions = visibleNodeDefinitions()
@@ -222,6 +234,8 @@ function functionDefaultValue(type: FunctionSignaturePort['type']) {
       return 0
     case 'array':
       return []
+	case 'timerhandle':
+		return undefined
     case 'string':
     default:
       return ''
@@ -266,6 +280,42 @@ export function createFunctionCallNode(metadata: FunctionNodeMetadata) {
     result.addOutput(functionPortKey('output', port, index), new ClassicPreset.Output(functionSocket(port.type), port.name))
   }
   applyFunctionMetadata(result, spec)
+  return result
+}
+
+export function applyTimerFunctionMetadata(node: BlueprintNode, metadata?: FunctionNodeMetadata) {
+  for (const key of Object.keys(node.inputs)) {
+    if (key.startsWith('input_')) node.removeInput(key)
+  }
+  if (!metadata) {
+    node.functionRole = 'timer'
+    node.functionId = ''
+    node.functionName = ''
+    node.functionSignature = { inputs: [], outputs: [] }
+    return
+  }
+  const spec = normalizedFunctionMetadata({ ...metadata, functionRole: 'timer' })
+  applyFunctionMetadata(node, spec)
+  for (const [index, port] of spec.functionSignature?.inputs.entries() ?? []) {
+    node.addInput(functionPortKey('input', port, index), input(functionSocket(port.type), port.name, functionDefaultValue(port.type), functionArrayItemType(port.type)))
+  }
+}
+
+export function createSetTimerByFunctionNode(options: FunctionNodeMetadata[], selected?: FunctionNodeMetadata, locale = 'zh-CN', onSelect?: (node: BlueprintNode, functionId: string) => void) {
+  const english = locale === 'en-US'
+  const result = node('origin.timer.set-by-function', english ? 'Set Timer by Function' : '按函数设置定时器', 'flow', english ? 'Call a blueprint function on a timer' : '定时调用指定蓝图函数', 285)
+  result.addInput('exec', input(sockets.exec, ''))
+  result.addInput('time', input(sockets.integer, english ? 'Time (ms)' : '时间（毫秒）', 1000))
+  result.addInput('looping', input(sockets.boolean, english ? 'Looping' : '循环', false))
+  result.addInput('firstDelay', input(sockets.integer, english ? 'First Delay (ms)' : '首次延迟（毫秒）', -1))
+  result.addOutput('then', new ClassicPreset.Output(sockets.exec, 'Then'))
+  result.addOutput('timerHandle', new ClassicPreset.Output(sockets.timerhandle, english ? 'Timer Handle' : '定时器句柄'))
+  result.functionOptions = options.map(item => ({ id: item.functionId, label: item.functionName }))
+  result.functionSelectorLabel = english ? 'Callback Function' : '回调函数'
+  result.functionMissingLabel = english ? 'Missing function' : '函数不存在'
+  result.onFunctionSelect = functionId => onSelect?.(result, functionId)
+  applyTimerFunctionMetadata(result, selected)
+  result.functionReferenceMissing = Boolean(result.functionId && !result.functionOptions.some(option => option.id === result.functionId))
   return result
 }
 

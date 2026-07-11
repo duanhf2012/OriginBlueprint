@@ -1,6 +1,7 @@
 package blueprint
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -33,8 +34,8 @@ func TestSleepNodeResumesAfterDelay(t *testing.T) {
 	record.BeConnect = true
 
 	graph := NewGraph(&CompiledGraph{Entrances: map[int64]*ExecNode{1: entrance}})
-	if _, err := graph.Do(1); err != nil {
-		t.Fatalf("Do failed: %v", err)
+	if _, err := graph.Do(1); err != ErrExecutionSuspended {
+		t.Fatalf("Do error = %v, want ErrExecutionSuspended", err)
 	}
 	select {
 	case <-done:
@@ -61,10 +62,17 @@ func TestReleaseGraphPreventsSleepContinuation(t *testing.T) {
 	record.BeConnect = true
 
 	var bp Blueprint
+	dispatcher := &manualExecutionDispatcher{}
+	bp.SetExecutionDispatcher(dispatcher)
 	bp.AddCompiledGraph("sleep", &CompiledGraph{Entrances: map[int64]*ExecNode{1: entrance}, NodeCount: 3})
 	graphID := bp.Create("sleep")
-	if _, err := bp.Do(graphID, 1); err != nil {
+	execution, err := bp.Start(context.Background(), graphID, 1)
+	if err != nil {
 		t.Fatal(err)
+	}
+	dispatcher.runNext(t)
+	if execution.State() != ExecutionSuspended {
+		t.Fatalf("state = %v, want suspended", execution.State())
 	}
 	bp.ReleaseGraph(graphID)
 	select {
@@ -76,7 +84,7 @@ func TestReleaseGraphPreventsSleepContinuation(t *testing.T) {
 
 func TestContinuationResumeReturnsGraphReleased(t *testing.T) {
 	instance := &GraphInstance{releasedCh: make(chan struct{})}
-	instance.markReleasedAndDrainTimers()
+	instance.markReleased()
 	continuation := &Continuation{graph: &Graph{instance: instance}}
 	if err := continuation.Resume(); err != ErrGraphReleased {
 		t.Fatalf("Resume error = %v, want ErrGraphReleased", err)

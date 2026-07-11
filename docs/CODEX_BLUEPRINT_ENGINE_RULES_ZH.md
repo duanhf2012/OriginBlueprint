@@ -8,15 +8,15 @@
 - C#、Lua engine 暂不处理。
 - `nodes/*.json` 是基础系统节点定义，需要覆盖。
 - `nodes/json/**` 是业务节点定义，当前明确忽略，除非用户单独要求。
-- RPC 业务节点暂不实现；异步能力先通过 sleep/timer/continuation 覆盖。
+- RPC 业务节点暂不实现；异步能力通过 Execution、Delay、按函数 Timer 和 continuation 覆盖。
 - 文件、表格、字典相关蓝图数据类型和节点已经删除，不得无意恢复。
 
 ## 2. 核心架构规则
 
 - `CompiledGraph` 是编译后的共享执行树。
 - `ExecNode` 和 `NodeDefinition` 是编译期构建、执行期只读的结构。
-- 每个 `Blueprint.Create` 实例拥有自己的变量和 timer 状态。
-- 每次 `Blueprint.Do` 会创建一个私有 `Graph` execution session。
+- 每个 `Blueprint.Create` 实例拥有自己的变量和 Timer 注册表。
+- 每次 `Blueprint.Start`、`Blueprint.Do` 或 `Blueprint.DoContext` 都会创建私有 `Graph` execution session。
 - `Graph` 保存本次执行的 transient context、returns、functionResults 和 continuation 状态。
 - 不要把单次执行状态写回 `CompiledGraph`、`ExecNode` 或 `NodeDefinition`。
 - 不要直接复用同一个 `Graph` 做并发执行；服务器侧并发应通过 `Blueprint.Do`。
@@ -25,9 +25,12 @@
 
 - `Blueprint` 是对外并发安全 facade。
 - `Blueprint.graphs`、`Blueprint.instances`、热更新替换、创建、释放、查询和执行入口必须受 `RWMutex` 保护。
-- `Blueprint.Do` 应在读锁内复制 `GraphInstance` 快照，然后释放锁再执行，避免长时间持锁。
+- `Blueprint.Start` 应在读锁内捕获 `GraphInstance` 快照，然后释放锁并提交 Dispatcher，调用方 goroutine 不执行用户节点。
+- `Blueprint.Do` 和 `Blueprint.DoContext` 只作为等待 `Execution.Done()` 的阻塞便利封装；服务器事件循环应使用 `Start`。
 - `GraphInstance` 通过可替换的 runtime state 持有 compiled graph、变量表和对应的变量锁；一次执行只捕获一个 state 指针。
-- `GraphInstance.timers` 通过 `timerMu` 保护。
+- `GraphInstance.runtimeTimers` 通过 `timerMu` 保护；Scheduler 回调不得持有该锁执行蓝图函数。
+- Delay 与 Timer 共用可注入的最小堆 Scheduler，不得为每个等待任务创建 goroutine。
+- Timer 回调必须通过 Dispatcher 启动独立函数 Execution；循环 Timer 的同一句柄回调不得重入。
 - continuation 自身必须保证只 resume 一次。
 - 异步挂起后，原 goroutine 不应继续读取可能被回调 goroutine 修改的 session 状态。
 - 自定义节点如果持有共享状态，需要由节点实现方自行加锁。

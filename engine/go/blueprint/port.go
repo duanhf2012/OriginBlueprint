@@ -46,6 +46,7 @@ const (
 	portKindBool
 	portKindArray
 	portKindAny
+	portKindTimerHandle
 )
 
 // IPort 是蓝图端口的统一访问接口。
@@ -60,6 +61,7 @@ type IPort interface {
 	GetStr() (PortString, bool)
 	GetBool() (PortBool, bool)
 	GetArray() (PortArray, bool)
+	GetTimerHandle() (TimerHandle, bool)
 	GetArrayLen() PortInt
 	GetArrayValInt(int) (PortInt, bool)
 	GetArrayValStr(int) (PortString, bool)
@@ -67,6 +69,7 @@ type IPort interface {
 	SetFloat(PortFloat) bool
 	SetStr(PortString) bool
 	SetBool(PortBool) bool
+	SetTimerHandle(TimerHandle) bool
 	AppendArrayValInt(PortInt) bool
 	AppendArrayValStr(PortString) bool
 	GetAny() any
@@ -83,6 +86,7 @@ type Port struct {
 	boolv  PortBool
 	arrv   PortArray
 	anyv   any
+	timerv TimerHandle
 }
 
 // NewPortExec 创建执行流端口。
@@ -120,6 +124,10 @@ func NewPortAny() IPort {
 	return &Port{kind: portKindAny}
 }
 
+func NewPortTimerHandle() IPort {
+	return &Port{kind: portKindTimerHandle}
+}
+
 func (p *Port) Clone() IPort {
 	if p == nil {
 		return nil
@@ -153,6 +161,7 @@ func (p *Port) SetValue(source IPort) {
 	p.boolv = sourcePort.boolv
 	p.arrv = append(p.arrv[:0], sourcePort.arrv...)
 	p.anyv = cloneAnyValue(sourcePort.anyv)
+	p.timerv = sourcePort.timerv
 }
 
 func assignPortValue(target, source IPort) error {
@@ -192,6 +201,8 @@ func assignPortValue(target, source IPort) error {
 		targetPort.boolv = sourcePort.boolv
 	case portKindArray:
 		targetPort.arrv = append(targetPort.arrv[:0], sourcePort.arrv...)
+	case portKindTimerHandle:
+		targetPort.timerv = sourcePort.timerv
 	default:
 		return fmt.Errorf("unknown port kind %d", targetPort.kind)
 	}
@@ -231,6 +242,13 @@ func (p *Port) GetArray() (PortArray, bool) {
 		return nil, false
 	}
 	return p.arrv, true
+}
+
+func (p *Port) GetTimerHandle() (TimerHandle, bool) {
+	if p == nil || p.kind != portKindTimerHandle {
+		return TimerHandle{}, false
+	}
+	return p.timerv, true
 }
 
 func (p *Port) GetArrayLen() PortInt {
@@ -283,6 +301,14 @@ func (p *Port) SetBool(value PortBool) bool {
 		return false
 	}
 	p.boolv = value
+	return true
+}
+
+func (p *Port) SetTimerHandle(value TimerHandle) bool {
+	if p == nil || p.kind != portKindTimerHandle {
+		return false
+	}
+	p.timerv = value
 	return true
 }
 
@@ -362,6 +388,13 @@ func (p *Port) setAnyValue(value any) error {
 		return nil
 	case portKindAny:
 		p.anyv = cloneAnyValue(value)
+		return nil
+	case portKindTimerHandle:
+		handle, ok := value.(TimerHandle)
+		if !ok {
+			return fmt.Errorf("port expects TimerHandle, got %T", value)
+		}
+		p.timerv = handle
 		return nil
 	case portKindExec:
 		return fmt.Errorf("can not assign data to exec port")

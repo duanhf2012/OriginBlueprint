@@ -158,8 +158,8 @@ func TestFunctionCallContinuesAfterAsyncFunctionReturn(t *testing.T) {
 	}
 
 	graph := NewGraph(mainGraph)
-	if _, err := graph.Do(1); err != nil {
-		t.Fatalf("Do failed: %v", err)
+	if _, err := graph.Do(1); err != ErrExecutionSuspended {
+		t.Fatalf("Do error = %v, want ErrExecutionSuspended", err)
 	}
 	if len(recorder.snapshot()) != 0 {
 		t.Fatalf("recorder ran before async function returned")

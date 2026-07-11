@@ -7,6 +7,8 @@ import { socketClassName, socketStyle } from './socketTheme'
 
 const props = defineProps<{ data: BlueprintNode; emit: (signal: unknown) => void }>()
 const branchRevision = ref(0)
+const timerFunctionOpen = ref(false)
+const timerFunctionQuery = ref('')
 const inputs = computed(() => Object.entries(props.data.inputs).filter((entry): entry is [string, NonNullable<typeof entry[1]>] => Boolean(entry[1])))
 const hiddenOutputKeys = computed(() => new Set(props.data.dynamicBranch?.hiddenOutputKeys ?? []))
 const outputs = computed(() => Object.entries(props.data.outputs).filter((entry): entry is [string, NonNullable<typeof entry[1]>] => Boolean(entry[1]) && !hiddenOutputKeys.value.has(entry[0]) && !isOverflowBranchOutput(entry[0])))
@@ -178,15 +180,79 @@ function removeBranch(index: number) {
   values.splice(index, 1)
   setBranchValues(values, true)
 }
+
+const selectedTimerFunction = computed(() => props.data.functionOptions?.find(option => option.id === props.data.functionId))
+const timerFunctionDisplay = computed(() => {
+  if (selectedTimerFunction.value) return selectedTimerFunction.value.label
+  if (props.data.functionReferenceMissing && props.data.functionName) return `${props.data.functionName} (${props.data.functionMissingLabel})`
+  return props.data.functionSelectorLabel
+})
+const filteredTimerFunctions = computed(() => {
+  const query = timerFunctionQuery.value.trim().toLocaleLowerCase()
+  if (!query) return props.data.functionOptions ?? []
+  return (props.data.functionOptions ?? []).filter(option => option.label.toLocaleLowerCase().includes(query))
+})
+
+function openTimerFunctionSelector() {
+  timerFunctionQuery.value = ''
+  timerFunctionOpen.value = true
+}
+
+function closeTimerFunctionSelector() {
+  window.setTimeout(() => { timerFunctionOpen.value = false }, 100)
+}
+
+function selectTimerFunction(functionId: string) {
+  const option = props.data.functionOptions?.find(item => item.id === functionId)
+  timerFunctionQuery.value = option?.label ?? ''
+  timerFunctionOpen.value = false
+  props.data.onFunctionSelect?.(functionId)
+}
+
+function handleTimerFunctionKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') {
+    timerFunctionOpen.value = false
+    return
+  }
+  if (event.key === 'Enter' && filteredTimerFunctions.value[0]) {
+    event.preventDefault()
+    selectTimerFunction(filteredTimerFunctions.value[0].id)
+  }
+}
 </script>
 
 <template>
-  <article class="blueprint-node" :class="[`kind-${data.kind ?? 'function'}`, { selected: data.selected, compact: data.compact, legacy: Boolean(data.legacyStyle), 'has-entry-binding': hasEntryBinding, 'reference-highlighted': data.referenceHighlighted, 'issue-highlighted': data.issueHighlighted }]" :style="nodeStyle">
+  <article class="blueprint-node" :class="[`kind-${data.kind ?? 'function'}`, { selected: data.selected, compact: data.compact, legacy: Boolean(data.legacyStyle), 'has-entry-binding': hasEntryBinding, 'reference-highlighted': data.referenceHighlighted, 'issue-highlighted': data.issueHighlighted, 'missing-reference': data.functionReferenceMissing }]" :style="nodeStyle">
     <header class="blueprint-title">
       <span class="node-icon">&#9670;</span>
       <span class="title-text">{{ data.label }}</span>
       <span v-if="data.dynamicOutputs" class="dynamic-actions"><button @pointerdown.stop.prevent="changeOutputs(-1, $event)">-</button><button @pointerdown.stop.prevent="changeOutputs(1, $event)">+</button></span>
     </header>
+
+    <label v-if="data.typeId === 'origin.timer.set-by-function'" class="function-selector" @pointerdown.stop @dblclick.stop>
+      <span>{{ data.functionSelectorLabel }}</span>
+      <span class="function-selector-combo">
+        <input
+          v-model="timerFunctionQuery"
+          type="search"
+          :placeholder="timerFunctionDisplay"
+          @focus="openTimerFunctionSelector"
+          @input="timerFunctionOpen = true"
+          @blur="closeTimerFunctionSelector"
+          @keydown="handleTimerFunctionKeydown"
+        />
+        <span v-if="timerFunctionOpen" class="function-selector-options">
+          <button
+            v-for="option in filteredTimerFunctions"
+            :key="option.id"
+            type="button"
+            :class="{ selected: option.id === data.functionId }"
+            @pointerdown.prevent="selectTimerFunction(option.id)"
+          >{{ option.label }}</button>
+          <span v-if="filteredTimerFunctions.length === 0" class="empty">{{ data.functionSelectorLabel }}</span>
+        </span>
+      </span>
+    </label>
 
     <div v-if="data.dynamicBranch" class="ports">
       <div v-for="index in normalRows" :key="`normal-${index}`" class="port-row">
@@ -253,6 +319,15 @@ function removeBranch(index: number) {
 
 <style scoped>
 .blueprint-node { --accent: #4474bf; position: relative; overflow: visible; border: 1px solid color-mix(in srgb, var(--accent) 64%, transparent); border-radius: 4px; background: linear-gradient(145deg, #ffffff14, transparent 42%), linear-gradient(100deg, #191919ee, #101010eb); box-shadow: 0 5px 13px #0009, inset 0 1px #ffffff18; color: #ddd; cursor: default; user-select: none; }
+.function-selector { display: grid; grid-template-columns: auto minmax(120px, 1fr); align-items: center; gap: 8px; min-height: 30px; padding: 4px 12px; border-bottom: 1px solid #ffffff14; color: #d8d8d8; font-size: var(--node-control-font-size, 12px); }
+.function-selector-combo { position: relative; min-width: 0; }
+.function-selector-combo input { box-sizing: border-box; width: 100%; height: 23px; border: 1px solid #5f6f7b; border-radius: 2px; background: #20262a; color: #e7edf0; outline: none; }
+.function-selector-combo input:focus { border-color: #53a5db; }
+.function-selector-options { position: absolute; z-index: 8; top: calc(100% + 2px); right: 0; left: 0; display: grid; max-height: 150px; overflow: auto; border: 1px solid #52636e; background: #1d2326; box-shadow: 0 6px 16px #0008; }
+.function-selector-options button { min-height: 25px; padding: 4px 7px; overflow: hidden; border: 0; border-radius: 0; background: transparent; color: #dce6eb; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.function-selector-options button:hover, .function-selector-options button.selected { background: #31566b; }
+.function-selector-options .empty { padding: 6px 7px; color: #82929b; }
+.blueprint-node.missing-reference .function-selector-combo input { border-color: #b45555; color: #ffb1b1; }
 .blueprint-node.kind-event { --accent: #bd202f; }
 .blueprint-node.kind-function { --accent: #4f9a7f; }
 .blueprint-node.kind-variable { --accent: #805aa8; }

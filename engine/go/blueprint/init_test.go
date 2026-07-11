@@ -45,7 +45,7 @@ func TestBlueprintInitLoadsDefinitionsAndGraphsFromDirectories(t *testing.T) {
 		recorder = &testRecorder{}
 		return recorder
 	})
-	if err := bp.Init(execDir, graphDir, nil, nil); err != nil {
+	if err := bp.Init(execDir, graphDir, nil); err != nil {
 		t.Fatalf("Init failed: %v", err)
 	}
 
@@ -101,7 +101,7 @@ func TestBlueprintHotReloadReplacesGraphsForExistingInstances(t *testing.T) {
 		recorder = &testRecorder{}
 		return recorder
 	})
-	if err := bp.Init(execDir, graphDir, nil, nil); err != nil {
+	if err := bp.Init(execDir, graphDir, nil); err != nil {
 		t.Fatalf("Init failed: %v", err)
 	}
 	graphID := bp.Create("test")
@@ -222,7 +222,7 @@ func TestBlueprintPrepareHotReloadAppliesOnlyWhenRequested(t *testing.T) {
 		recorder = &testRecorder{}
 		return recorder
 	})
-	if err := bp.Init(execDir, graphDir, nil, nil); err != nil {
+	if err := bp.Init(execDir, graphDir, nil); err != nil {
 		t.Fatalf("Init failed: %v", err)
 	}
 	graphID := bp.Create("test")
@@ -290,7 +290,7 @@ func TestBlueprintHotReloadFailureKeepsExistingGraphs(t *testing.T) {
 		recorder = &testRecorder{}
 		return recorder
 	})
-	if err := bp.Init(execDir, graphDir, nil, nil); err != nil {
+	if err := bp.Init(execDir, graphDir, nil); err != nil {
 		t.Fatalf("Init failed: %v", err)
 	}
 	graphID := bp.Create("test")
@@ -354,7 +354,7 @@ func TestBlueprintHotReloadCanRunInGoroutineWithConcurrentDo(t *testing.T) {
 	var bp Blueprint
 	bp.RegisterExecNode(func() IExecNode { return &testEntrance{} })
 	bp.RegisterExecNode(func() IExecNode { return &testRecorder{} })
-	if err := bp.Init(execDir, graphDir, nil, nil); err != nil {
+	if err := bp.Init(execDir, graphDir, nil); err != nil {
 		t.Fatalf("Init failed: %v", err)
 	}
 	graphIDs := make([]int64, 8)

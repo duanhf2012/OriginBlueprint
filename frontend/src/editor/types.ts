@@ -36,6 +36,11 @@ export class BlueprintNode extends ClassicPreset.Node {
   functionName?: string
   functionSource?: FunctionNodeMetadata['functionSource']
   functionSignature?: FunctionNodeMetadata['functionSignature']
+  functionOptions?: Array<{ id: string; label: string }>
+  functionSelectorLabel?: string
+  functionMissingLabel?: string
+  functionReferenceMissing?: boolean
+  onFunctionSelect?: (functionId: string) => void
   referenceHighlighted?: boolean
   issueHighlighted?: boolean
   entrySourceKey?: string

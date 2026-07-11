@@ -1,6 +1,7 @@
 package blueprint
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -44,7 +45,7 @@ func TestBlueprintLegacyFacadeIntegrationPath(t *testing.T) {
 	bp.RegisterExecNode(func() IExecNode { return &testEntrance{} })
 	bp.RegisterExecNode(func() IExecNode { return &AddInt{} })
 	bp.RegisterExecNode(func() IExecNode { return recorder })
-	if err := bp.Init(execDir, graphDir, nil, nil, logger); err != nil {
+	if err := bp.Init(execDir, graphDir, nil, logger); err != nil {
 		t.Fatalf("Init failed: %v", err)
 	}
 	if bp.GetLogger() != logger {
@@ -79,42 +80,11 @@ func TestBlueprintLegacyFacadeIntegrationPath(t *testing.T) {
 	}
 
 	bp.ReleaseGraph(graphID)
-	if _, err := bp.Do(graphID, 1); err != nil {
-		t.Fatalf("Do after ReleaseGraph returned error: %v", err)
+	if _, err := bp.Do(graphID, 1); !errors.Is(err, ErrGraphNotFound) {
+		t.Fatalf("Do after ReleaseGraph error = %v, want ErrGraphNotFound", err)
 	}
 	if values := recorder.snapshot(); len(values) != 1 {
 		t.Fatalf("recorder values after release = %#v, want unchanged", values)
-	}
-}
-
-func TestBlueprintReleaseGraphCancelsInstanceTimersThroughLegacyCallback(t *testing.T) {
-	var canceled []uint64
-	var bp Blueprint
-	bp.cancelTimer = func(timerID *uint64) bool {
-		canceled = append(canceled, *timerID)
-		return true
-	}
-	bp.AddCompiledGraph("compat", &CompiledGraph{Entrances: map[int64]*ExecNode{}})
-
-	graphID := bp.Create("compat")
-	if graphID == 0 {
-		t.Fatalf("Create returned 0")
-	}
-
-	instance := bp.instances[graphID]
-	instance.timerMu.Lock()
-	instance.timers = map[uint64]struct{}{}
-	instance.timers[77] = struct{}{}
-	instance.timers[88] = struct{}{}
-	instance.timerMu.Unlock()
-
-	bp.ReleaseGraph(graphID)
-
-	if len(canceled) != 2 {
-		t.Fatalf("canceled timers = %#v, want two timer ids", canceled)
-	}
-	if !containsTimerID(canceled, 77) || !containsTimerID(canceled, 88) {
-		t.Fatalf("canceled timers = %#v, want 77 and 88", canceled)
 	}
 }
 
@@ -145,15 +115,6 @@ func TestLegacyBaseExecNodeReturnPortAndLoggerCompatibility(t *testing.T) {
 	if logger.nodeName != "legacy" || logger.nodeID != "return" || logger.nextIndex != -1 || logger.err != nil {
 		t.Fatalf("legacy logger event = %#v", logger)
 	}
-}
-
-func containsTimerID(values []uint64, want uint64) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
 }
 
 type legacyReturnNode struct{ BaseExecNode }

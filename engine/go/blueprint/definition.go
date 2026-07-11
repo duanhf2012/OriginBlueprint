@@ -426,6 +426,8 @@ func newPortFromDataType(dataType string) (IPort, error) {
 		return NewPortArray(), nil
 	case "any":
 		return NewPortAny(), nil
+	case "timerhandle", "timer_handle":
+		return NewPortTimerHandle(), nil
 	default:
 		return nil, fmt.Errorf("invalid data type %s", dataType)
 	}

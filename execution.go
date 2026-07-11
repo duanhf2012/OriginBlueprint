@@ -56,7 +56,7 @@ func executeGraph(ctx context.Context, sessionID string, document GraphDocument,
 	executor := newGraphExecutor(ctx, sessionID, document, onBatch)
 	entries := make([]GraphNode, 0)
 	for _, node := range document.Nodes {
-		if node.TypeID == "origin.event.begin" || node.TypeID == "origin.event.timer" || strings.HasPrefix(node.TypeID, "origin.event.entry-") {
+		if node.TypeID == "origin.event.begin" || strings.HasPrefix(node.TypeID, "origin.event.entry-") {
 			entries = append(entries, node)
 		}
 	}
@@ -138,7 +138,7 @@ func (e *graphExecutor) runNode(nodeID string) error {
 	}
 	next := []string{"exec"}
 	switch node.TypeID {
-	case "origin.event.begin", "origin.event.entry-array", "origin.event.entry-two-integers", "origin.event.timer":
+	case "origin.event.begin", "origin.event.entry-array", "origin.event.entry-two-integers":
 		next = []string{"exec"}
 	case "origin.flow.branch":
 		condition, err := e.input(node, "condition", map[string]bool{})
@@ -356,11 +356,33 @@ func (e *graphExecutor) runNode(nodeID string) error {
 			return e.fail(node, err)
 		}
 		e.results = append(e.results, cloneValue(value))
-	case "origin.timer.create":
-		e.transient[node.ID] = map[string]interface{}{"timerId": time.Now().UnixNano()}
-		e.log("warning", "Timer node executed in preview mode; no persistent timer was scheduled", node.ID)
-	case "origin.timer.close":
-		e.log("warning", "Timer close executed in preview mode", node.ID)
+	case "origin.flow.delay":
+		durationValue, err := e.input(node, "duration", map[string]bool{})
+		if err != nil {
+			return e.fail(node, err)
+		}
+		duration := asInt(durationValue)
+		if duration < 0 {
+			return e.fail(node, fmt.Errorf("delay duration must not be negative"))
+		}
+		timer := time.NewTimer(time.Duration(duration) * time.Millisecond)
+		select {
+		case <-timer.C:
+		case <-e.ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return e.fail(node, e.ctx.Err())
+		}
+		next = []string{"completed"}
+	case "origin.timer.set-by-function":
+		e.transient[node.ID] = map[string]interface{}{"timerHandle": fmt.Sprintf("preview:%d", time.Now().UnixNano())}
+		e.log("warning", "Timer registered only for preview; callback functions run in the Go blueprint engine", node.ID)
+		next = []string{"then"}
+	case "origin.timer.clear", "origin.timer.pause", "origin.timer.unpause":
+		e.transient[node.ID] = map[string]interface{}{"success": false}
+		e.log("warning", "Timer control is unavailable in preview mode", node.ID)
+		next = []string{"then"}
 	default:
 		return e.fail(node, fmt.Errorf("node type %s is not executable as a flow node", node.TypeID))
 	}
@@ -432,13 +454,14 @@ func (e *graphExecutor) output(nodeID, key string, visiting map[string]bool) (in
 		}
 	case "origin.event.entry-two-integers":
 		return 0, nil
-	case "origin.event.timer":
-		if key == "timerId" {
-			return 0, nil
-		}
-		if key == "params" {
-			return []interface{}{}, nil
-		}
+	case "origin.timer.set-by-function":
+		return e.transient[node.ID]["timerHandle"], nil
+	case "origin.timer.clear", "origin.timer.pause", "origin.timer.unpause":
+		return false, nil
+	case "origin.timer.is-active", "origin.timer.is-paused", "origin.timer.is-valid":
+		return false, nil
+	case "origin.timer.remaining", "origin.timer.elapsed":
+		return -1, nil
 	case "origin.variable.get":
 		return cloneValue(e.variables[node.Properties.VariableID]), nil
 	case "origin.variable.set":

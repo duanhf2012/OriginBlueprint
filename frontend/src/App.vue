@@ -112,7 +112,8 @@ const functionSignatureTypeOptions: Array<{ value: VariableType; label: string }
   { value: 'integer', label: 'Integer' },
   { value: 'float', label: 'Float' },
   { value: 'string', label: 'String' },
-  { value: 'array', label: 'Array' }
+  { value: 'array', label: 'Array' },
+  { value: 'timerhandle', label: 'Timer Handle' }
 ]
 const blueprintFunctions = ref<BlueprintFunction[]>([])
 const selectedFunctionId = ref('')
@@ -238,7 +239,8 @@ onMounted(async () => {
       selectedNode.value = value ? { ...value, values: { ...value.values } } : null
       if (value) selectedVariableId.value = null
     },
-    canAddEntryNodes() { return !isFunctionBlueprintTab.value }
+    canAddEntryNodes() { return !isFunctionBlueprintTab.value },
+    locale() { return currentLocale.value }
   })
   await editor.newDocument()
   if (nodeLoadStatus) status.value = nodeLoadStatus
@@ -413,6 +415,8 @@ function setLocale(locale: LocaleId) {
   currentLocale.value = locale
   localStorage.setItem('origin-blueprint-locale', locale)
   projectSettingsContent.value.appearance.locale = locale
+	void loadRuntimeNodeLibrary()
+	void syncCallableFunctionsToEditor()
   void saveProjectSettings()
 }
 
@@ -502,7 +506,7 @@ async function loadRuntimeNodeLibrary() {
     return `Node library load failed: ${error instanceof Error ? error.message : String(error)}`
   }
   if (result.nodes.length) {
-    registerNodeSchemas(result.nodes)
+    registerNodeSchemas(result.nodes, currentLocale.value)
     nodeLibrary.value = getNodeDefinitions()
   }
   if (result.errors.length) return `Loaded ${result.nodes.length} node template(s), ${result.errors.length} JSON error(s)`
@@ -591,7 +595,7 @@ async function switchTab(id: string) {
   if (id === activeTabId.value) return
   persistActive(); activeTabId.value = id; selectedVariableId.value = null
   const tab = activeTab.value
-  if (tab.document) await editor?.loadDocument(tab.document); else await editor?.newDocument()
+  if (tab.document) { await syncCallableFunctionsToEditor(); await editor?.loadDocument(tab.document) } else await editor?.newDocument()
   functionSignature.value = normalizeFunctionSignature(tab.document?.functionSignature)
   functionTitle.value = isFunctionBlueprintPath(tab.path || tab.title) ? functionTitleFromDocument(tab.document, tab.path || tab.title, tab.title) : ''
   functionId.value = isFunctionBlueprintPath(tab.path || tab.title) ? functionIdFromDocument(tab.document) : ''
@@ -613,7 +617,7 @@ async function closeTab(id: string, event: MouseEvent) {
     functionTitle.value = isFunctionBlueprintPath(tabs.value[0].path || tabs.value[0].title) ? functionTitleFromDocument(tabs.value[0].document, tabs.value[0].path || tabs.value[0].title, tabs.value[0].title) : ''
     functionId.value = isFunctionBlueprintPath(tabs.value[0].path || tabs.value[0].title) ? functionIdFromDocument(tabs.value[0].document) : ''
     functionCategory.value = isFunctionBlueprintPath(tabs.value[0].path || tabs.value[0].title) ? functionCategoryFromDocument(tabs.value[0].document, tabs.value[0].path || tabs.value[0].title) : ''
-    await editor?.loadDocument(tabs.value[0].document ?? blankDocument(tabs.value[0].title))
+    await syncCallableFunctionsToEditor(); await editor?.loadDocument(tabs.value[0].document ?? blankDocument(tabs.value[0].title))
   }
 }
 
@@ -903,12 +907,20 @@ function documentWithFunctionSignature(document: GraphDocument, tab = activeTab.
 }
 
 function hasFunctionNodes(document: GraphDocument) {
-  return (document.nodes ?? []).some(node => String(node.typeId ?? '').startsWith('origin.function.'))
+  return (document.nodes ?? []).some(node => String(node.typeId ?? '').startsWith('origin.function.') || node.typeId === 'origin.timer.set-by-function')
 }
 
 function documentRequiresNativePersistence(document: GraphDocument) {
   const signature = normalizeFunctionSignature(document.functionSignature)
-  return hasFunctionNodes(document) || signature.inputs.length > 0 || signature.outputs.length > 0
+  const hasNativeTimeNodes = (document.nodes ?? []).some(node =>
+    node.typeId === 'origin.flow.delay' || String(node.typeId ?? '').startsWith('origin.timer.'),
+  )
+  const hasTimerHandleVariables = (document.variables ?? []).some(variable => variable.type === 'timerhandle')
+  return hasFunctionNodes(document)
+    || hasNativeTimeNodes
+    || hasTimerHandleVariables
+    || signature.inputs.length > 0
+    || signature.outputs.length > 0
 }
 
 function functionPortKey(prefix: 'input' | 'output', port: FunctionSignaturePort, index: number) {
@@ -918,21 +930,43 @@ function functionPortKey(prefix: 'input' | 'output', port: FunctionSignaturePort
 
 function functionNodePorts(node: NodeSnapshot) {
   const signature = normalizeFunctionSignature(node.properties?.functionSignature)
-  const inputs = new Set<string>()
-  const outputs = new Set<string>()
+  const inputs = new Map<string, string>()
+  const outputs = new Map<string, string>()
   if (node.typeId === 'origin.function.entry') {
-    outputs.add('exec')
-    signature.inputs.forEach((port, index) => outputs.add(functionPortKey('input', port, index)))
+    outputs.set('exec', 'exec')
+    signature.inputs.forEach((port, index) => outputs.set(functionPortKey('input', port, index), port.type))
   } else if (node.typeId === 'origin.function.return') {
-    inputs.add('exec')
-    signature.outputs.forEach((port, index) => inputs.add(functionPortKey('output', port, index)))
+    inputs.set('exec', 'exec')
+    signature.outputs.forEach((port, index) => inputs.set(functionPortKey('output', port, index), port.type))
   } else if (node.typeId === 'origin.function.call') {
-    inputs.add('exec')
-    outputs.add('exec')
-    signature.inputs.forEach((port, index) => inputs.add(functionPortKey('input', port, index)))
-    signature.outputs.forEach((port, index) => outputs.add(functionPortKey('output', port, index)))
+    inputs.set('exec', 'exec')
+    outputs.set('exec', 'exec')
+    signature.inputs.forEach((port, index) => inputs.set(functionPortKey('input', port, index), port.type))
+    signature.outputs.forEach((port, index) => outputs.set(functionPortKey('output', port, index), port.type))
+  } else if (node.typeId === 'origin.timer.set-by-function') {
+    inputs.set('exec', 'exec'); inputs.set('time', 'integer'); inputs.set('looping', 'boolean'); inputs.set('firstDelay', 'integer')
+    outputs.set('then', 'exec'); outputs.set('timerHandle', 'timerhandle')
+    signature.inputs.forEach((port, index) => inputs.set(functionPortKey('input', port, index), port.type))
   }
   return { inputs, outputs }
+}
+
+type FunctionPortChange = { previous: ReturnType<typeof functionNodePorts>; next: ReturnType<typeof functionNodePorts> }
+
+function pruneChangedFunctionConnections(document: GraphDocument, changes: Map<string, FunctionPortChange>) {
+  document.connections = (document.connections ?? []).filter(connection => {
+    const source = changes.get(connection.source)
+    if (source) {
+      const nextType = source.next.outputs.get(connection.sourceOutput)
+      if (!nextType || (source.previous.outputs.get(connection.sourceOutput) && source.previous.outputs.get(connection.sourceOutput) !== nextType)) return false
+    }
+    const target = changes.get(connection.target)
+    if (target) {
+      const nextType = target.next.inputs.get(connection.targetInput)
+      if (!nextType || (target.previous.inputs.get(connection.targetInput) && target.previous.inputs.get(connection.targetInput) !== nextType)) return false
+    }
+    return true
+  })
 }
 
 function sameFunctionReference(properties: NodeSnapshot['properties'] | undefined, metadata: FunctionNodeMetadata) {
@@ -942,28 +976,23 @@ function sameFunctionReference(properties: NodeSnapshot['properties'] | undefine
 
 function syncDocumentFunctionReferences(document: GraphDocument, metadata: FunctionNodeMetadata) {
   const signature = normalizeFunctionSignature(metadata.functionSignature)
-  const updatedPorts = new Map<string, ReturnType<typeof functionNodePorts>>()
+  const updatedPorts = new Map<string, FunctionPortChange>()
   for (const node of document.nodes ?? []) {
-    if (node.typeId !== 'origin.function.call' || !sameFunctionReference(node.properties, metadata)) continue
+    if ((node.typeId !== 'origin.function.call' && node.typeId !== 'origin.timer.set-by-function') || !sameFunctionReference(node.properties, metadata)) continue
+    const previous = functionNodePorts(node)
     node.properties = {
       ...node.properties,
       label: metadata.functionName,
-      functionRole: 'call',
+      functionRole: node.typeId === 'origin.timer.set-by-function' ? 'timer' : 'call',
       functionId: metadata.functionId,
       functionName: metadata.functionName,
       functionSource: metadata.functionSource,
       functionSignature: signature
     }
-    updatedPorts.set(node.id, functionNodePorts(node))
+    updatedPorts.set(node.id, { previous, next: functionNodePorts(node) })
   }
   if (!updatedPorts.size) return false
-  document.connections = (document.connections ?? []).filter(connection => {
-    const sourcePorts = updatedPorts.get(connection.source)
-    if (sourcePorts && !sourcePorts.outputs.has(connection.sourceOutput)) return false
-    const targetPorts = updatedPorts.get(connection.target)
-    if (targetPorts && !targetPorts.inputs.has(connection.targetInput)) return false
-    return true
-  })
+  pruneChangedFunctionConnections(document, updatedPorts)
   return true
 }
 
@@ -972,9 +1001,10 @@ function syncFunctionTerminalsFromDocumentSignature(document: GraphDocument, pat
   const functionName = functionTitleFromDocument(document, path, document.graphName)
   const id = String(document.functionId ?? '').trim()
   if (!id) return false
-  const changedPorts = new Map<string, ReturnType<typeof functionNodePorts>>()
+  const changedPorts = new Map<string, FunctionPortChange>()
   for (const node of document.nodes ?? []) {
     if (node.typeId !== 'origin.function.entry' && node.typeId !== 'origin.function.return') continue
+    const previous = functionNodePorts(node)
     const role = node.typeId === 'origin.function.entry' ? 'entry' : 'return'
     node.properties = {
       ...node.properties,
@@ -985,16 +1015,10 @@ function syncFunctionTerminalsFromDocumentSignature(document: GraphDocument, pat
       functionSource: 'workspace',
       functionSignature: signature
     }
-    changedPorts.set(node.id, functionNodePorts(node))
+    changedPorts.set(node.id, { previous, next: functionNodePorts(node) })
   }
   if (!changedPorts.size) return false
-  document.connections = (document.connections ?? []).filter(connection => {
-    const sourcePorts = changedPorts.get(connection.source)
-    if (sourcePorts && !sourcePorts.outputs.has(connection.sourceOutput)) return false
-    const targetPorts = changedPorts.get(connection.target)
-    if (targetPorts && !targetPorts.inputs.has(connection.targetInput)) return false
-    return true
-  })
+  pruneChangedFunctionConnections(document, changedPorts)
   return true
 }
 
@@ -1034,7 +1058,7 @@ async function refreshDocumentFunctionReferencesOnOpen(document: GraphDocument, 
   const functionCalls = new Set<string>()
   for (const node of document.nodes ?? []) {
     const id = String(node.properties?.functionId ?? '').trim()
-    if (node.typeId !== 'origin.function.call' || !id || id === document.functionId) continue
+    if ((node.typeId !== 'origin.function.call' && node.typeId !== 'origin.timer.set-by-function') || !id || id === document.functionId) continue
     functionCalls.add(id)
   }
   for (const id of functionCalls) {
@@ -1078,6 +1102,7 @@ function defaultVariableValue(type: VariableType) {
   if (type === 'boolean') return false
   if (type === 'integer' || type === 'float') return 0
   if (type === 'array') return []
+	if (type === 'timerhandle') return null
   return ''
 }
 
@@ -1320,6 +1345,7 @@ function normalizeVariableType(value: unknown): VariableType {
   if (type === 'int' || type === 'integer') return 'integer'
   if (type === 'float' || type === 'double' || type === 'number') return 'float'
   if (type === 'array' || type === 'list') return 'array'
+	if (type === 'timerhandle' || type === 'timer_handle') return 'timerhandle'
   return 'string'
 }
 
@@ -1480,7 +1506,7 @@ async function openGraph(path = '', highlightTypeId = '') {
     if (isFunctionBlueprintPath(file.path)) functionTitleByPath.value = { ...functionTitleByPath.value, [file.path]: functionTitle.value }
     if (isFunctionBlueprintPath(file.path) && functionId.value) functionIdByPath.value = { ...functionIdByPath.value, [file.path]: functionId.value }
     if (isFunctionBlueprintPath(file.path)) functionCategoryByPath.value = { ...functionCategoryByPath.value, [file.path]: functionCategory.value }
-    await editor?.loadDocument(document)
+    await syncCallableFunctionsToEditor(); await editor?.loadDocument(document)
     await highlightReferenceSearchTarget(highlightTypeId)
     return
   }
@@ -1496,7 +1522,7 @@ async function openGraph(path = '', highlightTypeId = '') {
   if (isFunctionBlueprintPath(file.path)) functionTitleByPath.value = { ...functionTitleByPath.value, [file.path]: functionTitle.value }
   if (isFunctionBlueprintPath(file.path) && functionId.value) functionIdByPath.value = { ...functionIdByPath.value, [file.path]: functionId.value }
   if (isFunctionBlueprintPath(file.path)) functionCategoryByPath.value = { ...functionCategoryByPath.value, [file.path]: functionCategory.value }
-  await editor?.loadDocument(document)
+  await syncCallableFunctionsToEditor(); await editor?.loadDocument(document)
   if (document.legacy?.format === 'vgf') {
     const hiddenCount = document.legacy.hiddenNodes?.length ?? 0
     status.value = `Loaded ${document.nodes.length} visible node(s), ${hiddenCount} hidden undefined node(s)`
@@ -1527,9 +1553,11 @@ async function saveGraphUnchecked(saveAs: boolean) {
       return
     }
   }
-  const shouldSaveLegacy = !saveAs && isLegacyGraphPath(tab.path) && !documentRequiresNativePersistence(document)
+  const requiresNativePersistence = documentRequiresNativePersistence(document)
+  const forceNativeSaveAs = !saveAs && isLegacyGraphPath(tab.path) && requiresNativePersistence
+  const shouldSaveLegacy = !saveAs && !forceNativeSaveAs && isLegacyGraphPath(tab.path)
   const content = shouldSaveLegacy ? await platform.exportLegacyGraph(JSON.stringify(document)) : JSON.stringify(document, null, 2)
-  const path = await platform.saveGraph(saveAs ? '' : tab.path, content)
+  const path = await platform.saveGraph(saveAs || forceNativeSaveAs ? '' : tab.path, content)
   if (!path) return
   tab.path = path; tab.title = path.split(/[\\/]/).pop() ?? tab.title; tab.document = document; tab.dirty = false
   if (isFunctionBlueprintPath(path)) {
@@ -2178,6 +2206,20 @@ async function functionMetadataForModuleItem(item: ModuleLibraryItem): Promise<F
   }
 }
 
+async function syncCallableFunctionsToEditor() {
+  if (!editor) return
+  const metadata: FunctionNodeMetadata[] = []
+  for (const item of functionModuleItems.value) {
+    if (isFunctionBlueprintTab.value && item.functionItem?.functionId === activeFunctionId()) continue
+    try {
+      metadata.push(await functionMetadataForModuleItem(item))
+    } catch {
+      // Workspace hydration can expose an item before its function ID is available.
+    }
+  }
+  await editor.setCallableFunctions(metadata)
+}
+
 function isSelfFunctionReference(item: ModuleLibraryItem) {
   if (!item.functionPlaceholder || !isFunctionBlueprintTab.value) return false
   return Boolean(item.functionItem?.functionId && item.functionItem.functionId === activeFunctionId())
@@ -2196,6 +2238,7 @@ async function addModuleItemAt(item: ModuleLibraryItem, position?: { x: number; 
     }
     return
   }
+	if (item.id === 'origin.timer.set-by-function') await syncCallableFunctionsToEditor()
   await addNodeAt(item.id, position)
 }
 
@@ -2621,7 +2664,7 @@ function toggleModuleCategory(category: string) {
               <button v-if="!functionSignature.outputs.length" class="empty-signature-port" @click="addFunctionSignaturePort('outputs')">＋ 添加输出参数</button>
             </section>
           </div>
-          <div v-else-if="selectedVariable" class="node-detail variable-detail"><div class="detail-section-title">变量属性</div><label>Variable ID<input :value="selectedVariable.id" disabled /></label><label>名称<input v-model="selectedVariable.name" /></label><label>类型<select v-model="selectedVariable.type" @change="changeVariableType(selectedVariable)"><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="float">Float</option><option value="string">String</option><option value="array">Array</option></select></label><label>分组<select v-model="selectedVariable.groupId"><option v-for="group in variableGroups" :key="group.id" :value="group.id">{{ group.name }}</option></select></label><label>说明<textarea v-model="selectedVariable.description" rows="4" placeholder="变量用途和约束"></textarea></label><label>默认值<input v-if="selectedVariable.type === 'boolean'" v-model="selectedVariable.defaultValue" type="checkbox" /><input v-else-if="selectedVariable.type === 'string'" v-model="selectedVariable.defaultValue" type="text" /><input v-else-if="selectedVariable.type === 'array'" :value="Array.isArray(selectedVariable.defaultValue) ? selectedVariable.defaultValue.join(', ') : ''" placeholder="1, 2, text" @change="setVariableArrayDefault(selectedVariable, $event)" /><input v-else v-model.number="selectedVariable.defaultValue" type="number" /></label><button class="apply-properties" @click="updateVariable(selectedVariable)">应用变量属性</button><button class="delete-properties" @click="removeVariable(selectedVariable)">删除变量</button></div>
+          <div v-else-if="selectedVariable" class="node-detail variable-detail"><div class="detail-section-title">变量属性</div><label>Variable ID<input :value="selectedVariable.id" disabled /></label><label>名称<input v-model="selectedVariable.name" /></label><label>类型<select v-model="selectedVariable.type" @change="changeVariableType(selectedVariable)"><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="float">Float</option><option value="string">String</option><option value="array">Array</option><option value="timerhandle">Timer Handle</option></select></label><label>分组<select v-model="selectedVariable.groupId"><option v-for="group in variableGroups" :key="group.id" :value="group.id">{{ group.name }}</option></select></label><label>说明<textarea v-model="selectedVariable.description" rows="4" placeholder="变量用途和约束"></textarea></label><label v-if="selectedVariable.type !== 'timerhandle'">默认值<input v-if="selectedVariable.type === 'boolean'" v-model="selectedVariable.defaultValue" type="checkbox" /><input v-else-if="selectedVariable.type === 'string'" v-model="selectedVariable.defaultValue" type="text" /><input v-else-if="selectedVariable.type === 'array'" :value="Array.isArray(selectedVariable.defaultValue) ? selectedVariable.defaultValue.join(', ') : ''" placeholder="1, 2, text" @change="setVariableArrayDefault(selectedVariable, $event)" /><input v-else v-model.number="selectedVariable.defaultValue" type="number" /></label><button class="apply-properties" @click="updateVariable(selectedVariable)">应用变量属性</button><button class="delete-properties" @click="removeVariable(selectedVariable)">删除变量</button></div>
           <div v-else-if="selectedNode" class="node-detail"><label>Node ID<input :value="selectedNode.id" disabled /></label><label>Type<input :value="selectedNode.typeId" disabled /></label><label>Title<input :value="selectedNode.label" readonly /></label><label v-if="selectedNode.description">说明<textarea :value="selectedNode.description" rows="4" readonly></textarea></label></div>
           <div v-else class="empty-detail">选择节点或变量以查看属性</div>
         </div>

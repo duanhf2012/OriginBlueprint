@@ -122,7 +122,7 @@ assert(app.includes('onFunctionSignature(value)'), 'function signature panel mus
 assert(app.includes('functionSignature.value = normalizeFunctionSignature(value)'), 'undo and redo must restore the function signature editor state')
 assert(app.includes('documentRequiresNativePersistence'), 'saveGraph must detect documents that cannot be represented as legacy VGF')
 assert(app.includes('hasFunctionNodes(document)'), 'function nodes must force native persistence even for .vgf paths')
-assert(app.includes('!documentRequiresNativePersistence(document)'), 'legacy export must be skipped when function nodes would be lost')
+assert(app.includes('forceNativeSaveAs'), 'legacy paths must use Save As when function nodes would be lost')
 assert(app.includes('syncOpenFunctionReferences'), 'saving a function graph must refresh matching function call nodes in already-open tabs')
 assert(app.includes('syncDocumentFunctionReferences'), 'inactive tab documents must update function metadata without being loaded in the editor')
 assert(app.includes('await editor?.syncFunctionSignature('), 'the active editor must refresh visible function call ports after function save')

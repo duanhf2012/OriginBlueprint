@@ -84,7 +84,7 @@ func TestVerificationBlueprintFixturesLoadThroughEngine(t *testing.T) {
 		"数组数据实验室",
 		"确定性评分算法",
 		"函数编排主图",
-		"定时器生命周期",
+		"新定时器生命周期",
 		"评分核心",
 		"数组折叠与格式化",
 		"嵌套控制流",

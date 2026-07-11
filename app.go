@@ -134,9 +134,17 @@ func (a *App) OpenGraph(path string) (FileResult, error) {
 
 func (a *App) SaveGraph(path, content string) (string, error) {
 	var err error
+	var contentDocument GraphDocument
+	requiresNative := json.Unmarshal([]byte(content), &contentDocument) == nil &&
+		contentDocument.SchemaVersion == GraphSchemaVersion &&
+		graphDocumentRequiresNativePersistence(contentDocument)
 	if path == "" {
+		defaultFilename := "Untitled.vgf"
+		if requiresNative {
+			defaultFilename = "Untitled.obp"
+		}
 		path, err = runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
-			Title: "Save Graph", DefaultDirectory: a.lastGraphDirectory(), DefaultFilename: "Untitled.vgf",
+			Title: "Save Graph", DefaultDirectory: a.lastGraphDirectory(), DefaultFilename: defaultFilename,
 			Filters: graphFilters(),
 		})
 		if err != nil || path == "" {
@@ -144,7 +152,11 @@ func (a *App) SaveGraph(path, content string) (string, error) {
 		}
 	}
 	if filepath.Ext(path) == "" {
-		path += ".vgf"
+		if requiresNative {
+			path += ".obp"
+		} else {
+			path += ".vgf"
+		}
 	}
 	data, err := graphContentForPath(path, content)
 	if err != nil {
@@ -167,6 +179,9 @@ func graphContentForPath(path, content string) ([]byte, error) {
 		var document GraphDocument
 		if err := json.Unmarshal([]byte(content), &document); err == nil && document.SchemaVersion == GraphSchemaVersion {
 			if graphDocumentRequiresNativePersistence(document) {
+				if strings.EqualFold(filepath.Ext(path), ".vgf") {
+					return nil, errors.New("this graph uses native-only nodes and must be saved as .obp or .obpf")
+				}
 				return []byte(content), nil
 			}
 			return exportLegacyGraph(document)
@@ -180,7 +195,14 @@ func graphDocumentRequiresNativePersistence(document GraphDocument) bool {
 		return true
 	}
 	for _, node := range document.Nodes {
-		if strings.HasPrefix(node.TypeID, "origin.function.") {
+		if strings.HasPrefix(node.TypeID, "origin.function.") ||
+			strings.HasPrefix(node.TypeID, "origin.timer.") ||
+			node.TypeID == "origin.flow.delay" {
+			return true
+		}
+	}
+	for _, variable := range document.Variables {
+		if strings.EqualFold(variable.Type, "timerhandle") {
 			return true
 		}
 	}
@@ -379,7 +401,7 @@ func nodeMatchesReferenceQuery(node GraphNode, query string, isFunctionReference
 	if !isFunctionReferenceQuery {
 		return node.TypeID == query
 	}
-	if node.TypeID != "origin.function.call" || query == "" {
+	if (node.TypeID != "origin.function.call" && node.TypeID != "origin.timer.set-by-function") || query == "" {
 		return false
 	}
 	return node.Properties.FunctionID == query || node.Properties.FunctionName == query

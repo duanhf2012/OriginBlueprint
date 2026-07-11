@@ -191,6 +191,8 @@ func portAnyValue(port IPort) any {
 		return append(PortArray(nil), p.arrv...)
 	case portKindAny:
 		return cloneAnyValue(p.anyv)
+	case portKindTimerHandle:
+		return p.timerv
 	default:
 		return nil
 	}

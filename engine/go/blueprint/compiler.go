@@ -165,6 +165,9 @@ func CompileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error
 			isEntrance = true
 		}
 		definition := registry.Get(nodeName)
+		if nodeConfig.Class == "SetTimerByFunction" {
+			definition = nil
+		}
 		if definition == nil {
 			var dynamicErr error
 			definition, dynamicErr = dynamicDefinition(nodeConfig, variables)
@@ -350,6 +353,8 @@ func dynamicDefinition(nodeConfig NodeConfig, variables map[string]VariableConfi
 		return functionReturnDefinition(nodeConfig.FunctionOutputTypes)
 	case "FunctionCall":
 		return functionCallDefinition(nodeConfig.FunctionInputTypes, nodeConfig.FunctionOutputTypes)
+	case "SetTimerByFunction":
+		return setTimerByFunctionDefinition(nodeConfig.FunctionInputTypes)
 	default:
 		if definition := dynamicSequenceDefinition(nodeConfig.Class); definition != nil {
 			return definition, nil

@@ -1,4 +1,4 @@
-export type VariableType = 'boolean' | 'integer' | 'float' | 'string' | 'array'
+export type VariableType = 'boolean' | 'integer' | 'float' | 'string' | 'array' | 'timerhandle'
 
 export interface GraphVariable {
   id: string
@@ -26,7 +26,7 @@ export interface FunctionSignature {
   outputs: FunctionSignaturePort[]
 }
 
-export type FunctionNodeRole = 'call' | 'entry' | 'return'
+export type FunctionNodeRole = 'call' | 'entry' | 'return' | 'timer'
 export type FunctionNodeSource = 'current' | 'workspace'
 
 export interface FunctionNodeMetadata {
