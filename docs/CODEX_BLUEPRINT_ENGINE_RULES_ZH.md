@@ -26,7 +26,7 @@
 - `Blueprint` 是对外并发安全 facade。
 - `Blueprint.graphs`、`Blueprint.instances`、热更新替换、创建、释放、查询和执行入口必须受 `RWMutex` 保护。
 - `Blueprint.Do` 应在读锁内复制 `GraphInstance` 快照，然后释放锁再执行，避免长时间持锁。
-- `GraphInstance.variables` 通过 `variableMu` 保护。
+- `GraphInstance` 通过可替换的 runtime state 持有 compiled graph、变量表和对应的变量锁；一次执行只捕获一个 state 指针。
 - `GraphInstance.timers` 通过 `timerMu` 保护。
 - continuation 自身必须保证只 resume 一次。
 - 异步挂起后，原 goroutine 不应继续读取可能被回调 goroutine 修改的 session 状态。
@@ -73,10 +73,11 @@ go test ./engine/go/blueprint -run '^$' -bench 'BenchmarkBlueprintDo(Shared|Comp
 - 异步节点通过 `Suspend(nextIndex)` 捕获 continuation。
 - 异步回调通过 `Continuation.Resume(...)` 回到原执行位置。
 - continuation resume 后继续执行的是同一个 suspended `Graph` session。
-- 函数调用会创建 child `Graph` session，但共享实例变量和 host module。
+- 函数调用每次创建 child `Graph` session、独立变量表和独立变量锁；只共享 host module、实例生命周期门禁和 trace。函数变量不得污染调用方或下一次调用。
 - `FunctionReturn` 负责收集函数输出，并通过 caller continuation 回到调用点。
 - 函数内部异步返回时，caller 必须在函数返回后继续后续节点。
 - 递归函数调用必须受 `MaxFunctionCallDepth` 限制。
+- 热加载只迁移同名且规范化类型一致的变量值；新变量使用新默认值，删除变量消失，改类型变量重置。进行中的旧 session 继续使用旧 runtime state。
 
 ## 6. 兼容性规则
 

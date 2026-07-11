@@ -2,6 +2,7 @@ package blueprint
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -28,13 +29,11 @@ type Blueprint struct {
 // GraphInstance 保存单个 Create 实例的运行期状态。
 type GraphInstance struct {
 	name         string
-	compiled     *CompiledGraph
 	graphID      int64
 	module       IBlueprintModule
 	timers       map[uint64]struct{}
 	timerMu      sync.Mutex
-	variables    map[string]IPort
-	variableMu   sync.RWMutex
+	state        *instanceRuntimeState
 	lifecycleMu  sync.Mutex
 	released     bool
 	releasedCh   chan struct{}
@@ -43,6 +42,12 @@ type GraphInstance struct {
 	timerRegs    map[uint64]*timerRegistration
 	localTimerID uint64
 	localTimers  map[uint64]*time.Timer
+}
+
+type instanceRuntimeState struct {
+	compiled   *CompiledGraph
+	variables  map[string]IPort
+	variableMu sync.RWMutex
 }
 
 type timerRegistration struct {
@@ -84,7 +89,7 @@ func (p *hotReloadPlan) apply() HotReloadResult {
 	b.graphs = p.graphs
 	for _, instance := range b.instances {
 		if compiled := p.graphs[instance.name]; compiled != nil {
-			instance.compiled = compiled
+			instance.state = migrateInstanceRuntimeState(instance.state, compiled)
 			result.UpdatedInstances++
 			continue
 		}
@@ -118,10 +123,9 @@ func (b *Blueprint) Create(graphName string) int64 {
 	graphID := atomic.AddInt64(&b.seedID, 1)
 	b.instances[graphID] = &GraphInstance{
 		name:       graphName,
-		compiled:   compiled,
 		graphID:    graphID,
 		module:     b.module,
-		variables:  initialVariables(compiled),
+		state:      newInstanceRuntimeState(compiled),
 		releasedCh: make(chan struct{}),
 	}
 	return graphID
@@ -142,10 +146,16 @@ func (b *Blueprint) Do(graphID int64, entranceID int64, args ...any) (PortArray,
 		return nil, ErrGraphReleased
 	}
 	name := instance.name
-	compiled := instance.compiled
+	state := instance.state
+	if state == nil {
+		instance.releaseLease()
+		b.mu.RUnlock()
+		return nil, fmt.Errorf("graph instance %d has no runtime state", graphID)
+	}
+	compiled := state.compiled
 	module := instance.module
-	variables := instance.variables
-	variableMu := &instance.variableMu
+	variables := state.variables
+	variableMu := &state.variableMu
 	traceEnabled := b.traceEnabled && b.traceLogger != nil
 	traceLogger := b.traceLogger
 	logger := b.logger
@@ -164,6 +174,42 @@ func (b *Blueprint) Do(graphID int64, entranceID int64, args ...any) (PortArray,
 		graph.trace = &blueprintTraceRuntime{logger: traceLogger, state: &blueprintTraceState{}}
 	}
 	return graph.Do(entranceID, args...)
+}
+
+func newInstanceRuntimeState(compiled *CompiledGraph) *instanceRuntimeState {
+	return &instanceRuntimeState{compiled: compiled, variables: initialVariables(compiled)}
+}
+
+func migrateInstanceRuntimeState(old *instanceRuntimeState, compiled *CompiledGraph) *instanceRuntimeState {
+	next := newInstanceRuntimeState(compiled)
+	if old == nil || old.compiled == nil || compiled == nil {
+		return next
+	}
+	old.variableMu.RLock()
+	defer old.variableMu.RUnlock()
+	for name, config := range compiled.Variables {
+		oldConfig, exists := old.compiled.Variables[name]
+		if !exists || normalizeVariableType(oldConfig.Type) != normalizeVariableType(config.Type) {
+			continue
+		}
+		if value := old.variables[name]; value != nil {
+			next.variables[name] = value.Clone()
+		}
+	}
+	return next
+}
+
+func normalizeVariableType(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "int", "integer":
+		return "integer"
+	case "str", "string":
+		return "string"
+	case "bool", "boolean":
+		return "boolean"
+	default:
+		return strings.ToLower(strings.TrimSpace(value))
+	}
 }
 
 // TriggerEvent 兼容旧接口，用入口 ID 触发一次蓝图事件。
