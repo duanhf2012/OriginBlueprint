@@ -4,6 +4,7 @@
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+$Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 
 function Node {
     param([string]$Id, [string]$TypeId, [int]$X, [int]$Y, [hashtable]$Values = @{}, [hashtable]$Properties = @{})
@@ -76,10 +77,11 @@ function WriteArtifact {
     $directory = Split-Path -Parent $path
     New-Item -ItemType Directory -Force -Path $directory | Out-Null
     if ($Value -is [string]) {
-        Set-Content -LiteralPath $path -Value $Value -Encoding utf8
+        [System.IO.File]::WriteAllText($path, $Value, $Utf8NoBom)
         return
     }
-    $Value | ConvertTo-Json -Depth 32 | Set-Content -LiteralPath $path -Encoding utf8
+    $content = $Value | ConvertTo-Json -Depth 32
+    [System.IO.File]::WriteAllText($path, $content, $Utf8NoBom)
 }
 
 function LegacyNode {

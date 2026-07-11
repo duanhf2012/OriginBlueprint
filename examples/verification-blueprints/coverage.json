@@ -1,4 +1,4 @@
-﻿{
+{
     "schemaVersion":  1,
     "description":  "顶层系统节点的样本覆盖矩阵。visual 表示第 1 阶段人工检查；execution/async 留给后续阶段。",
     "nodes":  {
