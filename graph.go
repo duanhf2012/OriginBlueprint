@@ -59,12 +59,19 @@ type GraphFunctionSignaturePort struct {
 }
 
 type GraphLegacyState struct {
-	Format      string                   `json:"format,omitempty"`
-	Time        string                   `json:"time,omitempty"`
-	HiddenNodes []legacyNode             `json:"hiddenNodes,omitempty"`
-	HiddenEdges []legacyEdge             `json:"hiddenEdges,omitempty"`
-	Groups      []legacyGroup            `json:"groups,omitempty"`
-	Variables   []map[string]interface{} `json:"variables,omitempty"`
+	Format               string                                 `json:"format,omitempty"`
+	Time                 string                                 `json:"time,omitempty"`
+	HiddenNodes          []legacyNode                           `json:"hiddenNodes,omitempty"`
+	HiddenEdges          []legacyEdge                           `json:"hiddenEdges,omitempty"`
+	HiddenEdgeOrdinals   []int                                  `json:"hiddenEdgeOrdinals,omitempty"`
+	Groups               []legacyGroup                          `json:"groups,omitempty"`
+	Variables            []map[string]interface{}               `json:"variables,omitempty"`
+	ResidualNodeDefaults map[string]GraphLegacyResidualDefaults `json:"residualNodeDefaults,omitempty"`
+}
+
+type GraphLegacyResidualDefaults struct {
+	Class  string                 `json:"class"`
+	Values map[string]interface{} `json:"values"`
 }
 
 type GraphLegacyPort struct {
@@ -84,6 +91,8 @@ type GraphConnection struct {
 	Target                 string `json:"target"`
 	TargetInput            string `json:"targetInput"`
 	EntryConnectionVisible bool   `json:"entryConnectionVisible,omitempty"`
+	LegacyEdgeID           string `json:"legacyEdgeId,omitempty"`
+	LegacyOrdinal          *int   `json:"legacyOrdinal,omitempty"`
 }
 
 type GraphGroup struct {

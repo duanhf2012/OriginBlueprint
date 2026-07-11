@@ -2,6 +2,107 @@ package blueprint
 
 import "testing"
 
+func validationRegistry() *Registry {
+	registry := NewRegistry()
+	registry.Register(NewNodeDefinition("Entry", func() IExecNode { return &testEntrance{} }, nil, []IPort{NewPortExec()}))
+	registry.Register(NewNodeDefinition("ExecTarget", func() IExecNode { return &testRecorder{} }, []IPort{NewPortExec()}, nil))
+	registry.Register(NewNodeDefinition("IntSource", func() IExecNode { return &testRecorder{} }, nil, []IPort{NewPortInt()}))
+	registry.Register(NewNodeDefinition("StringSource", func() IExecNode { return &testRecorder{} }, nil, []IPort{NewPortStr()}))
+	registry.Register(NewNodeDefinition("IntTarget", func() IExecNode { return &testRecorder{} }, []IPort{NewPortInt()}, nil))
+	registry.Register(NewNodeDefinition("StringTarget", func() IExecNode { return &testRecorder{} }, []IPort{NewPortStr()}, nil))
+	nilSource := NewNodeDefinition("NilSource", func() IExecNode { return &testRecorder{} }, nil, []IPort{NewPortInt()})
+	nilSource.OutPorts[0] = (*Port)(nil)
+	registry.Register(nilSource)
+	return registry
+}
+
+func TestCompileGraphRejectsInvalidStructure(t *testing.T) {
+	tests := []struct {
+		name   string
+		config GraphConfig
+	}{
+		{name: "empty node id", config: GraphConfig{Nodes: []NodeConfig{{Class: "IntSource"}}}},
+		{name: "duplicate node id", config: GraphConfig{Nodes: []NodeConfig{{ID: "same", Class: "IntSource"}, {ID: "same", Class: "IntSource"}}}},
+		{name: "empty variable name", config: GraphConfig{Variables: []VariableConfig{{Type: "integer", Value: 1}}}},
+		{name: "duplicate variable name", config: GraphConfig{Variables: []VariableConfig{{Name: "score", Type: "integer", Value: 1}, {Name: "score", Type: "integer", Value: 2}}}},
+		{name: "invalid variable type", config: GraphConfig{Variables: []VariableConfig{{Name: "score", Type: "mystery", Value: 1}}}},
+		{name: "invalid variable default", config: GraphConfig{Variables: []VariableConfig{{Name: "score", Type: "integer", Value: "bad"}}}},
+		{name: "duplicate entrance id", config: GraphConfig{Nodes: []NodeConfig{{ID: "one", Class: "Entry_1"}, {ID: "two", Class: "Entry_1"}}}},
+		{name: "source port out of bounds", config: GraphConfig{Nodes: []NodeConfig{{ID: "source", Class: "IntSource"}, {ID: "target", Class: "IntTarget"}}, Edges: []EdgeConfig{{SourceNodeID: "source", SourcePortID: 1, DesNodeID: "target", DesPortID: 0}}}},
+		{name: "nil builtin port", config: GraphConfig{Nodes: []NodeConfig{{ID: "source", Class: "NilSource"}, {ID: "target", Class: "IntTarget"}}, Edges: []EdgeConfig{{SourceNodeID: "source", SourcePortID: 0, DesNodeID: "target", DesPortID: 0}}}},
+		{name: "destination port out of bounds", config: GraphConfig{Nodes: []NodeConfig{{ID: "source", Class: "IntSource"}, {ID: "target", Class: "IntTarget"}}, Edges: []EdgeConfig{{SourceNodeID: "source", SourcePortID: 0, DesNodeID: "target", DesPortID: 1}}}},
+		{name: "exec to data", config: GraphConfig{Nodes: []NodeConfig{{ID: "source", Class: "Entry_1"}, {ID: "target", Class: "IntTarget"}}, Edges: []EdgeConfig{{SourceNodeID: "source", SourcePortID: 0, DesNodeID: "target", DesPortID: 0}}}},
+		{name: "data to exec", config: GraphConfig{Nodes: []NodeConfig{{ID: "source", Class: "IntSource"}, {ID: "target", Class: "ExecTarget"}}, Edges: []EdgeConfig{{SourceNodeID: "source", SourcePortID: 0, DesNodeID: "target", DesPortID: 0}}}},
+		{name: "duplicate data producer", config: GraphConfig{Nodes: []NodeConfig{{ID: "left", Class: "IntSource"}, {ID: "right", Class: "IntSource"}, {ID: "target", Class: "IntTarget"}}, Edges: []EdgeConfig{{SourceNodeID: "left", SourcePortID: 0, DesNodeID: "target", DesPortID: 0}, {SourceNodeID: "right", SourcePortID: 0, DesNodeID: "target", DesPortID: 0}}}},
+		{name: "concrete type mismatch", config: GraphConfig{Nodes: []NodeConfig{{ID: "source", Class: "StringSource"}, {ID: "target", Class: "IntTarget"}}, Edges: []EdgeConfig{{SourceNodeID: "source", SourcePortID: 0, DesNodeID: "target", DesPortID: 0}}}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := CompileGraph(validationRegistry(), test.config); err == nil {
+				t.Fatal("CompileGraph unexpectedly accepted invalid structure")
+			}
+		})
+	}
+}
+
+func TestCompileGraphAllowsLegacyExecFanout(t *testing.T) {
+	config := GraphConfig{
+		Nodes: []NodeConfig{{ID: "entry", Class: "Entry_1"}, {ID: "left", Class: "ExecTarget"}, {ID: "right", Class: "ExecTarget"}},
+		Edges: []EdgeConfig{{SourceNodeID: "entry", SourcePortID: 0, DesNodeID: "left", DesPortID: 0}, {SourceNodeID: "entry", SourcePortID: 0, DesNodeID: "right", DesPortID: 0}},
+	}
+	if _, err := CompileGraph(validationRegistry(), config); err != nil {
+		t.Fatalf("CompileGraph rejected legacy exec fan-out: %v", err)
+	}
+}
+
+func TestCompileGraphAllowsPreservedLegacyPortDirectionMismatch(t *testing.T) {
+	config := GraphConfig{
+		Legacy: true,
+		Nodes:  []NodeConfig{{ID: "entry", Class: "Entry_1"}, {ID: "target", Class: "IntTarget"}},
+		Edges:  []EdgeConfig{{SourceNodeID: "entry", SourcePortID: 0, DesNodeID: "target", DesPortID: 0}},
+	}
+	if _, err := CompileGraph(validationRegistry(), config); err != nil {
+		t.Fatalf("CompileGraph rejected preserved legacy mismatch: %v", err)
+	}
+}
+
+func TestAssignPortValuePreservesTargetKindAndClonesValues(t *testing.T) {
+	integerTarget := NewPortInt().(*Port)
+	anySource := NewPortAny().(*Port)
+	anySource.SetAny(PortInt(9))
+	if err := assignPortValue(integerTarget, anySource); err != nil {
+		t.Fatal(err)
+	}
+	if value, ok := integerTarget.GetInt(); !ok || value != 9 || integerTarget.kind != portKindInt {
+		t.Fatalf("integer target = %d,%v kind=%d", value, ok, integerTarget.kind)
+	}
+	anySource.SetAny("bad")
+	if err := assignPortValue(integerTarget, anySource); err == nil || integerTarget.kind != portKindInt {
+		t.Fatalf("invalid any assignment error=%v kind=%d", err, integerTarget.kind)
+	}
+
+	anyTarget := NewPortAny().(*Port)
+	integerSource := NewPortInt().(*Port)
+	integerSource.SetInt(7)
+	if err := assignPortValue(anyTarget, integerSource); err != nil {
+		t.Fatal(err)
+	}
+	if value := anyTarget.GetAny(); value != PortInt(7) || anyTarget.kind != portKindAny {
+		t.Fatalf("any target = %#v kind=%d", value, anyTarget.kind)
+	}
+
+	arraySource := NewPortArray().(*Port)
+	arraySource.AppendArrayValInt(1)
+	arrayTarget := NewPortArray().(*Port)
+	if err := assignPortValue(arrayTarget, arraySource); err != nil {
+		t.Fatal(err)
+	}
+	arraySource.arrv[0].IntVal = 99
+	if value, ok := arrayTarget.GetArrayValInt(0); !ok || value != 1 {
+		t.Fatalf("array target = %d,%v, want cloned 1", value, ok)
+	}
+}
+
 func TestCompilerBuildsGraphFromNodeAndEdgeConfig(t *testing.T) {
 	var recorder *testRecorder
 	registry := NewRegistry()

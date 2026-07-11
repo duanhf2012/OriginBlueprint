@@ -12,6 +12,29 @@ type testBlueprintModule struct {
 	triggeredEventID int64
 }
 
+type synchronousTimerModule struct {
+	testBlueprintModule
+	cancelCount int
+}
+
+func (m *synchronousTimerModule) SafeAfterFunc(timerID *uint64, _ time.Duration, data any, cb func(uint64, any)) {
+	*timerID = 41
+	cb(*timerID, data)
+}
+
+func (m *synchronousTimerModule) CancelTimerId(graphID int64, timerID *uint64) bool {
+	m.mu.Lock()
+	m.cancelCount++
+	m.mu.Unlock()
+	return true
+}
+
+func (m *synchronousTimerModule) canceled() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.cancelCount
+}
+
 func (m *testBlueprintModule) SafeAfterFunc(timerID *uint64, d time.Duration, data any, cb func(uint64, any)) {
 	*timerID = 99
 	time.AfterFunc(d, func() { cb(*timerID, data) })
@@ -113,7 +136,7 @@ func TestBlueprintConcurrentTimerCreateCancelAndRelease(t *testing.T) {
 				graph.module = module
 				graph.instance = instance
 				create.bind(graph, NewExecNode("timer", NewNodeDefinition("CreateTimer", func() IExecNode { return create }, clonePorts(ctx.InputPorts), clonePorts(ctx.OutputPorts))), ctx)
-				if _, err := create.Exec(); err != nil {
+				if _, err := create.Exec(); err != nil && err != ErrGraphReleased {
 					t.Errorf("CreateTimer failed: %v", err)
 					return
 				}
@@ -130,6 +153,54 @@ func TestBlueprintConcurrentTimerCreateCancelAndRelease(t *testing.T) {
 		}
 	}()
 	wg.Wait()
+}
+
+func TestSynchronousSafeAfterFuncDoesNotRetainOrRecancelFiredTimer(t *testing.T) {
+	module := &synchronousTimerModule{}
+	var bp Blueprint
+	bp.module = module
+	bp.AddCompiledGraph("test", &CompiledGraph{Entrances: map[int64]*ExecNode{}})
+	graphID := bp.Create("test")
+	instance := bp.instances[graphID]
+	create := &CreateTimer{}
+	ctx := &ExecContext{InputPorts: []IPort{NewPortExec(), intPort(1), arrayPort(7)}, OutputPorts: []IPort{NewPortExec(), NewPortInt()}}
+	graph := NewGraph(&CompiledGraph{})
+	graph.graphID = graphID
+	graph.module = module
+	graph.instance = instance
+	create.bind(graph, NewExecNode("timer", NewNodeDefinition("CreateTimer", func() IExecNode { return create }, clonePorts(ctx.InputPorts), clonePorts(ctx.OutputPorts))), ctx)
+	if _, err := create.Exec(); err != nil {
+		t.Fatal(err)
+	}
+	instance.timerMu.Lock()
+	retained := len(instance.timers)
+	instance.timerMu.Unlock()
+	if retained != 0 {
+		t.Fatalf("retained fired timers = %d, want 0", retained)
+	}
+	bp.ReleaseGraph(graphID)
+	if got := module.canceled(); got != 1 {
+		t.Fatalf("CancelTimerId calls = %d, want 1", got)
+	}
+}
+
+func TestInstanceLocalTimersUseUniqueIDsAndRemoveAfterFire(t *testing.T) {
+	instance := &GraphInstance{releasedCh: make(chan struct{})}
+	first, ok := instance.startLocalTimer(5 * time.Millisecond)
+	if !ok {
+		t.Fatal("first local timer was rejected")
+	}
+	second, ok := instance.startLocalTimer(5 * time.Millisecond)
+	if !ok || first == second {
+		t.Fatalf("local timer ids = %d and %d", first, second)
+	}
+	time.Sleep(30 * time.Millisecond)
+	instance.timerMu.Lock()
+	remaining := len(instance.localTimers)
+	instance.timerMu.Unlock()
+	if remaining != 0 {
+		t.Fatalf("remaining fired local timers = %d", remaining)
+	}
 }
 
 func (m *testBlueprintModule) triggered() (int64, int64) {

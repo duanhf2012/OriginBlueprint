@@ -90,6 +90,11 @@ export interface SelectedNodeInfo {
   variableId?: string
 }
 
+interface EditorHistorySnapshot {
+  graph: GraphSnapshot
+  legacy?: LegacyGraphState
+}
+
 export interface AddNodeOptions {
   allowEntryNodes?: boolean
 }
@@ -122,6 +127,7 @@ export interface BlueprintEditorHandle {
   setVariables(variables: GraphVariable[], variableGroups?: GraphVariableGroup[], refreshNodes?: boolean): Promise<void>
   focusNode(id: string): Promise<void>
   highlightNodesByType(typeId: string): Promise<number>
+  highlightFunctionReferences(functionKey: string): Promise<number>
   highlightIssueNode(id: string): Promise<number>
   highlightIssueNodes(ids: string[]): Promise<number>
 }
@@ -197,20 +203,20 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   const render = new VuePlugin<Schemes, AreaExtra>()
   const selector = AreaExtensions.selector()
   const selectable = AreaExtensions.selectableNodes(area, selector, { accumulating: AreaExtensions.accumulateOnCtrl() })
-  const undoStack: GraphSnapshot[] = []
-  const redoStack: GraphSnapshot[] = []
+  const undoStack: EditorHistorySnapshot[] = []
+  const redoStack: EditorHistorySnapshot[] = []
   const groups: GroupSnapshot[] = []
   const groupElements = new Map<string, HTMLElement>()
   const selectedConnectionIds = new Set<string>()
   let selectedGroupId: string | null = null
   let editingGroupId: string | null = null
   let preservedMultiNodeSelection: string[] = []
-  let dragSnapshot: GraphSnapshot | null = null
+  let dragSnapshot: EditorHistorySnapshot | null = null
   let clipboard: ClipboardGraph | null = null
   let restoring = false
   let transactionActive = false
   let initializing = true
-  let pendingConnectionSnapshot: GraphSnapshot | null = null
+  let pendingConnectionSnapshot: EditorHistorySnapshot | null = null
   let currentVariables: GraphVariable[] = []
   let currentVariableGroups: GraphVariableGroup[] = []
   let currentLegacy: LegacyGraphState | undefined
@@ -383,6 +389,15 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     return value ? JSON.parse(JSON.stringify(value)) as LegacyGraphState : undefined
   }
 
+  function historySnapshot(): EditorHistorySnapshot {
+    return { graph: snapshot(), legacy: cloneLegacyState(currentLegacy) }
+  }
+
+  async function restoreHistory(value: EditorHistorySnapshot) {
+    currentLegacy = cloneLegacyState(value.legacy)
+    await restore(value.graph)
+  }
+
   function cloneFunctionSignatureFromProperties(signature?: Partial<FunctionSignature>): FunctionSignature | undefined {
     if (!signature) return undefined
     const inputs = Array.isArray(signature.inputs) ? signature.inputs.map(port => ({ ...port })) : []
@@ -543,6 +558,8 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
         sourceOutput: String(item.sourceOutput),
         target: item.target,
         targetInput: String(item.targetInput),
+        legacyEdgeId: item.legacyEdgeId,
+        legacyOrdinal: item.legacyOrdinal,
         ...(visibleEntryConnectionIds.has(item.id) ? { entryConnectionVisible: true } : {})
       })),
       groups: groups.map(item => ({ ...item, nodeIds: [...item.nodeIds] }))
@@ -607,7 +624,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   function beginGroupDrag(event: PointerEvent, group: GroupSnapshot, resize: boolean) {
     void selectGroup(group.id)
     event.stopPropagation(); event.preventDefault()
-    const before = snapshot()
+    const before = historySnapshot()
     const start = { x: event.clientX, y: event.clientY, gx: group.x, gy: group.y, width: group.width, height: group.height }
     const nodeStarts = new Map(group.nodeIds.map(id => [id, { ...(area.nodeViews.get(id)?.position ?? { x: 0, y: 0 }) }]))
     const move = (next: PointerEvent) => {
@@ -660,6 +677,8 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
       const target = nodes.get(item.target)
       if (source && target && source.outputs[item.sourceOutput] && target.inputs[item.targetInput]) {
         const connection = createConnection(source, item.sourceOutput, target, item.targetInput)
+        connection.legacyEdgeId = item.legacyEdgeId
+        connection.legacyOrdinal = item.legacyOrdinal
         if (item.entryConnectionVisible) {
           visibleEntryConnectionIds.add(connection.id)
           updateConnectionPresentation(connection)
@@ -676,7 +695,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   }
 
   async function mutate(label: string, operation: () => Promise<void>) {
-    if (!restoring) undoStack.push(snapshot())
+    if (!restoring) undoStack.push(historySnapshot())
     redoStack.length = 0
     transactionActive = true
     try { await operation() } finally { transactionActive = false }
@@ -962,13 +981,31 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     })
   }
 
+  function hiddenLegacyEdgeIndexes(nodeIds: Set<string>) {
+    const edges = currentLegacy?.hiddenEdges ?? []
+    return edges.flatMap((edge, index) => nodeIds.has(edge.source_node_id) || nodeIds.has(edge.des_node_id) ? [index] : [])
+  }
+
+  function pruneHiddenLegacyEdges(nodeIds: Set<string>) {
+    const edges = currentLegacy?.hiddenEdges
+    if (!currentLegacy || !edges?.length) return 0
+    const removed = new Set(hiddenLegacyEdgeIndexes(nodeIds))
+    if (!removed.size) return 0
+    currentLegacy.hiddenEdges = edges.filter((_, index) => !removed.has(index))
+    const ordinals = currentLegacy.hiddenEdgeOrdinals
+    if (ordinals?.length === edges.length) currentLegacy.hiddenEdgeOrdinals = ordinals.filter((_, index) => !removed.has(index))
+    return removed.size
+  }
+
   async function deleteSelected() {
     const selected = selectedNodes()
     const selectedConnections = new Set(selectedConnectionIds)
     if (!selected.length && !selectedConnections.size) return
-    const parts = [selected.length ? `${selected.length} node(s)` : '', selectedConnections.size ? `${selectedConnections.size} connection(s)` : ''].filter(Boolean)
+    const ids = new Set(selected.map(node => node.id))
+    const hiddenLegacyConnections = hiddenLegacyEdgeIndexes(ids).length
+    const parts = [selected.length ? `${selected.length} node(s)` : '', selectedConnections.size ? `${selectedConnections.size} connection(s)` : '', hiddenLegacyConnections ? `${hiddenLegacyConnections} hidden legacy connection(s)` : ''].filter(Boolean)
     await mutate(`Deleted ${parts.join(' and ')}`, async () => {
-      const ids = new Set(selected.map(node => node.id))
+      pruneHiddenLegacyEdges(ids)
       for (const item of editor.getConnections()) {
         if (selectedConnections.has(item.id) || ids.has(item.source) || ids.has(item.target)) await editor.removeConnection(item.id)
       }
@@ -1047,16 +1084,16 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   async function undo() {
     const previous = undoStack.pop()
     if (!previous) return
-    redoStack.push(snapshot())
-    await restore(previous)
+    redoStack.push(historySnapshot())
+    await restoreHistory(previous)
     callbacks.onStatus('Undo')
   }
 
   async function redo() {
     const next = redoStack.pop()
     if (!next) return
-    undoStack.push(snapshot())
-    await restore(next)
+    undoStack.push(historySnapshot())
+    await restoreHistory(next)
     callbacks.onStatus('Redo')
   }
 
@@ -1473,6 +1510,22 @@ function nodeSize(node: BlueprintNode) {
     return matches.length
   }
 
+  async function highlightFunctionReferences(functionKey: string) {
+    const key = functionKey.trim()
+    const matches = editor.getNodes().filter(node => node.typeId === 'origin.function.call' && key && (node.functionId === key || node.functionName === key))
+    for (const node of editor.getNodes()) {
+      const highlighted = matches.includes(node)
+      if (node.referenceHighlighted !== highlighted) {
+        node.referenceHighlighted = highlighted
+        await area.update('node', node.id)
+      }
+    }
+    callbacks.onSelection(null)
+    if (matches.length) await centerNodesForReading(matches)
+    return matches.length
+  }
+
+
   async function highlightIssueNodes(ids: string[]) {
     const idSet = new Set(ids.filter(Boolean))
     const matches = editor.getNodes().filter(node => idSet.has(node.id))
@@ -1654,7 +1707,7 @@ function nodeSize(node: BlueprintNode) {
 
   area.addPipe(async context => {
     if (context.type === 'zoomed') callbacks.onZoom(context.data.zoom)
-    if ((context.type === 'connectioncreate' || context.type === 'connectionremove') && !restoring && !transactionActive && !initializing) pendingConnectionSnapshot = snapshot()
+    if ((context.type === 'connectioncreate' || context.type === 'connectionremove') && !restoring && !transactionActive && !initializing) pendingConnectionSnapshot = historySnapshot()
     if (context.type === 'connectioncreated' || context.type === 'connectionremoved') {
       if (context.type === 'connectioncreated') {
         decorateConnection(context.data)
@@ -1675,7 +1728,7 @@ function nodeSize(node: BlueprintNode) {
       void clearConnectionSelection()
       await clearGroupSelection()
       startNodeDragFeedback()
-      dragSnapshot = snapshot()
+      dragSnapshot = historySnapshot()
       await restoreMultiSelectionAfterNodePick(context.data.id)
       requestAnimationFrame(() => {
         const node = editor.getNode(context.data.id)
@@ -1744,6 +1797,7 @@ function nodeSize(node: BlueprintNode) {
     setVariables,
     focusNode,
     highlightNodesByType,
+    highlightFunctionReferences,
     highlightIssueNode,
     highlightIssueNodes
   }

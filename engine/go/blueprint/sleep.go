@@ -37,8 +37,25 @@ func (n *SleepNode) Exec() (int, error) {
 	if err != nil {
 		return -1, err
 	}
-	time.AfterFunc(time.Duration(delay)*time.Millisecond, func() {
-		_ = continuation.Resume()
-	})
+	instance := n.graph.instance
+	timer := time.NewTimer(time.Duration(delay) * time.Millisecond)
+	go func() {
+		if instance == nil || instance.releasedCh == nil {
+			<-timer.C
+			_ = continuation.Resume()
+			return
+		}
+		select {
+		case <-timer.C:
+			_ = continuation.Resume()
+		case <-instance.releasedCh:
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+		}
+	}()
 	return -1, ErrExecutionSuspended
 }

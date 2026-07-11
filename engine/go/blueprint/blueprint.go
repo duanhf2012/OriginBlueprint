@@ -2,8 +2,10 @@ package blueprint
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // Blueprint 是蓝图库的入口对象，负责加载编译图、创建实例并分发执行请求。
@@ -26,14 +28,33 @@ type Blueprint struct {
 
 // GraphInstance 保存单个 Create 实例的运行期状态。
 type GraphInstance struct {
-	name       string
+	name         string
+	graphID      int64
+	module       IBlueprintModule
+	timers       map[uint64]struct{}
+	timerMu      sync.Mutex
+	state        *instanceRuntimeState
+	lifecycleMu  sync.Mutex
+	released     bool
+	releasedCh   chan struct{}
+	leases       int
+	timerToken   uint64
+	timerRegs    map[uint64]*timerRegistration
+	localTimerID uint64
+	localTimers  map[uint64]*time.Timer
+}
+
+type instanceRuntimeState struct {
 	compiled   *CompiledGraph
-	graphID    int64
-	module     IBlueprintModule
-	timers     map[uint64]struct{}
-	timerMu    sync.Mutex
 	variables  map[string]IPort
 	variableMu sync.RWMutex
+}
+
+type timerRegistration struct {
+	id       uint64
+	bound    bool
+	fired    bool
+	released bool
 }
 
 // HotReloadResult 描述一次热加载应用到运行时后的结果。
@@ -68,7 +89,7 @@ func (p *hotReloadPlan) apply() HotReloadResult {
 	b.graphs = p.graphs
 	for _, instance := range b.instances {
 		if compiled := p.graphs[instance.name]; compiled != nil {
-			instance.compiled = compiled
+			instance.state = migrateInstanceRuntimeState(instance.state, compiled)
 			result.UpdatedInstances++
 			continue
 		}
@@ -101,11 +122,11 @@ func (b *Blueprint) Create(graphName string) int64 {
 	}
 	graphID := atomic.AddInt64(&b.seedID, 1)
 	b.instances[graphID] = &GraphInstance{
-		name:      graphName,
-		compiled:  compiled,
-		graphID:   graphID,
-		module:    b.module,
-		variables: initialVariables(compiled),
+		name:       graphName,
+		graphID:    graphID,
+		module:     b.module,
+		state:      newInstanceRuntimeState(compiled),
+		releasedCh: make(chan struct{}),
 	}
 	return graphID
 }
@@ -120,15 +141,26 @@ func (b *Blueprint) Do(graphID int64, entranceID int64, args ...any) (PortArray,
 		b.mu.RUnlock()
 		return nil, nil
 	}
+	if !instance.tryAcquireLease() {
+		b.mu.RUnlock()
+		return nil, ErrGraphReleased
+	}
 	name := instance.name
-	compiled := instance.compiled
+	state := instance.state
+	if state == nil {
+		instance.releaseLease()
+		b.mu.RUnlock()
+		return nil, fmt.Errorf("graph instance %d has no runtime state", graphID)
+	}
+	compiled := state.compiled
 	module := instance.module
-	variables := instance.variables
-	variableMu := &instance.variableMu
+	variables := state.variables
+	variableMu := &state.variableMu
 	traceEnabled := b.traceEnabled && b.traceLogger != nil
 	traceLogger := b.traceLogger
 	logger := b.logger
 	b.mu.RUnlock()
+	defer instance.releaseLease()
 
 	graph := NewGraph(compiled)
 	graph.name = name
@@ -142,6 +174,42 @@ func (b *Blueprint) Do(graphID int64, entranceID int64, args ...any) (PortArray,
 		graph.trace = &blueprintTraceRuntime{logger: traceLogger, state: &blueprintTraceState{}}
 	}
 	return graph.Do(entranceID, args...)
+}
+
+func newInstanceRuntimeState(compiled *CompiledGraph) *instanceRuntimeState {
+	return &instanceRuntimeState{compiled: compiled, variables: initialVariables(compiled)}
+}
+
+func migrateInstanceRuntimeState(old *instanceRuntimeState, compiled *CompiledGraph) *instanceRuntimeState {
+	next := newInstanceRuntimeState(compiled)
+	if old == nil || old.compiled == nil || compiled == nil {
+		return next
+	}
+	old.variableMu.RLock()
+	defer old.variableMu.RUnlock()
+	for name, config := range compiled.Variables {
+		oldConfig, exists := old.compiled.Variables[name]
+		if !exists || normalizeVariableType(oldConfig.Type) != normalizeVariableType(config.Type) {
+			continue
+		}
+		if value := old.variables[name]; value != nil {
+			next.variables[name] = value.Clone()
+		}
+	}
+	return next
+}
+
+func normalizeVariableType(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "int", "integer":
+		return "integer"
+	case "str", "string":
+		return "string"
+	case "bool", "boolean":
+		return "boolean"
+	default:
+		return strings.ToLower(strings.TrimSpace(value))
+	}
 }
 
 // TriggerEvent 兼容旧接口，用入口 ID 触发一次蓝图事件。
@@ -161,18 +229,7 @@ func (b *Blueprint) ReleaseGraph(graphID int64) {
 	if instance == nil {
 		return
 	}
-	instance.timerMu.Lock()
-	if len(instance.timers) == 0 {
-		instance.timers = nil
-		instance.timerMu.Unlock()
-		return
-	}
-	timerIDs := make([]uint64, 0, len(instance.timers))
-	for timerID := range instance.timers {
-		timerIDs = append(timerIDs, timerID)
-	}
-	instance.timers = nil
-	instance.timerMu.Unlock()
+	timerIDs := instance.markReleasedAndDrainTimers()
 
 	for _, timerID := range timerIDs {
 		id := timerID
@@ -184,6 +241,188 @@ func (b *Blueprint) ReleaseGraph(graphID int64) {
 			cancelTimer(&id)
 		}
 	}
+}
+
+func (i *GraphInstance) tryAcquireLease() bool {
+	if i == nil {
+		return false
+	}
+	i.lifecycleMu.Lock()
+	defer i.lifecycleMu.Unlock()
+	if i.released {
+		return false
+	}
+	i.leases++
+	return true
+}
+
+func (i *GraphInstance) releaseLease() {
+	if i == nil {
+		return
+	}
+	i.lifecycleMu.Lock()
+	if i.leases > 0 {
+		i.leases--
+	}
+	i.lifecycleMu.Unlock()
+}
+
+func (i *GraphInstance) beginExternalTimer() (uint64, bool) {
+	if i == nil {
+		return 0, false
+	}
+	i.lifecycleMu.Lock()
+	defer i.lifecycleMu.Unlock()
+	if i.released {
+		return 0, false
+	}
+	i.timerMu.Lock()
+	defer i.timerMu.Unlock()
+	i.timerToken++
+	if i.timerRegs == nil {
+		i.timerRegs = map[uint64]*timerRegistration{}
+	}
+	i.timerRegs[i.timerToken] = &timerRegistration{}
+	return i.timerToken, true
+}
+
+func (i *GraphInstance) bindExternalTimer(token, id uint64) bool {
+	i.timerMu.Lock()
+	defer i.timerMu.Unlock()
+	registration := i.timerRegs[token]
+	if registration == nil {
+		return false
+	}
+	registration.id = id
+	registration.bound = true
+	if registration.fired {
+		delete(i.timerRegs, token)
+		return false
+	}
+	if registration.released {
+		delete(i.timerRegs, token)
+		return true
+	}
+	if i.timers == nil {
+		i.timers = map[uint64]struct{}{}
+	}
+	i.timers[id] = struct{}{}
+	return false
+}
+
+func (i *GraphInstance) fireExternalTimer(token uint64) bool {
+	if i == nil {
+		return true
+	}
+	i.timerMu.Lock()
+	defer i.timerMu.Unlock()
+	registration := i.timerRegs[token]
+	if registration == nil || registration.released {
+		return false
+	}
+	registration.fired = true
+	if registration.bound {
+		delete(i.timers, registration.id)
+		delete(i.timerRegs, token)
+	}
+	return true
+}
+
+func (i *GraphInstance) removeExternalTimer(id uint64) bool {
+	if i == nil {
+		return false
+	}
+	i.timerMu.Lock()
+	defer i.timerMu.Unlock()
+	_, existed := i.timers[id]
+	delete(i.timers, id)
+	for token, registration := range i.timerRegs {
+		if registration.bound && registration.id == id {
+			delete(i.timerRegs, token)
+		}
+	}
+	return existed
+}
+
+func (i *GraphInstance) startLocalTimer(delay time.Duration) (uint64, bool) {
+	if i == nil {
+		return 0, false
+	}
+	i.lifecycleMu.Lock()
+	if i.released {
+		i.lifecycleMu.Unlock()
+		return 0, false
+	}
+	if i.releasedCh == nil {
+		i.releasedCh = make(chan struct{})
+	}
+	i.timerMu.Lock()
+	i.localTimerID++
+	id := i.localTimerID
+	timer := time.NewTimer(delay)
+	if i.localTimers == nil {
+		i.localTimers = map[uint64]*time.Timer{}
+	}
+	i.localTimers[id] = timer
+	releasedCh := i.releasedCh
+	i.timerMu.Unlock()
+	i.lifecycleMu.Unlock()
+	go func() {
+		select {
+		case <-timer.C:
+		case <-releasedCh:
+		}
+		i.timerMu.Lock()
+		if i.localTimers[id] == timer {
+			delete(i.localTimers, id)
+		}
+		i.timerMu.Unlock()
+	}()
+	return id, true
+}
+
+func (i *GraphInstance) cancelLocalTimer(id uint64) bool {
+	if i == nil {
+		return false
+	}
+	i.timerMu.Lock()
+	timer := i.localTimers[id]
+	delete(i.localTimers, id)
+	i.timerMu.Unlock()
+	return timer != nil && timer.Stop()
+}
+
+func (i *GraphInstance) markReleasedAndDrainTimers() []uint64 {
+	if i == nil {
+		return nil
+	}
+	i.lifecycleMu.Lock()
+	if !i.released {
+		i.released = true
+		if i.releasedCh == nil {
+			i.releasedCh = make(chan struct{})
+		}
+		close(i.releasedCh)
+	}
+	i.timerMu.Lock()
+	timerIDs := make([]uint64, 0, len(i.timers))
+	for timerID := range i.timers {
+		timerIDs = append(timerIDs, timerID)
+	}
+	i.timers = nil
+	for id, timer := range i.localTimers {
+		timer.Stop()
+		delete(i.localTimers, id)
+	}
+	for token, registration := range i.timerRegs {
+		registration.released = true
+		if registration.bound {
+			delete(i.timerRegs, token)
+		}
+	}
+	i.timerMu.Unlock()
+	i.lifecycleMu.Unlock()
+	return timerIDs
 }
 
 // CancelTimerId 取消指定实例上的 timer。
@@ -207,9 +446,7 @@ func (b *Blueprint) CancelTimerId(graphID int64, timerID *uint64) bool {
 	if instance == nil {
 		return false
 	}
-	instance.timerMu.Lock()
-	delete(instance.timers, id)
-	instance.timerMu.Unlock()
+	instance.removeExternalTimer(id)
 	return true
 }
 

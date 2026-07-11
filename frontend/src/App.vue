@@ -55,6 +55,7 @@ const moduleNodeMenu = ref<ModuleNodeMenuState>({ visible: false, x: 0, y: 0, no
 const nodeReferenceSearch = ref<NodeReferenceSearchState>({ visible: false, loading: false, nodeTitle: '', typeId: '', results: [] })
 const fileContextMenu = ref<FileContextMenuState>({ visible: false, x: 0, y: 0, path: '', isDir: false, isFunction: false })
 const canvasToast = ref<CanvasToastState>({ visible: false, message: '', x: 50, y: 18 })
+const functionReferenceSearchPrefix = 'function:'
 const testPanelHeight = ref(savedPanelSize('origin-blueprint-test-panel-height', 155, 96, 360))
 const testPanelCollapsed = ref(false)
 const referencePanelHeight = ref(savedReferencePanelHeight())
@@ -177,14 +178,15 @@ const functionCategoryOptions = computed(() => {
   values.delete(defaultFunctionCategory())
   return [defaultFunctionCategory(), ...Array.from(values).sort((a, b) => a.localeCompare(b))]
 })
+const moduleSearchTokens = computed(() => moduleSearch.value.trim().split(/\s+/).filter(Boolean))
 const categories = computed(() => {
   const ordinary = new Map<string, ModuleLibraryItem[]>()
   const functions = new Map<string, ModuleLibraryItem[]>()
-  const search = moduleSearch.value.trim().toLowerCase()
-  for (const definition of filteredModuleItems.value.filter(item => !search || `${item.title} ${item.category} ${item.id}`.toLowerCase().includes(search))) {
+  const tokens = moduleSearchTokens.value
+  for (const definition of filteredModuleItems.value.filter(item => moduleItemMatchesSearch(item, tokens))) {
     const items = ordinary.get(definition.category) ?? []; items.push(definition); ordinary.set(definition.category, items)
   }
-  for (const definition of functionModuleItems.value.filter(item => !search || `${item.title} ${item.category} ${item.functionItem?.category ?? ''} ${item.id} ${item.path ?? ''}`.toLowerCase().includes(search))) {
+  for (const definition of functionModuleItems.value.filter(item => moduleItemMatchesSearch(item, tokens))) {
     const items = functions.get(definition.category) ?? []; items.push(definition); functions.set(definition.category, items)
   }
   return [...ordinary.entries(), ...functions.entries()].sort(([left], [right]) => functionCategoryOrder(left) - functionCategoryOrder(right))
@@ -803,6 +805,76 @@ function displayModuleCategoryName(category: string) {
   return category.startsWith('ƒ ') ? category.slice(2) : category
 }
 
+function compactModuleSearchText(value: string) {
+  return value.toLowerCase().replace(/[\s_\-./\\()[\]{}:;'"`]+/g, '')
+}
+
+function moduleSearchText(value: unknown) {
+  const text = String(value ?? '').toLowerCase()
+  return `${text} ${compactModuleSearchText(text)}`
+}
+
+function moduleSearchFieldsMatch(fields: unknown[], tokens: string[]) {
+  if (!tokens.length) return true
+  const corpus = fields.map(moduleSearchText).join(' ')
+  return tokens.every(token => {
+    const raw = token.toLowerCase()
+    const compact = compactModuleSearchText(raw)
+    return Boolean(raw && (corpus.includes(raw) || (compact && corpus.includes(compact))))
+  })
+}
+
+function moduleItemSearchFields(item: ModuleLibraryItem) {
+  if (item.functionPlaceholder) return [item.title, item.functionItem?.category]
+  return [item.title, item.category, item.description]
+}
+
+function moduleItemMatchesSearch(item: ModuleLibraryItem, tokens = moduleSearchTokens.value) {
+  return moduleSearchFieldsMatch(moduleItemSearchFields(item), tokens)
+}
+
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char] ?? char))
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function renderModuleSearchText(value: unknown) {
+  const text = String(value ?? '')
+  const tokens = moduleSearchTokens.value
+  if (!tokens.length || !text) return escapeHtml(text)
+  const ranges: Array<[number, number]> = []
+  const lower = text.toLowerCase()
+  for (const token of tokens) {
+    const raw = token.toLowerCase()
+    if (!raw) continue
+    const pattern = new RegExp(escapeRegExp(raw), 'g')
+    for (const match of lower.matchAll(pattern)) {
+      const start = match.index ?? -1
+      if (start >= 0) ranges.push([start, start + raw.length])
+    }
+  }
+  if (!ranges.length && moduleSearchFieldsMatch([text], tokens)) return `<mark class="module-search-highlight">${escapeHtml(text)}</mark>`
+  if (!ranges.length) return escapeHtml(text)
+  ranges.sort((left, right) => left[0] - right[0])
+  const merged: Array<[number, number]> = []
+  for (const range of ranges) {
+    const previous = merged[merged.length - 1]
+    if (previous && range[0] <= previous[1]) previous[1] = Math.max(previous[1], range[1])
+    else merged.push([...range])
+  }
+  let cursor = 0
+  let html = ''
+  for (const [start, end] of merged) {
+    html += escapeHtml(text.slice(cursor, start))
+    html += `<mark class="module-search-highlight">${escapeHtml(text.slice(start, end))}</mark>`
+    cursor = end
+  }
+  return html + escapeHtml(text.slice(cursor))
+}
+
 function openFunctionCategoryOptions() {
   if (isFunctionBlueprintTab.value) functionCategoryDropdownOpen.value = true
 }
@@ -1409,10 +1481,7 @@ async function openGraph(path = '', highlightTypeId = '') {
     if (isFunctionBlueprintPath(file.path) && functionId.value) functionIdByPath.value = { ...functionIdByPath.value, [file.path]: functionId.value }
     if (isFunctionBlueprintPath(file.path)) functionCategoryByPath.value = { ...functionCategoryByPath.value, [file.path]: functionCategory.value }
     await editor?.loadDocument(document)
-    if (highlightTypeId) {
-      const count = await editor?.highlightNodesByType(highlightTypeId) ?? 0
-      status.value = count ? `已高亮 ${count} 个引用结点` : '该蓝图中未找到引用结点'
-    }
+    await highlightReferenceSearchTarget(highlightTypeId)
     return
   }
   const title = file.path.split(/[\\/]/).pop() ?? document.graphName
@@ -1432,14 +1501,20 @@ async function openGraph(path = '', highlightTypeId = '') {
     const hiddenCount = document.legacy.hiddenNodes?.length ?? 0
     status.value = `Loaded ${document.nodes.length} visible node(s), ${hiddenCount} hidden undefined node(s)`
   }
-  if (highlightTypeId) {
-    const count = await editor?.highlightNodesByType(highlightTypeId) ?? 0
-    status.value = count ? `已高亮 ${count} 个引用结点` : '该蓝图中未找到引用结点'
-  }
+  await highlightReferenceSearchTarget(highlightTypeId)
   recentFiles.value = await platform.recentFiles()
 }
 
 async function saveGraph(saveAs: boolean) {
+  try {
+    await saveGraphUnchecked(saveAs)
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    status.value = `${menuText.value.status.saveFailed}: ${detail}`
+  }
+}
+
+async function saveGraphUnchecked(saveAs: boolean) {
   if (!editor) return
   const tab = activeTab.value
   const document = documentWithFunctionSignature(editor.getDocument(tab.title, variables.value, variableGroups.value), tab)
@@ -2237,6 +2312,37 @@ async function findModuleNodeReferences(node = moduleNodeMenu.value.node) {
   }
 }
 
+function functionReferenceSearchKey(node: ModuleLibraryItem) {
+  return `${functionReferenceSearchPrefix}${node.functionItem?.functionId || node.title}`
+}
+
+function isFunctionReferenceSearchKey(value: string) {
+  return value.startsWith(functionReferenceSearchPrefix)
+}
+
+function functionReferenceHighlightKey(value: string) {
+  return value.slice(functionReferenceSearchPrefix.length)
+}
+
+async function findModuleFunctionReferences(node = moduleNodeMenu.value.node) {
+  closeModuleNodeMenu()
+  if (!node?.functionPlaceholder) return
+  if (!workspaceRoot.value) {
+    status.value = '请选择工程目录'
+    return
+  }
+  const typeId = functionReferenceSearchKey(node)
+  nodeReferenceSearch.value = { visible: true, loading: true, nodeTitle: node.title, typeId, results: [] }
+  try {
+    const results = await platform.findNodeReferences(workspaceRoot.value, typeId)
+    nodeReferenceSearch.value = { visible: true, loading: false, nodeTitle: node.title, typeId, results }
+    status.value = `找到 ${results.length} 个引用蓝图`
+  } catch (error) {
+    nodeReferenceSearch.value.loading = false
+    status.value = error instanceof Error ? error.message : String(error)
+  }
+}
+
 async function openFunctionModuleItem(item = moduleNodeMenu.value.node) {
   closeModuleNodeMenu()
   if (!item?.functionPlaceholder) return
@@ -2245,6 +2351,14 @@ async function openFunctionModuleItem(item = moduleNodeMenu.value.node) {
     return
   }
   await openGraph(item.path)
+}
+
+async function highlightReferenceSearchTarget(searchKey: string) {
+  if (!searchKey) return
+  const count = isFunctionReferenceSearchKey(searchKey)
+    ? await editor?.highlightFunctionReferences(functionReferenceHighlightKey(searchKey)) ?? 0
+    : await editor?.highlightNodesByType(searchKey) ?? 0
+  status.value = count ? `已高亮 ${count} 个引用结点` : '该蓝图中未找到引用结点'
 }
 
 async function openNodeReference(result: NodeReferenceResult) {
@@ -2476,7 +2590,7 @@ function toggleModuleCategory(category: string) {
         <div class="panel grow detail-panel sidebar-detail-panel">
           <div class="panel-title"><span class="chevron">⌄</span> 详情</div>
           <div v-if="isFunctionBlueprintTab && !selectedNode && !selectedVariable" class="node-detail function-signature-editor">
-            <label>{{ menuText.detail.functionTitle }}<input v-model="functionTitle" :placeholder="menuText.detail.functionTitlePlaceholder" @change="syncFunctionTitleToGraph" /></label>
+            <label>{{ menuText.detail.functionTitle }}<input v-model="functionTitle" :placeholder="menuText.detail.functionTitlePlaceholder" :title="menuText.detail.functionTitleLockedHint" readonly @change="syncFunctionTitleToGraph" /></label>
             <label>{{ menuText.detail.functionCategory }}
               <div class="function-category-combo" @focusin="openFunctionCategoryOptions" @focusout="closeFunctionCategoryOptions">
                 <input v-model="functionCategory" :placeholder="menuText.detail.functionCategoryPlaceholder" @input="openFunctionCategoryOptions" @change="syncFunctionCategoryToGraph" />
@@ -2576,11 +2690,11 @@ function toggleModuleCategory(category: string) {
               <button class="module-category" :aria-expanded="isModuleCategoryExpanded(category)" @click="toggleModuleCategory(category)">
                 <span class="module-arrow">{{ isModuleCategoryExpanded(category) ? '⌄' : '›' }}</span>
                 <span class="module-category-icon" :class="isFunctionModuleCategory(items) ? 'function-icon' : 'node-icon'">{{ isFunctionModuleCategory(items) ? 'ƒ' : '' }}</span>
-                <span class="module-category-name">{{ displayModuleCategoryName(category) }}</span>
+                <span class="module-category-name" v-html="renderModuleSearchText(displayModuleCategoryName(category))"></span>
                 <small>{{ items.length }}</small>
               </button>
               <div v-if="isModuleCategoryExpanded(category)" class="module-items">
-                <button v-for="item in items" :key="item.id" class="module-item" :class="{ 'function-placeholder': item.functionPlaceholder }" :title="item.path || item.title" @click="selectFunctionLibraryItem(item)" @pointerdown.stop="beginModuleItemPointerDrag($event, item)" @contextmenu.stop.prevent="openModuleItemMenu($event, item)" @dblclick="addModuleItemAt(item)"><span class="module-item-icon">{{ item.functionPlaceholder ? 'ƒ' : '◇' }}</span><span class="module-item-title">{{ item.title }}</span><small v-if="item.functionPlaceholder">{{ item.functionSource === 'workspace' ? menuText.module.workspaceFunctionLibrary : menuText.module.currentBlueprintFunctions }}</small></button>
+                <button v-for="item in items" :key="item.id" class="module-item" :class="{ 'function-placeholder': item.functionPlaceholder }" :title="item.path || item.title" @click="selectFunctionLibraryItem(item)" @pointerdown.stop="beginModuleItemPointerDrag($event, item)" @contextmenu.stop.prevent="openModuleItemMenu($event, item)" @dblclick="addModuleItemAt(item)"><span class="module-item-icon">{{ item.functionPlaceholder ? 'ƒ' : '◇' }}</span><span class="module-item-title" v-html="renderModuleSearchText(item.title)"></span><small v-if="item.functionPlaceholder">{{ item.functionSource === 'workspace' ? menuText.module.workspaceFunctionLibrary : menuText.module.currentBlueprintFunctions }}</small></button>
               </div>
             </section>
             <div v-if="!functionLibraryItems.length" class="function-library-empty">{{ menuText.module.noFunctionLibrary }}</div>
@@ -2592,6 +2706,7 @@ function toggleModuleCategory(category: string) {
     <div v-if="moduleNodeMenu.visible" class="module-node-menu" :style="{ left: `${moduleNodeMenu.x}px`, top: `${moduleNodeMenu.y}px` }" @pointerdown.stop>
       <div class="module-node-menu-title">{{ moduleNodeMenu.node?.title }}</div>
       <button v-if="moduleNodeMenu.node?.functionPlaceholder" @click="openFunctionModuleItem()">打开函数</button>
+      <button v-if="moduleNodeMenu.node?.functionPlaceholder" @click="findModuleFunctionReferences()">查找所有引用</button>
       <button v-else @click="findModuleNodeReferences()">查找所有引用</button>
     </div>
     <div v-if="fileContextMenu.visible" class="file-context-menu" :style="{ left: `${fileContextMenu.x}px`, top: `${fileContextMenu.y}px` }" @pointerdown.stop>

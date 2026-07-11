@@ -128,6 +128,60 @@ func TestBlueprintHotReloadReplacesGraphsForExistingInstances(t *testing.T) {
 	}
 }
 
+func TestHotReloadMigratesCompatibleVariablesAndResetsChangedTypes(t *testing.T) {
+	oldGraph := &CompiledGraph{Entrances: map[int64]*ExecNode{}, Variables: map[string]VariableConfig{
+		"score":   {Name: "score", Type: "int", Value: 1},
+		"changed": {Name: "changed", Type: "integer", Value: 2},
+		"removed": {Name: "removed", Type: "string", Value: "old"},
+	}}
+	var bp Blueprint
+	bp.AddCompiledGraph("test", oldGraph)
+	graphID := bp.Create("test")
+	instance := bp.instances[graphID]
+	instance.state.variableMu.Lock()
+	instance.state.variables["score"].SetInt(9)
+	instance.state.variables["changed"].SetInt(8)
+	instance.state.variableMu.Unlock()
+
+	newGraph := &CompiledGraph{Entrances: map[int64]*ExecNode{}, Variables: map[string]VariableConfig{
+		"score":   {Name: "score", Type: "INTEGER", Value: 3},
+		"changed": {Name: "changed", Type: "string", Value: "reset"},
+		"added":   {Name: "added", Type: "boolean", Value: true},
+	}}
+	result := (&hotReloadPlan{blueprint: &bp, graphs: map[string]*CompiledGraph{"test": newGraph}, result: HotReloadResult{GraphCount: 1}}).apply()
+	if result.UpdatedInstances != 1 {
+		t.Fatalf("result = %#v", result)
+	}
+	state := instance.state
+	if score, ok := state.variables["score"].GetInt(); !ok || score != 9 {
+		t.Fatalf("score = %d,%v, want migrated 9", score, ok)
+	}
+	if changed, ok := state.variables["changed"].GetStr(); !ok || changed != "reset" {
+		t.Fatalf("changed = %q,%v, want reset", changed, ok)
+	}
+	if added, ok := state.variables["added"].GetBool(); !ok || !added {
+		t.Fatalf("added = %v,%v, want true", added, ok)
+	}
+	if _, exists := state.variables["removed"]; exists {
+		t.Fatal("removed variable survived hot reload")
+	}
+}
+
+func TestHotReloadRemovedGraphKeepsExistingInstanceOnly(t *testing.T) {
+	compiled := &CompiledGraph{Entrances: map[int64]*ExecNode{}}
+	var bp Blueprint
+	bp.AddCompiledGraph("removed", compiled)
+	graphID := bp.Create("removed")
+	instance := bp.instances[graphID]
+	result := (&hotReloadPlan{blueprint: &bp, graphs: map[string]*CompiledGraph{}, result: HotReloadResult{}}).apply()
+	if result.UnchangedInstances != 1 || bp.instances[graphID] != instance {
+		t.Fatalf("result=%#v instance changed", result)
+	}
+	if got := bp.Create("removed"); got != 0 {
+		t.Fatalf("Create removed graph = %d, want 0", got)
+	}
+}
+
 func TestBlueprintPrepareHotReloadAppliesOnlyWhenRequested(t *testing.T) {
 	var recorder *testRecorder
 	root := t.TempDir()

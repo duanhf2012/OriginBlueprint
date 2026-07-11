@@ -3,30 +3,40 @@
   "appearance": {
     "locale": "en-US",
     "uiScale": "normal",
-    "nodeScale": "normal"
+    "nodeScale": "normal",
+    "moduleScale": "small"
   },
   "layout": {
-    "fileBrowserWidth": 250,
-    "leftToolsWidth": 230,
-    "rightSidebarWidth": 270,
-    "testPanelHeight": 180,
-    "referencePanelHeight": 180,
-    "variablePanelHeight": 260
-  },
-  "panels": {
-    "showLeftTools": true,
-    "showRightLibrary": true,
-    "showTestResults": true
+    "panels": {
+      "files": 262,
+      "tools": 160,
+      "library": 259,
+      "variables": 300,
+      "test": 153,
+      "references": 180
+    },
+    "visible": {
+      "tools": true,
+      "library": true,
+      "test": false
+    }
   },
   "explorer": {
-    "expandedPaths": [],
-    "selectedPath": "",
-    "revealActiveFile": true
-  },
-  "moduleLibrary": {
-    "expandedCategories": ["Examples", "Flow", "Math"]
+    "expanded": [
+      "E:\\Develop\\OriginNodeEditor\\OriginBlueprint\\examples\\sample-project\\blueprints",
+      "E:\\Develop\\OriginNodeEditor\\OriginBlueprint\\examples\\sample-project\\functions",
+      "E:\\Develop\\OriginNodeEditor\\OriginBlueprint\\examples\\sample-project\\nodes"
+    ],
+    "selected": "E:\\Develop\\OriginNodeEditor\\OriginBlueprint\\examples\\sample-project\\nodes",
+    "revealActiveFile": true,
+    "hideBuildFolders": false
   },
   "editor": {
+    "autoSave": "off",
     "validateBeforeSave": false
+  },
+  "export": {
+    "imageScale": 2,
+    "showGrid": true
   }
 }

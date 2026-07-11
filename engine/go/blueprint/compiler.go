@@ -1,6 +1,7 @@
 package blueprint
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -70,6 +71,7 @@ type GraphConfig struct {
 	Edges     []EdgeConfig     `json:"edges"`
 	Variables []VariableConfig `json:"variables"`
 	Functions map[string]*CompiledGraph
+	Legacy    bool `json:"-"`
 }
 
 // VariableConfig 描述蓝图实例变量的初始值。
@@ -83,10 +85,11 @@ type VariableConfig struct {
 //
 // 新版文档格式会先转换为 GraphConfig，旧格式则直接反序列化。
 func ParseGraphConfigJSON(data []byte) (GraphConfig, error) {
-	var documentProbe struct {
-		SchemaVersion int `json:"schemaVersion"`
+	present, _, err := probeGraphSchemaVersion(data)
+	if err != nil {
+		return GraphConfig{}, err
 	}
-	if err := json.Unmarshal(data, &documentProbe); err == nil && documentProbe.SchemaVersion > 0 {
+	if present {
 		var document graphDocument
 		if err := json.Unmarshal(data, &document); err != nil {
 			return GraphConfig{}, err
@@ -99,10 +102,26 @@ func ParseGraphConfigJSON(data []byte) (GraphConfig, error) {
 	if err := json.Unmarshal(data, &config); err != nil {
 		return GraphConfig{}, err
 	}
+	config.Legacy = true
 	for index := range config.Nodes {
 		config.Nodes[index].PortDefault = parsePortDefaults(config.Nodes[index].RawDefault)
 	}
 	return config, nil
+}
+
+func probeGraphSchemaVersion(data []byte) (bool, int, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return false, 0, err
+	}
+	raw, present := fields["schemaVersion"]
+	if !present {
+		return false, 0, nil
+	}
+	if !bytes.Equal(bytes.TrimSpace(raw), []byte("1")) {
+		return true, 0, fmt.Errorf("unsupported schemaVersion %s: expected integer 1", bytes.TrimSpace(raw))
+	}
+	return true, 1, nil
 }
 
 // CompileGraph 将 GraphConfig 编译为可执行的只读图结构。
@@ -115,10 +134,31 @@ func CompileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error
 	entrances := map[int64]*ExecNode{}
 	variables := make(map[string]VariableConfig, len(config.Variables))
 	for _, variable := range config.Variables {
+		if strings.TrimSpace(variable.Name) == "" {
+			return nil, fmt.Errorf("variable name is empty")
+		}
+		if _, exists := variables[variable.Name]; exists {
+			return nil, fmt.Errorf("duplicate variable %q", variable.Name)
+		}
+		port, err := newPortFromDataType(variable.Type)
+		if err != nil {
+			return nil, fmt.Errorf("variable %s: %w", variable.Name, err)
+		}
+		if variable.Value != nil {
+			if err := port.setAnyValue(variable.Value); err != nil {
+				return nil, fmt.Errorf("variable %s default: %w", variable.Name, err)
+			}
+		}
 		variables[variable.Name] = variable
 	}
 
 	for _, nodeConfig := range config.Nodes {
+		if strings.TrimSpace(nodeConfig.ID) == "" {
+			return nil, fmt.Errorf("node id is empty")
+		}
+		if _, exists := nodes[nodeConfig.ID]; exists {
+			return nil, fmt.Errorf("duplicate node id %q", nodeConfig.ID)
+		}
 		nodeName, entranceID, isEntrance := parseEntranceClass(nodeConfig.Class)
 		if nodeConfig.Class == "FunctionEntry" {
 			entranceID = FunctionEntranceID
@@ -144,6 +184,9 @@ func CompileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error
 		nodes[nodeConfig.ID] = node
 		nodeOrder = append(nodeOrder, node)
 		if isEntrance {
+			if _, exists := entrances[entranceID]; exists {
+				return nil, fmt.Errorf("duplicate entrance id %d", entranceID)
+			}
 			entrances[entranceID] = node
 		}
 		nodeDefaults[nodeConfig.ID] = nodeConfig.PortDefault
@@ -158,8 +201,25 @@ func CompileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error
 		if dest == nil {
 			return nil, fmt.Errorf("destination node %s not found", edge.DesNodeID)
 		}
+		if edge.SourcePortID < 0 || edge.SourcePortID >= len(source.Definition.OutPorts) {
+			return nil, fmt.Errorf("source node %s out port %d not found", edge.SourceNodeID, edge.SourcePortID)
+		}
+		if edge.DesPortID < 0 || edge.DesPortID >= len(dest.Definition.InPorts) {
+			return nil, fmt.Errorf("destination node %s in port %d not found", edge.DesNodeID, edge.DesPortID)
+		}
+		sourcePort := source.Definition.OutPorts[edge.SourcePortID]
+		targetPort := dest.Definition.InPorts[edge.DesPortID]
+		if portIsNil(sourcePort) || portIsNil(targetPort) {
+			return nil, fmt.Errorf("connection %s:%d -> %s:%d uses nil port", edge.SourceNodeID, edge.SourcePortID, edge.DesNodeID, edge.DesPortID)
+		}
+		if !config.Legacy && sourcePort.IsPortExec() != targetPort.IsPortExec() {
+			return nil, fmt.Errorf("connection %s:%d -> %s:%d mixes exec and data ports", edge.SourceNodeID, edge.SourcePortID, edge.DesNodeID, edge.DesPortID)
+		}
+		if !config.Legacy && !sourcePort.IsPortExec() && !portsCompatible(sourcePort, targetPort) {
+			return nil, fmt.Errorf("connection %s:%d -> %s:%d has incompatible data ports", edge.SourceNodeID, edge.SourcePortID, edge.DesNodeID, edge.DesPortID)
+		}
 
-		if source.isOutPortExec(edge.SourcePortID) {
+		if sourcePort.IsPortExec() {
 			source.ensureNext(edge.SourcePortID)
 			source.Next[edge.SourcePortID] = dest
 			source.NextInPort[edge.SourcePortID] = edge.DesPortID
@@ -167,8 +227,8 @@ func CompileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error
 			continue
 		}
 
-		if edge.DesPortID < 0 || edge.DesPortID >= len(dest.PreInPort) {
-			return nil, fmt.Errorf("destination node %s in port %d not found", edge.DesNodeID, edge.DesPortID)
+		if dest.PreInPort[edge.DesPortID] != nil {
+			return nil, fmt.Errorf("destination node %s in port %d has multiple producers", edge.DesNodeID, edge.DesPortID)
 		}
 		dest.PreInPort[edge.DesPortID] = &PrePortNode{Node: source, OutPortID: edge.SourcePortID}
 	}
@@ -184,6 +244,23 @@ func CompileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error
 	}
 
 	return &CompiledGraph{Entrances: entrances, Variables: variables, Functions: config.Functions, NodeCount: len(nodeOrder)}, nil
+}
+
+func portsCompatible(source, target IPort) bool {
+	sourcePort, sourceBuiltin := source.(*Port)
+	targetPort, targetBuiltin := target.(*Port)
+	if !sourceBuiltin || !targetBuiltin {
+		return true
+	}
+	return sourcePort.kind == portKindAny || targetPort.kind == portKindAny || sourcePort.kind == targetPort.kind
+}
+
+func portIsNil(port IPort) bool {
+	if port == nil {
+		return true
+	}
+	builtin, ok := port.(*Port)
+	return ok && builtin == nil
 }
 
 func compileInputBindings(node *ExecNode) []InputBinding {

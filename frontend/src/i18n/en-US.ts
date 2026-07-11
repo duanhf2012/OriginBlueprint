@@ -70,6 +70,9 @@ export const enUS: MenuLocaleText = {
     test: 'Test',
     testTitle: 'Validate blueprint (F5)'
   },
+  status: {
+    saveFailed: 'Save failed'
+  },
   canvas: {
     hint: 'Right drag: pan  Middle drag: pan  Ctrl: multi-select  Ctrl + right drag: cut connections  Connection: click + Delete'
   },
@@ -98,6 +101,7 @@ export const enUS: MenuLocaleText = {
   detail: {
     functionTitle: 'Function Title',
     functionTitlePlaceholder: 'Function display name',
+    functionTitleLockedHint: 'Function names are used by references and cannot be edited here',
     functionCategory: 'Type',
     functionCategoryPlaceholder: 'Select or enter a function type'
   },

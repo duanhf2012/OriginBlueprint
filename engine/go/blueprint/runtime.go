@@ -422,8 +422,7 @@ func (n *ExecNode) setInPort(graph *Graph, ctx *ExecContext, index int, inPort I
 	pre := n.PreInPort[index]
 	if pre == nil {
 		if index < len(n.DefaultInputSet) && n.DefaultInputSet[index] {
-			inPort.SetValue(n.DefaultInputs[index])
-			return nil
+			return assignPortValue(inPort, n.DefaultInputs[index])
 		}
 		if value, ok := n.DefaultIn[index]; ok {
 			return inPort.setAnyValue(value)
@@ -446,7 +445,9 @@ func (n *ExecNode) setInPort(graph *Graph, ctx *ExecContext, index int, inPort I
 	if pre.OutPortID < 0 || pre.OutPortID >= len(preCtx.OutputPorts) {
 		return fmt.Errorf("pre node %s out port index %d not found", pre.Node.ID, pre.OutPortID)
 	}
-	inPort.SetValue(preCtx.OutputPorts[pre.OutPortID])
+	if err := assignPortValue(inPort, preCtx.OutputPorts[pre.OutPortID]); err != nil {
+		return fmt.Errorf("node %s input port %d: %w", n.ID, index, err)
+	}
 	_ = ctx
 	return nil
 }
@@ -463,7 +464,7 @@ func (n *ExecNode) applyInputBinding(graph *Graph, ctx *ExecContext, binding Inp
 	switch binding.Kind {
 	case InputBindingDefault:
 		if binding.DefaultPort != nil {
-			inPort.SetValue(binding.DefaultPort)
+			return assignPortValue(inPort, binding.DefaultPort)
 		}
 		return nil
 	case InputBindingProducer:
@@ -483,7 +484,9 @@ func (n *ExecNode) applyInputBinding(graph *Graph, ctx *ExecContext, binding Inp
 		if binding.ProducerOutPortID < 0 || binding.ProducerOutPortID >= len(preCtx.OutputPorts) {
 			return fmt.Errorf("pre node %s out port index %d not found", producer.ID, binding.ProducerOutPortID)
 		}
-		inPort.SetValue(preCtx.OutputPorts[binding.ProducerOutPortID])
+		if err := assignPortValue(inPort, preCtx.OutputPorts[binding.ProducerOutPortID]); err != nil {
+			return fmt.Errorf("node %s input port %d: %w", n.ID, binding.InputPortID, err)
+		}
 		return nil
 	default:
 		return fmt.Errorf("node %s input port %d has unknown binding kind %d", n.ID, binding.InputPortID, binding.Kind)

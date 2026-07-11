@@ -69,6 +69,12 @@ export interface LegacyEdgeSnapshot {
   des_node_id: string
   des_port_index?: number
   des_port_id?: number | string
+  entryConnectionVisible?: boolean
+}
+
+export interface LegacyResidualNodeDefaults {
+  class: string
+  values: Record<string, unknown>
 }
 
 export interface LegacyGraphState {
@@ -76,8 +82,10 @@ export interface LegacyGraphState {
   time?: string
   hiddenNodes?: LegacyNodeSnapshot[]
   hiddenEdges?: LegacyEdgeSnapshot[]
+  hiddenEdgeOrdinals?: number[]
   groups?: Array<{ title: string; nodes: string[] }>
   variables?: Array<Record<string, unknown>>
+  residualNodeDefaults?: Record<string, LegacyResidualNodeDefaults>
 }
 
 export interface NodeSnapshot {
@@ -94,6 +102,8 @@ export interface ConnectionSnapshot {
   target: string
   targetInput: string
   entryConnectionVisible?: boolean
+  legacyEdgeId?: string
+  legacyOrdinal?: number
 }
 
 export interface GroupSnapshot {

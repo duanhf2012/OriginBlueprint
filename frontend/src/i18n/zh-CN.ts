@@ -68,6 +68,9 @@ export interface MenuLocaleText {
     test: string
     testTitle: string
   }
+  status: {
+    saveFailed: string
+  }
   canvas: {
     hint: string
   }
@@ -96,6 +99,7 @@ export interface MenuLocaleText {
   detail: {
     functionTitle: string
     functionTitlePlaceholder: string
+    functionTitleLockedHint: string
     functionCategory: string
     functionCategoryPlaceholder: string
   }
@@ -225,6 +229,9 @@ export const zhCN: MenuLocaleText = {
     test: '测试',
     testTitle: '检查蓝图 (F5)'
   },
+  status: {
+    saveFailed: '保存失败'
+  },
   canvas: {
     hint: '右键拖拽：平移  中键拖拽：平移  Ctrl：多选  Ctrl + 右键拖拽：切断连线  连线：点击后按 Delete 删除'
   },
@@ -253,6 +260,7 @@ export const zhCN: MenuLocaleText = {
   detail: {
     functionTitle: '函数名',
     functionTitlePlaceholder: '函数显示名',
+    functionTitleLockedHint: '函数名用于函数引用，不能在这里修改',
     functionCategory: '类型',
     functionCategoryPlaceholder: '选择或输入函数类型'
   },

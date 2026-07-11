@@ -167,13 +167,19 @@ func isGraphFile(path string) bool {
 }
 
 func parseGraphFile(data []byte, root string, path string) (GraphConfig, bool, string, []string, error) {
+	present, _, err := probeGraphSchemaVersion(data)
+	if err != nil {
+		return GraphConfig{}, false, "", nil, err
+	}
 	var documentProbe struct {
-		SchemaVersion     int                        `json:"schemaVersion"`
 		GraphName         string                     `json:"graphName"`
 		FunctionID        string                     `json:"functionId,omitempty"`
 		FunctionSignature graphDocumentFuncSignature `json:"functionSignature,omitempty"`
 	}
-	if err := json.Unmarshal(data, &documentProbe); err == nil && documentProbe.SchemaVersion > 0 {
+	if present {
+		if err := json.Unmarshal(data, &documentProbe); err != nil {
+			return GraphConfig{}, false, "", nil, err
+		}
 		var document graphDocument
 		if err := json.Unmarshal(data, &document); err != nil {
 			return GraphConfig{}, false, "", nil, err

@@ -8,6 +8,7 @@ export interface NodeDefinition {
   sourceName?: string
   title: string
   category: string
+  description?: string
   kind: NodeKind
   ordinaryEntry?: boolean
   create(): BlueprintNode
@@ -142,6 +143,7 @@ function fromSchema(schema: NodeSchema): NodeDefinition {
     sourceName: schema.sourceName,
     title: schema.title,
     category: schema.category,
+    description: schema.subtitle,
     kind,
     ordinaryEntry,
     create() {

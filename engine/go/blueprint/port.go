@@ -155,6 +155,49 @@ func (p *Port) SetValue(source IPort) {
 	p.anyv = cloneAnyValue(sourcePort.anyv)
 }
 
+func assignPortValue(target, source IPort) error {
+	targetPort, targetBuiltin := target.(*Port)
+	sourcePort, sourceBuiltin := source.(*Port)
+	if !targetBuiltin || !sourceBuiltin {
+		if target == nil || source == nil {
+			return fmt.Errorf("port assignment uses nil port")
+		}
+		target.SetValue(source)
+		return nil
+	}
+	if targetPort == nil || sourcePort == nil {
+		return fmt.Errorf("port assignment uses nil port")
+	}
+	if targetPort.kind == portKindExec || sourcePort.kind == portKindExec {
+		return fmt.Errorf("can not assign exec port")
+	}
+	if targetPort.kind == portKindAny {
+		targetPort.anyv = cloneAnyValue(sourcePort.GetAny())
+		return nil
+	}
+	if sourcePort.kind == portKindAny {
+		return targetPort.setAnyValue(sourcePort.GetAny())
+	}
+	if targetPort.kind != sourcePort.kind {
+		return fmt.Errorf("can not assign port kind %d to %d", sourcePort.kind, targetPort.kind)
+	}
+	switch targetPort.kind {
+	case portKindInt:
+		targetPort.intv = sourcePort.intv
+	case portKindFloat:
+		targetPort.floatv = sourcePort.floatv
+	case portKindString:
+		targetPort.strv = sourcePort.strv
+	case portKindBool:
+		targetPort.boolv = sourcePort.boolv
+	case portKindArray:
+		targetPort.arrv = append(targetPort.arrv[:0], sourcePort.arrv...)
+	default:
+		return fmt.Errorf("unknown port kind %d", targetPort.kind)
+	}
+	return nil
+}
+
 func (p *Port) GetInt() (PortInt, bool) {
 	if p == nil || p.kind != portKindInt {
 		return 0, false

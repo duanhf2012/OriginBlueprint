@@ -1,0 +1,16 @@
+{
+  "graph_name": "Interleaved Edges",
+  "time": "",
+  "nodes": [
+    { "id": "add1", "class": "AddInt", "module": "tools.json_node_loader", "pos": [0, 0], "port_defaultv": {} },
+    { "id": "hidden", "class": "UnknownSource", "module": "old.module", "pos": [100, 0], "port_defaultv": {} },
+    { "id": "add2", "class": "AddInt", "module": "tools.json_node_loader", "pos": [200, 0], "port_defaultv": {} }
+  ],
+  "edges": [
+    { "edge_id": "visible-1", "source_node_id": "add1", "source_port_id": 0, "des_node_id": "add2", "des_port_id": 0 },
+    { "edge_id": "hidden-1", "source_node_id": "hidden", "source_port_id": 0, "des_node_id": "add2", "des_port_id": 1 },
+    { "edge_id": "visible-2", "source_node_id": "add2", "source_port_id": 0, "des_node_id": "add1", "des_port_id": 1 }
+  ],
+  "groups": [],
+  "variables": []
+}
