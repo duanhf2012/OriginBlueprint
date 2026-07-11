@@ -126,6 +126,7 @@ button { font: inherit; color: inherit; }
 .module-item:hover { background: #315066; color: white; }
 .module-item-icon { color: #88aabd; text-align: center; }
 .module-item-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.module-search-highlight { padding: 0 1px; border-radius: 2px; background: #37516a; color: #f2fbff; }
 .module-item.function-placeholder { grid-template-columns: var(--module-icon-column) minmax(0, 1fr) auto; gap: 4px; color: #c2b98d; cursor: default; }
 .module-item.function-placeholder .module-item-icon { color: #d7c568; }
 .module-item.function-placeholder small { color: #746f55; font: var(--module-meta-font-size) "Segoe UI", "Microsoft YaHei UI", sans-serif; white-space: nowrap; }

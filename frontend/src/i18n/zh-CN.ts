@@ -99,6 +99,7 @@ export interface MenuLocaleText {
   detail: {
     functionTitle: string
     functionTitlePlaceholder: string
+    functionTitleLockedHint: string
     functionCategory: string
     functionCategoryPlaceholder: string
   }
@@ -259,6 +260,7 @@ export const zhCN: MenuLocaleText = {
   detail: {
     functionTitle: '函数名',
     functionTitlePlaceholder: '函数显示名',
+    functionTitleLockedHint: '函数名用于函数引用，不能在这里修改',
     functionCategory: '类型',
     functionCategoryPlaceholder: '选择或输入函数类型'
   },

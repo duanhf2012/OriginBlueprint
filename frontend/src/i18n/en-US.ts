@@ -101,6 +101,7 @@ export const enUS: MenuLocaleText = {
   detail: {
     functionTitle: 'Function Title',
     functionTitlePlaceholder: 'Function display name',
+    functionTitleLockedHint: 'Function names are used by references and cannot be edited here',
     functionCategory: 'Type',
     functionCategoryPlaceholder: 'Select or enter a function type'
   },

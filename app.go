@@ -52,6 +52,7 @@ type appConfig struct {
 }
 
 const projectSettingsFileName = "originblueprint.project"
+const functionReferenceQueryPrefix = "function:"
 
 const defaultProjectSettingsContent = `{
   "version": 1,
@@ -322,6 +323,7 @@ func (a *App) FindNodeReferences(root, typeID string) ([]NodeReferenceResult, er
 	if root == "" || strings.TrimSpace(typeID) == "" {
 		return []NodeReferenceResult{}, nil
 	}
+	query, isFunctionReferenceQuery := functionReferenceQuery(typeID)
 	results := make([]NodeReferenceResult, 0)
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
@@ -334,7 +336,7 @@ func (a *App) FindNodeReferences(root, typeID string) ([]NodeReferenceResult, er
 			return nil
 		}
 		ext := strings.ToLower(filepath.Ext(entry.Name()))
-		if ext != ".vgf" && ext != ".obp" {
+		if ext != ".vgf" && ext != ".obp" && !(isFunctionReferenceQuery && ext == ".obpf") {
 			return nil
 		}
 		data, err := os.ReadFile(path)
@@ -347,7 +349,7 @@ func (a *App) FindNodeReferences(root, typeID string) ([]NodeReferenceResult, er
 		}
 		count := 0
 		for _, node := range document.Nodes {
-			if node.TypeID == typeID {
+			if nodeMatchesReferenceQuery(node, query, isFunctionReferenceQuery) {
 				count++
 			}
 		}
@@ -363,6 +365,24 @@ func (a *App) FindNodeReferences(root, typeID string) ([]NodeReferenceResult, er
 		return strings.ToLower(results[i].Path) < strings.ToLower(results[j].Path)
 	})
 	return results, nil
+}
+
+func functionReferenceQuery(value string) (string, bool) {
+	query := strings.TrimSpace(value)
+	if strings.HasPrefix(query, functionReferenceQueryPrefix) {
+		return strings.TrimSpace(strings.TrimPrefix(query, functionReferenceQueryPrefix)), true
+	}
+	return query, false
+}
+
+func nodeMatchesReferenceQuery(node GraphNode, query string, isFunctionReferenceQuery bool) bool {
+	if !isFunctionReferenceQuery {
+		return node.TypeID == query
+	}
+	if node.TypeID != "origin.function.call" || query == "" {
+		return false
+	}
+	return node.Properties.FunctionID == query || node.Properties.FunctionName == query
 }
 
 func (a *App) RevealInFolder(path string) error {

@@ -127,6 +127,7 @@ export interface BlueprintEditorHandle {
   setVariables(variables: GraphVariable[], variableGroups?: GraphVariableGroup[], refreshNodes?: boolean): Promise<void>
   focusNode(id: string): Promise<void>
   highlightNodesByType(typeId: string): Promise<number>
+  highlightFunctionReferences(functionKey: string): Promise<number>
   highlightIssueNode(id: string): Promise<number>
   highlightIssueNodes(ids: string[]): Promise<number>
 }
@@ -1509,6 +1510,22 @@ function nodeSize(node: BlueprintNode) {
     return matches.length
   }
 
+  async function highlightFunctionReferences(functionKey: string) {
+    const key = functionKey.trim()
+    const matches = editor.getNodes().filter(node => node.typeId === 'origin.function.call' && key && (node.functionId === key || node.functionName === key))
+    for (const node of editor.getNodes()) {
+      const highlighted = matches.includes(node)
+      if (node.referenceHighlighted !== highlighted) {
+        node.referenceHighlighted = highlighted
+        await area.update('node', node.id)
+      }
+    }
+    callbacks.onSelection(null)
+    if (matches.length) await centerNodesForReading(matches)
+    return matches.length
+  }
+
+
   async function highlightIssueNodes(ids: string[]) {
     const idSet = new Set(ids.filter(Boolean))
     const matches = editor.getNodes().filter(node => idSet.has(node.id))
@@ -1780,6 +1797,7 @@ function nodeSize(node: BlueprintNode) {
     setVariables,
     focusNode,
     highlightNodesByType,
+    highlightFunctionReferences,
     highlightIssueNode,
     highlightIssueNodes
   }

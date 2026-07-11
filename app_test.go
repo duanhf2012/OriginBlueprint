@@ -1546,6 +1546,62 @@ func TestFindNodeReferencesScansVgfAndObpFiles(t *testing.T) {
 	}
 }
 
+func TestFindNodeReferencesMatchesFunctionCalls(t *testing.T) {
+	app := NewApp()
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "functions"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	writeDocument := func(path string, document GraphDocument) {
+		t.Helper()
+		data, err := json.Marshal(document)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, data, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	callProperties := GraphNodeProperties{FunctionID: "functions/Calc.obpf", FunctionName: "Calc"}
+	writeDocument(filepath.Join(dir, "main.obp"), GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		GraphName:     "main",
+		Nodes: []GraphNode{
+			{ID: "call1", TypeID: "origin.function.call", Properties: callProperties},
+			{ID: "other", TypeID: "origin.function.call", Properties: GraphNodeProperties{FunctionID: "functions/Other.obpf", FunctionName: "Other"}},
+		},
+	})
+	writeDocument(filepath.Join(dir, "functions", "worker.obpf"), GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		GraphName:     "worker",
+		Nodes: []GraphNode{
+			{ID: "call2", TypeID: "origin.function.call", Properties: callProperties},
+		},
+	})
+
+	results, err := app.FindNodeReferences(dir, "function:functions/Calc.obpf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("len(results) = %d, want 2: %#v", len(results), results)
+	}
+	if results[0].Name != "worker.obpf" || results[0].Count != 1 {
+		t.Fatalf("first result = %#v", results[0])
+	}
+	if results[1].Name != "main.obp" || results[1].Count != 1 {
+		t.Fatalf("second result = %#v", results[1])
+	}
+
+	results, err = app.FindNodeReferences(dir, "function:Calc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("function name fallback len(results) = %d, want 2: %#v", len(results), results)
+	}
+}
+
 func TestRevealInFolderRejectsMissingFile(t *testing.T) {
 	app := NewApp()
 	err := app.RevealInFolder(filepath.Join(t.TempDir(), "missing.vgf"))
