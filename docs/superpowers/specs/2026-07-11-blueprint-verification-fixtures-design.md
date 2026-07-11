@@ -1,22 +1,22 @@
-# Blueprint Verification Fixtures Design
+# 蓝图验证样本设计
 
-## Goal
+## 目标
 
-Create a set of real, visually inspectable blueprint files that cover the current top-level `nodes/*.json` library and exercise nested sequence, loop, branch, array, function, variable, return, and timer behavior. The same fixture set will later drive Go parser and execution comparisons against independent Go reference algorithms.
+创建一组真实、可直接在编辑器中打开查看的蓝图文件，覆盖当前顶层 `nodes/*.json` 节点库，并覆盖嵌套 Sequence、循环、分支、数组、函数、变量、返回和定时器行为。后续同一组样本将用于 Go 解析器与运行时执行结果的对照验证。
 
-## Delivery Phases
+## 交付阶段
 
-1. Generate and visually inspect the fixture blueprints.
-2. Add Go tests that load each fixture and compare its output with a same-input Go reference implementation.
-3. Run deterministic randomized input cases through both implementations and compare outputs.
-4. Summarize parser, execution, display, and output mismatches with proposed fixes.
-5. Implement and verify approved fixes.
+1. 生成蓝图样本文件，并进行可视化检查。
+2. 编写 Go 测试，加载每个样本文件，并与相同输入的 Go 参考实现比对输出。
+3. 使用确定性随机输入，同时运行 Go 参考实现和蓝图，比较输出是否一致。
+4. 总结解析、执行、显示和输出差异，并提出修复建议。
+5. 修复已确认的问题，并重新验证。
 
-Only phase 1 begins after this design is approved. Each later phase requires the prior phase's acceptance result.
+本设计获得确认后，只开始第 1 阶段。后续每一阶段都以前一阶段的验收结果为前提。
 
-## Fixture Location
+## 样本文件位置
 
-All files live in `examples/verification-blueprints/` so they can be opened directly in the editor and loaded by Go tests without duplicated copies.
+所有文件都放在 `examples/verification-blueprints/` 下，便于直接用编辑器打开，也便于 Go 测试读取，不保留重复副本。
 
 ```text
 examples/verification-blueprints/
@@ -35,68 +35,68 @@ examples/verification-blueprints/
     13_local_state_isolation.obpf
 ```
 
-`README.md` records the purpose, inputs, expected visible outputs, and opening order. `coverage.json` maps every top-level node schema to one or more fixture files and marks whether the node is structural-only, synchronously executed, or asynchronously executed.
+`README.md` 记录每个蓝图的用途、输入、可见预期输出和建议打开顺序。`coverage.json` 将每个顶层节点 schema 映射到一个或多个样本文件，并标记该节点属于结构覆盖、同步执行覆盖或异步执行覆盖。
 
-## Blueprint Set
+## 蓝图集合
 
-### 01 Legacy All Nodes Showcase
+### 01 Legacy 全节点展示
 
-Legacy `.vgf` with integer, array, and timer entrances. It uses legacy-compatible classes and ports, functionally grouped by input, arithmetic, arrays, control flow, events, debug, and return output. It is the primary visual import/export fixture and includes at least one executable route for each entrance.
+legacy `.vgf` 文件，包含整数、数组和定时器三类入口。使用 legacy 兼容的 class 与端口，按输入、运算、数组、流程、事件、调试和返回结果分区布局。它是主要的可视化导入导出样本，每个入口至少有一条可执行路径。
 
-### 02 Control Flow Maze
+### 02 控制流迷宫
 
-Native `.obp` that uses `Sequence` to fan into several deterministic paths. The main path nests `Foreach`, `ForeachIntArray`, `While`, and `ForLoopBreak`, then uses greater-than, less-than, equal, `BoolIf`, `RangeCompare`, `EqualSwitch`, and deterministic `Probability`. It returns a stable trace string and integer aggregate.
+native `.obp` 文件。使用 `Sequence` 分出多个确定性路径；主路径嵌套 `Foreach`、`ForeachIntArray`、`While` 和 `ForLoopBreak`，再使用大于、小于、相等、`BoolIf`、`RangeCompare`、`EqualSwitch` 和确定性 `Probability`。最终返回稳定的执行轨迹文本和整数聚合值。
 
-### 03 Array Data Lab
+### 03 数组数据实验室
 
-Native `.obp` covering integer and string array creation, append, indexed reads, length, membership, string split, cast, variables, and return nodes. Fixed arrays such as `[3, 1, 4, 1, 5]` make expected results easy to inspect.
+native `.obp` 文件，覆盖整数和字符串数组创建、追加、按索引读取、长度、成员判断、字符串切分、类型转换、变量和返回节点。使用 `[3, 1, 4, 1, 5]` 等固定数组，使预期结果易于检查。
 
-### 04 Deterministic Algorithm
+### 04 确定性算法
 
-Native `.obp` with a concrete score calculation. It combines entry values, arithmetic, absolute subtraction, division, modulo, range classification, switch classification, and deterministic random values (`min == max`). It returns score, remainder, category, and branch trace.
+native `.obp` 文件，实现一个具体评分算法。它组合入口参数、加减乘除、绝对减法、取模、范围分类、switch 分类和确定性随机数（`min == max`）。输出评分、余数、分类和分支轨迹。
 
-### 10 Score Kernel Function
+### 10 评分核心函数
 
-Complex `.obpf` with function entry/return, multiple typed parameters and outputs, local variables, arithmetic, nested conditions, range comparison, switch selection, and a deterministic probability branch. It returns numeric score and category text.
+复杂 `.obpf` 文件，包含函数入口/返回、多个带类型参数与输出、局部变量、数学计算、嵌套条件、范围比较、switch 选择和确定性概率分支。输出数值评分和分类文本。
 
-### 11 Array Fold And Format Function
+### 11 数组折叠与格式化函数
 
-Complex `.obpf` with local accumulator variables, nested integer-array and counted loops, array read/append/length/membership operations, string processing, casts, and multiple outputs. It calculates a weighted checksum and a formatted summary.
+复杂 `.obpf` 文件，包含局部累加变量、嵌套整数数组循环和计数循环、数组读取/追加/长度/成员判断、字符串处理、类型转换和多个输出。计算加权校验和与格式化摘要。
 
-### 12 Nested Control Function
+### 12 嵌套控制流函数
 
-Complex `.obpf` that emphasizes nested `Sequence`, loop, branch, range, switch, and break paths. It produces a deterministic trace and aggregate, so control-flow regressions are visible in the output order.
+复杂 `.obpf` 文件，重点覆盖嵌套 `Sequence`、循环、分支、范围、switch 和 break 路径。输出确定性轨迹和聚合结果，使控制流回归能够从输出顺序中直接看出。
 
-### 13 Local State Isolation Function
+### 13 局部状态隔离函数
 
-Complex `.obpf` that uses local Get/Set variables, local arrays, loops, branches, and return values. The orchestrator invokes it twice with the same input; both calls must yield the same output and must not alter a same-named caller variable.
+复杂 `.obpf` 文件，使用局部 Get/Set 变量、局部数组、循环、分支和函数返回。编排主图会以相同输入连续调用它两次；两次调用必须得到相同输出，且不得改变调用方中同名变量。
 
-### 05 Function Orchestrator
+### 05 函数编排主图
 
-Native `.obp` that calls all four function files, including nested calls, passes results into later functions, branches on returned values, and emits every final output. This is the primary function loading, binding, local-state, and return-flow fixture.
+native `.obp` 文件，调用以上四个函数文件，包括嵌套调用，将前一函数结果传给后续函数，根据返回值分支，并输出所有最终结果。它是函数加载、绑定、局部状态和返回流程的主要样本。
 
-### 06 Timer Lifecycle
+### 06 定时器生命周期
 
-Native `.obp` with normal and timer entrances, `CreateTimer`, `CloseTimer`, debug output, a function call, and return nodes. Later tests use a controllable Go timer module to verify creation, firing, cancellation, and release behavior without wall-clock races.
+native `.obp` 文件，包含普通入口和定时器入口、`CreateTimer`、`CloseTimer`、调试输出、函数调用和返回节点。后续测试使用可控 Go timer module 验证创建、触发、取消和释放行为，避免依赖真实时间造成不稳定。
 
-## Determinism Rules
+## 确定性规则
 
-- Random nodes use equal minimum and maximum values.
-- Probability nodes use `0` or `10000` only.
-- All arrays, strings, and entry arguments are fixed in phase 1.
-- Each execution output connects to at most one successor; fixture design must not rely on the known legacy exec fan-out overwrite behavior.
-- All graph and function outputs are explicit return nodes, not logger-only observations.
+- 随机节点的最小值和最大值相同。
+- 概率节点只使用 `0` 或 `10000`。
+- 第 1 阶段中的数组、字符串和入口参数全部固定。
+- 每个执行输出至多连接一个后继；样本不能依赖已知的 legacy 执行输出多连线覆盖问题。
+- 所有图和函数的结果都通过显式返回节点输出，不只依赖日志观察。
 
-## Future Go Verification
+## 后续 Go 验证
 
-Phase 2 adds a root legacy fixture test and an engine fixture test. Every executable fixture gets an independent plain-Go reference function. Tests load the same on-disk fixture files, supply the same arguments to the engine, and compare ordered return values, strings, variables where relevant, and controlled timer events.
+第 2 阶段新增根目录 legacy 样本测试和引擎样本测试。每个可执行样本都有独立的纯 Go 参考函数。测试从磁盘加载相同的样本文件，向引擎传入相同参数，并比较有序返回值、字符串、相关变量状态和可控定时器事件。
 
-Phase 3 adds seeded random case generation. Generated values stay within safe domains: positive divisors, bounded loop counts, arrays with bounded lengths, and deterministic random/probability configuration. Failures record fixture path, seed, input, expected output, actual output, and trace data where available.
+第 3 阶段新增带种子的随机样本输入。生成值保持在安全范围内：除数为正、循环次数有限、数组长度有限，随机数和概率节点仍保持确定性配置。失败信息必须记录样本路径、种子、输入、预期输出、实际输出和可用的执行轨迹。
 
-## Acceptance for Phase 1
+## 第 1 阶段验收标准
 
-- Every listed blueprint opens in the editor without known nodes becoming hidden placeholders.
-- Ports, labels, connections, groups, functions, and entry/return nodes are visually understandable.
-- `coverage.json` lists every top-level schema from `nodes/*.json`.
-- The files are syntactically valid in their respective `.vgf`, `.obp`, and `.obpf` formats.
-- No Go execution-comparison tests are added until visual inspection is accepted.
+- 每个列出的蓝图都能在编辑器中打开，已知节点不会变成隐藏 placeholder。
+- 端口、标签、连线、分组、函数、入口和返回节点在视觉上清晰可理解。
+- `coverage.json` 列出 `nodes/*.json` 中的每个顶层 schema。
+- `.vgf`、`.obp` 和 `.obpf` 文件都符合对应格式的语法要求。
+- 在可视化检查通过前，不新增 Go 执行结果比对测试。
