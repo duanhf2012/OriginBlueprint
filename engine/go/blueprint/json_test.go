@@ -1,6 +1,38 @@
 package blueprint
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
+
+func TestSchemaVersionValidationIsSharedByJSONAndFileParsers(t *testing.T) {
+	tests := []struct {
+		name    string
+		version string
+		wantErr bool
+	}{
+		{name: "missing legacy", version: ""},
+		{name: "supported", version: `"schemaVersion":1,`},
+		{name: "zero", version: `"schemaVersion":0,`, wantErr: true},
+		{name: "future", version: `"schemaVersion":2,`, wantErr: true},
+		{name: "fraction", version: `"schemaVersion":1.5,`, wantErr: true},
+		{name: "string", version: `"schemaVersion":"1",`, wantErr: true},
+		{name: "null", version: `"schemaVersion":null,`, wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			data := []byte(`{` + test.version + `"graphName":"Version Test","nodes":[],"edges":[],"variables":[]}`)
+			_, jsonErr := ParseGraphConfigJSON(data)
+			_, _, _, _, fileErr := parseGraphFile(data, t.TempDir(), filepath.Join(t.TempDir(), "test.obp"))
+			if (jsonErr != nil) != test.wantErr {
+				t.Fatalf("ParseGraphConfigJSON error = %v, wantErr %v", jsonErr, test.wantErr)
+			}
+			if (fileErr != nil) != test.wantErr {
+				t.Fatalf("parseGraphFile error = %v, wantErr %v", fileErr, test.wantErr)
+			}
+		})
+	}
+}
 
 func TestParseGraphConfigJSONUsesLegacyFieldNames(t *testing.T) {
 	config, err := ParseGraphConfigJSON([]byte(`{
