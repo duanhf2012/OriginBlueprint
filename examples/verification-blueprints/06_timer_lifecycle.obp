@@ -120,10 +120,25 @@
                                      }
                   },
                   {
+                      "id":  "timer_sequence",
+                      "typeId":  "origin.flow.sequence",
+                      "position":  {
+                                       "x":  560,
+                                       "y":  520
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+                                         "dynamicOutputCount":  2,
+                                         "label":  "Timer 结果序列"
+                                     }
+                  },
+                  {
                       "id":  "timer_call",
                       "typeId":  "origin.function.call",
                       "position":  {
-                                       "x":  580,
+                                       "x":  820,
                                        "y":  520
                                    },
                       "values":  {
@@ -156,7 +171,7 @@
                       "id":  "timer_result",
                       "typeId":  "origin.result.append-integer",
                       "position":  {
-                                       "x":  870,
+                                       "x":  1110,
                                        "y":  520
                                    },
                       "values":  {
@@ -170,7 +185,7 @@
                       "id":  "timer_text",
                       "typeId":  "origin.literal.string",
                       "position":  {
-                                       "x":  580,
+                                       "x":  820,
                                        "y":  700
                                    },
                       "values":  {
@@ -184,7 +199,7 @@
                       "id":  "timer_text_return",
                       "typeId":  "origin.result.append-string",
                       "position":  {
-                                       "x":  870,
+                                       "x":  1110,
                                        "y":  700
                                    },
                       "values":  {
@@ -241,6 +256,12 @@
                         {
                             "source":  "timer_debug",
                             "sourceOutput":  "exec",
+                            "target":  "timer_sequence",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "timer_sequence",
+                            "sourceOutput":  "then0",
                             "target":  "timer_call",
                             "targetInput":  "exec"
                         },
@@ -255,6 +276,12 @@
                             "sourceOutput":  "output_result",
                             "target":  "timer_result",
                             "targetInput":  "value"
+                        },
+                        {
+                            "source":  "timer_sequence",
+                            "sourceOutput":  "then1",
+                            "target":  "timer_text_return",
+                            "targetInput":  "exec"
                         },
                         {
                             "source":  "timer_text",
@@ -285,11 +312,12 @@
                        "title":  "Timer 事件入口：回调处理和函数调用",
                        "x":  35,
                        "y":  470,
-                       "width":  1050,
+                       "width":  1320,
                        "height":  320,
                        "nodeIds":  [
                                        "timer_entry",
                                        "timer_debug",
+                                       "timer_sequence",
                                        "timer_call",
                                        "timer_result",
                                        "timer_text",

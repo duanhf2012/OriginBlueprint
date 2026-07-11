@@ -37,6 +37,21 @@
                                      }
                   },
                   {
+                      "id":  "sequence",
+                      "typeId":  "origin.flow.sequence",
+                      "position":  {
+                                       "x":  210,
+                                       "y":  130
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+                                         "dynamicOutputCount":  2,
+                                         "label":  "局部状态序列"
+                                     }
+                  },
+                  {
                       "id":  "get_before",
                       "typeId":  "origin.variable.get",
                       "position":  {
@@ -60,7 +75,7 @@
                                        "y":  120
                                    },
                       "values":  {
-                                     "b":  1
+
                                  },
                       "properties":  {
 
@@ -169,6 +184,18 @@
                         {
                             "source":  "entry",
                             "sourceOutput":  "exec",
+                            "target":  "sequence",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "sequence",
+                            "sourceOutput":  "then0",
+                            "target":  "loop",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "sequence",
+                            "sourceOutput":  "then1",
                             "target":  "set_after",
                             "targetInput":  "exec"
                         },
@@ -177,6 +204,12 @@
                             "sourceOutput":  "input_seed",
                             "target":  "add",
                             "targetInput":  "a"
+                        },
+                        {
+                            "source":  "get_before",
+                            "sourceOutput":  "value",
+                            "target":  "add",
+                            "targetInput":  "b"
                         },
                         {
                             "source":  "add",
@@ -219,6 +252,7 @@
                        "height":  240,
                        "nodeIds":  [
                                        "entry",
+                                       "sequence",
                                        "get_before",
                                        "add",
                                        "set_after",

@@ -47,6 +47,21 @@
                                      }
                   },
                   {
+                      "id":  "sequence",
+                      "typeId":  "origin.flow.sequence",
+                      "position":  {
+                                       "x":  210,
+                                       "y":  130
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+                                         "dynamicOutputCount":  1,
+                                         "label":  "折叠函数序列"
+                                     }
+                  },
+                  {
                       "id":  "loop",
                       "typeId":  "origin.flow.foreach-integer-array",
                       "position":  {
@@ -112,6 +127,20 @@
                                    },
                       "values":  {
                                      "value":  8
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "array_length",
+                      "typeId":  "origin.array.length",
+                      "position":  {
+                                       "x":  1270,
+                                       "y":  340
+                                   },
+                      "values":  {
+
                                  },
                       "properties":  {
 
@@ -199,7 +228,7 @@
                       "id":  "local_set",
                       "typeId":  "origin.variable.set",
                       "position":  {
-                                       "x":  580,
+                                       "x":  1060,
                                        "y":  520
                                    },
                       "values":  {
@@ -209,6 +238,20 @@
                                          "label":  "Set FoldSum",
                                          "variableAccess":  "set",
                                          "variableId":  "fold_sum"
+                                     }
+                  },
+                  {
+                      "id":  "debug",
+                      "typeId":  "origin.debug.output",
+                      "position":  {
+                                       "x":  1300,
+                                       "y":  520
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
                                      }
                   },
                   {
@@ -260,7 +303,13 @@
                         {
                             "source":  "entry",
                             "sourceOutput":  "exec",
-                            "target":  "return",
+                            "target":  "sequence",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "sequence",
+                            "sourceOutput":  "then0",
+                            "target":  "loop",
                             "targetInput":  "exec"
                         },
                         {
@@ -268,6 +317,48 @@
                             "sourceOutput":  "input_items",
                             "target":  "loop",
                             "targetInput":  "array"
+                        },
+                        {
+                            "source":  "entry",
+                            "sourceOutput":  "input_items",
+                            "target":  "get_item",
+                            "targetInput":  "array"
+                        },
+                        {
+                            "source":  "entry",
+                            "sourceOutput":  "input_items",
+                            "target":  "append",
+                            "targetInput":  "array"
+                        },
+                        {
+                            "source":  "loop",
+                            "sourceOutput":  "body",
+                            "target":  "count_loop",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "count_loop",
+                            "sourceOutput":  "body",
+                            "target":  "score_call",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "score_call",
+                            "sourceOutput":  "exec",
+                            "target":  "debug",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "debug",
+                            "sourceOutput":  "exec",
+                            "target":  "local_set",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "loop",
+                            "sourceOutput":  "completed",
+                            "target":  "return",
+                            "targetInput":  "exec"
                         },
                         {
                             "source":  "loop",
@@ -288,8 +379,50 @@
                             "targetInput":  "output_sum"
                         },
                         {
+                            "source":  "get_item",
+                            "sourceOutput":  "value",
+                            "target":  "append",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "append",
+                            "sourceOutput":  "array",
+                            "target":  "array_length",
+                            "targetInput":  "array"
+                        },
+                        {
+                            "source":  "array_length",
+                            "sourceOutput":  "length",
+                            "target":  "local_set",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "array_length",
+                            "sourceOutput":  "length",
+                            "target":  "debug",
+                            "targetInput":  "integer"
+                        },
+                        {
+                            "source":  "append",
+                            "sourceOutput":  "array",
+                            "target":  "debug",
+                            "targetInput":  "array"
+                        },
+                        {
                             "source":  "summary",
                             "sourceOutput":  "value",
+                            "target":  "debug",
+                            "targetInput":  "string"
+                        },
+                        {
+                            "source":  "score_call",
+                            "sourceOutput":  "output_score",
+                            "target":  "cast",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "cast",
+                            "sourceOutput":  "result",
                             "target":  "return",
                             "targetInput":  "output_summary"
                         }
@@ -301,14 +434,16 @@
                        "x":  35,
                        "y":  50,
                        "width":  1740,
-                       "height":  240,
+                       "height":  370,
                        "nodeIds":  [
                                        "entry",
+                                       "sequence",
                                        "loop",
                                        "sum",
                                        "count_loop",
                                        "get_item",
                                        "append",
+                                       "array_length",
                                        "cast",
                                        "summary",
                                        "return"
@@ -316,14 +451,15 @@
                    },
                    {
                        "id":  "fold-nested",
-                       "title":  "嵌套函数调用和局部变量",
-                       "x":  500,
+                       "title":  "嵌套函数调用、调试和局部变量",
+                       "x":  720,
                        "y":  470,
                        "width":  850,
                        "height":  180,
                        "nodeIds":  [
                                        "score_call",
-                                       "local_set"
+                                       "local_set",
+                                       "debug"
                                    ]
                    }
                ],

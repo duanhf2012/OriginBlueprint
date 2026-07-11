@@ -27,8 +27,8 @@
 
                                  },
                       "properties":  {
-                                         "dynamicOutputCount":  4,
-                                         "label":  "四路序列"
+                                         "dynamicOutputCount":  6,
+                                         "label":  "六路序列"
                                      }
                   },
                   {
@@ -338,6 +338,20 @@
                                      }
                   },
                   {
+                      "id":  "switch_text",
+                      "typeId":  "origin.result.append-string",
+                      "position":  {
+                                       "x":  1280,
+                                       "y":  1120
+                                   },
+                      "values":  {
+                                     "value":  "comparison-switch-complete"
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
                       "id":  "string_items",
                       "typeId":  "origin.array.create-string-new",
                       "position":  {
@@ -514,6 +528,12 @@
                             "targetInput":  "exec"
                         },
                         {
+                            "source":  "sequence",
+                            "sourceOutput":  "then4",
+                            "target":  "foreach_any",
+                            "targetInput":  "exec"
+                        },
+                        {
                             "source":  "string_items",
                             "sourceOutput":  "array",
                             "target":  "foreach_any",
@@ -535,6 +555,48 @@
                             "source":  "cast_any",
                             "sourceOutput":  "exec",
                             "target":  "any_text",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "cast_any",
+                            "sourceOutput":  "result",
+                            "target":  "any_text",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "sequence",
+                            "sourceOutput":  "then5",
+                            "target":  "greater",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "greater",
+                            "sourceOutput":  "true",
+                            "target":  "less",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "less",
+                            "sourceOutput":  "true",
+                            "target":  "equal",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "equal",
+                            "sourceOutput":  "true",
+                            "target":  "switch_legacy",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "switch_legacy",
+                            "sourceOutput":  "case2",
+                            "target":  "switch_new",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "switch_new",
+                            "sourceOutput":  "case2",
+                            "target":  "switch_text",
                             "targetInput":  "exec"
                         }
                     ],
@@ -568,10 +630,10 @@
                    },
                    {
                        "id":  "flow-gallery",
-                       "title":  "控制流节点陈列：比较、Switch 与任意数组循环",
+                       "title":  "控制流扩展路径：比较、Switch 与任意数组循环",
                        "x":  35,
                        "y":  1070,
-                       "width":  1360,
+                       "width":  1530,
                        "height":  360,
                        "nodeIds":  [
                                        "greater",
@@ -579,6 +641,7 @@
                                        "equal",
                                        "switch_legacy",
                                        "switch_new",
+                                       "switch_text",
                                        "string_items",
                                        "foreach_any",
                                        "cast_any",

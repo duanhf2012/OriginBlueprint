@@ -310,6 +310,18 @@
                       "port_defaultv":  {
                                             "1":  10000
                                         }
+                  },
+                  {
+                      "id":  "timer_debug",
+                      "class":  "DebugOutput",
+                      "module":  "verification.fixture",
+                      "pos":  [
+                                  1550,
+                                  760
+                              ],
+                      "port_defaultv":  {
+                                            "2":  "legacy timer chain"
+                                        }
                   }
               ],
     "edges":  [
@@ -378,6 +390,90 @@
                       "source_port_id":  3,
                       "des_node_id":  "append_text",
                       "des_port_id":  0
+                  },
+                  {
+                      "source_node_id":  "entry_array",
+                      "source_port_id":  0,
+                      "des_node_id":  "debug",
+                      "des_port_id":  0
+                  },
+                  {
+                      "source_node_id":  "entry_array",
+                      "source_port_id":  1,
+                      "des_node_id":  "debug",
+                      "des_port_id":  1
+                  },
+                  {
+                      "source_node_id":  "entry_array",
+                      "source_port_id":  2,
+                      "des_node_id":  "debug",
+                      "des_port_id":  3
+                  },
+                  {
+                      "source_node_id":  "debug",
+                      "source_port_id":  0,
+                      "des_node_id":  "bool_if",
+                      "des_port_id":  0
+                  },
+                  {
+                      "source_node_id":  "bool_if",
+                      "source_port_id":  1,
+                      "des_node_id":  "greater",
+                      "des_port_id":  0
+                  },
+                  {
+                      "source_node_id":  "greater",
+                      "source_port_id":  1,
+                      "des_node_id":  "less",
+                      "des_port_id":  0
+                  },
+                  {
+                      "source_node_id":  "less",
+                      "source_port_id":  1,
+                      "des_node_id":  "equal",
+                      "des_port_id":  0
+                  },
+                  {
+                      "source_node_id":  "equal",
+                      "source_port_id":  1,
+                      "des_node_id":  "probability",
+                      "des_port_id":  0
+                  },
+                  {
+                      "source_node_id":  "sub",
+                      "source_port_id":  0,
+                      "des_node_id":  "mul",
+                      "des_port_id":  0
+                  },
+                  {
+                      "source_node_id":  "mul",
+                      "source_port_id":  0,
+                      "des_node_id":  "div",
+                      "des_port_id":  0
+                  },
+                  {
+                      "source_node_id":  "div",
+                      "source_port_id":  0,
+                      "des_node_id":  "mod",
+                      "des_port_id":  0
+                  },
+                  {
+                      "source_node_id":  "mod",
+                      "source_port_id":  0,
+                      "des_node_id":  "random",
+                      "des_port_id":  0
+                  },
+                  {
+                      "source_node_id":  "entry_timer",
+                      "source_port_id":  0,
+                      "des_node_id":  "timer_debug",
+                      "des_port_id":  0
+                  },
+                  {
+                      "source_node_id":  "random",
+                      "source_port_id":  0,
+                      "des_node_id":  "timer_debug",
+                      "des_port_id":  1
                   }
               ],
     "groups":  [

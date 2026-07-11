@@ -27,7 +27,7 @@
 
                                  },
                       "properties":  {
-                                         "dynamicOutputCount":  3,
+                                         "dynamicOutputCount":  4,
                                          "label":  "评分算法序列"
                                      }
                   },
@@ -540,16 +540,64 @@
                             "targetInput":  "exec"
                         },
                         {
+                            "source":  "add_float",
+                            "sourceOutput":  "result",
+                            "target":  "sub_float",
+                            "targetInput":  "a"
+                        },
+                        {
+                            "source":  "sub_float",
+                            "sourceOutput":  "result",
+                            "target":  "mul_float",
+                            "targetInput":  "a"
+                        },
+                        {
+                            "source":  "mul_float",
+                            "sourceOutput":  "result",
+                            "target":  "div_float",
+                            "targetInput":  "a"
+                        },
+                        {
                             "source":  "div_float",
                             "sourceOutput":  "result",
                             "target":  "float_cast",
                             "targetInput":  "value"
                         },
                         {
+                            "source":  "sequence",
+                            "sourceOutput":  "then3",
+                            "target":  "float_return",
+                            "targetInput":  "exec"
+                        },
+                        {
                             "source":  "float_cast",
                             "sourceOutput":  "result",
                             "target":  "float_return",
                             "targetInput":  "value"
+                        },
+                        {
+                            "source":  "float_return",
+                            "sourceOutput":  "exec",
+                            "target":  "debug",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "random_fixed",
+                            "sourceOutput":  "result",
+                            "target":  "integer_cast",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "integer_cast",
+                            "sourceOutput":  "result",
+                            "target":  "debug",
+                            "targetInput":  "string"
+                        },
+                        {
+                            "source":  "random_fixed",
+                            "sourceOutput":  "result",
+                            "target":  "debug",
+                            "targetInput":  "integer"
                         }
                     ],
     "groups":  [

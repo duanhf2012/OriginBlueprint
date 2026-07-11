@@ -292,10 +292,25 @@
                                      }
                   },
                   {
+                      "id":  "local_sequence",
+                      "typeId":  "origin.flow.sequence",
+                      "position":  {
+                                       "x":  810,
+                                       "y":  830
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+                                         "dynamicOutputCount":  2,
+                                         "label":  "局部调用结果序列"
+                                     }
+                  },
+                  {
                       "id":  "local_call_b",
                       "typeId":  "origin.function.call",
                       "position":  {
-                                       "x":  820,
+                                       "x":  1070,
                                        "y":  830
                                    },
                       "values":  {
@@ -328,7 +343,7 @@
                       "id":  "local_return_a",
                       "typeId":  "origin.result.append-integer",
                       "position":  {
-                                       "x":  1100,
+                                       "x":  1350,
                                        "y":  770
                                    },
                       "values":  {
@@ -342,7 +357,7 @@
                       "id":  "local_return_b",
                       "typeId":  "origin.result.append-integer",
                       "position":  {
-                                       "x":  1100,
+                                       "x":  1350,
                                        "y":  900
                                    },
                       "values":  {
@@ -453,6 +468,18 @@
                         {
                             "source":  "local_call_a",
                             "sourceOutput":  "exec",
+                            "target":  "local_sequence",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "local_sequence",
+                            "sourceOutput":  "then0",
+                            "target":  "local_return_a",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "local_sequence",
+                            "sourceOutput":  "then1",
                             "target":  "local_call_b",
                             "targetInput":  "exec"
                         },
@@ -521,11 +548,12 @@
                        "id":  "local-isolation",
                        "title":  "同输入连续调用：局部状态必须隔离",
                        "x":  480,
-                       "y":  760,
-                       "width":  980,
-                       "height":  220,
+                       "y":  740,
+                       "width":  1100,
+                       "height":  250,
                        "nodeIds":  [
                                        "local_call_a",
+                                       "local_sequence",
                                        "local_call_b",
                                        "local_return_a",
                                        "local_return_b"

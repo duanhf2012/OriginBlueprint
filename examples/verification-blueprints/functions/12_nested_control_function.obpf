@@ -253,7 +253,7 @@
                         {
                             "source":  "entry",
                             "sourceOutput":  "exec",
-                            "target":  "return",
+                            "target":  "sequence",
                             "targetInput":  "exec"
                         },
                         {
@@ -302,6 +302,18 @@
                             "source":  "sequence",
                             "sourceOutput":  "then3",
                             "target":  "range",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "range",
+                            "sourceOutput":  "case2",
+                            "target":  "switch",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "switch",
+                            "sourceOutput":  "case2",
+                            "target":  "return",
                             "targetInput":  "exec"
                         }
                     ],

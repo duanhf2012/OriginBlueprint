@@ -27,7 +27,7 @@
 
                                  },
                       "properties":  {
-                                         "dynamicOutputCount":  3,
+                                         "dynamicOutputCount":  5,
                                          "label":  "数组实验序列"
                                      }
                   },
@@ -376,11 +376,23 @@
                         {
                             "source":  "append_integer",
                             "sourceOutput":  "array",
+                            "target":  "integers_old",
+                            "targetInput":  "items"
+                        },
+                        {
+                            "source":  "integers_old",
+                            "sourceOutput":  "array",
                             "target":  "get_integer",
                             "targetInput":  "array"
                         },
                         {
                             "source":  "get_integer",
+                            "sourceOutput":  "value",
+                            "target":  "contains",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "sum_get",
                             "sourceOutput":  "value",
                             "target":  "integer_return",
                             "targetInput":  "value"
@@ -418,6 +430,12 @@
                         {
                             "source":  "append_string",
                             "sourceOutput":  "array",
+                            "target":  "strings_old",
+                            "targetInput":  "items"
+                        },
+                        {
+                            "source":  "strings_old",
+                            "sourceOutput":  "array",
                             "target":  "get_string",
                             "targetInput":  "array"
                         },
@@ -446,15 +464,21 @@
                             "targetInput":  "value"
                         },
                         {
+                            "source":  "sequence",
+                            "sourceOutput":  "then3",
+                            "target":  "cast_any",
+                            "targetInput":  "exec"
+                        },
+                        {
                             "source":  "cast_any",
                             "sourceOutput":  "exec",
-                            "target":  "any_return",
+                            "target":  "label_set",
                             "targetInput":  "exec"
                         },
                         {
                             "source":  "cast_any",
                             "sourceOutput":  "result",
-                            "target":  "any_return",
+                            "target":  "label_set",
                             "targetInput":  "value"
                         },
                         {
@@ -462,6 +486,18 @@
                             "sourceOutput":  "exec",
                             "target":  "contains",
                             "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "sequence",
+                            "sourceOutput":  "then4",
+                            "target":  "any_return",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "label_get",
+                            "sourceOutput":  "value",
+                            "target":  "any_return",
+                            "targetInput":  "value"
                         }
                     ],
     "groups":  [

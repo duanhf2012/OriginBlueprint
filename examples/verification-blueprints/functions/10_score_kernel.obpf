@@ -52,6 +52,21 @@
                                      }
                   },
                   {
+                      "id":  "sequence",
+                      "typeId":  "origin.flow.sequence",
+                      "position":  {
+                                       "x":  210,
+                                       "y":  130
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+                                         "dynamicOutputCount":  1,
+                                         "label":  "评分函数序列"
+                                     }
+                  },
+                  {
                       "id":  "add",
                       "typeId":  "origin.math.add-integer",
                       "position":  {
@@ -231,7 +246,13 @@
                         {
                             "source":  "entry",
                             "sourceOutput":  "exec",
-                            "target":  "return",
+                            "target":  "sequence",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "sequence",
+                            "sourceOutput":  "then0",
+                            "target":  "range",
                             "targetInput":  "exec"
                         },
                         {
@@ -261,6 +282,36 @@
                         {
                             "source":  "multiply",
                             "sourceOutput":  "result",
+                            "target":  "local_set",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "range",
+                            "sourceOutput":  "case3",
+                            "target":  "switch",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "switch",
+                            "sourceOutput":  "case2",
+                            "target":  "probability",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "probability",
+                            "sourceOutput":  "hit",
+                            "target":  "local_set",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "local_set",
+                            "sourceOutput":  "exec",
+                            "target":  "return",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "local_get",
+                            "sourceOutput":  "value",
                             "target":  "return",
                             "targetInput":  "output_score"
                         },
@@ -274,13 +325,14 @@
     "groups":  [
                    {
                        "id":  "score-main",
-                       "title":  "函数主路径：输入、计算和返回",
+                       "title":  "函数主路径：输入、计算、分支和返回",
                        "x":  35,
                        "y":  55,
                        "width":  1740,
                        "height":  240,
                        "nodeIds":  [
                                        "entry",
+                                       "sequence",
                                        "add",
                                        "multiply",
                                        "range",
