@@ -3,6 +3,7 @@ package blueprint
 import (
 	"fmt"
 	"math"
+	"sync"
 	"time"
 )
 
@@ -52,10 +53,17 @@ func (n *DelayNode) Exec() (int, error) {
 		}
 	}
 
+	var cancelHookMu sync.Mutex
 	var cancelHookID uint64
+	callbackFired := false
 	handle, err := scheduler.Schedule(time.Duration(delay)*time.Millisecond, func() {
+		cancelHookMu.Lock()
+		callbackFired = true
+		hookID := cancelHookID
+		cancelHookID = 0
+		cancelHookMu.Unlock()
 		if execution != nil {
-			execution.removeCancelHook(cancelHookID)
+			execution.removeCancelHook(hookID)
 			_ = continuation.ResumeAsync()
 			return
 		}
@@ -65,7 +73,15 @@ func (n *DelayNode) Exec() (int, error) {
 		return -1, err
 	}
 	if execution != nil {
-		cancelHookID = execution.addCancelHook(func() { scheduler.Cancel(handle) })
+		hookID := execution.addCancelHook(func() { scheduler.Cancel(handle) })
+		cancelHookMu.Lock()
+		if callbackFired {
+			cancelHookMu.Unlock()
+			execution.removeCancelHook(hookID)
+		} else {
+			cancelHookID = hookID
+			cancelHookMu.Unlock()
+		}
 	}
 	return -1, ErrExecutionSuspended
 }

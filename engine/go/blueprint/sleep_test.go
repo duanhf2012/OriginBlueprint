@@ -17,6 +17,20 @@ func (n *testSignalRecorder) Exec() (int, error) {
 	return -1, nil
 }
 
+type immediateTimerScheduler struct {
+	nextID ScheduledTaskHandle
+}
+
+func (s *immediateTimerScheduler) Schedule(_ time.Duration, callback func()) (ScheduledTaskHandle, error) {
+	s.nextID++
+	callback()
+	return s.nextID, nil
+}
+
+func (s *immediateTimerScheduler) Cancel(ScheduledTaskHandle) bool {
+	return true
+}
+
 func TestSleepNodeResumesAfterDelay(t *testing.T) {
 	done := make(chan struct{})
 	entrance := NewExecNode("entrance", NewNodeDefinition("TestEntrance", func() IExecNode {
@@ -79,6 +93,44 @@ func TestReleaseGraphPreventsSleepContinuation(t *testing.T) {
 	case <-done:
 		t.Fatal("sleep continuation ran after graph release")
 	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+func TestDelayNodeDoesNotRegisterCancelHookAfterImmediateCallback(t *testing.T) {
+	done := make(chan struct{})
+	entrance := NewExecNode("entrance", NewNodeDefinition("TestEntrance", func() IExecNode { return &testEntrance{} }, nil, []IPort{NewPortExec()}))
+	delay := NewExecNode("delay", NewDelayNodeDefinition())
+	record := NewExecNode("record", NewNodeDefinition("TestSignalRecorder", func() IExecNode { return &testSignalRecorder{done: done} }, []IPort{NewPortExec()}, nil))
+	delay.DefaultIn[1] = 1
+	entrance.Next = []*ExecNode{delay}
+	delay.Next = []*ExecNode{record}
+	delay.BeConnect = true
+	record.BeConnect = true
+
+	dispatcher := &manualExecutionDispatcher{}
+	scheduler := &immediateTimerScheduler{}
+	bp := &Blueprint{}
+	bp.SetExecutionDispatcher(dispatcher)
+	bp.SetTimerScheduler(scheduler)
+	bp.AddCompiledGraph("immediate-delay", &CompiledGraph{Entrances: map[int64]*ExecNode{1: entrance}, NodeCount: 3})
+	execution, err := bp.Start(context.Background(), bp.Create("immediate-delay"), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatcher.runNext(t)
+
+	execution.mu.Lock()
+	hookCount := len(execution.cancelHooks)
+	execution.mu.Unlock()
+	if hookCount != 0 {
+		t.Fatalf("cancel hooks = %d, want 0 after an immediate callback", hookCount)
+	}
+
+	dispatcher.runNext(t)
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("delay continuation did not complete")
 	}
 }
 

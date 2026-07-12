@@ -1,0 +1,94 @@
+{
+    "id":  "origin.example.mock-rpc-async",
+    "sourceName":  "MockRpcAsync",
+    "title":  "模拟 RPC 异步调用",
+    "titleEn":  "Mock RPC Async Call",
+    "category":  "示例 / 异步",
+    "categoryEn":  "Examples / Async",
+    "subtitle":  "定时器到期后选择成功或失败出口，演示 ResumeTo。",
+    "subtitleEn":  "Uses a timer to choose the success or failure ResumeTo branch.",
+    "width":  330,
+    "inputs":  [
+                   {
+                       "key":  "exec",
+                       "label":  "执行",
+                       "labelEn":  "Exec",
+                       "type":  "exec"
+                   },
+                   {
+                       "key":  "delayMs",
+                       "label":  "延迟（毫秒）",
+                       "labelEn":  "Delay (ms)",
+                       "type":  "data",
+                       "data_type":  "Integer",
+                       "defaultValue":  50
+                   },
+                   {
+                       "key":  "succeed",
+                       "label":  "是否成功",
+                       "labelEn":  "Succeed",
+                       "type":  "data",
+                       "data_type":  "Boolean",
+                       "defaultValue":  true
+                   },
+                   {
+                       "key":  "successValue",
+                       "label":  "成功值",
+                       "labelEn":  "Success Value",
+                       "type":  "data",
+                       "data_type":  "Integer",
+                       "defaultValue":  100
+                   },
+                   {
+                       "key":  "failureCode",
+                       "label":  "失败码",
+                       "labelEn":  "Failure Code",
+                       "type":  "data",
+                       "data_type":  "Integer",
+                       "defaultValue":  500
+                   },
+                   {
+                       "key":  "failureMessage",
+                       "label":  "失败信息",
+                       "labelEn":  "Failure Message",
+                       "type":  "data",
+                       "data_type":  "String",
+                       "defaultValue":  "mock rpc failed"
+                   }
+               ],
+    "outputs":  [
+                    {
+                        "key":  "succeeded",
+                        "label":  "成功",
+                        "labelEn":  "Succeeded",
+                        "type":  "exec"
+                    },
+                    {
+                        "key":  "failed",
+                        "label":  "失败",
+                        "labelEn":  "Failed",
+                        "type":  "exec"
+                    },
+                    {
+                        "key":  "value",
+                        "label":  "成功值",
+                        "labelEn":  "Value",
+                        "type":  "data",
+                        "data_type":  "Integer"
+                    },
+                    {
+                        "key":  "errorCode",
+                        "label":  "失败码",
+                        "labelEn":  "Error Code",
+                        "type":  "data",
+                        "data_type":  "Integer"
+                    },
+                    {
+                        "key":  "errorMessage",
+                        "label":  "失败信息",
+                        "labelEn":  "Error Message",
+                        "type":  "data",
+                        "data_type":  "String"
+                    }
+                ]
+}

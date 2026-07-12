@@ -124,14 +124,84 @@
                                      }
                   },
                   {
+                      "id":  "break_compare",
+                      "typeId":  "origin.compare.greater-integer",
+                      "position":  {
+                                       "x":  820,
+                                       "y":  440
+                                   },
+                      "values":  {
+                                     "b":  1
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "break_branch",
+                      "typeId":  "origin.flow.branch",
+                      "position":  {
+                                       "x":  1070,
+                                       "y":  440
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "break_debug",
+                      "typeId":  "origin.debug.output",
+                      "position":  {
+                                       "x":  1290,
+                                       "y":  440
+                                   },
+                      "values":  {
+                                     "string":  "break-loop-body"
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "break_done",
+                      "typeId":  "origin.debug.output",
+                      "position":  {
+                                       "x":  1290,
+                                       "y":  520
+                                   },
+                      "values":  {
+                                     "string":  "break-loop-complete"
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
                       "id":  "while",
                       "typeId":  "origin.flow.while",
                       "position":  {
                                        "x":  820,
-                                       "y":  470
+                                       "y":  600
                                    },
                       "values":  {
                                      "condition":  false
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "while_done",
+                      "typeId":  "origin.debug.output",
+                      "position":  {
+                                       "x":  1070,
+                                       "y":  600
+                                   },
+                      "values":  {
+                                     "string":  "while-complete"
                                  },
                       "properties":  {
 
@@ -293,9 +363,51 @@
                             "targetInput":  "exec"
                         },
                         {
+                            "source":  "break",
+                            "sourceOutput":  "body",
+                            "target":  "break_branch",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "break",
+                            "sourceOutput":  "index",
+                            "target":  "break_compare",
+                            "targetInput":  "a"
+                        },
+                        {
+                            "source":  "break_compare",
+                            "sourceOutput":  "result",
+                            "target":  "break_branch",
+                            "targetInput":  "condition"
+                        },
+                        {
+                            "source":  "break_branch",
+                            "sourceOutput":  "true",
+                            "target":  "break",
+                            "targetInput":  "break"
+                        },
+                        {
+                            "source":  "break_branch",
+                            "sourceOutput":  "false",
+                            "target":  "break_debug",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "break",
+                            "sourceOutput":  "completed",
+                            "target":  "break_done",
+                            "targetInput":  "exec"
+                        },
+                        {
                             "source":  "sequence",
                             "sourceOutput":  "then2",
                             "target":  "while",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "while",
+                            "sourceOutput":  "completed",
+                            "target":  "while_done",
                             "targetInput":  "exec"
                         },
                         {
@@ -320,11 +432,11 @@
     "groups":  [
                    {
                        "id":  "nested-flow",
-                       "title":  "嵌套 Sequence、循环、break 和 while",
+                       "title":  "嵌套 Sequence、循环、真实 break 和 while",
                        "x":  35,
                        "y":  35,
-                       "width":  1160,
-                       "height":  650,
+                       "width":  1500,
+                       "height":  720,
                        "nodeIds":  [
                                        "entry",
                                        "sequence",
@@ -332,7 +444,12 @@
                                        "inner_values",
                                        "inner",
                                        "break",
+                                       "break_compare",
+                                       "break_branch",
+                                       "break_debug",
+                                       "break_done",
                                        "while",
+                                       "while_done",
                                        "range",
                                        "switch"
                                    ]

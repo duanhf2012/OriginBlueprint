@@ -1,672 +1,262 @@
 {
-    "schemaVersion":  1,
-    "graphName":  "控制流迷宫",
-    "nodes":  [
-                  {
-                      "id":  "entry",
-                      "typeId":  "origin.event.entry-two-integers",
-                      "position":  {
-                                       "x":  80,
-                                       "y":  130
-                                   },
-                      "values":  {
-
-                                 },
-                      "properties":  {
-
-                                     }
-                  },
-                  {
-                      "id":  "sequence",
-                      "typeId":  "origin.flow.sequence",
-                      "position":  {
-                                       "x":  300,
-                                       "y":  130
-                                   },
-                      "values":  {
-
-                                 },
-                      "properties":  {
-                                         "dynamicOutputCount":  6,
-                                         "label":  "六路序列"
-                                     }
-                  },
-                  {
-                      "id":  "outer_loop",
-                      "typeId":  "origin.flow.for-loop",
-                      "position":  {
-                                       "x":  540,
-                                       "y":  80
-                                   },
-                      "values":  {
-                                     "start":  0,
-                                     "end":  3
-                                 },
-                      "properties":  {
-
-                                     }
-                  },
-                  {
-                      "id":  "numbers",
-                      "typeId":  "origin.array.create-integer-new",
-                      "position":  {
-                                       "x":  535,
-                                       "y":  250
-                                   },
-                      "values":  {
-                                     "items":  [
-                                                   2,
-                                                   4,
-                                                   6
-                                               ]
-                                 },
-                      "properties":  {
-
-                                     }
-                  },
-                  {
-                      "id":  "inner_loop",
-                      "typeId":  "origin.flow.foreach-integer-array",
-                      "position":  {
-                                       "x":  780,
-                                       "y":  80
-                                   },
-                      "values":  {
-
-                                 },
-                      "properties":  {
-
-                                     }
-                  },
-                  {
-                      "id":  "sum",
-                      "typeId":  "origin.math.add-integer",
-                      "position":  {
-                                       "x":  1000,
-                                       "y":  80
-                                   },
-                      "values":  {
-
-                                 },
-                      "properties":  {
-
-                                     }
-                  },
-                  {
-                      "id":  "loop_return",
-                      "typeId":  "origin.result.append-integer",
-                      "position":  {
-                                       "x":  1210,
-                                       "y":  80
-                                   },
-                      "values":  {
-
-                                 },
-                      "properties":  {
-
-                                     }
-                  },
-                  {
-                      "id":  "range",
-                      "typeId":  "origin.flow.range-compare",
-                      "position":  {
-                                       "x":  540,
-                                       "y":  430
-                                   },
-                      "values":  {
-                                     "ranges":  [
-                                                    3,
-                                                    6,
-                                                    10
-                                                ],
-                                     "value":  4
-                                 },
-                      "properties":  {
-
-                                     }
-                  },
-                  {
-                      "id":  "branch",
-                      "typeId":  "origin.flow.branch",
-                      "position":  {
-                                       "x":  780,
-                                       "y":  430
-                                   },
-                      "values":  {
-                                     "condition":  true
-                                 },
-                      "properties":  {
-
-                                     }
-                  },
-                  {
-                      "id":  "range_text",
-                      "typeId":  "origin.result.append-string",
-                      "position":  {
-                                       "x":  1010,
-                                       "y":  430
-                                   },
-                      "values":  {
-                                     "value":  "range-branch-true"
-                                 },
-                      "properties":  {
-
-                                     }
-                  },
-                  {
-                      "id":  "break_loop",
-                      "typeId":  "origin.flow.for-loop-break",
-                      "position":  {
-                                       "x":  540,
-                                       "y":  670
-                                   },
-                      "values":  {
-                                     "start":  0,
-                                     "end":  5
-                                 },
-                      "properties":  {
-
-                                     }
-                  },
-                  {
-                      "id":  "break_value",
-                      "typeId":  "origin.result.append-integer",
-                      "position":  {
-                                       "x":  780,
-                                       "y":  670
-                                   },
-                      "values":  {
-
-                                 },
-                      "properties":  {
-
-                                     }
-                  },
-                  {
-                      "id":  "break_done",
-                      "typeId":  "origin.result.append-string",
-                      "position":  {
-                                       "x":  1010,
-                                       "y":  670
-                                   },
-                      "values":  {
-                                     "value":  "break-loop-complete"
-                                 },
-                      "properties":  {
-
-                                     }
-                  },
-                  {
-                      "id":  "probability",
-                      "typeId":  "origin.flow.probability",
-                      "position":  {
-                                       "x":  540,
-                                       "y":  900
-                                   },
-                      "values":  {
-                                     "probability":  10000
-                                 },
-                      "properties":  {
-
-                                     }
-                  },
-                  {
-                      "id":  "probability_text",
-                      "typeId":  "origin.result.append-string",
-                      "position":  {
-                                       "x":  780,
-                                       "y":  900
-                                   },
-                      "values":  {
-                                     "value":  "probability-hit"
-                                 },
-                      "properties":  {
-
-                                     }
-                  },
-                  {
-                      "id":  "while",
-                      "typeId":  "origin.flow.while",
-                      "position":  {
-                                       "x":  1020,
-                                       "y":  900
-                                   },
-                      "values":  {
-                                     "condition":  false
-                                 },
-                      "properties":  {
-
-                                     }
-                  },
-                  {
-                      "id":  "while_done",
-                      "typeId":  "origin.result.append-string",
-                      "position":  {
-                                       "x":  1240,
-                                       "y":  900
-                                   },
-                      "values":  {
-                                     "value":  "while-complete"
-                                 },
-                      "properties":  {
-
-                                     }
-                  },
-                  {
-                      "id":  "greater",
-                      "typeId":  "origin.flow.greater-integer",
-                      "position":  {
-                                       "x":  80,
-                                       "y":  1120
-                                   },
-                      "values":  {
-                                     "b":  4,
-                                     "orEqual":  false,
-                                     "a":  9
-                                 },
-                      "properties":  {
-
-                                     }
-                  },
-                  {
-                      "id":  "less",
-                      "typeId":  "origin.flow.less-integer",
-                      "position":  {
-                                       "x":  300,
-                                       "y":  1120
-                                   },
-                      "values":  {
-                                     "b":  4,
-                                     "orEqual":  true,
-                                     "a":  4
-                                 },
-                      "properties":  {
-
-                                     }
-                  },
-                  {
-                      "id":  "equal",
-                      "typeId":  "origin.flow.equal-integer",
-                      "position":  {
-                                       "x":  520,
-                                       "y":  1120
-                                   },
-                      "values":  {
-                                     "a":  7,
-                                     "b":  7
-                                 },
-                      "properties":  {
-
-                                     }
-                  },
-                  {
-                      "id":  "switch_legacy",
-                      "typeId":  "origin.flow.equal-switch",
-                      "position":  {
-                                       "x":  760,
-                                       "y":  1120
-                                   },
-                      "values":  {
-                                     "cases":  [
-                                                   1,
-                                                   7,
-                                                   9
-                                               ],
-                                     "value":  7
-                                 },
-                      "properties":  {
-
-                                     }
-                  },
-                  {
-                      "id":  "switch_new",
-                      "typeId":  "origin.flow.equal-switch-new",
-                      "position":  {
-                                       "x":  1030,
-                                       "y":  1120
-                                   },
-                      "values":  {
-                                     "cases":  [
-                                                   2,
-                                                   8,
-                                                   10
-                                               ],
-                                     "value":  8
-                                 },
-                      "properties":  {
-
-                                     }
-                  },
-                  {
-                      "id":  "switch_text",
-                      "typeId":  "origin.result.append-string",
-                      "position":  {
-                                       "x":  1280,
-                                       "y":  1120
-                                   },
-                      "values":  {
-                                     "value":  "comparison-switch-complete"
-                                 },
-                      "properties":  {
-
-                                     }
-                  },
-                  {
-                      "id":  "string_items",
-                      "typeId":  "origin.array.create-string-new",
-                      "position":  {
-                                       "x":  80,
-                                       "y":  1330
-                                   },
-                      "values":  {
-                                     "items":  [
-                                                   "alpha",
-                                                   "beta",
-                                                   "gamma"
-                                               ]
-                                 },
-                      "properties":  {
-
-                                     }
-                  },
-                  {
-                      "id":  "foreach_any",
-                      "typeId":  "origin.flow.foreach-array",
-                      "position":  {
-                                       "x":  330,
-                                       "y":  1330
-                                   },
-                      "values":  {
-
-                                 },
-                      "properties":  {
-
-                                     }
-                  },
-                  {
-                      "id":  "cast_any",
-                      "typeId":  "origin.cast.any-string",
-                      "position":  {
-                                       "x":  580,
-                                       "y":  1330
-                                   },
-                      "values":  {
-
-                                 },
-                      "properties":  {
-
-                                     }
-                  },
-                  {
-                      "id":  "any_text",
-                      "typeId":  "origin.result.append-string",
-                      "position":  {
-                                       "x":  840,
-                                       "y":  1330
-                                   },
-                      "values":  {
-                                     "value":  "foreach-array-visible"
-                                 },
-                      "properties":  {
-
-                                     }
-                  }
-              ],
-    "connections":  [
-                        {
-                            "source":  "entry",
-                            "sourceOutput":  "exec",
-                            "target":  "sequence",
-                            "targetInput":  "exec"
-                        },
-                        {
-                            "source":  "sequence",
-                            "sourceOutput":  "then0",
-                            "target":  "outer_loop",
-                            "targetInput":  "exec"
-                        },
-                        {
-                            "source":  "outer_loop",
-                            "sourceOutput":  "body",
-                            "target":  "inner_loop",
-                            "targetInput":  "exec"
-                        },
-                        {
-                            "source":  "numbers",
-                            "sourceOutput":  "array",
-                            "target":  "inner_loop",
-                            "targetInput":  "array"
-                        },
-                        {
-                            "source":  "inner_loop",
-                            "sourceOutput":  "body",
-                            "target":  "loop_return",
-                            "targetInput":  "exec"
-                        },
-                        {
-                            "source":  "outer_loop",
-                            "sourceOutput":  "index",
-                            "target":  "sum",
-                            "targetInput":  "a"
-                        },
-                        {
-                            "source":  "inner_loop",
-                            "sourceOutput":  "value",
-                            "target":  "sum",
-                            "targetInput":  "b"
-                        },
-                        {
-                            "source":  "sum",
-                            "sourceOutput":  "result",
-                            "target":  "loop_return",
-                            "targetInput":  "value"
-                        },
-                        {
-                            "source":  "sequence",
-                            "sourceOutput":  "then1",
-                            "target":  "range",
-                            "targetInput":  "exec"
-                        },
-                        {
-                            "source":  "range",
-                            "sourceOutput":  "case2",
-                            "target":  "branch",
-                            "targetInput":  "exec"
-                        },
-                        {
-                            "source":  "branch",
-                            "sourceOutput":  "true",
-                            "target":  "range_text",
-                            "targetInput":  "exec"
-                        },
-                        {
-                            "source":  "sequence",
-                            "sourceOutput":  "then2",
-                            "target":  "break_loop",
-                            "targetInput":  "exec"
-                        },
-                        {
-                            "source":  "break_loop",
-                            "sourceOutput":  "body",
-                            "target":  "break_value",
-                            "targetInput":  "exec"
-                        },
-                        {
-                            "source":  "break_loop",
-                            "sourceOutput":  "index",
-                            "target":  "break_value",
-                            "targetInput":  "value"
-                        },
-                        {
-                            "source":  "break_loop",
-                            "sourceOutput":  "completed",
-                            "target":  "break_done",
-                            "targetInput":  "exec"
-                        },
-                        {
-                            "source":  "sequence",
-                            "sourceOutput":  "then3",
-                            "target":  "probability",
-                            "targetInput":  "exec"
-                        },
-                        {
-                            "source":  "probability",
-                            "sourceOutput":  "hit",
-                            "target":  "probability_text",
-                            "targetInput":  "exec"
-                        },
-                        {
-                            "source":  "probability_text",
-                            "sourceOutput":  "exec",
-                            "target":  "while",
-                            "targetInput":  "exec"
-                        },
-                        {
-                            "source":  "while",
-                            "sourceOutput":  "completed",
-                            "target":  "while_done",
-                            "targetInput":  "exec"
-                        },
-                        {
-                            "source":  "sequence",
-                            "sourceOutput":  "then4",
-                            "target":  "foreach_any",
-                            "targetInput":  "exec"
-                        },
-                        {
-                            "source":  "string_items",
-                            "sourceOutput":  "array",
-                            "target":  "foreach_any",
-                            "targetInput":  "array"
-                        },
-                        {
-                            "source":  "foreach_any",
-                            "sourceOutput":  "body",
-                            "target":  "cast_any",
-                            "targetInput":  "exec"
-                        },
-                        {
-                            "source":  "foreach_any",
-                            "sourceOutput":  "value",
-                            "target":  "cast_any",
-                            "targetInput":  "value"
-                        },
-                        {
-                            "source":  "cast_any",
-                            "sourceOutput":  "exec",
-                            "target":  "any_text",
-                            "targetInput":  "exec"
-                        },
-                        {
-                            "source":  "cast_any",
-                            "sourceOutput":  "result",
-                            "target":  "any_text",
-                            "targetInput":  "value"
-                        },
-                        {
-                            "source":  "sequence",
-                            "sourceOutput":  "then5",
-                            "target":  "greater",
-                            "targetInput":  "exec"
-                        },
-                        {
-                            "source":  "greater",
-                            "sourceOutput":  "true",
-                            "target":  "less",
-                            "targetInput":  "exec"
-                        },
-                        {
-                            "source":  "less",
-                            "sourceOutput":  "true",
-                            "target":  "equal",
-                            "targetInput":  "exec"
-                        },
-                        {
-                            "source":  "equal",
-                            "sourceOutput":  "true",
-                            "target":  "switch_legacy",
-                            "targetInput":  "exec"
-                        },
-                        {
-                            "source":  "switch_legacy",
-                            "sourceOutput":  "case2",
-                            "target":  "switch_new",
-                            "targetInput":  "exec"
-                        },
-                        {
-                            "source":  "switch_new",
-                            "sourceOutput":  "case2",
-                            "target":  "switch_text",
-                            "targetInput":  "exec"
-                        }
-                    ],
-    "groups":  [
-                   {
-                       "id":  "main-flow",
-                       "title":  "主执行路径：嵌套循环与分支",
-                       "x":  35,
-                       "y":  25,
-                       "width":  1360,
-                       "height":  1020,
-                       "nodeIds":  [
-                                       "entry",
-                                       "sequence",
-                                       "outer_loop",
-                                       "numbers",
-                                       "inner_loop",
-                                       "sum",
-                                       "loop_return",
-                                       "range",
-                                       "branch",
-                                       "range_text",
-                                       "break_loop",
-                                       "break_value",
-                                       "break_done",
-                                       "probability",
-                                       "probability_text",
-                                       "while",
-                                       "while_done"
-                                   ]
-                   },
-                   {
-                       "id":  "flow-gallery",
-                       "title":  "控制流扩展路径：比较、Switch 与任意数组循环",
-                       "x":  35,
-                       "y":  1070,
-                       "width":  1530,
-                       "height":  360,
-                       "nodeIds":  [
-                                       "greater",
-                                       "less",
-                                       "equal",
-                                       "switch_legacy",
-                                       "switch_new",
-                                       "switch_text",
-                                       "string_items",
-                                       "foreach_any",
-                                       "cast_any",
-                                       "any_text"
-                                   ]
-                   }
-               ],
-    "variables":  [
-
-                  ],
-    "variableGroups":  [
-                           {
-                               "id":  "default",
-                               "name":  "默认",
-                               "collapsed":  false
-                           },
-                           {
-                               "id":  "local",
-                               "name":  "局部状态",
-                               "collapsed":  false
-                           }
-                       ],
-    "view":  {
-                 "x":  0,
-                 "y":  0,
-                 "zoom":  0.72
-             }
+  "graph_name": "02_control_flow_maze.obp",
+  "time": "",
+  "nodes": [
+    {
+      "id": "entry",
+      "class": "Entrance_IntParam_000001",
+      "module": "tools.json_node_loader",
+      "pos": [
+        -503.08759757155246,
+        -4.882914137033836
+      ],
+      "port_defaultv": {}
+    },
+    {
+      "id": "sequence",
+      "class": "Sequence",
+      "module": "tools.json_node_loader",
+      "pos": [
+        232.3937554206418,
+        23.21769297484821
+      ],
+      "port_defaultv": {}
+    },
+    {
+      "id": "outer_loop",
+      "class": "Foreach",
+      "module": "tools.json_node_loader",
+      "pos": [
+        400.5724197745012,
+        5.698178664353851
+      ],
+      "port_defaultv": {
+        "1": 0,
+        "2": 3
+      }
+    },
+    {
+      "id": "numbers",
+      "class": "CreateIntArray",
+      "module": "tools.json_node_loader",
+      "pos": [
+        538.2653946227233,
+        -193.98959236773635
+      ],
+      "port_defaultv": {
+        "0": [
+          2,
+          4,
+          6
+        ]
+      }
+    },
+    {
+      "id": "inner_loop",
+      "class": "ForeachIntArray",
+      "module": "tools.json_node_loader",
+      "pos": [
+        963.7294015611448,
+        -175.55073720728535
+      ],
+      "port_defaultv": {
+        "1": []
+      }
+    },
+    {
+      "id": "sum",
+      "class": "AddInt",
+      "module": "tools.json_node_loader",
+      "pos": [
+        1331.2575888985255,
+        1.48308759757154
+      ],
+      "port_defaultv": {
+        "0": 0,
+        "1": 0
+      }
+    },
+    {
+      "id": "loop_return",
+      "class": "AppendIntReturn",
+      "module": "tools.json_node_loader",
+      "pos": [
+        1821.0234171725933,
+        22.558542931483075
+      ],
+      "port_defaultv": {
+        "1": 0
+      }
+    },
+    {
+      "id": "range",
+      "class": "RangeCompare",
+      "module": "tools.json_node_loader",
+      "pos": [
+        976.6348655680831,
+        484.9609713790113
+      ],
+      "port_defaultv": {
+        "1": 4,
+        "2": [
+          3,
+          6,
+          10
+        ]
+      }
+    },
+    {
+      "id": "branch",
+      "class": "BoolIf",
+      "module": "tools.json_node_loader",
+      "pos": [
+        1365.568083261058,
+        487.77103209019947
+      ],
+      "port_defaultv": {
+        "1": true
+      }
+    },
+    {
+      "id": "range_return",
+      "class": "AppendStringReturn",
+      "module": "tools.json_node_loader",
+      "pos": [
+        1727.805724197745,
+        504.63139635732875
+      ],
+      "port_defaultv": {
+        "1": "range-branch-true"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "edge_id": "6551aabd-2905-4a31-a07d-836e04e86af1",
+      "source_node_id": "entry",
+      "source_port_index": 0,
+      "source_port_id": 0,
+      "des_node_id": "sequence",
+      "des_port_index": 0,
+      "des_port_id": 0
+    },
+    {
+      "edge_id": "91689944-edcf-4b26-aea9-c5676c261b29",
+      "source_node_id": "sequence",
+      "source_port_index": 0,
+      "source_port_id": 0,
+      "des_node_id": "outer_loop",
+      "des_port_index": 0,
+      "des_port_id": 0
+    },
+    {
+      "edge_id": "01661203-aef6-4c72-b029-4f75ddc42ac0",
+      "source_node_id": "outer_loop",
+      "source_port_index": 0,
+      "source_port_id": 0,
+      "des_node_id": "inner_loop",
+      "des_port_index": 0,
+      "des_port_id": 0
+    },
+    {
+      "edge_id": "a6dbf542-9031-4d31-896f-49dabf228b87",
+      "source_node_id": "numbers",
+      "source_port_index": 0,
+      "source_port_id": 0,
+      "des_node_id": "inner_loop",
+      "des_port_index": 1,
+      "des_port_id": 1
+    },
+    {
+      "edge_id": "d2d46f83-e99d-4ebe-9e75-d1744d74cb9f",
+      "source_node_id": "inner_loop",
+      "source_port_index": 0,
+      "source_port_id": 0,
+      "des_node_id": "loop_return",
+      "des_port_index": 0,
+      "des_port_id": 0
+    },
+    {
+      "edge_id": "8bc86747-f7a3-42ce-ba90-875d8de67532",
+      "source_node_id": "outer_loop",
+      "source_port_index": 2,
+      "source_port_id": 2,
+      "des_node_id": "sum",
+      "des_port_index": 0,
+      "des_port_id": 0
+    },
+    {
+      "edge_id": "1f8541e5-e8be-4653-be2a-344bc60758af",
+      "source_node_id": "inner_loop",
+      "source_port_index": 3,
+      "source_port_id": 3,
+      "des_node_id": "sum",
+      "des_port_index": 1,
+      "des_port_id": 1
+    },
+    {
+      "edge_id": "02738c70-130c-4a1e-92e7-466de2998837",
+      "source_node_id": "sum",
+      "source_port_index": 0,
+      "source_port_id": 0,
+      "des_node_id": "loop_return",
+      "des_port_index": 1,
+      "des_port_id": 1
+    },
+    {
+      "edge_id": "f6cfe4b2-242f-40e2-856c-e718620765c1",
+      "source_node_id": "outer_loop",
+      "source_port_index": 1,
+      "source_port_id": 1,
+      "des_node_id": "range",
+      "des_port_index": 0,
+      "des_port_id": 0
+    },
+    {
+      "edge_id": "ad9f0831-f182-4070-9d8d-1cc49104f3ac",
+      "source_node_id": "range",
+      "source_port_index": 3,
+      "source_port_id": 3,
+      "des_node_id": "branch",
+      "des_port_index": 0,
+      "des_port_id": 0
+    },
+    {
+      "edge_id": "00146df3-18ae-4d41-8040-6848e5a84047",
+      "source_node_id": "branch",
+      "source_port_index": 1,
+      "source_port_id": 1,
+      "des_node_id": "range_return",
+      "des_port_index": 0,
+      "des_port_id": 0
+    }
+  ],
+  "groups": [
+    {
+      "title": "入口、Sequence 与嵌套循环",
+      "nodes": [
+        "entry",
+        "sequence",
+        "outer_loop",
+        "numbers",
+        "inner_loop",
+        "sum",
+        "loop_return"
+      ]
+    },
+    {
+      "title": "Range、Branch 与真实 Break",
+      "nodes": [
+        "range",
+        "branch",
+        "range_return",
+        "break_loop",
+        "break_compare",
+        "break_branch",
+        "break_value",
+        "break_done"
+      ]
+    }
+  ],
+  "variables": []
 }

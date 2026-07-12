@@ -245,10 +245,24 @@
                                      }
                   },
                   {
+                      "id":  "control_count_return",
+                      "typeId":  "origin.result.append-integer",
+                      "position":  {
+                                       "x":  830,
+                                       "y":  530
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
                       "id":  "control_return",
                       "typeId":  "origin.result.append-string",
                       "position":  {
-                                       "x":  830,
+                                       "x":  1050,
                                        "y":  580
                                    },
                       "values":  {
@@ -450,6 +464,18 @@
                         {
                             "source":  "control_call",
                             "sourceOutput":  "exec",
+                            "target":  "control_count_return",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "control_call",
+                            "sourceOutput":  "output_count",
+                            "target":  "control_count_return",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "control_count_return",
+                            "sourceOutput":  "exec",
                             "target":  "control_return",
                             "targetInput":  "exec"
                         },
@@ -534,13 +560,14 @@
                    },
                    {
                        "id":  "control-call",
-                       "title":  "嵌套控制流函数调用",
+                       "title":  "嵌套控制流函数调用：返回计数和轨迹",
                        "x":  480,
-                       "y":  530,
-                       "width":  650,
-                       "height":  180,
+                       "y":  500,
+                       "width":  850,
+                       "height":  230,
                        "nodeIds":  [
                                        "control_call",
+                                       "control_count_return",
                                        "control_return"
                                    ]
                    },

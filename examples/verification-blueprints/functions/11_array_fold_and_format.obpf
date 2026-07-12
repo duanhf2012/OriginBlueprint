@@ -62,11 +62,57 @@
                                      }
                   },
                   {
-                      "id":  "loop",
-                      "typeId":  "origin.flow.foreach-integer-array",
+                      "id":  "init_sum",
+                      "typeId":  "origin.variable.set",
                       "position":  {
                                        "x":  340,
                                        "y":  120
+                                   },
+                      "values":  {
+                                     "value":  0
+                                 },
+                      "properties":  {
+                                         "label":  "Initialize FoldSum",
+                                         "variableAccess":  "set",
+                                         "variableId":  "fold_sum"
+                                     }
+                  },
+                  {
+                      "id":  "loop",
+                      "typeId":  "origin.flow.foreach-integer-array",
+                      "position":  {
+                                       "x":  560,
+                                       "y":  120
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "fold_get",
+                      "typeId":  "origin.variable.get",
+                      "position":  {
+                                       "x":  790,
+                                       "y":  50
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+                                         "label":  "Get FoldSum",
+                                         "variableAccess":  "get",
+                                         "variableId":  "fold_sum"
+                                     }
+                  },
+                  {
+                      "id":  "weighted_value",
+                      "typeId":  "origin.math.multiply-integer",
+                      "position":  {
+                                       "x":  790,
+                                       "y":  150
                                    },
                       "values":  {
 
@@ -79,7 +125,7 @@
                       "id":  "sum",
                       "typeId":  "origin.math.add-integer",
                       "position":  {
-                                       "x":  580,
+                                       "x":  1010,
                                        "y":  120
                                    },
                       "values":  {
@@ -90,26 +136,27 @@
                                      }
                   },
                   {
-                      "id":  "count_loop",
-                      "typeId":  "origin.flow.for-loop",
+                      "id":  "fold_set",
+                      "typeId":  "origin.variable.set",
                       "position":  {
-                                       "x":  800,
+                                       "x":  1230,
                                        "y":  120
                                    },
                       "values":  {
-                                     "start":  0,
-                                     "end":  3
+
                                  },
                       "properties":  {
-
+                                         "label":  "Set FoldSum",
+                                         "variableAccess":  "set",
+                                         "variableId":  "fold_sum"
                                      }
                   },
                   {
                       "id":  "get_item",
                       "typeId":  "origin.array.get-integer",
                       "position":  {
-                                       "x":  1040,
-                                       "y":  120
+                                       "x":  790,
+                                       "y":  330
                                    },
                       "values":  {
                                      "index":  1
@@ -122,8 +169,8 @@
                       "id":  "append",
                       "typeId":  "origin.array.append-integer",
                       "position":  {
-                                       "x":  1040,
-                                       "y":  340
+                                       "x":  1010,
+                                       "y":  330
                                    },
                       "values":  {
                                      "value":  8
@@ -136,8 +183,8 @@
                       "id":  "array_length",
                       "typeId":  "origin.array.length",
                       "position":  {
-                                       "x":  1270,
-                                       "y":  340
+                                       "x":  1230,
+                                       "y":  330
                                    },
                       "values":  {
 
@@ -150,8 +197,8 @@
                       "id":  "cast",
                       "typeId":  "origin.cast.integer-string",
                       "position":  {
-                                       "x":  1250,
-                                       "y":  120
+                                       "x":  1230,
+                                       "y":  500
                                    },
                       "values":  {
 
@@ -164,11 +211,11 @@
                       "id":  "summary",
                       "typeId":  "origin.literal.string",
                       "position":  {
-                                       "x":  1250,
-                                       "y":  340
+                                       "x":  1230,
+                                       "y":  610
                                    },
                       "values":  {
-                                     "value":  "array-fold:fixed"
+                                     "value":  "weighted-array-fold"
                                  },
                       "properties":  {
 
@@ -178,8 +225,8 @@
                       "id":  "score_call",
                       "typeId":  "origin.function.call",
                       "position":  {
-                                       "x":  800,
-                                       "y":  520
+                                       "x":  790,
+                                       "y":  500
                                    },
                       "values":  {
                                      "input_base":  5,
@@ -225,27 +272,11 @@
                                      }
                   },
                   {
-                      "id":  "local_set",
-                      "typeId":  "origin.variable.set",
-                      "position":  {
-                                       "x":  1060,
-                                       "y":  520
-                                   },
-                      "values":  {
-                                     "value":  0
-                                 },
-                      "properties":  {
-                                         "label":  "Set FoldSum",
-                                         "variableAccess":  "set",
-                                         "variableId":  "fold_sum"
-                                     }
-                  },
-                  {
                       "id":  "debug",
                       "typeId":  "origin.debug.output",
                       "position":  {
-                                       "x":  1300,
-                                       "y":  520
+                                       "x":  1450,
+                                       "y":  430
                                    },
                       "values":  {
 
@@ -258,7 +289,7 @@
                       "id":  "return",
                       "typeId":  "origin.function.return",
                       "position":  {
-                                       "x":  1510,
+                                       "x":  1670,
                                        "y":  130
                                    },
                       "values":  {
@@ -309,6 +340,12 @@
                         {
                             "source":  "sequence",
                             "sourceOutput":  "then0",
+                            "target":  "init_sum",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "init_sum",
+                            "sourceOutput":  "exec",
                             "target":  "loop",
                             "targetInput":  "exec"
                         },
@@ -333,12 +370,42 @@
                         {
                             "source":  "loop",
                             "sourceOutput":  "body",
-                            "target":  "count_loop",
+                            "target":  "fold_set",
                             "targetInput":  "exec"
                         },
                         {
-                            "source":  "count_loop",
-                            "sourceOutput":  "body",
+                            "source":  "fold_get",
+                            "sourceOutput":  "value",
+                            "target":  "sum",
+                            "targetInput":  "a"
+                        },
+                        {
+                            "source":  "loop",
+                            "sourceOutput":  "value",
+                            "target":  "weighted_value",
+                            "targetInput":  "a"
+                        },
+                        {
+                            "source":  "entry",
+                            "sourceOutput":  "input_weight",
+                            "target":  "weighted_value",
+                            "targetInput":  "b"
+                        },
+                        {
+                            "source":  "weighted_value",
+                            "sourceOutput":  "result",
+                            "target":  "sum",
+                            "targetInput":  "b"
+                        },
+                        {
+                            "source":  "sum",
+                            "sourceOutput":  "result",
+                            "target":  "fold_set",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "loop",
+                            "sourceOutput":  "completed",
                             "target":  "score_call",
                             "targetInput":  "exec"
                         },
@@ -351,30 +418,12 @@
                         {
                             "source":  "debug",
                             "sourceOutput":  "exec",
-                            "target":  "local_set",
-                            "targetInput":  "exec"
-                        },
-                        {
-                            "source":  "loop",
-                            "sourceOutput":  "completed",
                             "target":  "return",
                             "targetInput":  "exec"
                         },
                         {
-                            "source":  "loop",
+                            "source":  "fold_get",
                             "sourceOutput":  "value",
-                            "target":  "sum",
-                            "targetInput":  "a"
-                        },
-                        {
-                            "source":  "entry",
-                            "sourceOutput":  "input_weight",
-                            "target":  "sum",
-                            "targetInput":  "b"
-                        },
-                        {
-                            "source":  "sum",
-                            "sourceOutput":  "result",
                             "target":  "return",
                             "targetInput":  "output_sum"
                         },
@@ -389,12 +438,6 @@
                             "sourceOutput":  "array",
                             "target":  "array_length",
                             "targetInput":  "array"
-                        },
-                        {
-                            "source":  "array_length",
-                            "sourceOutput":  "length",
-                            "target":  "local_set",
-                            "targetInput":  "value"
                         },
                         {
                             "source":  "array_length",
@@ -430,35 +473,37 @@
     "groups":  [
                    {
                        "id":  "fold-main",
-                       "title":  "函数主路径与数组循环",
+                       "title":  "加权数组折叠：初始化、循环累计并返回总和",
                        "x":  35,
-                       "y":  50,
-                       "width":  1740,
-                       "height":  370,
+                       "y":  20,
+                       "width":  1840,
+                       "height":  400,
                        "nodeIds":  [
                                        "entry",
                                        "sequence",
+                                       "init_sum",
                                        "loop",
+                                       "fold_get",
+                                       "weighted_value",
                                        "sum",
-                                       "count_loop",
+                                       "fold_set",
                                        "get_item",
                                        "append",
                                        "array_length",
-                                       "cast",
-                                       "summary",
                                        "return"
                                    ]
                    },
                    {
                        "id":  "fold-nested",
-                       "title":  "嵌套函数调用、调试和局部变量",
+                       "title":  "嵌套函数调用、格式化和调试输出",
                        "x":  720,
-                       "y":  470,
-                       "width":  850,
-                       "height":  180,
+                       "y":  450,
+                       "width":  1020,
+                       "height":  260,
                        "nodeIds":  [
                                        "score_call",
-                                       "local_set",
+                                       "cast",
+                                       "summary",
                                        "debug"
                                    ]
                    }

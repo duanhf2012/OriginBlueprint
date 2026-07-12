@@ -11,6 +11,7 @@
 5. 打开 `functions/` 下四个 `.obpf`：确认函数入口/返回的参数名、类型和函数内变量显示。
 6. `05_function_orchestrator.obp`：确认外部函数调用节点的输入输出端口，以及连续两次调用局部状态函数的可读性。
 7. `06_timer_lifecycle.obp`：确认 Delay、按函数设置定时器、暂停、恢复、状态查询和清除节点的显示与完整连线。
+8. `07_async_rpc_resume_to.obp`：确认 demo 节点以定时器模拟异步回包，并展示成功、失败两个 ResumeTo 出口的连线。
 
 ## 关键预期
 
@@ -19,6 +20,18 @@
 - 图中每个分组标题应完整可读，节点不应重叠遮挡端口。
 - `13_local_state_isolation.obpf` 的变量属于函数局部状态；`05_function_orchestrator.obp` 连续调用它两次，是后续隔离验证的样本入口。
 - `coverage.json` 记录全部当前系统节点的样本位置和阶段覆盖范围。
+- `nodes/MockRpcAsync.json` 是本目录专用 demo 节点定义，不属于正式系统节点库；其 Go 实现和结果断言留待后续测试阶段加入。
+
+## 第 2 阶段结果契约
+
+- `01_legacy_all_nodes_showcase.vgf`：只验证 legacy 导入、端口迁移和显示；不作为结果对比图。
+- `02_control_flow_maze.obp`：验证嵌套循环、真实 break、Range、Branch、Probability、While 和任意数组遍历。固定输入下会返回循环整数、各分支标记和数组转换字符串。
+- `03_array_data_lab.obp`：固定数组应依次返回整数 `4`、长度 `6`、字符串 `green` 和局部变量字符串 `north`。
+- `04_deterministic_algorithm.obp`：输入参数决定整数评分分支；固定随机数恒为 `42`，Range/Switch 与浮点转换返回固定文本。后续随机输入阶段会以同一入口参数调用 Go 参考实现。
+- `05_function_orchestrator.obp`：验证评分函数、加权数组折叠、嵌套控制函数和两次独立局部状态函数调用的全部输出。
+- `06_timer_lifecycle.obp`：验证 Timer 创建、暂停、恢复、查询和清除；创建 Execution 的正常返回为 `timer-lifecycle-complete`，Timer 回调本身属于独立 Execution，不能混入该返回数组。
+- `07_async_rpc_resume_to.obp`：待 demo Go 节点实现后，成功入口应返回 `314`；失败入口应依次返回错误码 `503` 和文本 `mock rpc unavailable`。
+- `functions/10_score_kernel.obpf`、`functions/11_array_fold_and_format.obpf`、`functions/12_nested_control_function.obpf`、`functions/13_local_state_isolation.obpf` 分别验证评分、加权累计、真实 break 和函数局部变量隔离。
 
 ## 重新生成
 

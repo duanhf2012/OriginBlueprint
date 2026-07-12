@@ -98,6 +98,36 @@ function LegacyEdge {
 
 Remove-Item -LiteralPath $OutputRoot -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path (Join-Path $OutputRoot 'functions') | Out-Null
+New-Item -ItemType Directory -Force -Path (Join-Path $OutputRoot 'nodes') | Out-Null
+
+# 仅供验证样本使用的异步业务节点定义。正式系统节点仍只位于仓库根目录 nodes/。
+$mockRpcAsyncSchema = [ordered]@{
+    id = 'origin.example.mock-rpc-async'
+    sourceName = 'MockRpcAsync'
+    title = '模拟 RPC 异步调用'
+    titleEn = 'Mock RPC Async Call'
+    category = '示例 / 异步'
+    categoryEn = 'Examples / Async'
+    subtitle = '定时器到期后选择成功或失败出口，演示 ResumeTo。'
+    subtitleEn = 'Uses a timer to choose the success or failure ResumeTo branch.'
+    width = 330
+    inputs = @(
+        [ordered]@{ key = 'exec'; label = '执行'; labelEn = 'Exec'; type = 'exec' },
+        [ordered]@{ key = 'delayMs'; label = '延迟（毫秒）'; labelEn = 'Delay (ms)'; type = 'data'; data_type = 'Integer'; defaultValue = 50 },
+        [ordered]@{ key = 'succeed'; label = '是否成功'; labelEn = 'Succeed'; type = 'data'; data_type = 'Boolean'; defaultValue = $true },
+        [ordered]@{ key = 'successValue'; label = '成功值'; labelEn = 'Success Value'; type = 'data'; data_type = 'Integer'; defaultValue = 100 },
+        [ordered]@{ key = 'failureCode'; label = '失败码'; labelEn = 'Failure Code'; type = 'data'; data_type = 'Integer'; defaultValue = 500 },
+        [ordered]@{ key = 'failureMessage'; label = '失败信息'; labelEn = 'Failure Message'; type = 'data'; data_type = 'String'; defaultValue = 'mock rpc failed' }
+    )
+    outputs = @(
+        [ordered]@{ key = 'succeeded'; label = '成功'; labelEn = 'Succeeded'; type = 'exec' },
+        [ordered]@{ key = 'failed'; label = '失败'; labelEn = 'Failed'; type = 'exec' },
+        [ordered]@{ key = 'value'; label = '成功值'; labelEn = 'Value'; type = 'data'; data_type = 'Integer' },
+        [ordered]@{ key = 'errorCode'; label = '失败码'; labelEn = 'Error Code'; type = 'data'; data_type = 'Integer' },
+        [ordered]@{ key = 'errorMessage'; label = '失败信息'; labelEn = 'Error Message'; type = 'data'; data_type = 'String' }
+    )
+}
+WriteArtifact 'nodes/MockRpcAsync.json' $mockRpcAsyncSchema
 
 $scoreSignature = [ordered]@{
     inputs = @(
@@ -190,35 +220,37 @@ $legacyEdges = @(
 )
 WriteArtifact '01_legacy_all_nodes_showcase.vgf' ([ordered]@{ graph_name = 'Legacy All Nodes Showcase'; time = '2026-07-11T00:00:00Z'; nodes = $legacyNodes; edges = $legacyEdges; groups = @(); variables = @() })
 
-# 02: native 控制流。主路径包含 Sequence、循环、分支、动态分支和 break。
+# 02: 一条可追踪的控制流。所有节点均从同一入口可达并影响返回结果。
 $controlNodes = @(
     (Node 'entry' 'origin.event.entry-two-integers' 80 130),
-    (Node 'sequence' 'origin.flow.sequence' 300 130 @{} @{ label = '六路序列'; dynamicOutputCount = 6 }),
-    (Node 'outer_loop' 'origin.flow.for-loop' 540 80 @{ start = 0; end = 3 }),
-    (Node 'numbers' 'origin.array.create-integer-new' 535 250 @{ items = @(2, 4, 6) }),
-    (Node 'inner_loop' 'origin.flow.foreach-integer-array' 780 80),
-    (Node 'sum' 'origin.math.add-integer' 1000 80),
-    (Node 'loop_return' 'origin.result.append-integer' 1210 80),
-    (Node 'range' 'origin.flow.range-compare' 540 430 @{ value = 4; ranges = @(3, 6, 10) }),
-    (Node 'branch' 'origin.flow.branch' 780 430 @{ condition = $true }),
-    (Node 'range_text' 'origin.result.append-string' 1010 430 @{ value = 'range-branch-true' }),
-    (Node 'break_loop' 'origin.flow.for-loop-break' 540 670 @{ start = 0; end = 5 }),
-    (Node 'break_value' 'origin.result.append-integer' 780 670),
-    (Node 'break_done' 'origin.result.append-string' 1010 670 @{ value = 'break-loop-complete' }),
-    (Node 'probability' 'origin.flow.probability' 540 900 @{ probability = 10000 }),
-    (Node 'probability_text' 'origin.result.append-string' 780 900 @{ value = 'probability-hit' }),
-    (Node 'while' 'origin.flow.while' 1020 900 @{ condition = $false }),
-    (Node 'while_done' 'origin.result.append-string' 1240 900 @{ value = 'while-complete' }),
-    (Node 'greater' 'origin.flow.greater-integer' 80 1120 @{ orEqual = $false; a = 9; b = 4 }),
-    (Node 'less' 'origin.flow.less-integer' 300 1120 @{ orEqual = $true; a = 4; b = 4 }),
-    (Node 'equal' 'origin.flow.equal-integer' 520 1120 @{ a = 7; b = 7 }),
-    (Node 'switch_legacy' 'origin.flow.equal-switch' 760 1120 @{ value = 7; cases = @(1, 7, 9) }),
-    (Node 'switch_new' 'origin.flow.equal-switch-new' 1030 1120 @{ value = 8; cases = @(2, 8, 10) }),
-    (Node 'switch_text' 'origin.result.append-string' 1280 1120 @{ value = 'comparison-switch-complete' }),
-    (Node 'string_items' 'origin.array.create-string-new' 80 1330 @{ items = @('alpha', 'beta', 'gamma') }),
-    (Node 'foreach_any' 'origin.flow.foreach-array' 330 1330),
-    (Node 'cast_any' 'origin.cast.any-string' 580 1330),
-    (Node 'any_text' 'origin.result.append-string' 840 1330 @{ value = 'foreach-array-visible' })
+    (Node 'sequence' 'origin.flow.sequence' 290 130 @{} @{ label = '主流程序列'; dynamicOutputCount = 1 }),
+    (Node 'outer_loop' 'origin.flow.for-loop' 520 90 @{ start = 0; end = 3 }),
+    (Node 'numbers' 'origin.array.create-integer-new' 520 250 @{ items = @(2, 4, 6) }),
+    (Node 'inner_loop' 'origin.flow.foreach-integer-array' 760 90),
+    (Node 'sum' 'origin.math.add-integer' 980 90),
+    (Node 'loop_return' 'origin.result.append-integer' 1200 90),
+    (Node 'range' 'origin.flow.range-compare' 520 440 @{ value = 4; ranges = @(3, 6, 10) }),
+    (Node 'branch' 'origin.flow.branch' 760 440 @{ condition = $true }),
+    (Node 'range_return' 'origin.result.append-string' 1000 440 @{ value = 'range-branch-true' }),
+    (Node 'break_loop' 'origin.flow.for-loop-break' 520 690 @{ start = 0; end = 5 }),
+    (Node 'break_compare' 'origin.compare.greater-integer' 760 650 @{ b = 2 }),
+    (Node 'break_branch' 'origin.flow.branch' 980 690),
+    (Node 'break_value' 'origin.result.append-integer' 1200 650),
+    (Node 'break_done' 'origin.result.append-string' 1200 760 @{ value = 'break-loop-complete' }),
+    (Node 'probability' 'origin.flow.probability' 520 950 @{ probability = 10000 }),
+    (Node 'probability_return' 'origin.result.append-string' 760 950 @{ value = 'probability-hit' }),
+    (Node 'while' 'origin.flow.while' 1000 950 @{ condition = $false }),
+    (Node 'greater' 'origin.flow.greater-integer' 520 1210 @{ orEqual = $false; a = 9; b = 4 }),
+    (Node 'less' 'origin.flow.less-integer' 740 1210 @{ orEqual = $true; a = 4; b = 4 }),
+    (Node 'equal' 'origin.flow.equal-integer' 960 1210 @{ a = 7; b = 7 }),
+    (Node 'switch_legacy' 'origin.flow.equal-switch' 1180 1210 @{ value = 7; cases = @(1, 7, 9) }),
+    (Node 'switch_new' 'origin.flow.equal-switch-new' 1440 1210 @{ value = 8; cases = @(2, 8, 10) }),
+    (Node 'switch_return' 'origin.result.append-string' 1700 1210 @{ value = 'comparison-switch-complete' }),
+    (Node 'string_items' 'origin.array.create-string-new' 520 1460 @{ items = @('alpha', 'beta', 'gamma') }),
+    (Node 'foreach_any' 'origin.flow.foreach-array' 760 1460),
+    (Node 'cast_any' 'origin.cast.any-string' 1010 1460),
+    (Node 'any_return' 'origin.result.append-string' 1260 1460),
+    (Node 'flow_done' 'origin.result.append-string' 1010 1620 @{ value = 'control-flow-complete' })
 )
 $controlLinks = @(
     (Link 'entry' 'exec' 'sequence' 'exec'),
@@ -229,95 +261,104 @@ $controlLinks = @(
     (Link 'outer_loop' 'index' 'sum' 'a'),
     (Link 'inner_loop' 'value' 'sum' 'b'),
     (Link 'sum' 'result' 'loop_return' 'value'),
-    (Link 'sequence' 'then1' 'range' 'exec'),
+    (Link 'outer_loop' 'completed' 'range' 'exec'),
     (Link 'range' 'case2' 'branch' 'exec'),
-    (Link 'branch' 'true' 'range_text' 'exec'),
-    (Link 'sequence' 'then2' 'break_loop' 'exec'),
-    (Link 'break_loop' 'body' 'break_value' 'exec'),
+    (Link 'branch' 'true' 'range_return' 'exec'),
+    (Link 'range_return' 'exec' 'break_loop' 'exec'),
+    (Link 'break_loop' 'body' 'break_branch' 'exec'),
     (Link 'break_loop' 'index' 'break_value' 'value'),
+    (Link 'break_loop' 'index' 'break_compare' 'a'),
+    (Link 'break_compare' 'result' 'break_branch' 'condition'),
+    (Link 'break_branch' 'true' 'break_loop' 'break'),
+    (Link 'break_branch' 'false' 'break_value' 'exec'),
     (Link 'break_loop' 'completed' 'break_done' 'exec'),
-    (Link 'sequence' 'then3' 'probability' 'exec'),
-    (Link 'probability' 'hit' 'probability_text' 'exec'),
-    (Link 'probability_text' 'exec' 'while' 'exec'),
-    (Link 'while' 'completed' 'while_done' 'exec'),
-    (Link 'sequence' 'then4' 'foreach_any' 'exec'),
-    (Link 'string_items' 'array' 'foreach_any' 'array'),
-    (Link 'foreach_any' 'body' 'cast_any' 'exec'),
-    (Link 'foreach_any' 'value' 'cast_any' 'value'),
-    (Link 'cast_any' 'exec' 'any_text' 'exec'),
-    (Link 'cast_any' 'result' 'any_text' 'value'),
-    (Link 'sequence' 'then5' 'greater' 'exec'),
+    (Link 'break_done' 'exec' 'probability' 'exec'),
+    (Link 'probability' 'hit' 'probability_return' 'exec'),
+    (Link 'probability_return' 'exec' 'while' 'exec'),
+    (Link 'while' 'completed' 'greater' 'exec'),
     (Link 'greater' 'true' 'less' 'exec'),
     (Link 'less' 'true' 'equal' 'exec'),
     (Link 'equal' 'true' 'switch_legacy' 'exec'),
     (Link 'switch_legacy' 'case2' 'switch_new' 'exec'),
-    (Link 'switch_new' 'case2' 'switch_text' 'exec')
+    (Link 'switch_new' 'case2' 'switch_return' 'exec'),
+    (Link 'switch_return' 'exec' 'foreach_any' 'exec'),
+    (Link 'string_items' 'array' 'foreach_any' 'array'),
+    (Link 'foreach_any' 'body' 'cast_any' 'exec'),
+    (Link 'foreach_any' 'value' 'cast_any' 'value'),
+    (Link 'cast_any' 'exec' 'any_return' 'exec'),
+    (Link 'cast_any' 'result' 'any_return' 'value'),
+    (Link 'foreach_any' 'completed' 'flow_done' 'exec')
 )
 WriteArtifact '02_control_flow_maze.obp' (NativeDocument '控制流迷宫' $controlNodes $controlLinks @(
-    (New-GraphGroup 'main-flow' '主执行路径：嵌套循环与分支' 35 25 1360 1020 @('entry','sequence','outer_loop','numbers','inner_loop','sum','loop_return','range','branch','range_text','break_loop','break_value','break_done','probability','probability_text','while','while_done')),
-    (New-GraphGroup 'flow-gallery' '控制流扩展路径：比较、Switch 与任意数组循环' 35 1070 1530 360 @('greater','less','equal','switch_legacy','switch_new','switch_text','string_items','foreach_any','cast_any','any_text'))
+    (New-GraphGroup 'loop-flow' '入口、Sequence 与嵌套循环' 35 25 1420 350 @('entry','sequence','outer_loop','numbers','inner_loop','sum','loop_return')),
+    (New-GraphGroup 'branch-flow' 'Range、Branch 与真实 Break' 455 380 1040 470 @('range','branch','range_return','break_loop','break_compare','break_branch','break_value','break_done')),
+    (New-GraphGroup 'comparison-flow' '概率、While、比较、Switch 与任意数组遍历' 455 875 1550 830 @('probability','probability_return','while','greater','less','equal','switch_legacy','switch_new','switch_return','string_items','foreach_any','cast_any','any_return','flow_done'))
 ))
 
-# 03: 数组、字符串、变量和转换。主路径以固定数组输入产出可读结果。
+# 03: 数组、字符串、变量和转换。每个实验区使用局部入口，避免跨分组连线。
 $arrayVariables = @(
     [ordered]@{ id = 'array_sum'; name = 'ArraySum'; type = 'integer'; defaultValue = 0; groupId = 'local'; description = '数组实验室中的累计值' },
     [ordered]@{ id = 'array_label'; name = 'ArrayLabel'; type = 'string'; defaultValue = 'cold'; groupId = 'local'; description = '局部字符串变量' }
 )
 $arrayNodes = @(
-    (Node 'entry' 'origin.event.entry-array' 80 120),
-    (Node 'sequence' 'origin.flow.sequence' 290 120 @{} @{ label = '数组实验序列'; dynamicOutputCount = 5 }),
-    (Node 'integers_old' 'origin.array.create-integer' 510 80 @{ items = @(3, 1, 4, 1, 5) }),
-    (Node 'integers_new' 'origin.array.create-integer-new' 510 230 @{ items = @(3, 1, 4, 1, 5) }),
-    (Node 'append_integer' 'origin.array.append-integer' 760 230 @{ value = 9 }),
-    (Node 'get_integer' 'origin.array.get-integer' 1010 230 @{ index = 2 }),
-    (Node 'length' 'origin.array.length' 1010 360),
-    (Node 'contains' 'origin.variable.set' 1010 500 @{ value = 0 } @{ variableId = 'array_sum'; variableAccess = 'set'; label = 'Set ArraySum' }),
-    (Node 'sum_get' 'origin.variable.get' 1220 500 @{} @{ variableId = 'array_sum'; variableAccess = 'get'; label = 'Get ArraySum' }),
-    (Node 'integer_return' 'origin.result.append-integer' 1460 230),
-    (Node 'length_return' 'origin.result.append-integer' 1460 360),
-    (Node 'strings_old' 'origin.array.create-string' 510 700 @{ items = @('red', 'green', 'blue') }),
-    (Node 'strings_new' 'origin.array.create-string-new' 510 850 @{ items = @('red', 'green', 'blue') }),
-    (Node 'append_string' 'origin.array.append-string' 760 850 @{ value = 'violet' }),
-    (Node 'get_string' 'origin.array.get-string' 1010 850 @{ index = 1 }),
-    (Node 'string_return' 'origin.result.append-string' 1260 850),
-    (Node 'literal' 'origin.literal.string' 510 1130 @{ value = 'east|west|north' }),
-    (Node 'split' 'origin.string.split' 760 1130 @{ delimiter = '|' }),
-    (Node 'get_any' 'origin.array.get-any' 1010 1130 @{ index = 2 }),
-    (Node 'cast_any' 'origin.cast.any-string' 1260 1130),
-    (Node 'any_return' 'origin.result.append-string' 1510 1130),
-    (Node 'label_set' 'origin.variable.set' 760 1290 @{ value = 'array-lab' } @{ variableId = 'array_label'; variableAccess = 'set'; label = 'Set ArrayLabel' }),
-    (Node 'label_get' 'origin.variable.get' 1010 1290 @{} @{ variableId = 'array_label'; variableAccess = 'get'; label = 'Get ArrayLabel' })
+    (Node 'entry' 'origin.event.entry-array' 600 130),
+    (Node 'integers_old' 'origin.array.create-integer' 300 80 @{ items = @(3, 1, 4, 1, 5) }),
+    (Node 'get_integer' 'origin.array.get-integer' 540 80 @{ index = 2 }),
+    (Node 'integer_return' 'origin.result.append-integer' 780 80),
+    (Node 'integers_new' 'origin.array.create-integer-new' 300 240 @{ items = @(3, 1, 4, 1, 5) }),
+    (Node 'append_integer' 'origin.array.append-integer' 540 240 @{ value = 9 }),
+    (Node 'length' 'origin.array.length' 780 240),
+    (Node 'length_return' 'origin.result.append-integer' 1020 240),
+    (Node 'sum_set' 'origin.variable.set' 620 390 @{ value = 0 } @{ variableId = 'array_sum'; variableAccess = 'set'; label = 'Set ArraySum' }),
+    (Node 'sum_get' 'origin.variable.get' 850 390 @{} @{ variableId = 'array_sum'; variableAccess = 'get'; label = 'Get ArraySum' }),
+    (Node 'sum_return' 'origin.result.append-integer' 1020 390),
+    (Node 'strings_old' 'origin.array.create-string' 300 600 @{ items = @('red', 'green', 'blue') }),
+    (Node 'get_old_string' 'origin.array.get-string' 540 600 @{ index = 1 }),
+    (Node 'old_string_return' 'origin.result.append-string' 780 600),
+    (Node 'strings_new' 'origin.array.create-string-new' 300 760 @{ items = @('red', 'green', 'blue') }),
+    (Node 'append_string' 'origin.array.append-string' 540 760 @{ value = 'violet' }),
+    (Node 'get_string' 'origin.array.get-string' 780 760 @{ index = 3 }),
+    (Node 'string_return' 'origin.result.append-string' 1020 760),
+    (Node 'literal' 'origin.literal.string' 300 1180 @{ value = 'east|west|north' }),
+    (Node 'split' 'origin.string.split' 540 1180 @{ delimiter = '|' }),
+    (Node 'get_any' 'origin.array.get-any' 790 1180 @{ index = 2 }),
+    (Node 'cast_any' 'origin.cast.any-string' 1040 1080),
+    (Node 'label_set' 'origin.variable.set' 1280 1080 @{ value = 'array-lab' } @{ variableId = 'array_label'; variableAccess = 'set'; label = 'Set ArrayLabel' }),
+    (Node 'label_get' 'origin.variable.get' 1280 1220 @{} @{ variableId = 'array_label'; variableAccess = 'get'; label = 'Get ArrayLabel' }),
+    (Node 'any_return' 'origin.result.append-string' 1520 1080)
 )
 $arrayLinks = @(
-    (Link 'entry' 'exec' 'sequence' 'exec'),
-    (Link 'sequence' 'then0' 'integer_return' 'exec'),
-    (Link 'integers_new' 'array' 'append_integer' 'array'),
-    (Link 'append_integer' 'array' 'integers_old' 'items'),
+    (Link 'entry' 'exec' 'integer_return' 'exec'),
     (Link 'integers_old' 'array' 'get_integer' 'array'),
-    (Link 'get_integer' 'value' 'contains' 'value'),
-    (Link 'sum_get' 'value' 'integer_return' 'value'),
-    (Link 'sequence' 'then1' 'length_return' 'exec'),
+    (Link 'get_integer' 'value' 'integer_return' 'value'),
+    (Link 'integer_return' 'exec' 'length_return' 'exec'),
+    (Link 'integers_new' 'array' 'append_integer' 'array'),
     (Link 'append_integer' 'array' 'length' 'array'),
     (Link 'length' 'length' 'length_return' 'value'),
-    (Link 'sequence' 'then2' 'string_return' 'exec'),
+    (Link 'length_return' 'exec' 'sum_set' 'exec'),
+    (Link 'get_integer' 'value' 'sum_set' 'value'),
+    (Link 'sum_set' 'exec' 'sum_return' 'exec'),
+    (Link 'sum_get' 'value' 'sum_return' 'value'),
+    (Link 'sum_return' 'exec' 'old_string_return' 'exec'),
+    (Link 'strings_old' 'array' 'get_old_string' 'array'),
+    (Link 'get_old_string' 'value' 'old_string_return' 'value'),
+    (Link 'old_string_return' 'exec' 'string_return' 'exec'),
     (Link 'strings_new' 'array' 'append_string' 'array'),
-    (Link 'append_string' 'array' 'strings_old' 'items'),
-    (Link 'strings_old' 'array' 'get_string' 'array'),
+    (Link 'append_string' 'array' 'get_string' 'array'),
     (Link 'get_string' 'value' 'string_return' 'value'),
+    (Link 'string_return' 'exec' 'cast_any' 'exec'),
     (Link 'literal' 'value' 'split' 'text'),
     (Link 'split' 'array' 'get_any' 'array'),
     (Link 'get_any' 'value' 'cast_any' 'value'),
-    (Link 'sequence' 'then3' 'cast_any' 'exec'),
     (Link 'cast_any' 'exec' 'label_set' 'exec'),
     (Link 'cast_any' 'result' 'label_set' 'value'),
-    (Link 'label_set' 'exec' 'contains' 'exec'),
-    (Link 'sequence' 'then4' 'any_return' 'exec'),
+    (Link 'label_set' 'exec' 'any_return' 'exec'),
     (Link 'label_get' 'value' 'any_return' 'value')
 )
 WriteArtifact '03_array_data_lab.obp' (NativeDocument '数组数据实验室' $arrayNodes $arrayLinks @(
-    (New-GraphGroup 'integer-arrays' '整数数组：创建、追加、读取与长度' 35 30 1600 580 @('entry','sequence','integers_old','integers_new','append_integer','get_integer','length','contains','sum_get','integer_return','length_return')),
-    (New-GraphGroup 'string-arrays' '字符串数组：创建、追加和读取' 455 650 980 340 @('strings_old','strings_new','append_string','get_string','string_return')),
-    (New-GraphGroup 'text-arrays' '字符串切分、任意项读取和局部变量' 455 1080 1150 290 @('literal','split','get_any','cast_any','any_return','label_set','label_get'))
+    (New-GraphGroup 'integer-arrays' '入口、整数数组、追加、读取、长度与局部变量' 35 25 1240 470 @('entry','integers_old','get_integer','integer_return','integers_new','append_integer','length','length_return','sum_set','sum_get','sum_return')),
+    (New-GraphGroup 'string-arrays' '字符串数组：旧/新创建、追加和读取' 35 545 1240 310 @('strings_old','get_old_string','old_string_return','strings_new','append_string','get_string','string_return')),
+    (New-GraphGroup 'text-arrays' '字符串切分、任意项读取和局部变量' 35 975 1740 360 @('literal','split','get_any','cast_any','any_return','label_set','label_get'))
 ) $arrayVariables)
 
 # 04: 确定性算法。运算、浮点运算、比较和分支均使用固定值或固定入口参数。
@@ -429,36 +470,40 @@ WriteArtifact 'functions/10_score_kernel.obpf' (NativeDocument '评分核心' $s
 $arrayFunctionNodes = @(
     (Node 'entry' 'origin.function.entry' 80 130 @{} (FunctionProperties 'Entry' 'functions/11_array_fold_and_format.obpf' '数组折叠与格式化' $arraySignature)),
     (Node 'sequence' 'origin.flow.sequence' 210 130 @{} @{ label = '折叠函数序列'; dynamicOutputCount = 1 }),
-    (Node 'loop' 'origin.flow.foreach-integer-array' 340 120),
-    (Node 'sum' 'origin.math.add-integer' 580 120),
-    (Node 'count_loop' 'origin.flow.for-loop' 800 120 @{ start = 0; end = 3 }),
-    (Node 'get_item' 'origin.array.get-integer' 1040 120 @{ index = 1 }),
-    (Node 'append' 'origin.array.append-integer' 1040 340 @{ value = 8 }),
-    (Node 'array_length' 'origin.array.length' 1270 340),
-    (Node 'cast' 'origin.cast.integer-string' 1250 120),
-    (Node 'summary' 'origin.literal.string' 1250 340 @{ value = 'array-fold:fixed' }),
-    (Node 'score_call' 'origin.function.call' 800 520 @{ input_base = 5; input_bonus = 3; input_multiplier = 2 } (FunctionCallProperties 'functions/10_score_kernel.obpf' '评分核心' $scoreSignature)),
-    (Node 'local_set' 'origin.variable.set' 1060 520 @{ value = 0 } @{ variableId = 'fold_sum'; variableAccess = 'set'; label = 'Set FoldSum' }),
-    (Node 'debug' 'origin.debug.output' 1300 520 @{}),
-    (Node 'return' 'origin.function.return' 1510 130 @{} (FunctionProperties 'Return' 'functions/11_array_fold_and_format.obpf' '数组折叠与格式化' $arraySignature))
+    (Node 'init_sum' 'origin.variable.set' 340 120 @{ value = 0 } @{ variableId = 'fold_sum'; variableAccess = 'set'; label = 'Initialize FoldSum' }),
+    (Node 'loop' 'origin.flow.foreach-integer-array' 560 120),
+    (Node 'fold_get' 'origin.variable.get' 790 50 @{} @{ variableId = 'fold_sum'; variableAccess = 'get'; label = 'Get FoldSum' }),
+    (Node 'weighted_value' 'origin.math.multiply-integer' 790 150),
+    (Node 'sum' 'origin.math.add-integer' 1010 120),
+    (Node 'fold_set' 'origin.variable.set' 1230 120 @{} @{ variableId = 'fold_sum'; variableAccess = 'set'; label = 'Set FoldSum' }),
+    (Node 'get_item' 'origin.array.get-integer' 790 330 @{ index = 1 }),
+    (Node 'append' 'origin.array.append-integer' 1010 330 @{ value = 8 }),
+    (Node 'array_length' 'origin.array.length' 1230 330),
+    (Node 'cast' 'origin.cast.integer-string' 1230 500),
+    (Node 'summary' 'origin.literal.string' 1230 610 @{ value = 'weighted-array-fold' }),
+    (Node 'score_call' 'origin.function.call' 790 500 @{ input_base = 5; input_bonus = 3; input_multiplier = 2 } (FunctionCallProperties 'functions/10_score_kernel.obpf' '评分核心' $scoreSignature)),
+    (Node 'debug' 'origin.debug.output' 1450 430 @{}),
+    (Node 'return' 'origin.function.return' 1670 130 @{} (FunctionProperties 'Return' 'functions/11_array_fold_and_format.obpf' '数组折叠与格式化' $arraySignature))
 )
 $arrayFunctionLinks = @(
     (Link 'entry' 'exec' 'sequence' 'exec'),
-    (Link 'sequence' 'then0' 'loop' 'exec'),
+    (Link 'sequence' 'then0' 'init_sum' 'exec'),
+    (Link 'init_sum' 'exec' 'loop' 'exec'),
     (Link 'entry' 'input_items' 'loop' 'array'),
     (Link 'entry' 'input_items' 'get_item' 'array'),
     (Link 'entry' 'input_items' 'append' 'array'),
-    (Link 'loop' 'body' 'count_loop' 'exec'),
-    (Link 'count_loop' 'body' 'score_call' 'exec'),
+    (Link 'loop' 'body' 'fold_set' 'exec'),
+    (Link 'fold_get' 'value' 'sum' 'a'),
+    (Link 'loop' 'value' 'weighted_value' 'a'),
+    (Link 'entry' 'input_weight' 'weighted_value' 'b'),
+    (Link 'weighted_value' 'result' 'sum' 'b'),
+    (Link 'sum' 'result' 'fold_set' 'value'),
+    (Link 'loop' 'completed' 'score_call' 'exec'),
     (Link 'score_call' 'exec' 'debug' 'exec'),
-    (Link 'debug' 'exec' 'local_set' 'exec'),
-    (Link 'loop' 'completed' 'return' 'exec'),
-    (Link 'loop' 'value' 'sum' 'a'),
-    (Link 'entry' 'input_weight' 'sum' 'b'),
-    (Link 'sum' 'result' 'return' 'output_sum'),
+    (Link 'debug' 'exec' 'return' 'exec'),
+    (Link 'fold_get' 'value' 'return' 'output_sum'),
     (Link 'get_item' 'value' 'append' 'value'),
     (Link 'append' 'array' 'array_length' 'array'),
-    (Link 'array_length' 'length' 'local_set' 'value'),
     (Link 'array_length' 'length' 'debug' 'integer'),
     (Link 'append' 'array' 'debug' 'array'),
     (Link 'summary' 'value' 'debug' 'string'),
@@ -467,8 +512,8 @@ $arrayFunctionLinks = @(
 )
 $arrayFunctionVariables = @([ordered]@{ id = 'fold_sum'; name = 'FoldSum'; type = 'integer'; defaultValue = 0; groupId = 'local'; description = '数组折叠函数局部累计值' })
 WriteArtifact 'functions/11_array_fold_and_format.obpf' (NativeDocument '数组折叠与格式化' $arrayFunctionNodes $arrayFunctionLinks @(
-    (New-GraphGroup 'fold-main' '函数主路径与数组循环' 35 50 1740 370 @('entry','sequence','loop','sum','count_loop','get_item','append','array_length','cast','summary','return')),
-    (New-GraphGroup 'fold-nested' '嵌套函数调用、调试和局部变量' 720 470 850 180 @('score_call','local_set','debug'))
+    (New-GraphGroup 'fold-main' '加权数组折叠：初始化、循环累计并返回总和' 35 20 1840 400 @('entry','sequence','init_sum','loop','fold_get','weighted_value','sum','fold_set','get_item','append','array_length','return')),
+    (New-GraphGroup 'fold-nested' '嵌套函数调用、格式化和调试输出' 720 450 1020 260 @('score_call','cast','summary','debug'))
 ) $arrayFunctionVariables ([ordered]@{ functionId = 'functions/11_array_fold_and_format.obpf'; functionCategory = '验证函数'; functionSignature = $arraySignature }))
 
 # 12: 嵌套控制流函数，主执行返回固定 count/trace，控制流组展示循环、break、Range 和 Switch。
@@ -479,7 +524,12 @@ $controlFunctionNodes = @(
     (Node 'inner_values' 'origin.array.create-integer-new' 570 250 @{ items = @(1, 2, 3) }),
     (Node 'inner' 'origin.flow.foreach-integer-array' 820 80),
     (Node 'break' 'origin.flow.for-loop-break' 570 470 @{ start = 0; end = 4 }),
-    (Node 'while' 'origin.flow.while' 820 470 @{ condition = $false }),
+    (Node 'break_compare' 'origin.compare.greater-integer' 820 440 @{ b = 1 }),
+    (Node 'break_branch' 'origin.flow.branch' 1070 440),
+    (Node 'break_debug' 'origin.debug.output' 1290 440 @{ string = 'break-loop-body' }),
+    (Node 'break_done' 'origin.debug.output' 1290 520 @{ string = 'break-loop-complete' }),
+    (Node 'while' 'origin.flow.while' 820 600 @{ condition = $false }),
+    (Node 'while_done' 'origin.debug.output' 1070 600 @{ string = 'while-complete' }),
     (Node 'range' 'origin.flow.range-compare' 1070 80 @{ value = 4; ranges = @(2, 4, 8) }),
     (Node 'switch' 'origin.flow.equal-switch-new' 1070 300 @{ value = 2; cases = @(1, 2, 3) }),
     (Node 'trace' 'origin.literal.string' 1320 300 @{ value = 'nested-control:complete' }),
@@ -494,13 +544,20 @@ $controlFunctionLinks = @(
     (Link 'outer' 'body' 'inner' 'exec'),
     (Link 'inner_values' 'array' 'inner' 'array'),
     (Link 'sequence' 'then1' 'break' 'exec'),
+    (Link 'break' 'body' 'break_branch' 'exec'),
+    (Link 'break' 'index' 'break_compare' 'a'),
+    (Link 'break_compare' 'result' 'break_branch' 'condition'),
+    (Link 'break_branch' 'true' 'break' 'break'),
+    (Link 'break_branch' 'false' 'break_debug' 'exec'),
+    (Link 'break' 'completed' 'break_done' 'exec'),
     (Link 'sequence' 'then2' 'while' 'exec'),
+    (Link 'while' 'completed' 'while_done' 'exec'),
     (Link 'sequence' 'then3' 'range' 'exec'),
     (Link 'range' 'case2' 'switch' 'exec'),
     (Link 'switch' 'case2' 'return' 'exec')
 )
 WriteArtifact 'functions/12_nested_control_function.obpf' (NativeDocument '嵌套控制流' $controlFunctionNodes $controlFunctionLinks @(
-    (New-GraphGroup 'nested-flow' '嵌套 Sequence、循环、break 和 while' 35 35 1160 650 @('entry','sequence','outer','inner_values','inner','break','while','range','switch')),
+    (New-GraphGroup 'nested-flow' '嵌套 Sequence、循环、真实 break 和 while' 35 35 1500 720 @('entry','sequence','outer','inner_values','inner','break','break_compare','break_branch','break_debug','break_done','while','while_done','range','switch')),
     (New-GraphGroup 'function-result' '确定性函数返回值' 1260 35 560 420 @('trace','count','return'))
 ) @() ([ordered]@{ functionId = 'functions/12_nested_control_function.obpf'; functionCategory = '验证函数'; functionSignature = $controlSignature }))
 
@@ -513,7 +570,10 @@ $localFunctionNodes = @(
     (Node 'set_after' 'origin.variable.set' 800 120 @{} @{ variableId = 'call_counter'; variableAccess = 'set'; label = 'Set CallCounter' }),
     (Node 'array' 'origin.array.create-integer-new' 580 330 @{ items = @(1, 1, 2, 3, 5) }),
     (Node 'loop' 'origin.flow.foreach-integer-array' 800 330),
-    (Node 'branch' 'origin.flow.branch' 1040 330 @{ condition = $true }),
+    (Node 'loop_compare' 'origin.compare.greater-integer' 1040 300 @{ b = 2 }),
+    (Node 'branch' 'origin.flow.branch' 1260 330),
+    (Node 'loop_true_debug' 'origin.debug.output' 1480 280 @{ string = 'local-loop-index-at-least-2' }),
+    (Node 'loop_false_debug' 'origin.debug.output' 1480 380 @{ string = 'local-loop-index-below-2' }),
     (Node 'return' 'origin.function.return' 1270 130 @{} (FunctionProperties 'Return' 'functions/13_local_state_isolation.obpf' '局部状态隔离' $localSignature))
 )
 $localFunctionLinks = @(
@@ -526,12 +586,16 @@ $localFunctionLinks = @(
     (Link 'set_after' 'exec' 'return' 'exec'),
     (Link 'add' 'result' 'return' 'output_result'),
     (Link 'array' 'array' 'loop' 'array'),
-    (Link 'loop' 'body' 'branch' 'exec')
+    (Link 'loop' 'body' 'branch' 'exec'),
+    (Link 'loop' 'index' 'loop_compare' 'a'),
+    (Link 'loop_compare' 'result' 'branch' 'condition'),
+    (Link 'branch' 'true' 'loop_true_debug' 'exec'),
+    (Link 'branch' 'false' 'loop_false_debug' 'exec')
 )
 $localFunctionVariables = @([ordered]@{ id = 'call_counter'; name = 'CallCounter'; type = 'integer'; defaultValue = 0; groupId = 'local'; description = '每次函数调用都必须重新初始化的局部变量' })
 WriteArtifact 'functions/13_local_state_isolation.obpf' (NativeDocument '局部状态隔离' $localFunctionNodes $localFunctionLinks @(
     (New-GraphGroup 'local-main' '局部变量读写与函数返回' 35 50 1500 240 @('entry','sequence','get_before','add','set_after','return')),
-    (New-GraphGroup 'local-branch' '函数内部数组循环与分支' 520 280 760 260 @('array','loop','branch'))
+    (New-GraphGroup 'local-branch' '函数内部数组循环、比较与双分支' 520 250 1240 300 @('array','loop','loop_compare','branch','loop_true_debug','loop_false_debug'))
 ) $localFunctionVariables ([ordered]@{ functionId = 'functions/13_local_state_isolation.obpf'; functionCategory = '验证函数'; functionSignature = $localSignature }))
 
 # 05: 主图编排所有函数，并显式连续两次调用局部状态函数。
@@ -546,7 +610,8 @@ $orchestratorNodes = @(
     (Node 'array_return' 'origin.result.append-integer' 1090 330),
     (Node 'summary_return' 'origin.result.append-string' 1300 330),
     (Node 'control_call' 'origin.function.call' 540 580 @{ input_start = 0; input_limit = 4 } (FunctionCallProperties 'functions/12_nested_control_function.obpf' '嵌套控制流' $controlSignature)),
-    (Node 'control_return' 'origin.result.append-string' 830 580),
+    (Node 'control_count_return' 'origin.result.append-integer' 830 530),
+    (Node 'control_return' 'origin.result.append-string' 1050 580),
     (Node 'local_call_a' 'origin.function.call' 540 830 @{ input_seed = 7 } (FunctionCallProperties 'functions/13_local_state_isolation.obpf' '局部状态隔离' $localSignature)),
     (Node 'local_sequence' 'origin.flow.sequence' 810 830 @{} @{ label = '局部调用结果序列'; dynamicOutputCount = 2 }),
     (Node 'local_call_b' 'origin.function.call' 1070 830 @{ input_seed = 7 } (FunctionCallProperties 'functions/13_local_state_isolation.obpf' '局部状态隔离' $localSignature)),
@@ -567,7 +632,9 @@ $orchestratorLinks = @(
     (Link 'array_return' 'exec' 'summary_return' 'exec'),
     (Link 'array_call' 'output_summary' 'summary_return' 'value'),
     (Link 'sequence' 'then2' 'control_call' 'exec'),
-    (Link 'control_call' 'exec' 'control_return' 'exec'),
+    (Link 'control_call' 'exec' 'control_count_return' 'exec'),
+    (Link 'control_call' 'output_count' 'control_count_return' 'value'),
+    (Link 'control_count_return' 'exec' 'control_return' 'exec'),
     (Link 'control_call' 'output_trace' 'control_return' 'value'),
     (Link 'sequence' 'then3' 'local_call_a' 'exec'),
     (Link 'local_call_a' 'exec' 'local_sequence' 'exec'),
@@ -580,7 +647,7 @@ $orchestratorLinks = @(
 WriteArtifact '05_function_orchestrator.obp' (NativeDocument '函数编排主图' $orchestratorNodes $orchestratorLinks @(
     (New-GraphGroup 'score-call' '评分函数调用' 35 30 1160 220 @('entry','sequence','score_call','score_return','score_text')),
     (New-GraphGroup 'array-call' '数组折叠函数调用' 480 280 1050 230 @('array_source','array_call','array_return','summary_return')),
-    (New-GraphGroup 'control-call' '嵌套控制流函数调用' 480 530 650 180 @('control_call','control_return')),
+    (New-GraphGroup 'control-call' '嵌套控制流函数调用：返回计数和轨迹' 480 500 850 230 @('control_call','control_count_return','control_return')),
     (New-GraphGroup 'local-isolation' '同输入连续调用：局部状态必须隔离' 480 740 1100 250 @('local_call_a','local_sequence','local_call_b','local_return_a','local_return_b'))
 ))
 
@@ -594,13 +661,13 @@ $timerNodes = @(
     (Node 'is_paused' 'origin.timer.is-paused' 1320 360),
     (Node 'paused_branch' 'origin.flow.branch' 1420 130),
     (Node 'paused_error_text' 'origin.literal.string' 1420 500 @{ value = 'timer-not-paused' }),
-    (Node 'paused_error_return' 'origin.result.append-string' 1680 430),
+    (Node 'paused_error_return' 'origin.result.append-string' 1680 430 @{ value = 'timer-not-paused' }),
     (Node 'delay_paused' 'origin.flow.delay' 1680 130 @{ duration = 100 }),
     (Node 'unpause_timer' 'origin.timer.unpause' 1930 130),
     (Node 'is_valid' 'origin.timer.is-valid' 2100 360),
     (Node 'valid_branch' 'origin.flow.branch' 2180 130),
     (Node 'invalid_error_text' 'origin.literal.string' 2180 500 @{ value = 'timer-handle-invalid' }),
-    (Node 'invalid_error_return' 'origin.result.append-string' 2440 430),
+    (Node 'invalid_error_return' 'origin.result.append-string' 2440 430 @{ value = 'timer-handle-invalid' }),
     (Node 'delay_before_clear' 'origin.flow.delay' 2440 130 @{ duration = 300 }),
     (Node 'remaining' 'origin.timer.remaining' 2600 360),
     (Node 'elapsed' 'origin.timer.elapsed' 2850 360),
@@ -611,7 +678,7 @@ $timerNodes = @(
     (Node 'inactive_debug' 'origin.debug.output' 3650 300 @{ string = 'timer-inactive' }),
     (Node 'clear_timer' 'origin.timer.clear' 3900 130 @{ cancelRunningCallback = $true }),
     (Node 'result_text' 'origin.literal.string' 3900 340 @{ value = 'timer-lifecycle-complete' }),
-    (Node 'return_result' 'origin.result.append-string' 4170 130)
+    (Node 'return_result' 'origin.result.append-string' 4170 130 @{ value = 'timer-lifecycle-complete' })
 )
 $timerLinks = @(
     (Link 'entry' 'exec' 'set_timer' 'exec'),
@@ -651,6 +718,38 @@ $timerLinks = @(
 )
 WriteArtifact '06_timer_lifecycle.obp' (NativeDocument '新定时器生命周期' $timerNodes $timerLinks @(
     (New-GraphGroup 'timer-lifecycle' '按函数设置循环定时器：创建、暂停、恢复、查询与清除' 35 40 4400 620 @('entry','set_timer','debug_create','delay_before_pause','pause_timer','is_paused','paused_branch','paused_error_text','paused_error_return','delay_paused','unpause_timer','is_valid','valid_branch','invalid_error_text','invalid_error_return','delay_before_clear','remaining','elapsed','add_timing','debug_timing','is_active','active_branch','inactive_debug','clear_timer','result_text','return_result'))
+))
+
+# 07: 使用定时器模拟 RPC 回包。成功和失败分别通过 ResumeTo 选择不同的 Exec 输出。
+$mockRpcNodes = @(
+    (Node 'success_entry' 'origin.event.entry-two-integers' 80 150),
+    (Node 'success_rpc' 'origin.example.mock-rpc-async' 380 120 @{ delayMs = 80; succeed = $true; successValue = 314; failureCode = 0; failureMessage = '' }),
+    (Node 'success_return' 'origin.result.append-integer' 790 90),
+    (Node 'success_unexpected_text' 'origin.literal.string' 710 280 @{ value = 'unexpected failure from success request' }),
+    (Node 'success_unexpected_return' 'origin.result.append-string' 990 230),
+    (Node 'failure_entry' 'origin.event.entry-two-integers' 80 610),
+    (Node 'failure_rpc' 'origin.example.mock-rpc-async' 380 580 @{ delayMs = 80; succeed = $false; successValue = 0; failureCode = 503; failureMessage = 'mock rpc unavailable' }),
+    (Node 'failure_unexpected_return' 'origin.result.append-integer' 790 550),
+    (Node 'failure_code_return' 'origin.result.append-integer' 790 700),
+    (Node 'failure_return' 'origin.result.append-string' 1040 700)
+)
+$mockRpcLinks = @(
+    (Link 'success_entry' 'exec' 'success_rpc' 'exec'),
+    (Link 'success_rpc' 'succeeded' 'success_return' 'exec'),
+    (Link 'success_rpc' 'value' 'success_return' 'value'),
+    (Link 'success_rpc' 'failed' 'success_unexpected_return' 'exec'),
+    (Link 'success_unexpected_text' 'value' 'success_unexpected_return' 'value'),
+    (Link 'failure_entry' 'exec' 'failure_rpc' 'exec'),
+    (Link 'failure_rpc' 'succeeded' 'failure_unexpected_return' 'exec'),
+    (Link 'failure_rpc' 'value' 'failure_unexpected_return' 'value'),
+    (Link 'failure_rpc' 'failed' 'failure_code_return' 'exec'),
+    (Link 'failure_rpc' 'errorCode' 'failure_code_return' 'value'),
+    (Link 'failure_code_return' 'exec' 'failure_return' 'exec'),
+    (Link 'failure_rpc' 'errorMessage' 'failure_return' 'value')
+)
+WriteArtifact '07_async_rpc_resume_to.obp' (NativeDocument '定时器模拟 RPC 异步恢复' $mockRpcNodes $mockRpcLinks @(
+    (New-GraphGroup 'success-rpc' '成功回包：定时器到期后 ResumeTo(成功) 继续原执行' 35 35 1220 350 @('success_entry','success_rpc','success_return','success_unexpected_text','success_unexpected_return')),
+    (New-GraphGroup 'failure-rpc' '失败回包：定时器到期后 ResumeTo(失败) 返回错误码和错误文本' 35 500 1320 350 @('failure_entry','failure_rpc','failure_unexpected_return','failure_code_return','failure_return'))
 ))
 
 $coverage = [ordered]@{
@@ -711,6 +810,7 @@ $coverage = [ordered]@{
         'origin.timer.is-valid' = @('06_timer_lifecycle.obp:async')
         'origin.timer.remaining' = @('06_timer_lifecycle.obp:async')
         'origin.timer.elapsed' = @('06_timer_lifecycle.obp:async')
+        'origin.example.mock-rpc-async' = @('07_async_rpc_resume_to.obp:async-demo')
         'origin.string.split' = @('03_array_data_lab.obp:visual')
         'origin.variable.get' = @('03_array_data_lab.obp:visual','functions/13_local_state_isolation.obpf:visual')
         'origin.variable.set' = @('03_array_data_lab.obp:visual','functions/13_local_state_isolation.obpf:visual')
@@ -735,6 +835,7 @@ $readme = @'
 5. 打开 `functions/` 下四个 `.obpf`：确认函数入口/返回的参数名、类型和函数内变量显示。
 6. `05_function_orchestrator.obp`：确认外部函数调用节点的输入输出端口，以及连续两次调用局部状态函数的可读性。
 7. `06_timer_lifecycle.obp`：确认 Delay、按函数设置定时器、暂停、恢复、状态查询和清除节点的显示与完整连线。
+8. `07_async_rpc_resume_to.obp`：确认 demo 节点以定时器模拟异步回包，并展示成功、失败两个 ResumeTo 出口的连线。
 
 ## 关键预期
 
@@ -743,6 +844,18 @@ $readme = @'
 - 图中每个分组标题应完整可读，节点不应重叠遮挡端口。
 - `13_local_state_isolation.obpf` 的变量属于函数局部状态；`05_function_orchestrator.obp` 连续调用它两次，是后续隔离验证的样本入口。
 - `coverage.json` 记录全部当前系统节点的样本位置和阶段覆盖范围。
+- `nodes/MockRpcAsync.json` 是本目录专用 demo 节点定义，不属于正式系统节点库；其 Go 实现和结果断言留待后续测试阶段加入。
+
+## 第 2 阶段结果契约
+
+- `01_legacy_all_nodes_showcase.vgf`：只验证 legacy 导入、端口迁移和显示；不作为结果对比图。
+- `02_control_flow_maze.obp`：验证嵌套循环、真实 break、Range、Branch、Probability、While 和任意数组遍历。固定输入下会返回循环整数、各分支标记和数组转换字符串。
+- `03_array_data_lab.obp`：固定数组应依次返回整数 `4`、长度 `6`、字符串 `green` 和局部变量字符串 `north`。
+- `04_deterministic_algorithm.obp`：输入参数决定整数评分分支；固定随机数恒为 `42`，Range/Switch 与浮点转换返回固定文本。后续随机输入阶段会以同一入口参数调用 Go 参考实现。
+- `05_function_orchestrator.obp`：验证评分函数、加权数组折叠、嵌套控制函数和两次独立局部状态函数调用的全部输出。
+- `06_timer_lifecycle.obp`：验证 Timer 创建、暂停、恢复、查询和清除；创建 Execution 的正常返回为 `timer-lifecycle-complete`，Timer 回调本身属于独立 Execution，不能混入该返回数组。
+- `07_async_rpc_resume_to.obp`：待 demo Go 节点实现后，成功入口应返回 `314`；失败入口应依次返回错误码 `503` 和文本 `mock rpc unavailable`。
+- `functions/10_score_kernel.obpf`、`functions/11_array_fold_and_format.obpf`、`functions/12_nested_control_function.obpf`、`functions/13_local_state_isolation.obpf` 分别验证评分、加权累计、真实 break 和函数局部变量隔离。
 
 ## 重新生成
 

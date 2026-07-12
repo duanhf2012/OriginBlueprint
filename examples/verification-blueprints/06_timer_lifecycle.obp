@@ -145,7 +145,7 @@
                                        "y":  430
                                    },
                       "values":  {
-
+                                     "value":  "timer-not-paused"
                                  },
                       "properties":  {
 
@@ -229,7 +229,7 @@
                                        "y":  430
                                    },
                       "values":  {
-
+                                     "value":  "timer-handle-invalid"
                                  },
                       "properties":  {
 
@@ -383,7 +383,7 @@
                                        "y":  130
                                    },
                       "values":  {
-
+                                     "value":  "timer-lifecycle-complete"
                                  },
                       "properties":  {
 

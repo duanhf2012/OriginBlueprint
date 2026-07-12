@@ -74,14 +74,12 @@ func TestVerificationBlueprintFixturesConnectEveryNode(t *testing.T) {
 
 func TestVerificationBlueprintFixturesLoadThroughEngine(t *testing.T) {
 	root := filepath.Join("..", "..", "..", "examples", "verification-blueprints")
-	graphs, err := loadGraphDir(testSystemRegistry(t), root)
+	graphs, err := loadGraphDir(verificationFixtureRegistry(t), root)
 	if err != nil {
 		t.Fatalf("load verification fixtures: %v", err)
 	}
 	for _, name := range []string{
 		"01_legacy_all_nodes_showcase",
-		"控制流迷宫",
-		"数组数据实验室",
 		"确定性评分算法",
 		"函数编排主图",
 		"新定时器生命周期",

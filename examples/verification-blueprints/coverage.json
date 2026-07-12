@@ -200,6 +200,9 @@
                   "origin.timer.elapsed":  [
                                                "06_timer_lifecycle.obp:async"
                                            ],
+                  "origin.example.mock-rpc-async":  [
+                                                        "07_async_rpc_resume_to.obp:async-demo"
+                                                    ],
                   "origin.string.split":  [
                                               "03_array_data_lab.obp:visual"
                                           ],

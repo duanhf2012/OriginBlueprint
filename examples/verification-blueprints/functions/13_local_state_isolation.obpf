@@ -132,14 +132,56 @@
                                      }
                   },
                   {
+                      "id":  "loop_compare",
+                      "typeId":  "origin.compare.greater-integer",
+                      "position":  {
+                                       "x":  1040,
+                                       "y":  300
+                                   },
+                      "values":  {
+                                     "b":  2
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
                       "id":  "branch",
                       "typeId":  "origin.flow.branch",
                       "position":  {
-                                       "x":  1040,
+                                       "x":  1260,
                                        "y":  330
                                    },
                       "values":  {
-                                     "condition":  true
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "loop_true_debug",
+                      "typeId":  "origin.debug.output",
+                      "position":  {
+                                       "x":  1480,
+                                       "y":  280
+                                   },
+                      "values":  {
+                                     "string":  "local-loop-index-at-least-2"
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "loop_false_debug",
+                      "typeId":  "origin.debug.output",
+                      "position":  {
+                                       "x":  1480,
+                                       "y":  380
+                                   },
+                      "values":  {
+                                     "string":  "local-loop-index-below-2"
                                  },
                       "properties":  {
 
@@ -224,8 +266,8 @@
                             "targetInput":  "exec"
                         },
                         {
-                            "source":  "add",
-                            "sourceOutput":  "result",
+                            "source":  "set_after",
+                            "sourceOutput":  "value",
                             "target":  "return",
                             "targetInput":  "output_result"
                         },
@@ -239,6 +281,30 @@
                             "source":  "loop",
                             "sourceOutput":  "body",
                             "target":  "branch",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "loop",
+                            "sourceOutput":  "index",
+                            "target":  "loop_compare",
+                            "targetInput":  "a"
+                        },
+                        {
+                            "source":  "loop_compare",
+                            "sourceOutput":  "result",
+                            "target":  "branch",
+                            "targetInput":  "condition"
+                        },
+                        {
+                            "source":  "branch",
+                            "sourceOutput":  "true",
+                            "target":  "loop_true_debug",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "branch",
+                            "sourceOutput":  "false",
+                            "target":  "loop_false_debug",
                             "targetInput":  "exec"
                         }
                     ],
@@ -261,15 +327,18 @@
                    },
                    {
                        "id":  "local-branch",
-                       "title":  "函数内部数组循环与分支",
+                       "title":  "函数内部数组循环、比较与双分支",
                        "x":  520,
-                       "y":  280,
-                       "width":  760,
-                       "height":  260,
+                       "y":  250,
+                       "width":  1240,
+                       "height":  300,
                        "nodeIds":  [
                                        "array",
                                        "loop",
-                                       "branch"
+                                       "loop_compare",
+                                       "branch",
+                                       "loop_true_debug",
+                                       "loop_false_debug"
                                    ]
                    }
                ],

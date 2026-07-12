@@ -131,6 +131,12 @@ var documentNodeSpecs = map[string]documentNodeSpec{
 	"origin.string.split":               {class: "StringSplit", inputs: map[string]int{"exec": 0, "text": 1, "delimiter": 2}, outputs: map[string]int{"exec": 0, "array": 1}},
 }
 
+// externalDocumentNodeSpecs contains document mappings for examples whose
+// executable node factories are registered by the embedding application.
+var externalDocumentNodeSpecs = map[string]documentNodeSpec{
+	"origin.example.mock-rpc-async": {class: "MockRpcAsync", inputs: map[string]int{"exec": 0, "delayMs": 1, "succeed": 2, "successValue": 3, "failureCode": 4, "failureMessage": 5}, outputs: map[string]int{"succeeded": 0, "failed": 1, "value": 2, "errorCode": 3, "errorMessage": 4}},
+}
+
 func dynamicSwitchOutputs(maxBranches int) map[string]int {
 	outputs := map[string]int{"otherwise": 0}
 	for index := 1; index <= maxBranches; index++ {
@@ -231,6 +237,9 @@ func documentNodeToConfig(node graphDocumentNode, variables map[string]graphDocu
 		return NodeConfig{ID: node.ID, Class: node.Properties.LegacyClass, PortDefault: documentDefaults(node.Values, spec.inputs)}, spec, nil
 	}
 	spec, ok := documentNodeSpecs[node.TypeID]
+	if !ok {
+		spec, ok = externalDocumentNodeSpecs[node.TypeID]
+	}
 	if !ok {
 		return NodeConfig{}, documentNodeSpec{}, fmt.Errorf("%s node has not been registered", node.TypeID)
 	}
