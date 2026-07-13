@@ -108,6 +108,9 @@ func (r *Registry) LoadDefinitionsJSON(data []byte, factories []func() IExecNode
 		if factory == nil {
 			return fmt.Errorf("exec %s has not been registered", nodeName)
 		}
+		if err := validateTotalNodePortCount(len(config.Inputs), len(config.Outputs)); err != nil {
+			return fmt.Errorf("exec %s ports: %w", nodeName, err)
+		}
 
 		inputConfigs, err := normalizePortDefinitions(config.Inputs, schemaPortIndexes(config.ID, false))
 		if err != nil {
@@ -122,7 +125,11 @@ func (r *Registry) LoadDefinitionsJSON(data []byte, factories []func() IExecNode
 		if err != nil {
 			return fmt.Errorf("exec %s input ports: %w", nodeName, err)
 		}
-		outPorts, err := buildPorts(dynamicBranchDefinitionOutputs(config.Name, outputConfigs))
+		dynamicOutputs := dynamicBranchDefinitionOutputs(config.Name, outputConfigs)
+		if err := validateTotalNodePortCount(len(inputConfigs), len(dynamicOutputs)); err != nil {
+			return fmt.Errorf("exec %s ports: %w", nodeName, err)
+		}
+		outPorts, err := buildPorts(dynamicOutputs)
 		if err != nil {
 			return fmt.Errorf("exec %s output ports: %w", nodeName, err)
 		}
@@ -151,6 +158,9 @@ func parseJSONPortID(value any) (int, bool, error) {
 		if portID < 0 {
 			return 0, false, fmt.Errorf("invalid negative port_id %d", portID)
 		}
+		if portID > maxNodePortID {
+			return 0, false, fmt.Errorf("port_id %d exceeds maximum %d", portID, maxNodePortID)
+		}
 		return portID, true, nil
 	case string:
 		portID, err := strconv.Atoi(strings.TrimSpace(typed))
@@ -159,6 +169,9 @@ func parseJSONPortID(value any) (int, bool, error) {
 		}
 		if portID < 0 {
 			return 0, false, fmt.Errorf("invalid negative port_id %d", portID)
+		}
+		if portID > maxNodePortID {
+			return 0, false, fmt.Errorf("port_id %d exceeds maximum %d", portID, maxNodePortID)
 		}
 		return portID, true, nil
 	default:
@@ -327,17 +340,17 @@ func firstStringField(text, field string) string {
 	return match[1]
 }
 
-func firstIntField(text, field string) int {
+func firstIntField(text, field string) (int, bool) {
 	re := regexp.MustCompile(`"` + regexp.QuoteMeta(field) + `"\s*:\s*(-?\d+)`)
 	match := re.FindStringSubmatch(text)
 	if len(match) != 2 {
-		return -1
+		return 0, false
 	}
 	value, err := strconv.Atoi(match[1])
 	if err != nil {
-		return -1
+		return 0, false
 	}
-	return value
+	return value, true
 }
 
 func arrayField(text, field string) string {
@@ -366,8 +379,8 @@ func parseLenientPorts(text string) []PortDefinition {
 	objects := splitTopLevelObjects(text)
 	ports := make([]PortDefinition, 0, len(objects))
 	for _, object := range objects {
-		portID := firstIntField(object, "port_id")
-		if portID < 0 {
+		portID, ok := firstIntField(object, "port_id")
+		if !ok {
 			continue
 		}
 		ports = append(ports, PortDefinition{
@@ -380,8 +393,22 @@ func parseLenientPorts(text string) []PortDefinition {
 }
 
 func buildPorts(configs []PortDefinition) ([]IPort, error) {
+	if err := validateMaximum("port count", len(configs), maxNodePortCount); err != nil {
+		return nil, err
+	}
+	seen := make(map[int]struct{}, len(configs))
 	maxPortID := -1
 	for _, config := range configs {
+		if config.PortID < 0 {
+			return nil, fmt.Errorf("port_id %d must be nonnegative", config.PortID)
+		}
+		if config.PortID > maxNodePortID {
+			return nil, fmt.Errorf("port_id %d exceeds maximum %d", config.PortID, maxNodePortID)
+		}
+		if _, exists := seen[config.PortID]; exists {
+			return nil, fmt.Errorf("duplicate port_id %d", config.PortID)
+		}
+		seen[config.PortID] = struct{}{}
 		if config.PortID > maxPortID {
 			maxPortID = config.PortID
 		}

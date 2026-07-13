@@ -111,6 +111,9 @@ func ParseGraphConfigJSON(data []byte) (GraphConfig, error) {
 	}
 	config.Legacy = true
 	for index := range config.Nodes {
+		if err := validateNodeConfigLimits(config.Nodes[index]); err != nil {
+			return GraphConfig{}, fmt.Errorf("node %s: %w", config.Nodes[index].ID, err)
+		}
 		config.Nodes[index].PortDefault = parsePortDefaults(config.Nodes[index].RawDefault)
 	}
 	return config, nil
@@ -163,6 +166,9 @@ func CompileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error
 	for _, nodeConfig := range config.Nodes {
 		if strings.TrimSpace(nodeConfig.ID) == "" {
 			return nil, fmt.Errorf("node id is empty")
+		}
+		if err := validateNodeConfigLimits(nodeConfig); err != nil {
+			return nil, fmt.Errorf("node %s: %w", nodeConfig.ID, err)
 		}
 		if _, exists := nodes[nodeConfig.ID]; exists {
 			return nil, fmt.Errorf("duplicate node id %q", nodeConfig.ID)
@@ -532,8 +538,8 @@ func dynamicDefinition(nodeConfig NodeConfig, variables map[string]VariableConfi
 	case "SetTimerByFunction":
 		return setTimerByFunctionDefinition(nodeConfig.FunctionInputTypes)
 	default:
-		if definition := dynamicSequenceDefinition(nodeConfig.Class); definition != nil {
-			return definition, nil
+		if definition, err := dynamicSequenceDefinition(nodeConfig.Class); definition != nil || err != nil {
+			return definition, err
 		}
 		if definition := builtinDynamicDefinition(nodeConfig.Class); definition != nil {
 			return definition, nil
@@ -542,15 +548,18 @@ func dynamicDefinition(nodeConfig NodeConfig, variables map[string]VariableConfi
 	}
 }
 
-func dynamicSequenceDefinition(className string) *NodeDefinition {
+func dynamicSequenceDefinition(className string) (*NodeDefinition, error) {
 	if !strings.HasPrefix(className, "SequenceDynamic") {
-		return nil
+		return nil, nil
 	}
 	count, err := strconv.Atoi(strings.TrimPrefix(className, "SequenceDynamic"))
 	if err != nil || count <= 0 {
-		return nil
+		return nil, nil
 	}
-	return NewNodeDefinition("Sequence", func() IExecNode { return &Sequence{} }, []IPort{NewPortExec()}, execPortList(count))
+	if err := validateMaximum("dynamic output count", count, maxDynamicSequenceOutputCount); err != nil {
+		return nil, err
+	}
+	return NewNodeDefinition("Sequence", func() IExecNode { return &Sequence{} }, []IPort{NewPortExec()}, execPortList(count)), nil
 }
 
 func execPortList(count int) []IPort {

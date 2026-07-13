@@ -144,6 +144,9 @@ func isFunctionCallStop(err error) bool {
 }
 
 func functionEntryDefinition(inputTypes []string) (*NodeDefinition, error) {
+	if err := validateFunctionPortCounts(len(inputTypes), 0, "function input count", "function output count"); err != nil {
+		return nil, err
+	}
 	outPorts, err := functionPorts(inputTypes, true)
 	if err != nil {
 		return nil, err
@@ -152,6 +155,9 @@ func functionEntryDefinition(inputTypes []string) (*NodeDefinition, error) {
 }
 
 func functionReturnDefinition(outputTypes []string) (*NodeDefinition, error) {
+	if err := validateFunctionPortCounts(0, len(outputTypes), "function input count", "function output count"); err != nil {
+		return nil, err
+	}
 	inPorts, err := functionPorts(outputTypes, false)
 	if err != nil {
 		return nil, err
@@ -160,6 +166,9 @@ func functionReturnDefinition(outputTypes []string) (*NodeDefinition, error) {
 }
 
 func functionCallDefinition(inputTypes []string, outputTypes []string) (*NodeDefinition, error) {
+	if err := validateFunctionPortCounts(len(inputTypes), len(outputTypes), "function input count", "function output count"); err != nil {
+		return nil, err
+	}
 	inPorts, err := functionPorts(inputTypes, false)
 	if err != nil {
 		return nil, err

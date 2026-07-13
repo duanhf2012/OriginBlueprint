@@ -149,6 +149,9 @@ func dynamicSwitchOutputs(maxBranches int) map[string]int {
 //
 // 返回值中的 bool 表示输入是否确认为新版文档格式。
 func graphDocumentToConfig(document graphDocument) (GraphConfig, bool, error) {
+	if err := validateDocumentFunctionSignature(document.FunctionSignature); err != nil {
+		return GraphConfig{}, false, err
+	}
 	variables := make([]VariableConfig, 0, len(document.Variables))
 	variableByID := make(map[string]graphDocumentVariable, len(document.Variables))
 	for _, variable := range document.Variables {
@@ -201,22 +204,37 @@ func documentNodeToConfig(node graphDocumentNode, variables map[string]graphDocu
 	switch node.TypeID {
 	case "origin.function.entry":
 		signature := node.Properties.FunctionSignature
+		if err := validateDocumentFunctionSignature(signature); err != nil {
+			return NodeConfig{}, documentNodeSpec{}, fmt.Errorf("node %s: %w", node.ID, err)
+		}
 		return NodeConfig{ID: node.ID, Class: "FunctionEntry", FunctionInputTypes: signatureTypes(signature.Inputs), PortDefault: documentDefaults(node.Values, functionEntrySpec(signature).inputs)}, functionEntrySpec(signature), nil
 	case "origin.function.return":
 		signature := node.Properties.FunctionSignature
+		if err := validateDocumentFunctionSignature(signature); err != nil {
+			return NodeConfig{}, documentNodeSpec{}, fmt.Errorf("node %s: %w", node.ID, err)
+		}
 		return NodeConfig{ID: node.ID, Class: "FunctionReturn", FunctionOutputTypes: signatureTypes(signature.Outputs), PortDefault: documentDefaults(node.Values, functionReturnSpec(signature).inputs)}, functionReturnSpec(signature), nil
 	case "origin.function.call":
 		signature := node.Properties.FunctionSignature
+		if err := validateDocumentFunctionSignature(signature); err != nil {
+			return NodeConfig{}, documentNodeSpec{}, fmt.Errorf("node %s: %w", node.ID, err)
+		}
 		spec := functionCallSpec(signature)
 		return NodeConfig{ID: node.ID, Class: "FunctionCall", FunctionID: node.Properties.FunctionID, FunctionName: node.Properties.FunctionName, FunctionInputTypes: signatureTypes(signature.Inputs), FunctionOutputTypes: signatureTypes(signature.Outputs), PortDefault: documentDefaults(node.Values, spec.inputs)}, spec, nil
 	case "origin.timer.set-by-function":
 		signature := node.Properties.FunctionSignature
+		if err := validateDocumentFunctionSignature(signature); err != nil {
+			return NodeConfig{}, documentNodeSpec{}, fmt.Errorf("node %s: %w", node.ID, err)
+		}
 		spec := setTimerByFunctionSpec(signature)
 		return NodeConfig{ID: node.ID, Class: "SetTimerByFunction", FunctionID: node.Properties.FunctionID, FunctionName: node.Properties.FunctionName, FunctionInputTypes: signatureTypes(signature.Inputs), PortDefault: documentDefaults(node.Values, spec.inputs)}, spec, nil
 	case "origin.flow.sequence":
 		count := node.Properties.DynamicOutputCount
 		if count <= 0 {
 			count = 3
+		}
+		if err := validateMaximum("dynamicOutputCount", count, maxDynamicSequenceOutputCount); err != nil {
+			return NodeConfig{}, documentNodeSpec{}, fmt.Errorf("node %s: %w", node.ID, err)
 		}
 		spec := sequenceSpec(count)
 		return NodeConfig{ID: node.ID, Class: spec.class, PortDefault: documentDefaults(node.Values, spec.inputs)}, spec, nil
@@ -233,6 +251,9 @@ func documentNodeToConfig(node graphDocumentNode, variables map[string]graphDocu
 	}
 
 	if node.Properties.LegacyClass != "" {
+		if err := validateTotalNodePortCount(len(node.Properties.LegacyInputs), len(node.Properties.LegacyOutputs)); err != nil {
+			return NodeConfig{}, documentNodeSpec{}, fmt.Errorf("node %s legacy ports: %w", node.ID, err)
+		}
 		spec := legacyNodeSpec(node.Properties)
 		return NodeConfig{ID: node.ID, Class: node.Properties.LegacyClass, PortDefault: documentDefaults(node.Values, spec.inputs)}, spec, nil
 	}
@@ -247,6 +268,15 @@ func documentNodeToConfig(node graphDocumentNode, variables map[string]graphDocu
 }
 
 // legacyNodeSpec 从文档内嵌的旧端口定义生成端口映射。
+func validateDocumentFunctionSignature(signature graphDocumentFuncSignature) error {
+	return validateFunctionPortCounts(
+		len(signature.Inputs),
+		len(signature.Outputs),
+		"functionSignature.inputs count",
+		"functionSignature.outputs count",
+	)
+}
+
 func legacyNodeSpec(properties graphDocumentProperties) documentNodeSpec {
 	inputs := make(map[string]int, len(properties.LegacyInputs))
 	for index, port := range properties.LegacyInputs {

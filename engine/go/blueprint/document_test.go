@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"sort"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -281,6 +282,119 @@ func TestGraphDocumentDynamicSequenceOutputCompilesAndRuns(t *testing.T) {
 	}
 	if len(returns) != 1 || returns[0].StrVal != "then4" {
 		t.Fatalf("returns = %#v, want then4", returns)
+	}
+}
+
+func TestGraphDocumentRejectsDynamicSequenceOutputCountAboveLimit(t *testing.T) {
+	_, _, err := graphDocumentToConfig(graphDocument{
+		Nodes: []graphDocumentNode{{
+			ID:     "sequence",
+			TypeID: "origin.flow.sequence",
+			Properties: graphDocumentProperties{
+				DynamicOutputCount: 257,
+			},
+		}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "dynamicOutputCount 257 exceeds maximum 256") {
+		t.Fatalf("graphDocumentToConfig err = %v, want dynamic output limit", err)
+	}
+}
+
+func TestGraphDocumentRejectsFunctionSignatureAboveLimits(t *testing.T) {
+	inputs := make([]graphDocumentFuncPort, 129)
+	for index := range inputs {
+		inputs[index] = graphDocumentFuncPort{ID: strconv.Itoa(index), Type: "integer"}
+	}
+	_, _, err := graphDocumentToConfig(graphDocument{
+		Nodes: []graphDocumentNode{{
+			ID:     "call",
+			TypeID: "origin.function.call",
+			Properties: graphDocumentProperties{
+				FunctionSignature: graphDocumentFuncSignature{Inputs: inputs},
+			},
+		}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "functionSignature.inputs count 129 exceeds maximum 128") {
+		t.Fatalf("graphDocumentToConfig err = %v, want function input limit", err)
+	}
+}
+
+func TestCompileGraphRejectsLegacyDynamicDefinitionsAboveLimits(t *testing.T) {
+	registry := NewRegistry()
+	t.Run("sequence", func(t *testing.T) {
+		_, err := CompileGraph(registry, GraphConfig{
+			Legacy: true,
+			Nodes:  []NodeConfig{{ID: "sequence", Class: "SequenceDynamic257"}},
+		})
+		if err == nil || !strings.Contains(err.Error(), "dynamic output count 257 exceeds maximum 256") {
+			t.Fatalf("CompileGraph err = %v, want dynamic output limit", err)
+		}
+	})
+
+	t.Run("function inputs", func(t *testing.T) {
+		_, err := CompileGraph(registry, GraphConfig{
+			Legacy: true,
+			Nodes: []NodeConfig{{
+				ID:                 "call",
+				Class:              "FunctionCall",
+				FunctionInputTypes: make([]string, 129),
+			}},
+		})
+		if err == nil || !strings.Contains(err.Error(), "function input count 129 exceeds maximum 128") {
+			t.Fatalf("CompileGraph err = %v, want function input limit", err)
+		}
+	})
+
+	t.Run("function outputs", func(t *testing.T) {
+		_, err := CompileGraph(registry, GraphConfig{
+			Legacy: true,
+			Nodes: []NodeConfig{{
+				ID:                  "call",
+				Class:               "FunctionCall",
+				FunctionOutputTypes: make([]string, 129),
+			}},
+		})
+		if err == nil || !strings.Contains(err.Error(), "function output count 129 exceeds maximum 128") {
+			t.Fatalf("CompileGraph err = %v, want function output limit", err)
+		}
+	})
+}
+
+func TestParseGraphConfigJSONRejectsLegacyDynamicLimits(t *testing.T) {
+	_, err := ParseGraphConfigJSON([]byte(`{
+		"nodes":[{
+			"id":"call",
+			"class":"FunctionCall",
+			"functionInputTypes":[` + strings.Repeat(`"Integer",`, 128) + `"Integer"]
+		}]
+	}`))
+	if err == nil || !strings.Contains(err.Error(), "function input count 129 exceeds maximum 128") {
+		t.Fatalf("ParseGraphConfigJSON err = %v, want function input limit", err)
+	}
+}
+
+func TestDynamicSchemaLimitsAcceptMaximumValues(t *testing.T) {
+	ports, err := buildPorts([]PortDefinition{{PortType: "exec", PortID: 4095}})
+	if err != nil {
+		t.Fatalf("buildPorts at maximum failed: %v", err)
+	}
+	if len(ports) != 4096 || ports[4095] == nil {
+		t.Fatalf("ports at maximum = len %d, last %#v", len(ports), ports[4095])
+	}
+
+	functionTypes := make([]string, 128)
+	for index := range functionTypes {
+		functionTypes[index] = "Integer"
+	}
+	_, err = CompileGraph(NewRegistry(), GraphConfig{
+		Legacy: true,
+		Nodes: []NodeConfig{
+			{ID: "sequence", Class: "SequenceDynamic256"},
+			{ID: "call", Class: "FunctionCall", FunctionInputTypes: functionTypes, FunctionOutputTypes: functionTypes},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CompileGraph at maximum limits failed: %v", err)
 	}
 }
 

@@ -1,6 +1,7 @@
 package blueprint
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -298,5 +299,89 @@ func TestRegistryReportsInvalidPortIDValues(t *testing.T) {
 				t.Fatalf("LoadDefinitionsJSON err = %v, want %q", err, test.wantErr)
 			}
 		})
+	}
+}
+
+func TestBuildPortsRejectsUnsafePortLayouts(t *testing.T) {
+	tests := []struct {
+		name    string
+		ports   []PortDefinition
+		wantErr string
+	}{
+		{
+			name:    "negative port id",
+			ports:   []PortDefinition{{PortType: "exec", PortID: -1}},
+			wantErr: "port_id -1 must be nonnegative",
+		},
+		{
+			name: "duplicate port id",
+			ports: []PortDefinition{
+				{PortType: "exec", PortID: 0},
+				{PortType: "exec", PortID: 0},
+			},
+			wantErr: "duplicate port_id 0",
+		},
+		{
+			name:    "sparse port id above limit",
+			ports:   []PortDefinition{{PortType: "exec", PortID: 4096}},
+			wantErr: "port_id 4096 exceeds maximum 4095",
+		},
+		{
+			name:    "port count above limit",
+			ports:   make([]PortDefinition, 4097),
+			wantErr: "port count 4097 exceeds maximum 4096",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := buildPorts(test.ports)
+			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("buildPorts err = %v, want %q", err, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestRegistryLenientDefinitionsCannotBypassPortLimits(t *testing.T) {
+	registry := NewRegistry()
+	err := registry.LoadDefinitionsJSON([]byte(`[
+		{
+			"name": "TestRecorder",
+			"inputs": [{"type":"exec", "port_id":4096}],
+			"outputs": [],
+		},
+	]`), []func() IExecNode{
+		func() IExecNode { return &testRecorder{} },
+	})
+	if err == nil || !strings.Contains(err.Error(), "port_id 4096 exceeds maximum 4095") {
+		t.Fatalf("LoadDefinitionsJSON err = %v, want lenient port limit error", err)
+	}
+}
+
+func TestRegistryRejectsTotalNodePortCountAboveLimit(t *testing.T) {
+	inputs := make([]PortDefinition, 2049)
+	outputs := make([]PortDefinition, 2048)
+	for index := range inputs {
+		inputs[index] = PortDefinition{PortType: "exec", PortID: index}
+	}
+	for index := range outputs {
+		outputs[index] = PortDefinition{PortType: "exec", PortID: index}
+	}
+
+	registry := NewRegistry()
+	config, err := json.Marshal([]ExecDefinitionConfig{{
+		Name:    "TestRecorder",
+		Inputs:  inputs,
+		Outputs: outputs,
+	}})
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+	err = registry.LoadDefinitionsJSON(config, []func() IExecNode{
+		func() IExecNode { return &testRecorder{} },
+	})
+	if err == nil || !strings.Contains(err.Error(), "total port count 4097 exceeds maximum 4096") {
+		t.Fatalf("LoadDefinitionsJSON err = %v, want total port count limit", err)
 	}
 }

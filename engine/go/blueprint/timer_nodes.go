@@ -58,6 +58,9 @@ func (n *SetTimerByFunctionNode) Exec() (int, error) {
 }
 
 func setTimerByFunctionDefinition(inputTypes []string) (*NodeDefinition, error) {
+	if err := validateFunctionPortCounts(len(inputTypes), 0, "function input count", "function output count"); err != nil {
+		return nil, err
+	}
 	inputs := []IPort{NewPortExec(), NewPortInt(), NewPortBool(), NewPortInt()}
 	for _, inputType := range inputTypes {
 		port, err := newPortFromDataType(inputType)
