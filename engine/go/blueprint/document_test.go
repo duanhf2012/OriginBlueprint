@@ -319,6 +319,87 @@ func TestGraphDocumentRejectsFunctionSignatureAboveLimits(t *testing.T) {
 	}
 }
 
+func TestGraphDocumentRejectsFunctionPortKeyCollisions(t *testing.T) {
+	_, _, err := graphDocumentToConfig(graphDocument{
+		Nodes: []graphDocumentNode{{
+			ID:     "call",
+			TypeID: "origin.function.call",
+			Properties: graphDocumentProperties{FunctionSignature: graphDocumentFuncSignature{
+				Inputs: []graphDocumentFuncPort{
+					{ID: "a b", Type: "integer"},
+					{ID: "a-b", Type: "integer"},
+				},
+			}},
+		}},
+	})
+	if err == nil || !strings.Contains(err.Error(), `functionSignature.inputs key "input_a-b"`) {
+		t.Fatalf("graphDocumentToConfig err = %v, want normalized key collision", err)
+	}
+}
+
+func TestGraphDocumentRejectsLegacyPortKeyCollisions(t *testing.T) {
+	_, _, err := graphDocumentToConfig(graphDocument{
+		Nodes: []graphDocumentNode{{
+			ID:     "legacy",
+			TypeID: "origin.legacy.placeholder",
+			Properties: graphDocumentProperties{
+				LegacyClass: "LegacyNode",
+				LegacyInputs: []graphDocumentLegacyPort{
+					{Key: "value", Type: "integer"},
+					{Key: "value", Type: "integer"},
+				},
+			},
+		}},
+	})
+	if err == nil || !strings.Contains(err.Error(), `legacyInputs key "value"`) {
+		t.Fatalf("graphDocumentToConfig err = %v, want legacy key collision", err)
+	}
+}
+
+func TestGraphDocumentChecksEveryFunctionSignatureLocation(t *testing.T) {
+	ports := make([]graphDocumentFuncPort, 129)
+	for index := range ports {
+		ports[index] = graphDocumentFuncPort{ID: strconv.Itoa(index), Type: "integer"}
+	}
+	tests := []struct {
+		name     string
+		document graphDocument
+		wantErr  string
+	}{
+		{
+			name: "top-level outputs",
+			document: graphDocument{
+				FunctionSignature: graphDocumentFuncSignature{Outputs: ports},
+			},
+			wantErr: "functionSignature.outputs count 129 exceeds maximum 128",
+		},
+		{
+			name: "function return outputs",
+			document: graphDocument{Nodes: []graphDocumentNode{{
+				ID: "return", TypeID: "origin.function.return",
+				Properties: graphDocumentProperties{FunctionSignature: graphDocumentFuncSignature{Outputs: ports}},
+			}}},
+			wantErr: "functionSignature.outputs count 129 exceeds maximum 128",
+		},
+		{
+			name: "timer inputs",
+			document: graphDocument{Nodes: []graphDocumentNode{{
+				ID: "timer", TypeID: "origin.timer.set-by-function",
+				Properties: graphDocumentProperties{FunctionSignature: graphDocumentFuncSignature{Inputs: ports}},
+			}}},
+			wantErr: "functionSignature.inputs count 129 exceeds maximum 128",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, _, err := graphDocumentToConfig(test.document)
+			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("graphDocumentToConfig err = %v, want %q", err, test.wantErr)
+			}
+		})
+	}
+}
+
 func TestCompileGraphRejectsLegacyDynamicDefinitionsAboveLimits(t *testing.T) {
 	registry := NewRegistry()
 	t.Run("sequence", func(t *testing.T) {

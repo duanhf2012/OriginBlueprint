@@ -359,6 +359,30 @@ func TestRegistryLenientDefinitionsCannotBypassPortLimits(t *testing.T) {
 	}
 }
 
+func TestRegistryLenientDefinitionsStopScanningAtTotalPortLimit(t *testing.T) {
+	ports := strings.Repeat(`{"type":"exec","port_id":0},`, 4097)
+	registry := NewRegistry()
+	err := registry.LoadDefinitionsJSON([]byte(`[
+		{
+			"name": "TestRecorder",
+			"inputs": [`+ports+`],
+			"outputs": [],
+		},
+	]`), []func() IExecNode{
+		func() IExecNode { return &testRecorder{} },
+	})
+	if err == nil || !strings.Contains(err.Error(), "total port count 4097 exceeds maximum 4096") {
+		t.Fatalf("LoadDefinitionsJSON err = %v, want bounded lenient scan error", err)
+	}
+}
+
+func TestSplitTopLevelObjectsStopsAtLimit(t *testing.T) {
+	objects, err := splitTopLevelObjectsLimited(`{}{}{}{}{}more-data-that-must-not-be-scanned`, 4, "total port count")
+	if err == nil || !strings.Contains(err.Error(), "total port count 5 exceeds maximum 4") {
+		t.Fatalf("splitTopLevelObjectsLimited objects=%d err=%v, want early count error", len(objects), err)
+	}
+}
+
 func TestRegistryRejectsTotalNodePortCountAboveLimit(t *testing.T) {
 	inputs := make([]PortDefinition, 2049)
 	outputs := make([]PortDefinition, 2048)

@@ -254,6 +254,12 @@ func documentNodeToConfig(node graphDocumentNode, variables map[string]graphDocu
 		if err := validateTotalNodePortCount(len(node.Properties.LegacyInputs), len(node.Properties.LegacyOutputs)); err != nil {
 			return NodeConfig{}, documentNodeSpec{}, fmt.Errorf("node %s legacy ports: %w", node.ID, err)
 		}
+		if err := validateDocumentLegacyPortKeys(node.Properties.LegacyInputs, "legacyInputs"); err != nil {
+			return NodeConfig{}, documentNodeSpec{}, fmt.Errorf("node %s: %w", node.ID, err)
+		}
+		if err := validateDocumentLegacyPortKeys(node.Properties.LegacyOutputs, "legacyOutputs"); err != nil {
+			return NodeConfig{}, documentNodeSpec{}, fmt.Errorf("node %s: %w", node.ID, err)
+		}
 		spec := legacyNodeSpec(node.Properties)
 		return NodeConfig{ID: node.ID, Class: node.Properties.LegacyClass, PortDefault: documentDefaults(node.Values, spec.inputs)}, spec, nil
 	}
@@ -269,12 +275,41 @@ func documentNodeToConfig(node graphDocumentNode, variables map[string]graphDocu
 
 // legacyNodeSpec 从文档内嵌的旧端口定义生成端口映射。
 func validateDocumentFunctionSignature(signature graphDocumentFuncSignature) error {
-	return validateFunctionPortCounts(
+	if err := validateFunctionPortCounts(
 		len(signature.Inputs),
 		len(signature.Outputs),
 		"functionSignature.inputs count",
 		"functionSignature.outputs count",
-	)
+	); err != nil {
+		return err
+	}
+	if err := validateDocumentFunctionPortKeys(signature.Inputs, "input", "functionSignature.inputs"); err != nil {
+		return err
+	}
+	return validateDocumentFunctionPortKeys(signature.Outputs, "output", "functionSignature.outputs")
+}
+
+func validateDocumentFunctionPortKeys(ports []graphDocumentFuncPort, prefix string, field string) error {
+	seen := make(map[string]int, len(ports))
+	for index, port := range ports {
+		key := functionPortKey(prefix, port, index)
+		if previous, exists := seen[key]; exists {
+			return fmt.Errorf("%s key %q at index %d conflicts with index %d", field, key, index, previous)
+		}
+		seen[key] = index
+	}
+	return nil
+}
+
+func validateDocumentLegacyPortKeys(ports []graphDocumentLegacyPort, field string) error {
+	seen := make(map[string]int, len(ports))
+	for index, port := range ports {
+		if previous, exists := seen[port.Key]; exists {
+			return fmt.Errorf("%s key %q at index %d conflicts with index %d", field, port.Key, index, previous)
+		}
+		seen[port.Key] = index
+	}
+	return nil
 }
 
 func legacyNodeSpec(properties graphDocumentProperties) documentNodeSpec {
