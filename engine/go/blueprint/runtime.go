@@ -317,6 +317,11 @@ type InputBinding struct {
 	RecomputeProducer bool
 }
 
+type execTarget struct {
+	node        *ExecNode
+	inputPortID int
+}
+
 // ExecNode 是编译后的可执行节点。
 //
 // 它只保存只读连接信息；每次执行的端口值放在 ExecContext 中。
@@ -326,6 +331,7 @@ type ExecNode struct {
 	Definition      *NodeDefinition
 	Next            []*ExecNode
 	NextInPort      []int
+	legacyFanout    [][]execTarget
 	PreInPort       []*PrePortNode
 	DefaultIn       map[int]any
 	DefaultInputs   []IPort
@@ -418,32 +424,76 @@ func (n *ExecNode) executeWithInput(graph *Graph, execInputPortID int, recompute
 
 func (n *ExecNode) doNext(graph *Graph, index int) error {
 	current := n
+	var pending []execTarget
+	suspended := false
 	for {
 		if graph != nil && graph.execution != nil {
 			if err := graph.execution.cancellationError(); err != nil {
 				return err
 			}
 		}
-		if index == -1 {
-			return nil
-		}
-		if index < 0 {
+		if index < -1 {
 			return fmt.Errorf("next index %d not found", index)
 		}
-		if index >= len(current.Next) || current.Next[index] == nil {
-			return nil
+
+		target, remaining, found := current.nextExecTarget(index)
+		if !found {
+			if len(pending) == 0 {
+				if suspended {
+					return ErrExecutionSuspended
+				}
+				return nil
+			}
+			target = pending[len(pending)-1]
+			pending = pending[:len(pending)-1]
+		} else {
+			for remainingIndex := len(remaining) - 1; remainingIndex >= 0; remainingIndex-- {
+				pending = append(pending, remaining[remainingIndex])
+			}
 		}
-		nextInPort := 0
-		if index < len(current.NextInPort) {
-			nextInPort = current.NextInPort[index]
-		}
-		current = current.Next[index]
-		nextIndex, err := current.executeWithInput(graph, nextInPort, true)
+
+		current = target.node
+		nextIndex, err := current.executeWithInput(graph, target.inputPortID, true)
 		if err != nil {
+			if errors.Is(err, ErrExecutionSuspended) && len(pending) != 0 {
+				suspended = true
+				index = -1
+				continue
+			}
 			return err
 		}
 		index = nextIndex
 	}
+}
+
+func (n *ExecNode) nextExecTarget(index int) (execTarget, []execTarget, bool) {
+	if index < 0 {
+		return execTarget{}, nil, false
+	}
+	if index < len(n.legacyFanout) && len(n.legacyFanout[index]) != 0 {
+		targets := n.legacyFanout[index]
+		return targets[0], targets[1:], true
+	}
+	if index >= len(n.Next) || n.Next[index] == nil {
+		return execTarget{}, nil, false
+	}
+	inputPortID := 0
+	if index < len(n.NextInPort) {
+		inputPortID = n.NextInPort[index]
+	}
+	return execTarget{node: n.Next[index], inputPortID: inputPortID}, nil, true
+}
+
+func (n *ExecNode) refreshInput(graph *Graph, ctx *ExecContext, inputPortID int) error {
+	if inputPortID < 0 || inputPortID >= len(ctx.InputPorts) {
+		return fmt.Errorf("node %s input port index %d not found", n.ID, inputPortID)
+	}
+	for _, binding := range n.InputBindings {
+		if binding.InputPortID == inputPortID {
+			return n.applyInputBinding(graph, ctx, binding, true)
+		}
+	}
+	return n.setInPort(graph, ctx, inputPortID, ctx.InputPorts[inputPortID], true)
 }
 
 func (n *ExecNode) applyOutputArgs(ctx *ExecContext, outPortArgs ...any) error {

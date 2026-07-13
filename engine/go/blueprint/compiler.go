@@ -242,8 +242,24 @@ func CompileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error
 			}
 			execEdges = append(execEdges, compiledExecEdge{source: source, destination: dest, sourcePortID: edge.SourcePortID, destPortID: edge.DesPortID})
 			source.ensureNext(edge.SourcePortID)
-			source.Next[edge.SourcePortID] = dest
-			source.NextInPort[edge.SourcePortID] = edge.DesPortID
+			if source.Next[edge.SourcePortID] == nil {
+				source.Next[edge.SourcePortID] = dest
+				source.NextInPort[edge.SourcePortID] = edge.DesPortID
+			} else {
+				for len(source.legacyFanout) <= edge.SourcePortID {
+					source.legacyFanout = append(source.legacyFanout, nil)
+				}
+				if len(source.legacyFanout[edge.SourcePortID]) == 0 {
+					source.legacyFanout[edge.SourcePortID] = append(source.legacyFanout[edge.SourcePortID], execTarget{
+						node:        source.Next[edge.SourcePortID],
+						inputPortID: source.NextInPort[edge.SourcePortID],
+					})
+				}
+				source.legacyFanout[edge.SourcePortID] = append(source.legacyFanout[edge.SourcePortID], execTarget{
+					node:        dest,
+					inputPortID: edge.DesPortID,
+				})
+			}
 			dest.BeConnect = true
 			continue
 		}
