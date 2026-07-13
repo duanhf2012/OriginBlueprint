@@ -548,6 +548,7 @@ type Graph struct {
 	logger             IBlueprintLogger
 	trace              *blueprintTraceRuntime
 	execution          *Execution
+	functionFrame      *functionFrame
 }
 
 // NewGraph 创建一次执行用的运行对象。

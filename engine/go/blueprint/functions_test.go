@@ -30,7 +30,15 @@ func (n *functionExecutionResult) Exec() (int, error) {
 
 type immediateFunctionResume struct {
 	BaseExecNode
-	value PortInt
+	value    PortInt
+	returned *bool
+}
+
+type inlineFunctionDispatcher struct{}
+
+func (inlineFunctionDispatcher) Submit(task func()) error {
+	task()
+	return nil
 }
 
 func (n *immediateFunctionResume) GetName() string { return "ImmediateFunctionResume" }
@@ -42,7 +50,26 @@ func (n *immediateFunctionResume) Exec() (int, error) {
 	if err := continuation.ResumeTo(0, n.value); err != nil {
 		return -1, err
 	}
+	if n.returned != nil {
+		*n.returned = true
+	}
 	return -1, ErrExecutionSuspended
+}
+
+type functionReentryProbe struct {
+	BaseExecNode
+	resumeReturned *bool
+	reentered      *bool
+}
+
+func (n *functionReentryProbe) GetName() string { return "FunctionReentryProbe" }
+func (n *functionReentryProbe) Exec() (int, error) {
+	if n.resumeReturned != nil && !*n.resumeReturned {
+		*n.reentered = true
+	}
+	value, _ := n.GetInPortInt(1)
+	n.SetOutPortInt(1, value)
+	return 0, nil
 }
 
 func (n *functionLocalProbe) GetName() string { return "FunctionLocalProbe" }
@@ -371,6 +398,162 @@ func TestFunctionImmediateContinuationUsesExecutionDispatcher(t *testing.T) {
 	}
 	if len(result) != 1 || result[0].IntVal != 41 || runs != 1 {
 		t.Fatalf("result=%#v runs=%d, want [41] and one run", result, runs)
+	}
+}
+
+func TestFunctionImmediateContinuationDoesNotReenterRunningRoot(t *testing.T) {
+	runs := 0
+	resumeReturned := false
+	reentered := false
+	registry := NewRegistry()
+	registerFunctionTestNodes(registry, func() IExecNode { return &testRecorder{} })
+	registry.Register(NewNodeDefinition("ImmediateFunctionResume", func() IExecNode {
+		return &immediateFunctionResume{value: 41, returned: &resumeReturned}
+	}, []IPort{NewPortExec()}, []IPort{NewPortExec(), NewPortInt()}))
+	registry.Register(NewNodeDefinition("FunctionReentryProbe", func() IExecNode {
+		return &functionReentryProbe{resumeReturned: &resumeReturned, reentered: &reentered}
+	}, []IPort{NewPortExec(), NewPortInt()}, []IPort{NewPortExec(), NewPortInt()}))
+	registry.Register(NewNodeDefinition("FunctionExecutionResult", func() IExecNode {
+		return &functionExecutionResult{runs: &runs}
+	}, []IPort{NewPortExec(), NewPortInt()}, nil))
+
+	functionGraph, err := CompileGraph(registry, GraphConfig{
+		Nodes: []NodeConfig{
+			{ID: "entry", Class: "FunctionEntry"},
+			{ID: "resume", Class: "ImmediateFunctionResume"},
+			{ID: "probe", Class: "FunctionReentryProbe"},
+			{ID: "return", Class: "FunctionReturn", FunctionOutputTypes: []string{"Integer"}},
+		},
+		Edges: []EdgeConfig{
+			{SourceNodeID: "entry", SourcePortID: 0, DesNodeID: "resume", DesPortID: 0},
+			{SourceNodeID: "resume", SourcePortID: 0, DesNodeID: "probe", DesPortID: 0},
+			{SourceNodeID: "resume", SourcePortID: 1, DesNodeID: "probe", DesPortID: 1},
+			{SourceNodeID: "probe", SourcePortID: 0, DesNodeID: "return", DesPortID: 0},
+			{SourceNodeID: "probe", SourcePortID: 1, DesNodeID: "return", DesPortID: 1},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mainGraph, err := CompileGraph(registry, GraphConfig{
+		Functions: map[string]*CompiledGraph{"immediate": functionGraph},
+		Nodes: []NodeConfig{
+			{ID: "entry", Class: "Entrance_IntParam_1"},
+			{ID: "call", Class: "FunctionCall", FunctionName: "immediate", FunctionOutputTypes: []string{"Integer"}},
+			{ID: "result", Class: "FunctionExecutionResult"},
+		},
+		Edges: []EdgeConfig{
+			{SourceNodeID: "entry", SourcePortID: 0, DesNodeID: "call", DesPortID: 0},
+			{SourceNodeID: "call", SourcePortID: 0, DesNodeID: "result", DesPortID: 0},
+			{SourceNodeID: "call", SourcePortID: 1, DesNodeID: "result", DesPortID: 1},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bp := &Blueprint{}
+	bp.SetExecutionDispatcher(inlineFunctionDispatcher{})
+	bp.AddCompiledGraph("inline-function", mainGraph)
+	execution, err := bp.Start(context.Background(), bp.Create("inline-function"), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := execution.Result()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result) != 1 || result[0].IntVal != 41 || runs != 1 {
+		t.Fatalf("result=%#v runs=%d, want [41] and one run", result, runs)
+	}
+	if reentered {
+		t.Fatal("function continuation resumed before ResumeTo returned")
+	}
+}
+
+func TestNestedFunctionDelayResumesEachFunctionFrameInOrder(t *testing.T) {
+	dispatcher := &manualExecutionDispatcher{}
+	scheduler := newManualTimerScheduler()
+	runs := 0
+	registry := NewRegistry()
+	registerFunctionTestNodes(registry, func() IExecNode { return &testRecorder{} })
+	registry.Register(NewDelayNodeDefinition())
+	registry.Register(NewNodeDefinition("FunctionExecutionResult", func() IExecNode {
+		return &functionExecutionResult{runs: &runs}
+	}, []IPort{NewPortExec(), NewPortInt()}, nil))
+
+	inner, err := CompileGraph(registry, GraphConfig{
+		Nodes: []NodeConfig{
+			{ID: "entry", Class: "FunctionEntry", FunctionInputTypes: []string{"Integer"}},
+			{ID: "delay", Class: "Delay", PortDefault: map[int]any{1: 25}},
+			{ID: "return", Class: "FunctionReturn", FunctionOutputTypes: []string{"Integer"}},
+		},
+		Edges: []EdgeConfig{
+			{SourceNodeID: "entry", SourcePortID: 0, DesNodeID: "delay", DesPortID: 0},
+			{SourceNodeID: "delay", SourcePortID: 0, DesNodeID: "return", DesPortID: 0},
+			{SourceNodeID: "entry", SourcePortID: 1, DesNodeID: "return", DesPortID: 1},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outer, err := CompileGraph(registry, GraphConfig{
+		Functions: map[string]*CompiledGraph{"inner": inner},
+		Nodes: []NodeConfig{
+			{ID: "entry", Class: "FunctionEntry", FunctionInputTypes: []string{"Integer"}},
+			{ID: "call", Class: "FunctionCall", FunctionName: "inner", FunctionInputTypes: []string{"Integer"}, FunctionOutputTypes: []string{"Integer"}},
+			{ID: "return", Class: "FunctionReturn", FunctionOutputTypes: []string{"Integer"}},
+		},
+		Edges: []EdgeConfig{
+			{SourceNodeID: "entry", SourcePortID: 0, DesNodeID: "call", DesPortID: 0},
+			{SourceNodeID: "entry", SourcePortID: 1, DesNodeID: "call", DesPortID: 1},
+			{SourceNodeID: "call", SourcePortID: 0, DesNodeID: "return", DesPortID: 0},
+			{SourceNodeID: "call", SourcePortID: 1, DesNodeID: "return", DesPortID: 1},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mainGraph, err := CompileGraph(registry, GraphConfig{
+		Functions: map[string]*CompiledGraph{"outer": outer},
+		Nodes: []NodeConfig{
+			{ID: "entry", Class: "Entrance_IntParam_1"},
+			{ID: "call", Class: "FunctionCall", FunctionName: "outer", FunctionInputTypes: []string{"Integer"}, FunctionOutputTypes: []string{"Integer"}, PortDefault: map[int]any{1: 9}},
+			{ID: "result", Class: "FunctionExecutionResult"},
+		},
+		Edges: []EdgeConfig{
+			{SourceNodeID: "entry", SourcePortID: 0, DesNodeID: "call", DesPortID: 0},
+			{SourceNodeID: "call", SourcePortID: 0, DesNodeID: "result", DesPortID: 0},
+			{SourceNodeID: "call", SourcePortID: 1, DesNodeID: "result", DesPortID: 1},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bp := &Blueprint{}
+	bp.SetExecutionDispatcher(dispatcher)
+	bp.SetTimerScheduler(scheduler)
+	bp.AddCompiledGraph("nested-function", mainGraph)
+	execution, err := bp.Start(context.Background(), bp.Create("nested-function"), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatcher.runNext(t)
+	if execution.State() != ExecutionSuspended || runs != 0 {
+		t.Fatalf("state=%v runs=%d before timer", execution.State(), runs)
+	}
+	scheduler.fire(t, scheduler.onlyHandle(t))
+	for step := 0; step < 3; step++ {
+		if dispatcher.len() != 1 {
+			t.Fatalf("step %d queued=%d, want one serialized continuation", step, dispatcher.len())
+		}
+		dispatcher.runNext(t)
+	}
+	result, err := execution.Result()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result) != 1 || result[0].IntVal != 9 || runs != 1 {
+		t.Fatalf("result=%#v runs=%d, want [9] and one run", result, runs)
 	}
 }
 

@@ -72,6 +72,9 @@ func (c *Continuation) Resume(outPortArgs ...any) error {
 	if c.dynamic {
 		return ErrContinuationTargetRequired
 	}
+	if c.graph != nil && c.graph.functionFrame != nil {
+		return c.graph.functionFrame.schedule(c, c.nextIndex, outPortArgs...)
+	}
 	if c.graph != nil && c.graph.execution != nil {
 		return c.graph.execution.scheduleContinuation(c, outPortArgs...)
 	}
@@ -88,6 +91,9 @@ func (c *Continuation) ResumeAsync(outPortArgs ...any) error {
 	}
 	if c.dynamic {
 		return ErrContinuationTargetRequired
+	}
+	if c.graph != nil && c.graph.functionFrame != nil {
+		return c.graph.functionFrame.schedule(c, c.nextIndex, outPortArgs...)
 	}
 	if c.graph != nil && c.graph.execution != nil {
 		return c.graph.execution.scheduleContinuation(c, outPortArgs...)
@@ -108,6 +114,9 @@ func (c *Continuation) ResumeTo(nextIndex int, outPortArgs ...any) error {
 	}
 	if c.node == nil || !c.node.isOutPortExec(nextIndex) {
 		return fmt.Errorf("next index %d is not an exec output", nextIndex)
+	}
+	if c.graph != nil && c.graph.functionFrame != nil {
+		return c.graph.functionFrame.schedule(c, nextIndex, outPortArgs...)
 	}
 	if c.graph != nil && c.graph.execution != nil {
 		return c.graph.execution.scheduleContinuationAt(c, nextIndex, outPortArgs...)

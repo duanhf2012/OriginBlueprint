@@ -447,6 +447,11 @@ func (b *Blueprint) startFunctionExecution(ctx context.Context, instance *GraphI
 		done:       make(chan struct{}),
 		state:      ExecutionPending,
 	}
+	scheduler := b.scheduler
+	if scheduler == nil {
+		scheduler = defaultTimerScheduler
+	}
+	execution.scope = &executionScope{execution: execution, dispatcher: dispatcher, scheduler: scheduler}
 	graph := NewGraph(compiled)
 	graph.name = functionName
 	graph.graphID = instance.graphID
@@ -461,7 +466,7 @@ func (b *Blueprint) startFunctionExecution(ctx context.Context, instance *GraphI
 	b.executions[execution.id] = execution
 	b.mu.Unlock()
 	execution.watchContext(ctx)
-	if err := dispatcher.Submit(execution.runInitial); err != nil {
+	if err := execution.submit(execution.runInitial); err != nil {
 		execution.finish(ExecutionFailed, nil, err)
 		return nil, err
 	}

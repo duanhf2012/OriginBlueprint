@@ -63,6 +63,27 @@ type executionScope struct {
 	execution  *Execution
 	dispatcher ExecutionDispatcher
 	scheduler  TimerScheduler
+
+	mu       sync.Mutex
+	queue    []func()
+	draining bool
+}
+
+type functionFrameState uint8
+
+const (
+	functionFrameRunning functionFrameState = iota
+	functionFrameSuspended
+	functionFrameCompleted
+	functionFrameFailed
+)
+
+type functionFrame struct {
+	root  *Execution
+	graph *Graph
+
+	mu    sync.Mutex
+	state functionFrameState
 }
 
 func (e *Execution) ID() uint64 { return e.id }
@@ -170,9 +191,6 @@ func (e *Execution) scheduleContinuation(c *Continuation, args ...any) error {
 }
 
 func (e *Execution) scheduleContinuationAt(c *Continuation, nextIndex int, args ...any) error {
-	if root := e.rootExecution(); root != e {
-		return root.scheduleFrameContinuationAt(c, nextIndex, args...)
-	}
 	if err := c.reserve(); err != nil {
 		return err
 	}
@@ -211,44 +229,6 @@ func (e *Execution) scheduleContinuationAt(c *Continuation, nextIndex int, args 
 	}
 }
 
-func (e *Execution) scheduleFrameContinuationAt(c *Continuation, nextIndex int, args ...any) error {
-	if err := e.cancellationError(); err != nil {
-		return err
-	}
-	if err := c.reserve(); err != nil {
-		return err
-	}
-	dispatcher := e.dispatcher
-	if e.scope != nil && e.scope.dispatcher != nil {
-		dispatcher = e.scope.dispatcher
-	}
-	if dispatcher == nil {
-		dispatcher = defaultExecutionDispatcher
-	}
-	if err := dispatcher.Submit(func() {
-		if !e.beginRun() {
-			return
-		}
-		var resumeErr error
-		func() {
-			defer func() {
-				if recovered := recover(); recovered != nil {
-					resumeErr = fmt.Errorf("blueprint function continuation panic: %v", recovered)
-				}
-			}()
-			resumeErr = c.resumeReservedAt(nextIndex, args...)
-			if resumeErr == nil && c.graph != nil && c.graph.onFunctionComplete != nil && !c.graph.functionCompleted.Load() {
-				resumeErr = fmt.Errorf("function %s completed without FunctionReturn", c.graph.name)
-			}
-		}()
-		e.finishFrameRun(resumeErr)
-	}); err != nil {
-		e.finish(ExecutionFailed, nil, err)
-		return err
-	}
-	return nil
-}
-
 func (e *Execution) finishFrameRun(err error) {
 	if cancelErr := e.cancellationError(); cancelErr != nil {
 		e.finish(ExecutionCanceled, nil, cancelErr)
@@ -283,7 +263,7 @@ func (e *Execution) finishFrameRun(err error) {
 }
 
 func (e *Execution) submitReservedContinuation(c *Continuation, nextIndex int, args ...any) error {
-	if err := e.dispatcher.Submit(func() {
+	if err := e.submit(func() {
 		if !e.beginRun() {
 			return
 		}
@@ -446,16 +426,132 @@ func (e *Execution) ensureScope() *executionScope {
 	return e.scope
 }
 
-func (e *Execution) newFunctionFrame(graph *Graph) *Execution {
-	root := e.rootExecution()
-	scope := root.ensureScope()
-	return &Execution{
-		blueprint:  root.blueprint,
-		graphID:    root.graphID,
-		instance:   root.instance,
-		graph:      graph,
-		dispatcher: scope.dispatcher,
-		scope:      scope,
+func (e *Execution) submit(task func()) error {
+	if e == nil {
+		return fmt.Errorf("execution is nil")
+	}
+	return e.ensureScope().submit(task)
+}
+
+func (s *executionScope) submit(task func()) error {
+	if s == nil || task == nil {
+		return fmt.Errorf("execution task is nil")
+	}
+	s.mu.Lock()
+	s.queue = append(s.queue, task)
+	if s.draining {
+		s.mu.Unlock()
+		return nil
+	}
+	s.draining = true
+	s.mu.Unlock()
+
+	if err := s.dispatcher.Submit(s.runOne); err != nil {
+		s.mu.Lock()
+		s.draining = false
+		s.queue = nil
+		s.mu.Unlock()
+		return err
+	}
+	return nil
+}
+
+func (s *executionScope) runOne() {
+	s.mu.Lock()
+	if len(s.queue) == 0 {
+		s.draining = false
+		s.mu.Unlock()
+		return
+	}
+	task := s.queue[0]
+	s.queue[0] = nil
+	s.queue = s.queue[1:]
+	s.mu.Unlock()
+
+	task()
+
+	s.mu.Lock()
+	if len(s.queue) == 0 {
+		s.draining = false
+		s.mu.Unlock()
+		return
+	}
+	s.mu.Unlock()
+	if err := s.dispatcher.Submit(s.runOne); err != nil {
+		s.mu.Lock()
+		s.draining = false
+		s.queue = nil
+		s.mu.Unlock()
+		if s.execution != nil {
+			s.execution.finish(ExecutionFailed, nil, err)
+		}
+	}
+}
+
+func newFunctionFrame(root *Execution, graph *Graph) *functionFrame {
+	return &functionFrame{root: root.rootExecution(), graph: graph, state: functionFrameRunning}
+}
+
+func (f *functionFrame) schedule(c *Continuation, nextIndex int, args ...any) error {
+	if f == nil || f.root == nil {
+		return fmt.Errorf("function frame is not executing")
+	}
+	if err := f.root.cancellationError(); err != nil {
+		return err
+	}
+	if err := c.reserve(); err != nil {
+		return err
+	}
+	f.mu.Lock()
+	if f.state == functionFrameCompleted || f.state == functionFrameFailed {
+		f.mu.Unlock()
+		return ErrContinuationResumed
+	}
+	f.mu.Unlock()
+
+	if err := f.root.submit(func() { f.resume(c, nextIndex, args...) }); err != nil {
+		f.root.finish(ExecutionFailed, nil, err)
+		return err
+	}
+	return nil
+}
+
+func (f *functionFrame) resume(c *Continuation, nextIndex int, args ...any) {
+	if !f.root.beginRun() {
+		return
+	}
+	f.mu.Lock()
+	f.state = functionFrameRunning
+	f.mu.Unlock()
+
+	var err error
+	func() {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				err = fmt.Errorf("blueprint function continuation panic: %v", recovered)
+			}
+		}()
+		err = c.resumeReservedAt(nextIndex, args...)
+		if err == nil && f.graph.onFunctionComplete != nil && !f.graph.functionCompleted.Load() {
+			err = fmt.Errorf("function %s completed without FunctionReturn", f.graph.name)
+		}
+	}()
+	f.finish(err)
+	f.root.finishFrameRun(err)
+}
+
+func (f *functionFrame) finish(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	switch {
+	case f.graph != nil && f.graph.functionCompleted.Load(), errors.Is(err, ErrFunctionReturned):
+		f.state = functionFrameCompleted
+	case errors.Is(err, ErrExecutionSuspended):
+		f.state = functionFrameSuspended
+	case err != nil:
+		f.state = functionFrameFailed
+	default:
+		f.state = functionFrameCompleted
 	}
 }
 
@@ -557,7 +653,7 @@ func (b *Blueprint) Start(ctx context.Context, graphID int64, entranceID int64, 
 	b.mu.Unlock()
 
 	execution.watchContext(ctx)
-	if err := dispatcher.Submit(execution.runInitial); err != nil {
+	if err := execution.submit(execution.runInitial); err != nil {
 		execution.finish(ExecutionFailed, nil, err)
 		return nil, err
 	}
