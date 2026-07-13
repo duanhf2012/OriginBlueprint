@@ -387,6 +387,7 @@ func (n *ExecNode) executeWithInput(graph *Graph, execInputPortID int, recompute
 	ctx := n.Definition.cloneContext()
 	ctx.ExecInputPortID = execInputPortID
 	graph.setContext(n, ctx)
+	graph.clearSuspendedContinuation()
 
 	if err := n.applyOutputArgs(ctx, outPortArgs...); err != nil {
 		return -1, err
@@ -423,9 +424,12 @@ func (n *ExecNode) executeWithInput(graph *Graph, execInputPortID int, recompute
 }
 
 func (n *ExecNode) doNext(graph *Graph, index int) error {
+	return n.doNextWithPending(graph, index, nil)
+}
+
+func (n *ExecNode) doNextWithPending(graph *Graph, index int, inherited []execTarget) error {
 	current := n
-	var pending []execTarget
-	suspended := false
+	pending := append([]execTarget(nil), inherited...)
 	for {
 		if graph != nil && graph.execution != nil {
 			if err := graph.execution.cancellationError(); err != nil {
@@ -439,9 +443,6 @@ func (n *ExecNode) doNext(graph *Graph, index int) error {
 		target, remaining, found := current.nextExecTarget(index)
 		if !found {
 			if len(pending) == 0 {
-				if suspended {
-					return ErrExecutionSuspended
-				}
 				return nil
 			}
 			target = pending[len(pending)-1]
@@ -455,10 +456,10 @@ func (n *ExecNode) doNext(graph *Graph, index int) error {
 		current = target.node
 		nextIndex, err := current.executeWithInput(graph, target.inputPortID, true)
 		if err != nil {
-			if errors.Is(err, ErrExecutionSuspended) && len(pending) != 0 {
-				suspended = true
-				index = -1
-				continue
+			if errors.Is(err, ErrExecutionSuspended) && len(pending) != 0 && graph != nil {
+				if continuation := graph.currentSuspendedContinuation(); continuation != nil {
+					continuation.prependPending(pending)
+				}
 			}
 			return err
 		}
@@ -723,6 +724,8 @@ type Graph struct {
 	trace              *blueprintTraceRuntime
 	execution          *Execution
 	functionFrame      *functionFrame
+	suspendedMu        sync.Mutex
+	suspended          *Continuation
 	budget             *executionBudget
 	stepLimit          uint64
 }
@@ -861,6 +864,7 @@ func compiledNodeCount(compiled *CompiledGraph) int {
 }
 
 func (g *Graph) resetContext() {
+	g.clearSuspendedContinuation()
 	nodeCount := compiledNodeCount(g.compiled)
 	if cap(g.context) >= nodeCount {
 		g.context = g.context[:nodeCount]
@@ -869,6 +873,33 @@ func (g *Graph) resetContext() {
 		g.context = make([]*ExecContext, nodeCount)
 	}
 	g.contextFallback = nil
+}
+
+func (g *Graph) setSuspendedContinuation(continuation *Continuation) {
+	if g == nil {
+		return
+	}
+	g.suspendedMu.Lock()
+	g.suspended = continuation
+	g.suspendedMu.Unlock()
+}
+
+func (g *Graph) clearSuspendedContinuation() {
+	if g == nil {
+		return
+	}
+	g.suspendedMu.Lock()
+	g.suspended = nil
+	g.suspendedMu.Unlock()
+}
+
+func (g *Graph) currentSuspendedContinuation() *Continuation {
+	if g == nil {
+		return nil
+	}
+	g.suspendedMu.Lock()
+	defer g.suspendedMu.Unlock()
+	return g.suspended
 }
 
 func (g *Graph) setContext(node *ExecNode, ctx *ExecContext) {

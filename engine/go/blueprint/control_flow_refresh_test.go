@@ -1,7 +1,7 @@
 package blueprint
 
 import (
-	"errors"
+	"context"
 	"reflect"
 	"testing"
 )
@@ -99,37 +99,155 @@ func TestLegacyExecFanoutRunsEveryBranchInEdgeOrder(t *testing.T) {
 	}
 }
 
-func TestLegacyExecFanoutStartsRemainingBranchesWhenOneSuspends(t *testing.T) {
+func TestLegacyNestedExecFanoutUsesDepthFirstEdgeOrder(t *testing.T) {
 	var calls []string
 	registry := NewRegistry()
 	registry.Register(NewNodeDefinition("Entry", func() IExecNode { return &testEntrance{} }, nil, []IPort{NewPortExec()}))
-	registry.Register(NewNodeDefinition("Suspends", func() IExecNode {
-		return &orderedExecRecorder{label: "suspends", calls: &calls, next: -1, err: ErrExecutionSuspended}
+	for _, label := range []string{"outer", "inner-a", "inner-b", "sibling"} {
+		label := label
+		outputs := []IPort(nil)
+		next := -1
+		if label == "outer" {
+			outputs = []IPort{NewPortExec()}
+			next = 0
+		}
+		registry.Register(NewNodeDefinition(label, func() IExecNode {
+			return &orderedExecRecorder{label: label, calls: &calls, next: next}
+		}, []IPort{NewPortExec()}, outputs))
+	}
+
+	compiled, err := CompileGraph(registry, GraphConfig{
+		Legacy: true,
+		Nodes: []NodeConfig{
+			{ID: "entry", Class: "Entry_1"},
+			{ID: "outer", Class: "outer"},
+			{ID: "inner-a", Class: "inner-a"},
+			{ID: "inner-b", Class: "inner-b"},
+			{ID: "sibling", Class: "sibling"},
+		},
+		Edges: []EdgeConfig{
+			{SourceNodeID: "entry", SourcePortID: 0, DesNodeID: "outer", DesPortID: 0},
+			{SourceNodeID: "entry", SourcePortID: 0, DesNodeID: "sibling", DesPortID: 0},
+			{SourceNodeID: "outer", SourcePortID: 0, DesNodeID: "inner-a", DesPortID: 0},
+			{SourceNodeID: "outer", SourcePortID: 0, DesNodeID: "inner-b", DesPortID: 0},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CompileGraph failed: %v", err)
+	}
+	if _, err := NewGraph(compiled).Do(1); err != nil {
+		t.Fatalf("Do failed: %v", err)
+	}
+	if want := []string{"outer", "inner-a", "inner-b", "sibling"}; !reflect.DeepEqual(calls, want) {
+		t.Fatalf("calls = %v, want %v", calls, want)
+	}
+}
+
+func TestLegacyExecFanoutWaitsForEachSuspendedBranchInOrder(t *testing.T) {
+	var calls []string
+	dispatcher := &manualExecutionDispatcher{}
+	scheduler := newManualTimerScheduler()
+	registry := NewRegistry()
+	registry.Register(NewNodeDefinition("Entry", func() IExecNode { return &testEntrance{} }, nil, []IPort{NewPortExec()}))
+	registry.Register(NewDelayNodeDefinition())
+	registry.Register(NewNodeDefinition("FirstResult", func() IExecNode {
+		return &orderedExecRecorder{label: "first", calls: &calls, next: -1}
 	}, []IPort{NewPortExec()}, nil))
-	registry.Register(NewNodeDefinition("Continues", func() IExecNode {
-		return &orderedExecRecorder{label: "continues", calls: &calls, next: -1}
+	registry.Register(NewNodeDefinition("SecondResult", func() IExecNode {
+		return &orderedExecRecorder{label: "second", calls: &calls, next: -1}
 	}, []IPort{NewPortExec()}, nil))
 
 	compiled, err := CompileGraph(registry, GraphConfig{
 		Legacy: true,
 		Nodes: []NodeConfig{
 			{ID: "entry", Class: "Entry_1"},
-			{ID: "suspends", Class: "Suspends"},
-			{ID: "continues", Class: "Continues"},
+			{ID: "first-delay", Class: "Delay", PortDefault: map[int]any{1: 10}},
+			{ID: "first-result", Class: "FirstResult"},
+			{ID: "second-delay", Class: "Delay", PortDefault: map[int]any{1: 20}},
+			{ID: "second-result", Class: "SecondResult"},
 		},
 		Edges: []EdgeConfig{
-			{SourceNodeID: "entry", SourcePortID: 0, DesNodeID: "suspends", DesPortID: 0},
-			{SourceNodeID: "entry", SourcePortID: 0, DesNodeID: "continues", DesPortID: 0},
+			{SourceNodeID: "entry", SourcePortID: 0, DesNodeID: "first-delay", DesPortID: 0},
+			{SourceNodeID: "entry", SourcePortID: 0, DesNodeID: "second-delay", DesPortID: 0},
+			{SourceNodeID: "first-delay", SourcePortID: 0, DesNodeID: "first-result", DesPortID: 0},
+			{SourceNodeID: "second-delay", SourcePortID: 0, DesNodeID: "second-result", DesPortID: 0},
 		},
 	})
 	if err != nil {
 		t.Fatalf("CompileGraph failed: %v", err)
 	}
-	_, err = NewGraph(compiled).Do(1)
-	if !errors.Is(err, ErrExecutionSuspended) {
-		t.Fatalf("Do err = %v, want ErrExecutionSuspended", err)
+	bp := &Blueprint{}
+	bp.SetExecutionDispatcher(dispatcher)
+	bp.SetTimerScheduler(scheduler)
+	bp.AddCompiledGraph("legacy-fanout-delay", compiled)
+	execution, err := bp.Start(context.Background(), bp.Create("legacy-fanout-delay"), 1)
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
 	}
-	if want := []string{"suspends", "continues"}; !reflect.DeepEqual(calls, want) {
+	dispatcher.runNext(t)
+	if execution.State() != ExecutionSuspended || len(calls) != 0 {
+		t.Fatalf("initial state=%v calls=%v", execution.State(), calls)
+	}
+
+	scheduler.fire(t, scheduler.onlyHandle(t))
+	dispatcher.runNext(t)
+	if execution.State() != ExecutionSuspended || !reflect.DeepEqual(calls, []string{"first"}) {
+		t.Fatalf("after first resume state=%v calls=%v", execution.State(), calls)
+	}
+
+	scheduler.fire(t, scheduler.onlyHandle(t))
+	dispatcher.runNext(t)
+	if execution.State() != ExecutionCompleted {
+		t.Fatalf("final state=%v, want completed", execution.State())
+	}
+	if want := []string{"first", "second"}; !reflect.DeepEqual(calls, want) {
 		t.Fatalf("calls = %v, want %v", calls, want)
+	}
+}
+
+func TestCancelLegacyExecFanoutStopsSuspendedAndPendingBranches(t *testing.T) {
+	var calls []string
+	dispatcher := &manualExecutionDispatcher{}
+	scheduler := newManualTimerScheduler()
+	registry := NewRegistry()
+	registry.Register(NewNodeDefinition("Entry", func() IExecNode { return &testEntrance{} }, nil, []IPort{NewPortExec()}))
+	registry.Register(NewDelayNodeDefinition())
+	registry.Register(NewNodeDefinition("PendingSibling", func() IExecNode {
+		return &orderedExecRecorder{label: "pending", calls: &calls, next: -1}
+	}, []IPort{NewPortExec()}, nil))
+
+	compiled, err := CompileGraph(registry, GraphConfig{
+		Legacy: true,
+		Nodes: []NodeConfig{
+			{ID: "entry", Class: "Entry_1"},
+			{ID: "delay", Class: "Delay", PortDefault: map[int]any{1: 10}},
+			{ID: "pending", Class: "PendingSibling"},
+		},
+		Edges: []EdgeConfig{
+			{SourceNodeID: "entry", SourcePortID: 0, DesNodeID: "delay", DesPortID: 0},
+			{SourceNodeID: "entry", SourcePortID: 0, DesNodeID: "pending", DesPortID: 0},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CompileGraph failed: %v", err)
+	}
+	bp := &Blueprint{}
+	bp.SetExecutionDispatcher(dispatcher)
+	bp.SetTimerScheduler(scheduler)
+	bp.AddCompiledGraph("cancel-legacy-fanout", compiled)
+	execution, err := bp.Start(context.Background(), bp.Create("cancel-legacy-fanout"), 1)
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	dispatcher.runNext(t)
+	handle := scheduler.onlyHandle(t)
+	if !execution.Cancel() {
+		t.Fatal("Cancel returned false")
+	}
+	if !scheduler.canceled[handle] {
+		t.Fatalf("scheduled delay %d was not canceled", handle)
+	}
+	if execution.State() != ExecutionCanceled || len(calls) != 0 {
+		t.Fatalf("state=%v calls=%v, want canceled with no sibling run", execution.State(), calls)
 	}
 }
