@@ -540,37 +540,99 @@ func (g *Graph) evaluateDataNode(target *ExecNode) error {
 		return fmt.Errorf("data producer is nil")
 	}
 	type dataFrame struct {
-		node      *ExecNode
-		producers []*ExecNode
-		next      int
+		node     *ExecNode
+		ctx      *ExecContext
+		bindings []InputBinding
+		next     int
+		waiting  *InputBinding
 	}
-	states := map[*ExecNode]uint8{}
-	stack := []dataFrame{{node: target, producers: recomputedProducers(target)}}
-	order := make([]*ExecNode, 0, len(stack))
-	states[target] = 1
+	newFrame := func(node *ExecNode) (dataFrame, error) {
+		if node == nil || node.Definition == nil {
+			return dataFrame{}, fmt.Errorf("data producer is invalid")
+		}
+		if g.execution != nil {
+			if err := g.execution.cancellationError(); err != nil {
+				return dataFrame{}, err
+			}
+		}
+		if err := g.executionBudget().consume(); err != nil {
+			return dataFrame{}, fmt.Errorf("node %s: %w", node.ID, err)
+		}
+		ctx := node.Definition.cloneContext()
+		g.setContext(node, ctx)
+		bindings := node.InputBindings
+		if len(bindings) == 0 {
+			bindings = make([]InputBinding, 0, len(node.Definition.DataInPortIndexes))
+			for _, inputPortID := range node.Definition.DataInPortIndexes {
+				if inputPortID >= 0 && inputPortID < len(node.PreInPort) && node.PreInPort[inputPortID] != nil {
+					pre := node.PreInPort[inputPortID]
+					bindings = append(bindings, InputBinding{Kind: InputBindingProducer, InputPortID: inputPortID, Producer: pre.Node, ProducerOutPortID: pre.OutPortID, RecomputeProducer: pre.Node != nil && !pre.Node.BeConnect && !pre.Node.IsEntrance})
+					continue
+				}
+				if err := node.setInPort(g, ctx, inputPortID, ctx.InputPorts[inputPortID], false); err != nil {
+					return dataFrame{}, err
+				}
+			}
+		}
+		return dataFrame{node: node, ctx: ctx, bindings: bindings}, nil
+	}
+	first, err := newFrame(target)
+	if err != nil {
+		return err
+	}
+	active := map[*ExecNode]bool{target: true}
+	stack := []dataFrame{first}
 	for len(stack) != 0 {
 		frame := &stack[len(stack)-1]
-		if frame.next < len(frame.producers) {
-			producer := frame.producers[frame.next]
-			frame.next++
-			switch states[producer] {
-			case 0:
-				states[producer] = 1
-				stack = append(stack, dataFrame{node: producer, producers: recomputedProducers(producer)})
-			case 1:
-				return fmt.Errorf("data dependency cycle at node %s", producer.ID)
+		if frame.waiting != nil {
+			if err := frame.node.applyInputBinding(g, frame.ctx, *frame.waiting, false); err != nil {
+				return err
 			}
+			frame.waiting = nil
+			frame.next++
 			continue
 		}
-		states[frame.node] = 2
-		order = append(order, frame.node)
-		stack = stack[:len(stack)-1]
-	}
-	for _, node := range order {
-		nextIndex, err := node.executeWithInput(g, 0, false)
+		if frame.next < len(frame.bindings) {
+			binding := frame.bindings[frame.next]
+			if binding.Kind == InputBindingProducer && binding.RecomputeProducer {
+				producer := binding.Producer
+				if producer == nil {
+					return fmt.Errorf("node %s input port %d producer is nil", frame.node.ID, binding.InputPortID)
+				}
+				if active[producer] {
+					return fmt.Errorf("data dependency cycle at node %s", producer.ID)
+				}
+				child, err := newFrame(producer)
+				if err != nil {
+					return err
+				}
+				frame.waiting = &frame.bindings[frame.next]
+				active[producer] = true
+				stack = append(stack, child)
+				continue
+			}
+			if err := frame.node.applyInputBinding(g, frame.ctx, binding, false); err != nil {
+				return err
+			}
+			frame.next++
+			continue
+		}
+
+		exec := frame.node.Definition.New()
+		if binder, ok := exec.(interface {
+			bind(*Graph, *ExecNode, *ExecContext)
+		}); ok {
+			binder.bind(g, frame.node, frame.ctx)
+		}
+		nextIndex, err := exec.Exec()
+		g.logLegacyNode(frame.node, frame.ctx, nextIndex, err)
+		g.traceNode(frame.node, frame.ctx, nextIndex, err)
 		if err != nil {
 			return err
 		}
+		delete(active, frame.node)
+		node := frame.node
+		stack = stack[:len(stack)-1]
 		if nextIndex != -1 {
 			if err := node.doNext(g, nextIndex); err != nil {
 				return err
@@ -578,31 +640,6 @@ func (g *Graph) evaluateDataNode(target *ExecNode) error {
 		}
 	}
 	return nil
-}
-
-func recomputedProducers(node *ExecNode) []*ExecNode {
-	if node == nil || node.Definition == nil {
-		return nil
-	}
-	producers := make([]*ExecNode, 0, len(node.Definition.DataInPortIndexes))
-	if len(node.InputBindings) != 0 {
-		for _, binding := range node.InputBindings {
-			if binding.Kind == InputBindingProducer && binding.RecomputeProducer && binding.Producer != nil {
-				producers = append(producers, binding.Producer)
-			}
-		}
-		return producers
-	}
-	for _, inputPortID := range node.Definition.DataInPortIndexes {
-		if inputPortID < 0 || inputPortID >= len(node.PreInPort) {
-			continue
-		}
-		pre := node.PreInPort[inputPortID]
-		if pre != nil && pre.Node != nil && !pre.Node.BeConnect && !pre.Node.IsEntrance {
-			producers = append(producers, pre.Node)
-		}
-	}
-	return producers
 }
 
 // CompiledGraph 是编译后的蓝图图结构，可被多个实例共享。

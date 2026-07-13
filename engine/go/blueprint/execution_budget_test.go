@@ -7,6 +7,57 @@ import (
 	"testing"
 )
 
+type countingDataProducer struct {
+	BaseExecNode
+	runs *int
+}
+
+func (n *countingDataProducer) GetName() string { return "CountingDataProducer" }
+func (n *countingDataProducer) Exec() (int, error) {
+	*n.runs++
+	n.SetOutPortInt(0, PortInt(*n.runs))
+	return -1, nil
+}
+
+type captureProducerPair struct {
+	BaseExecNode
+	pair *[2]PortInt
+}
+
+func (n *captureProducerPair) GetName() string { return "CaptureProducerPair" }
+func (n *captureProducerPair) Exec() (int, error) {
+	n.pair[0], _ = n.GetInPortInt(0)
+	n.pair[1], _ = n.GetInPortInt(1)
+	n.SetOutPortInt(0, n.pair[0]*10+n.pair[1])
+	return -1, nil
+}
+
+func TestIterativeDataEvaluationPreservesRepeatedProducerRecompute(t *testing.T) {
+	runs := 0
+	pair := [2]PortInt{}
+	producer := NewExecNode("producer", NewNodeDefinition("CountingDataProducer", func() IExecNode {
+		return &countingDataProducer{runs: &runs}
+	}, nil, []IPort{NewPortInt()}))
+	pairNode := NewExecNode("pair", NewNodeDefinition("CaptureProducerPair", func() IExecNode {
+		return &captureProducerPair{pair: &pair}
+	}, []IPort{NewPortInt(), NewPortInt()}, []IPort{NewPortInt()}))
+	pairNode.InputBindings = []InputBinding{
+		{Kind: InputBindingProducer, InputPortID: 0, Producer: producer, ProducerOutPortID: 0, RecomputeProducer: true},
+		{Kind: InputBindingProducer, InputPortID: 1, Producer: producer, ProducerOutPortID: 0, RecomputeProducer: true},
+	}
+	entry := NewExecNode("entry", NewNodeDefinition("Entry", func() IExecNode { return &testEntrance{} }, nil, []IPort{NewPortExec()}))
+	consumer := NewExecNode("consumer", NewNodeDefinition("Consumer", func() IExecNode { return &testRecorder{} }, []IPort{NewPortExec(), NewPortInt()}, nil))
+	consumer.InputBindings = []InputBinding{{Kind: InputBindingProducer, InputPortID: 1, Producer: pairNode, ProducerOutPortID: 0, RecomputeProducer: true}}
+	entry.Next = []*ExecNode{consumer}
+	graph := NewGraph(&CompiledGraph{Entrances: map[int64]*ExecNode{1: entry}, NodeCount: 4})
+	if _, err := graph.Do(1); err != nil {
+		t.Fatal(err)
+	}
+	if runs != 2 || pair != [2]PortInt{1, 2} {
+		t.Fatalf("producer runs=%d pair=%v, want 2 and [1 2]", runs, pair)
+	}
+}
+
 func TestExecutionBudgetSaturatesInsteadOfWrapping(t *testing.T) {
 	budget := newExecutionBudget(math.MaxUint64)
 	budget.steps.Store(math.MaxUint64)
