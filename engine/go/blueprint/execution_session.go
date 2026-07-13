@@ -440,6 +440,10 @@ func (e *Execution) finishWhen(state ExecutionState, result PortArray, err error
 	for _, completionHook := range completionHooks {
 		completionHook(e)
 	}
+	e.mu.Lock()
+	e.args = nil
+	e.graph = nil
+	e.mu.Unlock()
 	return true
 }
 

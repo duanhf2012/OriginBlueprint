@@ -212,6 +212,44 @@ func TestBlueprintStartDoesNotExecuteNodesOnCaller(t *testing.T) {
 	}
 }
 
+func TestCompletedExecutionReleasesArgsAndGraphAfterCompletionHooks(t *testing.T) {
+	dispatcher := &manualExecutionDispatcher{}
+	entrance := NewExecNode("entrance", NewNodeDefinition(
+		"ExecutionEntrance",
+		func() IExecNode { return &testEntrance{} },
+		nil,
+		[]IPort{NewPortExec(), NewPortAny()},
+	))
+	bp := &Blueprint{}
+	bp.SetExecutionDispatcher(dispatcher)
+	bp.AddCompiledGraph("release-runtime", &CompiledGraph{
+		Entrances: map[int64]*ExecNode{1: entrance},
+		NodeCount: 1,
+	})
+	largeArgument := make([]byte, 1<<20)
+	execution, err := bp.Start(context.Background(), bp.Create("release-runtime"), 1, largeArgument)
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	hookSawRuntime := false
+	execution.addCompletionHook(func(done *Execution) {
+		done.mu.RLock()
+		hookSawRuntime = done.graph != nil && len(done.args) == 1
+		done.mu.RUnlock()
+	})
+	dispatcher.runNext(t)
+	if !hookSawRuntime {
+		t.Fatal("completion hook could not inspect runtime state")
+	}
+	execution.mu.RLock()
+	retainedArgs := len(execution.args)
+	retainedGraph := execution.graph
+	execution.mu.RUnlock()
+	if retainedArgs != 0 || retainedGraph != nil {
+		t.Fatalf("completed execution retained runtime references: args=%d graph=%p", retainedArgs, retainedGraph)
+	}
+}
+
 func TestExecutionContextCancelCompletesSuspendedExecution(t *testing.T) {
 	dispatcher := &manualExecutionDispatcher{}
 	var continuation *Continuation

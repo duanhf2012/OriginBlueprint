@@ -149,17 +149,24 @@ func TestSetTimerByFunctionContinuesImmediatelyAndInvokesFunction(t *testing.T) 
 	if err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
+	var handle TimerHandle
+	execution.addCompletionHook(func(done *Execution) {
+		setContext, ok := done.graph.getContext(setTimer)
+		if !ok {
+			t.Error("set timer context not found during completion")
+			return
+		}
+		handle, ok = setContext.OutputPorts[1].GetTimerHandle()
+		if !ok || !handle.Valid() {
+			t.Errorf("timer handle = %#v,%v", handle, ok)
+		}
+	})
 	dispatcher.runNext(t)
 	if !execution.IsDone() || len(callbackValues) != 0 {
 		t.Fatalf("timer creation did not finish independently: state=%v callbacks=%v", execution.State(), callbackValues)
 	}
-	setContext, ok := execution.graph.getContext(setTimer)
-	if !ok {
-		t.Fatal("set timer context not found")
-	}
-	handle, ok := setContext.OutputPorts[1].GetTimerHandle()
-	if !ok || !handle.Valid() {
-		t.Fatalf("timer handle = %#v,%v", handle, ok)
+	if !handle.Valid() {
+		t.Fatal("completion hook did not capture a valid timer handle")
 	}
 
 	scheduler.fire(t, scheduler.onlyHandle(t))

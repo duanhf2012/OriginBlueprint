@@ -217,6 +217,8 @@ go test ./engine/go/blueprint -run '^$' -bench 'BenchmarkFunctionCall' -benchtim
 
 本轮优化复用单个 `Graph` 内按节点索引分配的 `ExecContext` 和内置端口对象。异步挂起期间的 context 保持占用，恢复或执行终止后才释放；执行完成时会清理 string、array、any、函数返回等动态引用，避免缓存延长大对象生命周期。
 
+调用方可以长期保留已完成的 `Execution` 句柄以读取状态和结果；完成回调执行后，句柄会释放入口参数和临时 `Graph`，只保留结果快照及必要状态。
+
 测试环境：Windows/amd64，AMD Ryzen 7 7840HS，`-benchtime=1000x -count=5`。以下结果主要比较稳定的分配指标；`ns/op` 受桌面负载影响较大，仅作为趋势参考。
 
 | Benchmark | 优化前 | 优化后 | 结果 |
@@ -231,6 +233,7 @@ go test ./engine/go/blueprint -run '^$' -bench 'BenchmarkFunctionCall' -benchtim
 - `TestGraphContextFramesKeepReentrantExecutionsIsolated`
 - `TestSuspendedContextFrameIsReleasedAfterResume`
 - `TestGraphCompletionReleasesCachedDynamicPortValues`
+- `TestCompletedExecutionReleasesArgsAndGraphAfterCompletionHooks`
 - `TestFunctionCallContinuesAfterAsyncFunctionReturn`
 
 完整竞态验证：
