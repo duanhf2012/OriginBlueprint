@@ -586,6 +586,27 @@ func TestContinuationDynamicAPIValidation(t *testing.T) {
 	})
 }
 
+func TestSuspendRejectsDataOutputEvenWhenNextSliceCoversItsIndex(t *testing.T) {
+	definition := NewNodeDefinition(
+		"MixedOutputs",
+		func() IExecNode { return &testRecorder{} },
+		[]IPort{NewPortExec()},
+		[]IPort{NewPortInt(), NewPortExec()},
+	)
+	node := NewExecNode("mixed", definition)
+	node.Next = make([]*ExecNode, 2)
+	node.NextInPort = make([]int, 2)
+	base := &BaseExecNode{}
+	base.bind(NewGraph(&CompiledGraph{}), node, definition.cloneContext())
+
+	if _, err := base.Suspend(0); err == nil || !strings.Contains(err.Error(), "not an exec output") {
+		t.Fatalf("Suspend(data output) err = %v, want exec output validation", err)
+	}
+	if _, err := base.Suspend(1); err != nil {
+		t.Fatalf("Suspend(exec output) failed: %v", err)
+	}
+}
+
 func TestContinuationResumeBeforeSuspendReturnsUsesDispatcher(t *testing.T) {
 	dispatcher := &manualExecutionDispatcher{}
 	var values []PortInt

@@ -56,8 +56,8 @@ func (n *BaseExecNode) Suspend(nextIndex int) (*Continuation, error) {
 	if nextIndex != -1 && nextIndex < 0 {
 		return nil, fmt.Errorf("next index %d not found", nextIndex)
 	}
-	if nextIndex != -1 && nextIndex >= len(n.node.Next) && !n.node.isOutPortExec(nextIndex) {
-		return nil, fmt.Errorf("next index %d not found", nextIndex)
+	if nextIndex != -1 && !n.node.isOutPortExec(nextIndex) {
+		return nil, fmt.Errorf("next index %d is not an exec output", nextIndex)
 	}
 	continuation := &Continuation{
 		graph:     n.graph,
