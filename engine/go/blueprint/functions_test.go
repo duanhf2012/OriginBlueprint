@@ -603,6 +603,9 @@ func TestFunctionContinuationAdmissionRacesWithCancellation(t *testing.T) {
 	if continuation == nil || execution.State() != ExecutionSuspended {
 		t.Fatalf("continuation=%v state=%v", continuation, execution.State())
 	}
+	execution.mu.Lock()
+	execution.state = ExecutionRunning
+	execution.mu.Unlock()
 
 	execution.scope.mu.Lock()
 	resumeErr := make(chan error, 1)
@@ -634,8 +637,20 @@ func TestFunctionContinuationAdmissionRacesWithCancellation(t *testing.T) {
 	if err := <-resumeErr; !errors.Is(err, ErrExecutionCanceled) {
 		t.Fatalf("ResumeTo error=%v, want ErrExecutionCanceled", err)
 	}
+	select {
+	case <-execution.Done():
+		t.Fatalf("running execution finished early with state %v", execution.State())
+	default:
+	}
+	if execution.State() != ExecutionRunning {
+		t.Fatalf("state=%v, want running until active stack exits", execution.State())
+	}
 	if !cancelObserved {
 		<-cancelDone
+	}
+	execution.finishRun(nil, nil)
+	if _, err := execution.Result(); !errors.Is(err, ErrExecutionCanceled) {
+		t.Fatalf("Result error=%v, want ErrExecutionCanceled", err)
 	}
 }
 

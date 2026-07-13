@@ -285,7 +285,7 @@ func (e *Execution) submitReservedContinuation(c *Continuation, nextIndex int, a
 		}()
 		e.finishRun(e.graph.resultSnapshot(), err)
 	}); err != nil {
-		e.finish(ExecutionFailed, nil, err)
+		e.finishSubmissionError(err)
 		return err
 	}
 	return nil
@@ -329,11 +329,28 @@ func (e *Execution) finishRun(result PortArray, err error) {
 }
 
 func (e *Execution) finish(state ExecutionState, result PortArray, err error) bool {
+	return e.finishWhen(state, result, err, false)
+}
+
+func (e *Execution) finishSubmissionError(err error) bool {
+	return e.finishWhen(ExecutionFailed, nil, err, true)
+}
+
+func (e *Execution) finishWhen(state ExecutionState, result PortArray, err error, submissionFailure bool) bool {
 	scope := e.ensureScope()
 	e.mu.Lock()
 	if e.state.terminal() {
 		e.mu.Unlock()
 		return false
+	}
+	if submissionFailure && (e.cancelErr != nil || scope.terminalError() != nil) {
+		e.mu.Unlock()
+		return false
+	}
+	if !submissionFailure && e.cancelErr != nil && state != ExecutionCanceled {
+		state = ExecutionCanceled
+		result = nil
+		err = e.cancelErr
 	}
 	terminalErr := err
 	if terminalErr == nil {
@@ -529,7 +546,7 @@ func (s *executionScope) runOne() {
 		s.queue = nil
 		s.mu.Unlock()
 		if s.execution != nil {
-			s.execution.finish(ExecutionFailed, nil, err)
+			s.execution.finishSubmissionError(err)
 		}
 	}
 }
@@ -556,7 +573,7 @@ func (f *functionFrame) schedule(c *Continuation, nextIndex int, args ...any) er
 	f.mu.Unlock()
 
 	if err := f.root.submit(func() { f.resume(c, nextIndex, args...) }); err != nil {
-		f.root.finish(ExecutionFailed, nil, err)
+		f.root.finishSubmissionError(err)
 		return err
 	}
 	return nil
