@@ -64,6 +64,8 @@ go test -race ./... -count=1
   - 共享节点上的可变缓存。
 - 可以考虑 `sync.Pool`，但只允许池化单次执行私有对象。
 - 异步 continuation 挂起期间，相关 `Graph`、`ExecContext`、port 状态不能归还池。
+- `Graph` 可以复用自身的节点 context 帧，但必须隔离重入调用；挂起 context 在 continuation 恢复或 Execution 终止前必须保持占用。
+- context 缓存不得长期持有 string、array、any、函数返回值等动态对象；完成、失败或取消时必须清理引用。
 
 性能验证命令：
 
@@ -84,7 +86,17 @@ go test ./engine/go/blueprint -run '^$' -bench 'BenchmarkBlueprintDo(Shared|Comp
 - `FunctionReturn` 负责收集函数输出，并通过 caller continuation 回到调用点。
 - 函数内部异步返回时，caller 必须在函数返回后继续后续节点。
 - 递归函数调用必须受 `MaxFunctionCallDepth` 限制。
+- 顶层 Execution、嵌套函数、数据节点、结构化循环和 continuation 恢复必须共享同一执行步数预算，异步挂起不得重置预算。
 - 热加载只迁移同名且规范化类型一致的变量值；新变量使用新默认值，删除变量消失，改类型变量重置。进行中的旧 session 继续使用旧 runtime state。
+
+## 5.1 加载与编译边界
+
+- 动态节点定义必须在分配大 slice 或构造完整对象前校验计数和 `port_id` 上限。
+- 当前单节点总端口上限为 4096，动态 Sequence 输出上限为 256，函数输入和输出分别最多 128。
+- 端口 key 需要按运行时规范化规则检查冲突；重复 `port_id`、规范化 key 冲突和函数签名冲突必须报错。
+- 新格式图不得包含数据依赖环、非结构化 exec 环或绕过结构化循环的 break 回边。
+- legacy 图允许保留历史 exec 环和多出边；执行时必须受总步数预算保护，多出边按稳定的深度优先顺序执行。
+- 加载目录时 graph name、function id、function name 和路径别名不得由不同文件静默覆盖，错误信息必须包含冲突双方来源。
 
 ## 6. 兼容性规则
 

@@ -213,6 +213,49 @@ go test ./engine/go/blueprint -run '^$' -bench 'BenchmarkFunctionCall' -benchtim
 - `allocs/op`：单次执行分配次数，后续优化应优先降低复杂流程和函数调用的分配。
 - `-cpu`：观察不同并发度下是否出现明显退化。
 
+### 2026-07-13 上下文复用基准
+
+本轮优化复用单个 `Graph` 内按节点索引分配的 `ExecContext` 和内置端口对象。异步挂起期间的 context 保持占用，恢复或执行终止后才释放；执行完成时会清理 string、array、any、函数返回等动态引用，避免缓存延长大对象生命周期。
+
+测试环境：Windows/amd64，AMD Ryzen 7 7840HS，`-benchtime=1000x -count=5`。以下结果主要比较稳定的分配指标；`ns/op` 受桌面负载影响较大，仅作为趋势参考。
+
+| Benchmark | 优化前 | 优化后 | 结果 |
+| --- | ---: | ---: | --- |
+| `BenchmarkBlueprintDoSharedCompiledGraph` | 1680 B/op，22 allocs/op | 1680 B/op，22 allocs/op | 简单路径无分配退化 |
+| `BenchmarkBlueprintDoComplexSharedCompiledGraph` | 约 17.6 KB/op，170 allocs/op | 约 9.75 KB/op，92 allocs/op | 字节约下降 44%，次数约下降 46% |
+| `BenchmarkFunctionCall` | 3480 B/op，41 allocs/op | 2169 B/op，30 allocs/op | 字节约下降 38%，次数约下降 27% |
+
+相关正确性与竞态测试：
+
+- `TestGraphReusesNodeContextFramesAcrossRuns`
+- `TestGraphContextFramesKeepReentrantExecutionsIsolated`
+- `TestSuspendedContextFrameIsReleasedAfterResume`
+- `TestGraphCompletionReleasesCachedDynamicPortValues`
+- `TestFunctionCallContinuesAfterAsyncFunctionReturn`
+
+完整竞态验证：
+
+```powershell
+go test -race ./engine/go/blueprint -count=1
+```
+
+## 2026-07-13 执行器加固矩阵
+
+本轮加固不修改 `GraphDocument`、`.vgf/.obp` 持久化契约和前端绘制，只约束 Go engine 的加载、编译与运行时行为。
+
+| 风险 | 当前规则 | 主要测试 |
+| --- | --- | --- |
+| 异步函数恢复重入 | 根 Execution、嵌套函数与 continuation 共享调度作用域；恢复串行投递；取消传播到子函数 | `functions_test.go` 中异步返回、嵌套 Delay、取消竞争测试 |
+| 无限执行 | 单次顶层执行共享 1,000,000 步预算；函数、数据节点、结构化循环和异步恢复不重置预算 | `execution_budget_test.go` |
+| 非法环 | 新格式拒绝数据依赖环、非结构化 exec 环和非法 break 回边；legacy 环保留加载能力但受运行预算约束 | `compiler_test.go` |
+| 动态 schema 放大 | 单节点总端口最多 4096；动态 Sequence 输出最多 256；函数输入/输出分别最多 128；端口 id 最大 4095 | `definition_test.go`、`document_test.go` |
+| schema key 冲突 | 在大对象分配和完整反序列化前预检计数、端口 id、重复 id、规范化 key 冲突 | `definition_test.go`、`document_test.go` |
+| While 数据陈旧 | 每轮 body 后重新计算连接的 condition 数据链 | `control_flow_refresh_test.go` |
+| legacy exec 多出边 | 按边顺序做深度优先执行；挂起分支恢复完成后才进入下一个兄弟分支；取消终止待执行分支 | `control_flow_refresh_test.go` |
+| 图/函数别名覆盖 | graph name、function id、function name、路径别名冲突时带双方来源报错，不再静默覆盖 | `loader_conflict_test.go` |
+| continuation 误选端口 | `Suspend`/`ResumeTo` 只接受 Exec 输出；非法目标不消耗 continuation | `execution_session_test.go` |
+| 完整 int64 随机区间 | 使用无偏拒绝采样并处理跨越 `MinInt64`/`MaxInt64` 的区间，不做溢出减法 | `system_nodes_test.go` |
+
 ## 当前编译期预处理
 
 加载蓝图并执行 `CompileGraph` 时，Go engine 会提前完成以下分析，减少 `Do` 阶段的动态消耗：
@@ -222,7 +265,7 @@ go test ./engine/go/blueprint -run '^$' -bench 'BenchmarkFunctionCall' -benchtim
 - 为 `NodeDefinition` 预计算数据输入口下标，执行时只遍历真实数据口。
 - 为每个已连接或有默认值的数据输入口预生成 `InputBinding`，执行时直接按绑定复制默认值或上游输出，减少热路径分支和 map 查询。
 - 为 `FunctionCall` 预解析目标 `*CompiledGraph`，执行时优先使用编译期指针；递归或后续补挂函数表的场景保留运行期查找 fallback。
-- `Graph` 执行上下文 slice 按容量复用并在每次 `Do` 前清空，减少复用 `Graph` 或创建短生命周期 session 时的重复分配。
+- `Graph` 执行上下文按节点索引和 generation 复用；重入时分配隔离帧，异步挂起期间不复用，执行终止后清理动态引用。
 - 内置 `*Port` 克隆走具体类型快速路径，避免接口分发；自定义 `IPort` 保留原有 `Clone` fallback。
 - 执行流程 trace 默认关闭；打开 `Blueprint.SetTraceEnabled(true)` 且设置 `BlueprintTraceLogger` 后，才记录节点步骤、输入端口和输出端口。
 
