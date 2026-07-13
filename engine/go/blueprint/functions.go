@@ -76,6 +76,7 @@ func (n *FunctionCall) Exec() (int, error) {
 	child.module = n.graph.module
 	child.instance = n.graph.instance
 	child.callDepth = n.graph.callDepth + 1
+	child.budget = n.graph.budget
 	if n.graph.execution != nil {
 		child.execution = n.graph.execution.rootExecution()
 		child.functionFrame = newFunctionFrame(child.execution, child)

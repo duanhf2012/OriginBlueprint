@@ -1,6 +1,9 @@
 package blueprint
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func validationRegistry() *Registry {
 	registry := NewRegistry()
@@ -10,10 +13,92 @@ func validationRegistry() *Registry {
 	registry.Register(NewNodeDefinition("StringSource", func() IExecNode { return &testRecorder{} }, nil, []IPort{NewPortStr()}))
 	registry.Register(NewNodeDefinition("IntTarget", func() IExecNode { return &testRecorder{} }, []IPort{NewPortInt()}, nil))
 	registry.Register(NewNodeDefinition("StringTarget", func() IExecNode { return &testRecorder{} }, []IPort{NewPortStr()}, nil))
+	registry.Register(NewNodeDefinition("IntTransform", func() IExecNode { return &testRecorder{} }, []IPort{NewPortInt()}, []IPort{NewPortInt()}))
+	registry.Register(NewNodeDefinition("ExecStep", func() IExecNode { return &testRecorder{} }, []IPort{NewPortExec()}, []IPort{NewPortExec()}))
 	nilSource := NewNodeDefinition("NilSource", func() IExecNode { return &testRecorder{} }, nil, []IPort{NewPortInt()})
 	nilSource.OutPorts[0] = (*Port)(nil)
 	registry.Register(nilSource)
 	return registry
+}
+
+func TestCompileGraphRejectsDataDependencyCycleWithNodeIDs(t *testing.T) {
+	_, err := CompileGraph(validationRegistry(), GraphConfig{
+		Nodes: []NodeConfig{{ID: "alpha", Class: "IntTransform"}, {ID: "beta", Class: "IntTransform"}},
+		Edges: []EdgeConfig{
+			{SourceNodeID: "alpha", SourcePortID: 0, DesNodeID: "beta", DesPortID: 0},
+			{SourceNodeID: "beta", SourcePortID: 0, DesNodeID: "alpha", DesPortID: 0},
+		},
+	})
+	if err == nil {
+		t.Fatal("CompileGraph unexpectedly accepted a data dependency cycle")
+	}
+	if !strings.Contains(err.Error(), "alpha") || !strings.Contains(err.Error(), "beta") {
+		t.Fatalf("cycle error = %q, want both node IDs", err)
+	}
+}
+
+func TestCompileGraphRejectsUnstructuredExecCycleInNewFormat(t *testing.T) {
+	_, err := CompileGraph(validationRegistry(), GraphConfig{
+		Nodes: []NodeConfig{{ID: "alpha", Class: "ExecStep"}, {ID: "beta", Class: "ExecStep"}},
+		Edges: []EdgeConfig{
+			{SourceNodeID: "alpha", SourcePortID: 0, DesNodeID: "beta", DesPortID: 0},
+			{SourceNodeID: "beta", SourcePortID: 0, DesNodeID: "alpha", DesPortID: 0},
+		},
+	})
+	if err == nil {
+		t.Fatal("CompileGraph unexpectedly accepted an unstructured exec cycle")
+	}
+}
+
+func TestCompileGraphAllowsForLoopBreakBodyBackEdge(t *testing.T) {
+	_, err := CompileGraph(validationRegistry(), GraphConfig{
+		Nodes: []NodeConfig{{ID: "entry", Class: "Entry_1"}, {ID: "loop", Class: "ForLoopBreak"}, {ID: "body", Class: "ExecStep"}},
+		Edges: []EdgeConfig{
+			{SourceNodeID: "entry", SourcePortID: 0, DesNodeID: "loop", DesPortID: 0},
+			{SourceNodeID: "loop", SourcePortID: 0, DesNodeID: "body", DesPortID: 0},
+			{SourceNodeID: "body", SourcePortID: 0, DesNodeID: "loop", DesPortID: 3},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CompileGraph rejected structured ForLoopBreak back edge: %v", err)
+	}
+}
+
+func TestCompileGraphAllowsDirectForLoopBreakBodyToBreak(t *testing.T) {
+	_, err := CompileGraph(validationRegistry(), GraphConfig{
+		Nodes: []NodeConfig{{ID: "loop", Class: "ForLoopBreak"}},
+		Edges: []EdgeConfig{{SourceNodeID: "loop", SourcePortID: 0, DesNodeID: "loop", DesPortID: 3}},
+	})
+	if err != nil {
+		t.Fatalf("CompileGraph rejected direct ForLoopBreak body-to-break edge: %v", err)
+	}
+}
+
+func TestCompileGraphRejectsBreakInputCycleOutsideLoopBody(t *testing.T) {
+	_, err := CompileGraph(validationRegistry(), GraphConfig{
+		Nodes: []NodeConfig{{ID: "loop", Class: "ForLoopBreak"}, {ID: "after", Class: "ExecStep"}},
+		Edges: []EdgeConfig{
+			{SourceNodeID: "loop", SourcePortID: 2, DesNodeID: "after", DesPortID: 0},
+			{SourceNodeID: "after", SourcePortID: 0, DesNodeID: "loop", DesPortID: 3},
+		},
+	})
+	if err == nil {
+		t.Fatal("CompileGraph accepted a break-input cycle outside the loop body")
+	}
+}
+
+func TestCompileGraphAllowsLegacyExecCycle(t *testing.T) {
+	_, err := CompileGraph(validationRegistry(), GraphConfig{
+		Legacy: true,
+		Nodes:  []NodeConfig{{ID: "alpha", Class: "ExecStep"}, {ID: "beta", Class: "ExecStep"}},
+		Edges: []EdgeConfig{
+			{SourceNodeID: "alpha", SourcePortID: 0, DesNodeID: "beta", DesPortID: 0},
+			{SourceNodeID: "beta", SourcePortID: 0, DesNodeID: "alpha", DesPortID: 0},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CompileGraph rejected legacy exec cycle: %v", err)
+	}
 }
 
 func TestCompileGraphRejectsInvalidStructure(t *testing.T) {

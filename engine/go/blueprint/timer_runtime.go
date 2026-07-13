@@ -451,7 +451,7 @@ func (b *Blueprint) startFunctionExecution(ctx context.Context, instance *GraphI
 	if scheduler == nil {
 		scheduler = defaultTimerScheduler
 	}
-	execution.scope = &executionScope{execution: execution, dispatcher: dispatcher, scheduler: scheduler}
+	execution.scope = &executionScope{execution: execution, dispatcher: dispatcher, scheduler: scheduler, budget: newExecutionBudget(defaultExecutionStepLimit)}
 	graph := NewGraph(compiled)
 	graph.name = functionName
 	graph.graphID = instance.graphID

@@ -366,6 +366,9 @@ func (n *ExecNode) doWithInput(graph *Graph, execInputPortID int, outPortArgs ..
 	if n == nil || n.Definition == nil {
 		return fmt.Errorf("exec node is invalid")
 	}
+	if err := graph.consumeStep(); err != nil {
+		return fmt.Errorf("node %s: %w", n.ID, err)
+	}
 	ctx := n.Definition.cloneContext()
 	ctx.ExecInputPortID = execInputPortID
 	graph.setContext(n, ctx)
@@ -549,6 +552,8 @@ type Graph struct {
 	trace              *blueprintTraceRuntime
 	execution          *Execution
 	functionFrame      *functionFrame
+	budget             *executionBudget
+	stepLimit          uint64
 }
 
 // NewGraph 创建一次执行用的运行对象。
@@ -562,6 +567,13 @@ func NewGraph(compiled *CompiledGraph) *Graph {
 //
 // 遇到异步挂起时返回 ErrExecutionSuspended；需要等待异步结果的调用方应使用 Blueprint.Start 或 DoContext。
 func (g *Graph) Do(entranceID int64, args ...any) (PortArray, error) {
+	if g != nil && g.execution == nil {
+		limit := g.stepLimit
+		if limit == 0 {
+			limit = defaultExecutionStepLimit
+		}
+		g.budget = newExecutionBudget(limit)
+	}
 	returns, err := g.runEntrance(entranceID, args...)
 	if errors.Is(err, ErrExecutionSuspended) {
 		return nil, ErrExecutionSuspended
@@ -570,6 +582,19 @@ func (g *Graph) Do(entranceID int64, args ...any) (PortArray, error) {
 		return returns, nil
 	}
 	return returns, err
+}
+
+func (g *Graph) consumeStep() error {
+	if g == nil {
+		return nil
+	}
+	if g.execution != nil {
+		scope := g.execution.ensureScope()
+		if scope != nil {
+			return scope.budget.consume()
+		}
+	}
+	return g.budget.consume()
 }
 
 // runEntrance 执行入口节点并收集返回值。

@@ -9,13 +9,36 @@ import (
 )
 
 var (
-	ErrExecutionPending   = errors.New("golang blueprint execution pending")
-	ErrExecutionCanceled  = errors.New("golang blueprint execution canceled")
-	ErrExecutionCompleted = errors.New("golang blueprint execution completed")
-	ErrBlueprintClosed    = errors.New("golang blueprint closed")
-	ErrGraphNotFound      = errors.New("golang blueprint graph not found")
-	ErrEntranceNotFound   = errors.New("golang blueprint entrance not found")
+	ErrExecutionPending        = errors.New("golang blueprint execution pending")
+	ErrExecutionCanceled       = errors.New("golang blueprint execution canceled")
+	ErrExecutionCompleted      = errors.New("golang blueprint execution completed")
+	ErrExecutionBudgetExceeded = errors.New("golang blueprint execution budget exceeded")
+	ErrBlueprintClosed         = errors.New("golang blueprint closed")
+	ErrGraphNotFound           = errors.New("golang blueprint graph not found")
+	ErrEntranceNotFound        = errors.New("golang blueprint entrance not found")
 )
+
+const defaultExecutionStepLimit uint64 = 1_000_000
+
+type executionBudget struct {
+	limit uint64
+	steps atomic.Uint64
+}
+
+func newExecutionBudget(limit uint64) *executionBudget {
+	return &executionBudget{limit: limit}
+}
+
+func (b *executionBudget) consume() error {
+	if b == nil {
+		return nil
+	}
+	step := b.steps.Add(1)
+	if step > b.limit {
+		return fmt.Errorf("%w: limit %d", ErrExecutionBudgetExceeded, b.limit)
+	}
+	return nil
+}
 
 type ExecutionState uint8
 
@@ -65,6 +88,7 @@ type executionScope struct {
 	execution  *Execution
 	dispatcher ExecutionDispatcher
 	scheduler  TimerScheduler
+	budget     *executionBudget
 
 	mu       sync.Mutex
 	queue    []func()
@@ -452,7 +476,7 @@ func (e *Execution) ensureScope() *executionScope {
 	if dispatcher == nil {
 		dispatcher = defaultExecutionDispatcher
 	}
-	e.scope = &executionScope{execution: e, dispatcher: dispatcher, scheduler: scheduler}
+	e.scope = &executionScope{execution: e, dispatcher: dispatcher, scheduler: scheduler, budget: newExecutionBudget(defaultExecutionStepLimit)}
 	return e.scope
 }
 
@@ -698,7 +722,7 @@ func (b *Blueprint) Start(ctx context.Context, graphID int64, entranceID int64, 
 		done:       make(chan struct{}),
 		state:      ExecutionPending,
 	}
-	execution.scope = &executionScope{execution: execution, dispatcher: dispatcher, scheduler: scheduler}
+	execution.scope = &executionScope{execution: execution, dispatcher: dispatcher, scheduler: scheduler, budget: newExecutionBudget(defaultExecutionStepLimit)}
 	graph := NewGraph(state.compiled)
 	graph.name = instance.name
 	graph.graphID = graphID

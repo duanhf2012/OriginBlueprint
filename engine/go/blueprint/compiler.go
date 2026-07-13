@@ -74,6 +74,13 @@ type GraphConfig struct {
 	Legacy    bool `json:"-"`
 }
 
+type compiledExecEdge struct {
+	source       *ExecNode
+	destination  *ExecNode
+	sourcePortID int
+	destPortID   int
+}
+
 // VariableConfig 描述蓝图实例变量的初始值。
 type VariableConfig struct {
 	Name  string `json:"name"`
@@ -133,6 +140,7 @@ func CompileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error
 	nodeOrder := make([]*ExecNode, 0, len(config.Nodes))
 	entrances := map[int64]*ExecNode{}
 	variables := make(map[string]VariableConfig, len(config.Variables))
+	execEdges := make([]compiledExecEdge, 0, len(config.Edges))
 	for _, variable := range config.Variables {
 		if strings.TrimSpace(variable.Name) == "" {
 			return nil, fmt.Errorf("variable name is empty")
@@ -223,6 +231,7 @@ func CompileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error
 		}
 
 		if sourcePort.IsPortExec() {
+			execEdges = append(execEdges, compiledExecEdge{source: source, destination: dest, sourcePortID: edge.SourcePortID, destPortID: edge.DesPortID})
 			source.ensureNext(edge.SourcePortID)
 			source.Next[edge.SourcePortID] = dest
 			source.NextInPort[edge.SourcePortID] = edge.DesPortID
@@ -234,6 +243,14 @@ func CompileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error
 			return nil, fmt.Errorf("destination node %s in port %d has multiple producers", edge.DesNodeID, edge.DesPortID)
 		}
 		dest.PreInPort[edge.DesPortID] = &PrePortNode{Node: source, OutPortID: edge.SourcePortID}
+	}
+	if err := validateDataDependencyCycles(nodeOrder); err != nil {
+		return nil, err
+	}
+	if !config.Legacy {
+		if err := validateExecCycles(nodeOrder, execEdges); err != nil {
+			return nil, err
+		}
 	}
 
 	for _, node := range nodeOrder {
@@ -247,6 +264,116 @@ func CompileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error
 	}
 
 	return &CompiledGraph{Entrances: entrances, Variables: variables, Functions: config.Functions, NodeCount: len(nodeOrder)}, nil
+}
+
+func validateDataDependencyCycles(nodes []*ExecNode) error {
+	states := make(map[*ExecNode]uint8, len(nodes))
+	stack := make([]*ExecNode, 0, len(nodes))
+	var visit func(*ExecNode) error
+	visit = func(node *ExecNode) error {
+		if node == nil {
+			return nil
+		}
+		switch states[node] {
+		case 1:
+			start := 0
+			for index, item := range stack {
+				if item == node {
+					start = index
+					break
+				}
+			}
+			ids := make([]string, 0, len(stack)-start+1)
+			for _, item := range stack[start:] {
+				ids = append(ids, item.ID)
+			}
+			ids = append(ids, node.ID)
+			return fmt.Errorf("data dependency cycle: %s", strings.Join(ids, " -> "))
+		case 2:
+			return nil
+		}
+		states[node] = 1
+		stack = append(stack, node)
+		for _, producer := range node.PreInPort {
+			if producer != nil {
+				if err := visit(producer.Node); err != nil {
+					return err
+				}
+			}
+		}
+		stack = stack[:len(stack)-1]
+		states[node] = 2
+		return nil
+	}
+	for _, node := range nodes {
+		if err := visit(node); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateExecCycles(nodes []*ExecNode, edges []compiledExecEdge) error {
+	adjacency := make(map[*ExecNode][]compiledExecEdge, len(nodes))
+	for _, edge := range edges {
+		adjacency[edge.source] = append(adjacency[edge.source], edge)
+	}
+	states := make(map[*ExecNode]uint8, len(nodes))
+	nodeStack := make([]*ExecNode, 0, len(nodes))
+	edgeStack := make([]compiledExecEdge, 0, len(nodes))
+	var visit func(*ExecNode) error
+	visit = func(node *ExecNode) error {
+		states[node] = 1
+		nodeStack = append(nodeStack, node)
+		for _, edge := range adjacency[node] {
+			dest := edge.destination
+			if states[dest] == 1 {
+				start := -1
+				for index, item := range nodeStack {
+					if item == dest {
+						start = index
+						break
+					}
+				}
+				bodyPath := edge.source == dest && edge.sourcePortID == 0
+				if !bodyPath && start >= 0 && start < len(edgeStack) {
+					bodyPath = edgeStack[start].source == dest && edgeStack[start].sourcePortID == 0
+				}
+				structuredBreak := start >= 0 && dest.Definition != nil && dest.Definition.Name == "ForLoopBreak" && edge.destPortID == 3 && bodyPath
+				if structuredBreak {
+					continue
+				}
+				ids := make([]string, 0, len(nodeStack)-start+1)
+				if start < 0 {
+					start = 0
+				}
+				for _, item := range nodeStack[start:] {
+					ids = append(ids, item.ID)
+				}
+				ids = append(ids, dest.ID)
+				return fmt.Errorf("exec cycle: %s", strings.Join(ids, " -> "))
+			}
+			if states[dest] == 2 {
+				continue
+			}
+			edgeStack = append(edgeStack, edge)
+			if err := visit(dest); err != nil {
+				return err
+			}
+			edgeStack = edgeStack[:len(edgeStack)-1]
+		}
+		nodeStack = nodeStack[:len(nodeStack)-1]
+		states[node] = 2
+		return nil
+	}
+	for _, node := range nodes {
+		if states[node] == 0 {
+			if err := visit(node); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func portsCompatible(source, target IPort) bool {
