@@ -5,14 +5,16 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 )
 
 var (
-	ErrExecutionPending  = errors.New("golang blueprint execution pending")
-	ErrExecutionCanceled = errors.New("golang blueprint execution canceled")
-	ErrBlueprintClosed   = errors.New("golang blueprint closed")
-	ErrGraphNotFound     = errors.New("golang blueprint graph not found")
-	ErrEntranceNotFound  = errors.New("golang blueprint entrance not found")
+	ErrExecutionPending   = errors.New("golang blueprint execution pending")
+	ErrExecutionCanceled  = errors.New("golang blueprint execution canceled")
+	ErrExecutionCompleted = errors.New("golang blueprint execution completed")
+	ErrBlueprintClosed    = errors.New("golang blueprint closed")
+	ErrGraphNotFound      = errors.New("golang blueprint graph not found")
+	ErrEntranceNotFound   = errors.New("golang blueprint entrance not found")
 )
 
 type ExecutionState uint8
@@ -67,7 +69,10 @@ type executionScope struct {
 	mu       sync.Mutex
 	queue    []func()
 	draining bool
+	terminal atomic.Pointer[executionTerminal]
 }
+
+type executionTerminal struct{ err error }
 
 type functionFrameState uint8
 
@@ -119,11 +124,13 @@ func (e *Execution) cancelWith(err error) bool {
 }
 
 func (e *Execution) requestCancel(err error) bool {
+	scope := e.ensureScope()
 	e.mu.Lock()
 	if e.state.terminal() || e.cancelErr != nil {
 		e.mu.Unlock()
 		return false
 	}
+	scope.markTerminal(err)
 	e.cancelErr = err
 	running := e.state == ExecutionRunning
 	cancelHooks := make([]func(), 0, len(e.cancelHooks))
@@ -322,11 +329,17 @@ func (e *Execution) finishRun(result PortArray, err error) {
 }
 
 func (e *Execution) finish(state ExecutionState, result PortArray, err error) bool {
+	scope := e.ensureScope()
 	e.mu.Lock()
 	if e.state.terminal() {
 		e.mu.Unlock()
 		return false
 	}
+	terminalErr := err
+	if terminalErr == nil {
+		terminalErr = ErrExecutionCompleted
+	}
+	scope.markTerminal(terminalErr)
 	e.state = state
 	e.result = append(PortArray(nil), result...)
 	e.err = err
@@ -437,7 +450,14 @@ func (s *executionScope) submit(task func()) error {
 	if s == nil || task == nil {
 		return fmt.Errorf("execution task is nil")
 	}
+	if err := s.terminalError(); err != nil {
+		return err
+	}
 	s.mu.Lock()
+	if err := s.terminalError(); err != nil {
+		s.mu.Unlock()
+		return err
+	}
 	s.queue = append(s.queue, task)
 	if s.draining {
 		s.mu.Unlock()
@@ -454,6 +474,32 @@ func (s *executionScope) submit(task func()) error {
 		return err
 	}
 	return nil
+}
+
+func (s *executionScope) terminalError() error {
+	if s == nil {
+		return nil
+	}
+	terminal := s.terminal.Load()
+	if terminal == nil {
+		return nil
+	}
+	return terminal.err
+}
+
+func (s *executionScope) markTerminal(err error) {
+	if s == nil {
+		return
+	}
+	if err == nil {
+		err = ErrExecutionCompleted
+	}
+	if !s.terminal.CompareAndSwap(nil, &executionTerminal{err: err}) {
+		return
+	}
+	s.mu.Lock()
+	s.queue = nil
+	s.mu.Unlock()
 }
 
 func (s *executionScope) runOne() {

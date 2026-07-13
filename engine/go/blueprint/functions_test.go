@@ -557,6 +557,88 @@ func TestNestedFunctionDelayResumesEachFunctionFrameInOrder(t *testing.T) {
 	}
 }
 
+func TestFunctionContinuationAdmissionRacesWithCancellation(t *testing.T) {
+	dispatcher := &manualExecutionDispatcher{}
+	var continuation *Continuation
+	registry := NewRegistry()
+	registerFunctionTestNodes(registry, func() IExecNode { return &testRecorder{} })
+	registry.Register(NewNodeDefinition("DynamicContinuation", func() IExecNode {
+		return &dynamicContinuationNode{target: &continuation}
+	}, []IPort{NewPortExec()}, []IPort{NewPortExec(), NewPortExec(), NewPortInt()}))
+
+	functionGraph, err := CompileGraph(registry, GraphConfig{
+		Nodes: []NodeConfig{
+			{ID: "entry", Class: "FunctionEntry"},
+			{ID: "wait", Class: "DynamicContinuation"},
+			{ID: "return", Class: "FunctionReturn", FunctionOutputTypes: []string{"Integer"}},
+		},
+		Edges: []EdgeConfig{
+			{SourceNodeID: "entry", SourcePortID: 0, DesNodeID: "wait", DesPortID: 0},
+			{SourceNodeID: "wait", SourcePortID: 0, DesNodeID: "return", DesPortID: 0},
+			{SourceNodeID: "wait", SourcePortID: 2, DesNodeID: "return", DesPortID: 1},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mainGraph, err := CompileGraph(registry, GraphConfig{
+		Functions: map[string]*CompiledGraph{"wait": functionGraph},
+		Nodes: []NodeConfig{
+			{ID: "entry", Class: "Entrance_IntParam_1"},
+			{ID: "call", Class: "FunctionCall", FunctionName: "wait", FunctionOutputTypes: []string{"Integer"}},
+		},
+		Edges: []EdgeConfig{{SourceNodeID: "entry", SourcePortID: 0, DesNodeID: "call", DesPortID: 0}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bp := &Blueprint{}
+	bp.SetExecutionDispatcher(dispatcher)
+	bp.AddCompiledGraph("cancel-admission", mainGraph)
+	execution, err := bp.Start(context.Background(), bp.Create("cancel-admission"), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatcher.runNext(t)
+	if continuation == nil || execution.State() != ExecutionSuspended {
+		t.Fatalf("continuation=%v state=%v", continuation, execution.State())
+	}
+
+	execution.scope.mu.Lock()
+	resumeErr := make(chan error, 1)
+	go func() { resumeErr <- continuation.ResumeTo(0, PortInt(9)) }()
+	deadline := time.Now().Add(time.Second)
+	for {
+		continuation.mu.Lock()
+		reserved := continuation.resumed
+		continuation.mu.Unlock()
+		if reserved {
+			break
+		}
+		if time.Now().After(deadline) {
+			execution.scope.mu.Unlock()
+			t.Fatal("continuation did not reach admission gate")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	cancelDone := make(chan bool, 1)
+	go func() { cancelDone <- execution.Cancel() }()
+	cancelObserved := false
+	select {
+	case <-cancelDone:
+		cancelObserved = true
+	case <-time.After(20 * time.Millisecond):
+	}
+	execution.scope.mu.Unlock()
+
+	if err := <-resumeErr; !errors.Is(err, ErrExecutionCanceled) {
+		t.Fatalf("ResumeTo error=%v, want ErrExecutionCanceled", err)
+	}
+	if !cancelObserved {
+		<-cancelDone
+	}
+}
+
 func TestFunctionCallDepthLimitStopsRecursion(t *testing.T) {
 	registry := NewRegistry()
 	registerFunctionTestNodes(registry, func() IExecNode { return &testRecorder{} })
