@@ -1,6 +1,8 @@
 package blueprint
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -11,6 +13,36 @@ type functionLocalProbe struct {
 	BaseExecNode
 	values *[]PortInt
 	locks  *[]*sync.RWMutex
+}
+
+type functionExecutionResult struct {
+	BaseExecNode
+	runs *int
+}
+
+func (n *functionExecutionResult) GetName() string { return "FunctionExecutionResult" }
+func (n *functionExecutionResult) Exec() (int, error) {
+	value, _ := n.GetInPortInt(1)
+	*n.runs++
+	n.graph.appendReturn(ArrayData{IntVal: value})
+	return -1, nil
+}
+
+type immediateFunctionResume struct {
+	BaseExecNode
+	value PortInt
+}
+
+func (n *immediateFunctionResume) GetName() string { return "ImmediateFunctionResume" }
+func (n *immediateFunctionResume) Exec() (int, error) {
+	continuation, err := n.SuspendForResume()
+	if err != nil {
+		return -1, err
+	}
+	if err := continuation.ResumeTo(0, n.value); err != nil {
+		return -1, err
+	}
+	return -1, ErrExecutionSuspended
 }
 
 func (n *functionLocalProbe) GetName() string { return "FunctionLocalProbe" }
@@ -175,6 +207,173 @@ func TestFunctionCallContinuesAfterAsyncFunctionReturn(t *testing.T) {
 	t.Fatalf("recorder values = %#v, want [9]", recorder.snapshot())
 }
 
+func TestFunctionDelayUsesExecutionSchedulerAndDispatcher(t *testing.T) {
+	dispatcher := &manualExecutionDispatcher{}
+	scheduler := newManualTimerScheduler()
+	bp, graphID, runs := newFunctionDelayExecutionBlueprint(t, dispatcher, scheduler)
+
+	execution, err := bp.Start(context.Background(), graphID, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatcher.runNext(t)
+	if execution.State() != ExecutionSuspended || *runs != 0 {
+		t.Fatalf("state=%v runs=%d, want suspended and zero runs", execution.State(), *runs)
+	}
+
+	scheduler.fire(t, scheduler.onlyHandle(t))
+	if dispatcher.len() != 1 || *runs != 0 {
+		t.Fatalf("function Delay resumed outside dispatcher: queued=%d runs=%d", dispatcher.len(), *runs)
+	}
+	dispatcher.runNext(t)
+	if dispatcher.len() != 1 || *runs != 0 {
+		t.Fatalf("FunctionReturn resumed caller outside dispatcher: queued=%d runs=%d", dispatcher.len(), *runs)
+	}
+	dispatcher.runNext(t)
+
+	result, err := execution.Result()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result) != 1 || result[0].IntVal != 9 || *runs != 1 {
+		t.Fatalf("result=%#v runs=%d, want [9] and one run", result, *runs)
+	}
+}
+
+func TestFunctionDelayCancellationStopsNestedContinuation(t *testing.T) {
+	dispatcher := &manualExecutionDispatcher{}
+	scheduler := newManualTimerScheduler()
+	bp, graphID, runs := newFunctionDelayExecutionBlueprint(t, dispatcher, scheduler)
+	execution, err := bp.Start(context.Background(), graphID, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatcher.runNext(t)
+	handle := scheduler.onlyHandle(t)
+	lateCallback := scheduler.tasks[handle]
+
+	if !execution.Cancel() {
+		t.Fatal("Cancel returned false")
+	}
+	<-execution.Done()
+	if _, err := execution.Result(); !errors.Is(err, ErrExecutionCanceled) {
+		t.Fatalf("Result error=%v, want ErrExecutionCanceled", err)
+	}
+	if !scheduler.canceled[handle] || len(scheduler.tasks) != 0 {
+		t.Fatalf("scheduler canceled=%v tasks=%d, want canceled and empty", scheduler.canceled[handle], len(scheduler.tasks))
+	}
+	lateCallback()
+	if dispatcher.len() != 0 || *runs != 0 {
+		t.Fatalf("late callback queued=%d runs=%d after cancellation", dispatcher.len(), *runs)
+	}
+}
+
+func TestFunctionDelayReleaseAndCloseCancelNestedSchedule(t *testing.T) {
+	tests := []struct {
+		name    string
+		stop    func(*Blueprint, int64)
+		wantErr error
+	}{
+		{name: "ReleaseGraph", stop: func(bp *Blueprint, graphID int64) { bp.ReleaseGraph(graphID) }, wantErr: ErrGraphReleased},
+		{name: "Close", stop: func(bp *Blueprint, _ int64) { _ = bp.Close() }, wantErr: ErrBlueprintClosed},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			dispatcher := &manualExecutionDispatcher{}
+			scheduler := newManualTimerScheduler()
+			bp, graphID, runs := newFunctionDelayExecutionBlueprint(t, dispatcher, scheduler)
+			execution, err := bp.Start(context.Background(), graphID, 1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			dispatcher.runNext(t)
+			handle := scheduler.onlyHandle(t)
+			lateCallback := scheduler.tasks[handle]
+
+			test.stop(bp, graphID)
+			<-execution.Done()
+			if _, err := execution.Result(); !errors.Is(err, test.wantErr) {
+				t.Fatalf("Result error=%v, want %v", err, test.wantErr)
+			}
+			if !scheduler.canceled[handle] || len(scheduler.tasks) != 0 {
+				t.Fatalf("scheduler canceled=%v tasks=%d, want canceled and empty", scheduler.canceled[handle], len(scheduler.tasks))
+			}
+			lateCallback()
+			if dispatcher.len() != 0 || *runs != 0 {
+				t.Fatalf("late callback queued=%d runs=%d after %s", dispatcher.len(), *runs, test.name)
+			}
+		})
+	}
+}
+
+func TestFunctionImmediateContinuationUsesExecutionDispatcher(t *testing.T) {
+	dispatcher := &manualExecutionDispatcher{}
+	runs := 0
+	registry := NewRegistry()
+	registerFunctionTestNodes(registry, func() IExecNode { return &testRecorder{} })
+	registry.Register(NewNodeDefinition("ImmediateFunctionResume", func() IExecNode {
+		return &immediateFunctionResume{value: 41}
+	}, []IPort{NewPortExec()}, []IPort{NewPortExec(), NewPortInt()}))
+	registry.Register(NewNodeDefinition("FunctionExecutionResult", func() IExecNode {
+		return &functionExecutionResult{runs: &runs}
+	}, []IPort{NewPortExec(), NewPortInt()}, nil))
+
+	functionGraph, err := CompileGraph(registry, GraphConfig{
+		Nodes: []NodeConfig{
+			{ID: "entry", Class: "FunctionEntry"},
+			{ID: "resume", Class: "ImmediateFunctionResume"},
+			{ID: "return", Class: "FunctionReturn", FunctionOutputTypes: []string{"Integer"}},
+		},
+		Edges: []EdgeConfig{
+			{SourceNodeID: "entry", SourcePortID: 0, DesNodeID: "resume", DesPortID: 0},
+			{SourceNodeID: "resume", SourcePortID: 0, DesNodeID: "return", DesPortID: 0},
+			{SourceNodeID: "resume", SourcePortID: 1, DesNodeID: "return", DesPortID: 1},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mainGraph, err := CompileGraph(registry, GraphConfig{
+		Functions: map[string]*CompiledGraph{"immediate": functionGraph},
+		Nodes: []NodeConfig{
+			{ID: "entry", Class: "Entrance_IntParam_1"},
+			{ID: "call", Class: "FunctionCall", FunctionName: "immediate", FunctionOutputTypes: []string{"Integer"}},
+			{ID: "result", Class: "FunctionExecutionResult"},
+		},
+		Edges: []EdgeConfig{
+			{SourceNodeID: "entry", SourcePortID: 0, DesNodeID: "call", DesPortID: 0},
+			{SourceNodeID: "call", SourcePortID: 0, DesNodeID: "result", DesPortID: 0},
+			{SourceNodeID: "call", SourcePortID: 1, DesNodeID: "result", DesPortID: 1},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bp := &Blueprint{}
+	bp.SetExecutionDispatcher(dispatcher)
+	bp.AddCompiledGraph("immediate-function", mainGraph)
+	execution, err := bp.Start(context.Background(), bp.Create("immediate-function"), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatcher.runNext(t)
+	if dispatcher.len() != 1 || runs != 0 || execution.IsDone() {
+		t.Fatalf("queued=%d runs=%d done=%v, want continuation queued", dispatcher.len(), runs, execution.IsDone())
+	}
+	dispatcher.runNext(t)
+	if dispatcher.len() != 1 || runs != 0 {
+		t.Fatalf("queued=%d runs=%d, want caller continuation queued", dispatcher.len(), runs)
+	}
+	dispatcher.runNext(t)
+	result, err := execution.Result()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result) != 1 || result[0].IntVal != 41 || runs != 1 {
+		t.Fatalf("result=%#v runs=%d, want [41] and one run", result, runs)
+	}
+}
+
 func TestFunctionCallDepthLimitStopsRecursion(t *testing.T) {
 	registry := NewRegistry()
 	registerFunctionTestNodes(registry, func() IExecNode { return &testRecorder{} })
@@ -218,4 +417,52 @@ func registerFunctionTestNodes(registry *Registry, recorderFactory func() IExecN
 	registry.Register(NewNodeDefinition("AddInt", func() IExecNode { return &AddInt{} }, []IPort{NewPortInt(), NewPortInt()}, []IPort{NewPortInt()}))
 	registry.Register(NewSleepNodeDefinition())
 	registry.Register(NewNodeDefinition("TestRecorder", recorderFactory, []IPort{NewPortExec(), NewPortInt()}, nil))
+}
+
+func newFunctionDelayExecutionBlueprint(t *testing.T, dispatcher ExecutionDispatcher, scheduler TimerScheduler) (*Blueprint, int64, *int) {
+	t.Helper()
+	runs := 0
+	registry := NewRegistry()
+	registerFunctionTestNodes(registry, func() IExecNode { return &testRecorder{} })
+	registry.Register(NewDelayNodeDefinition())
+	registry.Register(NewNodeDefinition("FunctionExecutionResult", func() IExecNode {
+		return &functionExecutionResult{runs: &runs}
+	}, []IPort{NewPortExec(), NewPortInt()}, nil))
+
+	functionGraph, err := CompileGraph(registry, GraphConfig{
+		Nodes: []NodeConfig{
+			{ID: "entry", Class: "FunctionEntry", FunctionInputTypes: []string{"Integer"}},
+			{ID: "delay", Class: "Delay", PortDefault: map[int]any{1: 25}},
+			{ID: "return", Class: "FunctionReturn", FunctionOutputTypes: []string{"Integer"}},
+		},
+		Edges: []EdgeConfig{
+			{SourceNodeID: "entry", SourcePortID: 0, DesNodeID: "delay", DesPortID: 0},
+			{SourceNodeID: "delay", SourcePortID: 0, DesNodeID: "return", DesPortID: 0},
+			{SourceNodeID: "entry", SourcePortID: 1, DesNodeID: "return", DesPortID: 1},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mainGraph, err := CompileGraph(registry, GraphConfig{
+		Functions: map[string]*CompiledGraph{"delayed": functionGraph},
+		Nodes: []NodeConfig{
+			{ID: "entry", Class: "Entrance_IntParam_1"},
+			{ID: "call", Class: "FunctionCall", FunctionName: "delayed", FunctionInputTypes: []string{"Integer"}, FunctionOutputTypes: []string{"Integer"}, PortDefault: map[int]any{1: 9}},
+			{ID: "result", Class: "FunctionExecutionResult"},
+		},
+		Edges: []EdgeConfig{
+			{SourceNodeID: "entry", SourcePortID: 0, DesNodeID: "call", DesPortID: 0},
+			{SourceNodeID: "call", SourcePortID: 0, DesNodeID: "result", DesPortID: 0},
+			{SourceNodeID: "call", SourcePortID: 1, DesNodeID: "result", DesPortID: 1},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bp := &Blueprint{}
+	bp.SetExecutionDispatcher(dispatcher)
+	bp.SetTimerScheduler(scheduler)
+	bp.AddCompiledGraph("function-delay", mainGraph)
+	return bp, bp.Create("function-delay"), &runs
 }

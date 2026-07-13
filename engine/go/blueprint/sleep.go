@@ -48,9 +48,7 @@ func (n *DelayNode) Exec() (int, error) {
 	var execution *Execution
 	if n.graph != nil && n.graph.execution != nil {
 		execution = n.graph.execution
-		if execution.blueprint != nil {
-			scheduler = execution.blueprint.timerScheduler()
-		}
+		scheduler = execution.timerScheduler()
 	}
 
 	var cancelHookMu sync.Mutex

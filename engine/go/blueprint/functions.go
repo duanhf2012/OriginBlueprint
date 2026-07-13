@@ -76,6 +76,9 @@ func (n *FunctionCall) Exec() (int, error) {
 	child.module = n.graph.module
 	child.instance = n.graph.instance
 	child.callDepth = n.graph.callDepth + 1
+	if n.graph.execution != nil {
+		child.execution = n.graph.execution.newFunctionFrame(child)
+	}
 	// 函数调用与父图共享实例变量锁，保证变量访问语义一致。
 	child.trace = n.graph.trace
 	child.onFunctionComplete = func(values []any) error {
@@ -92,6 +95,9 @@ func (n *FunctionCall) Exec() (int, error) {
 		return -1, runErr
 	}
 	if runErr == ErrFunctionReturned || child.functionCompleted.Load() {
+		if n.graph.execution != nil {
+			return -1, ErrExecutionSuspended
+		}
 		return -1, nil
 	}
 	if runErr == nil && child.onFunctionComplete != nil {
