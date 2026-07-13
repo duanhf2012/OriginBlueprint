@@ -15,7 +15,7 @@ func TestExecutionBudgetSaturatesInsteadOfWrapping(t *testing.T) {
 	}
 }
 
-func TestLegacyExecCycleStopsAtCallDepthBeforeLargeStepLimit(t *testing.T) {
+func TestLegacyExecCycleUsesTotalStepBudgetWithoutGrowingCallDepth(t *testing.T) {
 	step := NewExecNode("step", NewNodeDefinition("ExecStep", func() IExecNode { return &testEntrance{} }, []IPort{NewPortExec()}, []IPort{NewPortExec()}))
 	step.Next = []*ExecNode{step}
 	graph := NewGraph(&CompiledGraph{Entrances: map[int64]*ExecNode{1: step}, NodeCount: 1})
@@ -25,8 +25,53 @@ func TestLegacyExecCycleStopsAtCallDepthBeforeLargeStepLimit(t *testing.T) {
 	if !errors.Is(err, ErrExecutionBudgetExceeded) {
 		t.Fatalf("Graph.Do error=%v, want ErrExecutionBudgetExceeded", err)
 	}
-	if steps := graph.budget.steps.Load(); steps > 4097 {
-		t.Fatalf("steps=%d, want call-depth guard at 4096", steps)
+	if steps := graph.budget.steps.Load(); steps != 10_000 {
+		t.Fatalf("steps=%d, want full step budget 10000", steps)
+	}
+	if depth := graph.budget.depth.Load(); depth != 0 {
+		t.Fatalf("active depth=%d after execution, want 0", depth)
+	}
+}
+
+func TestDeepLinearExecChainDoesNotConsumeCallDepth(t *testing.T) {
+	const nodeCount = 10_000
+	nodes := make([]*ExecNode, nodeCount)
+	definition := NewNodeDefinition("ExecStep", func() IExecNode { return &testEntrance{} }, []IPort{NewPortExec()}, []IPort{NewPortExec()})
+	for index := range nodes {
+		nodes[index] = NewExecNode("step", definition)
+		if index > 0 {
+			nodes[index-1].Next = []*ExecNode{nodes[index]}
+		}
+	}
+	graph := NewGraph(&CompiledGraph{Entrances: map[int64]*ExecNode{1: nodes[0]}, NodeCount: nodeCount})
+	graph.stepLimit = nodeCount
+	if _, err := graph.Do(1); err != nil {
+		t.Fatalf("deep exec chain failed: %v", err)
+	}
+}
+
+func TestDeepDataProducerChainDoesNotConsumeCallDepth(t *testing.T) {
+	const nodeCount = 10_000
+	definition := NewNodeDefinition("DataStep", func() IExecNode { return &testRecorder{} }, []IPort{NewPortInt()}, []IPort{NewPortInt()})
+	nodes := make([]*ExecNode, nodeCount)
+	for index := range nodes {
+		nodes[index] = NewExecNode("data", definition)
+		if index > 0 {
+			nodes[index].PreInPort[0] = &PrePortNode{Node: nodes[index-1], OutPortID: 0}
+			nodes[index].InputBindings = []InputBinding{{Kind: InputBindingProducer, InputPortID: 0, Producer: nodes[index-1], ProducerOutPortID: 0, RecomputeProducer: true}}
+		}
+	}
+	entryDefinition := NewNodeDefinition("Entry", func() IExecNode { return &testEntrance{} }, nil, []IPort{NewPortExec()})
+	entry := NewExecNode("entry", entryDefinition)
+	consumerDefinition := NewNodeDefinition("Consumer", func() IExecNode { return &testRecorder{} }, []IPort{NewPortExec(), NewPortInt()}, nil)
+	consumer := NewExecNode("consumer", consumerDefinition)
+	consumer.PreInPort[1] = &PrePortNode{Node: nodes[nodeCount-1], OutPortID: 0}
+	consumer.InputBindings = []InputBinding{{Kind: InputBindingProducer, InputPortID: 1, Producer: nodes[nodeCount-1], ProducerOutPortID: 0, RecomputeProducer: true}}
+	entry.Next = []*ExecNode{consumer}
+	graph := NewGraph(&CompiledGraph{Entrances: map[int64]*ExecNode{1: entry}, NodeCount: nodeCount + 2})
+	graph.stepLimit = nodeCount + 2
+	if _, err := graph.Do(1); err != nil {
+		t.Fatalf("deep data chain failed: %v", err)
 	}
 }
 

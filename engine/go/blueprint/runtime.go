@@ -358,16 +358,24 @@ func (n *ExecNode) Do(graph *Graph, outPortArgs ...any) error {
 }
 
 func (n *ExecNode) doWithInput(graph *Graph, execInputPortID int, outPortArgs ...any) error {
+	nextIndex, err := n.executeWithInput(graph, execInputPortID, true, outPortArgs...)
+	if err != nil {
+		return err
+	}
+	return n.doNext(graph, nextIndex)
+}
+
+func (n *ExecNode) executeWithInput(graph *Graph, execInputPortID int, recomputeInputs bool, outPortArgs ...any) (int, error) {
 	if graph != nil && graph.execution != nil {
 		if err := graph.execution.cancellationError(); err != nil {
-			return err
+			return -1, err
 		}
 	}
 	if n == nil || n.Definition == nil {
-		return fmt.Errorf("exec node is invalid")
+		return -1, fmt.Errorf("exec node is invalid")
 	}
 	if err := graph.enterStep(); err != nil {
-		return fmt.Errorf("node %s: %w", n.ID, err)
+		return -1, fmt.Errorf("node %s: %w", n.ID, err)
 	}
 	defer graph.leaveStep()
 	ctx := n.Definition.cloneContext()
@@ -375,19 +383,19 @@ func (n *ExecNode) doWithInput(graph *Graph, execInputPortID int, outPortArgs ..
 	graph.setContext(n, ctx)
 
 	if err := n.applyOutputArgs(ctx, outPortArgs...); err != nil {
-		return err
+		return -1, err
 	}
 	if len(n.InputBindings) != 0 {
 		for _, binding := range n.InputBindings {
-			if err := n.applyInputBinding(graph, ctx, binding); err != nil {
-				return err
+			if err := n.applyInputBinding(graph, ctx, binding, recomputeInputs); err != nil {
+				return -1, err
 			}
 		}
 	} else {
 		for _, index := range n.Definition.DataInPortIndexes {
 			inPort := ctx.InputPorts[index]
-			if err := n.setInPort(graph, ctx, index, inPort); err != nil {
-				return err
+			if err := n.setInPort(graph, ctx, index, inPort, recomputeInputs); err != nil {
+				return -1, err
 			}
 		}
 	}
@@ -403,34 +411,39 @@ func (n *ExecNode) doWithInput(graph *Graph, execInputPortID int, outPortArgs ..
 	graph.logLegacyNode(n, ctx, nextIndex, err)
 	graph.traceNode(n, ctx, nextIndex, err)
 	if err != nil {
-		return err
+		return -1, err
 	}
-	return n.doNext(graph, nextIndex)
+	return nextIndex, nil
 }
 
 func (n *ExecNode) doNext(graph *Graph, index int) error {
-	if graph != nil && graph.execution != nil {
-		if err := graph.execution.cancellationError(); err != nil {
+	current := n
+	for {
+		if graph != nil && graph.execution != nil {
+			if err := graph.execution.cancellationError(); err != nil {
+				return err
+			}
+		}
+		if index == -1 {
+			return nil
+		}
+		if index < 0 {
+			return fmt.Errorf("next index %d not found", index)
+		}
+		if index >= len(current.Next) || current.Next[index] == nil {
+			return nil
+		}
+		nextInPort := 0
+		if index < len(current.NextInPort) {
+			nextInPort = current.NextInPort[index]
+		}
+		current = current.Next[index]
+		nextIndex, err := current.executeWithInput(graph, nextInPort, true)
+		if err != nil {
 			return err
 		}
+		index = nextIndex
 	}
-	if index == -1 {
-		return nil
-	}
-	if index < 0 {
-		return fmt.Errorf("next index %d not found", index)
-	}
-	if index >= len(n.Next) {
-		return nil
-	}
-	if n.Next[index] == nil {
-		return nil
-	}
-	nextInPort := 0
-	if index < len(n.NextInPort) {
-		nextInPort = n.NextInPort[index]
-	}
-	return n.Next[index].doWithInput(graph, nextInPort)
 }
 
 func (n *ExecNode) applyOutputArgs(ctx *ExecContext, outPortArgs ...any) error {
@@ -447,7 +460,7 @@ func (n *ExecNode) applyOutputArgs(ctx *ExecContext, outPortArgs ...any) error {
 	return nil
 }
 
-func (n *ExecNode) setInPort(graph *Graph, ctx *ExecContext, index int, inPort IPort) error {
+func (n *ExecNode) setInPort(graph *Graph, ctx *ExecContext, index int, inPort IPort, recompute bool) error {
 	pre := n.PreInPort[index]
 	if pre == nil {
 		if index < len(n.DefaultInputSet) && n.DefaultInputSet[index] {
@@ -461,8 +474,8 @@ func (n *ExecNode) setInPort(graph *Graph, ctx *ExecContext, index int, inPort I
 
 	// 纯数据节点可能依赖循环输出，因此每次读取都重新计算。
 	// 已执行的流程节点会保留当前上下文供下游数据读取。
-	if !pre.Node.BeConnect && !pre.Node.IsEntrance {
-		if err := pre.Node.Do(graph); err != nil {
+	if recompute && !pre.Node.BeConnect && !pre.Node.IsEntrance {
+		if err := graph.evaluateDataNode(pre.Node); err != nil {
 			return err
 		}
 	}
@@ -481,7 +494,7 @@ func (n *ExecNode) setInPort(graph *Graph, ctx *ExecContext, index int, inPort I
 	return nil
 }
 
-func (n *ExecNode) applyInputBinding(graph *Graph, ctx *ExecContext, binding InputBinding) error {
+func (n *ExecNode) applyInputBinding(graph *Graph, ctx *ExecContext, binding InputBinding, recompute bool) error {
 	if binding.InputPortID < 0 || binding.InputPortID >= len(ctx.InputPorts) {
 		return fmt.Errorf("node %s input port index %d not found", n.ID, binding.InputPortID)
 	}
@@ -501,8 +514,8 @@ func (n *ExecNode) applyInputBinding(graph *Graph, ctx *ExecContext, binding Inp
 		if producer == nil {
 			return fmt.Errorf("node %s input port %d producer is nil", n.ID, binding.InputPortID)
 		}
-		if binding.RecomputeProducer {
-			if err := producer.Do(graph); err != nil {
+		if recompute && binding.RecomputeProducer {
+			if err := graph.evaluateDataNode(producer); err != nil {
 				return err
 			}
 		}
@@ -520,6 +533,76 @@ func (n *ExecNode) applyInputBinding(graph *Graph, ctx *ExecContext, binding Inp
 	default:
 		return fmt.Errorf("node %s input port %d has unknown binding kind %d", n.ID, binding.InputPortID, binding.Kind)
 	}
+}
+
+func (g *Graph) evaluateDataNode(target *ExecNode) error {
+	if g == nil || target == nil {
+		return fmt.Errorf("data producer is nil")
+	}
+	type dataFrame struct {
+		node      *ExecNode
+		producers []*ExecNode
+		next      int
+	}
+	states := map[*ExecNode]uint8{}
+	stack := []dataFrame{{node: target, producers: recomputedProducers(target)}}
+	order := make([]*ExecNode, 0, len(stack))
+	states[target] = 1
+	for len(stack) != 0 {
+		frame := &stack[len(stack)-1]
+		if frame.next < len(frame.producers) {
+			producer := frame.producers[frame.next]
+			frame.next++
+			switch states[producer] {
+			case 0:
+				states[producer] = 1
+				stack = append(stack, dataFrame{node: producer, producers: recomputedProducers(producer)})
+			case 1:
+				return fmt.Errorf("data dependency cycle at node %s", producer.ID)
+			}
+			continue
+		}
+		states[frame.node] = 2
+		order = append(order, frame.node)
+		stack = stack[:len(stack)-1]
+	}
+	for _, node := range order {
+		nextIndex, err := node.executeWithInput(g, 0, false)
+		if err != nil {
+			return err
+		}
+		if nextIndex != -1 {
+			if err := node.doNext(g, nextIndex); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func recomputedProducers(node *ExecNode) []*ExecNode {
+	if node == nil || node.Definition == nil {
+		return nil
+	}
+	producers := make([]*ExecNode, 0, len(node.Definition.DataInPortIndexes))
+	if len(node.InputBindings) != 0 {
+		for _, binding := range node.InputBindings {
+			if binding.Kind == InputBindingProducer && binding.RecomputeProducer && binding.Producer != nil {
+				producers = append(producers, binding.Producer)
+			}
+		}
+		return producers
+	}
+	for _, inputPortID := range node.Definition.DataInPortIndexes {
+		if inputPortID < 0 || inputPortID >= len(node.PreInPort) {
+			continue
+		}
+		pre := node.PreInPort[inputPortID]
+		if pre != nil && pre.Node != nil && !pre.Node.BeConnect && !pre.Node.IsEntrance {
+			producers = append(producers, pre.Node)
+		}
+	}
+	return producers
 }
 
 // CompiledGraph 是编译后的蓝图图结构，可被多个实例共享。
