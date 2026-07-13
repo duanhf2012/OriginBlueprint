@@ -430,6 +430,9 @@ func (e *Execution) finishWhen(state ExecutionState, result PortArray, err error
 	for _, cancelHook := range cancelHooks {
 		cancelHook()
 	}
+	if e.graph != nil {
+		e.graph.releaseContextReferences()
+	}
 	if e.blueprint != nil {
 		e.blueprint.removeExecution(e.id)
 	}

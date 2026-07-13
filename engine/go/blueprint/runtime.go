@@ -27,7 +27,13 @@ type ExecContext struct {
 	InputPorts      []IPort
 	OutputPorts     []IPort
 	ExecInputPortID int
+	state           uint64
 }
+
+const (
+	execContextActiveBit      = uint64(1) << 63
+	execContextGenerationMask = execContextActiveBit - 1
+)
 
 // BaseExecNode 提供节点实现常用的端口访问和执行辅助方法。
 type BaseExecNode struct {
@@ -289,6 +295,41 @@ func (d *NodeDefinition) cloneContext() *ExecContext {
 	}
 }
 
+func (c *ExecContext) reset(definition *NodeDefinition) {
+	if c == nil || definition == nil {
+		return
+	}
+	c.ExecInputPortID = 0
+	c.InputPorts = resetContextPorts(c.InputPorts, definition.InPorts)
+	c.OutputPorts = resetContextPorts(c.OutputPorts, definition.OutPorts)
+}
+
+func resetContextPorts(targets []IPort, templates []IPort) []IPort {
+	if cap(targets) < len(templates) {
+		targets = make([]IPort, len(templates))
+	} else {
+		targets = targets[:len(templates)]
+	}
+	for index, template := range templates {
+		if template == nil {
+			targets[index] = nil
+			continue
+		}
+		target, targetBuiltin := targets[index].(*Port)
+		source, sourceBuiltin := template.(*Port)
+		if targetBuiltin && sourceBuiltin && target != nil && source != nil {
+			arrayStorage := target.arrv[:0]
+			*target = *source
+			target.arrv = append(arrayStorage, source.arrv...)
+			target.anyv = cloneAnyValue(source.anyv)
+			targets[index] = target
+			continue
+		}
+		targets[index] = template.Clone()
+	}
+	return targets
+}
+
 // PrePortNode 记录某个输入端口连接的上游数据节点。
 type PrePortNode struct {
 	Node      *ExecNode
@@ -384,9 +425,17 @@ func (n *ExecNode) executeWithInput(graph *Graph, execInputPortID int, recompute
 		return -1, fmt.Errorf("node %s: %w", n.ID, err)
 	}
 	defer graph.leaveStep()
-	ctx := n.Definition.cloneContext()
+	ctx := graph.acquireContext(n)
+	releaseContext := true
+	defer func() {
+		if releaseContext {
+			graph.releaseContext(n, ctx)
+		}
+	}()
 	ctx.ExecInputPortID = execInputPortID
-	graph.setContext(n, ctx)
+	if n.Index < 0 {
+		graph.setContext(n, ctx)
+	}
 	graph.clearSuspendedContinuation()
 
 	if err := n.applyOutputArgs(ctx, outPortArgs...); err != nil {
@@ -418,6 +467,9 @@ func (n *ExecNode) executeWithInput(graph *Graph, execInputPortID int, recompute
 	graph.logLegacyNode(n, ctx, nextIndex, err)
 	graph.traceNode(n, ctx, nextIndex, err)
 	if err != nil {
+		if errors.Is(err, ErrExecutionSuspended) {
+			releaseContext = false
+		}
 		return -1, err
 	}
 	return nextIndex, nil
@@ -609,8 +661,10 @@ func (g *Graph) evaluateDataNode(target *ExecNode) error {
 		if err := g.executionBudget().consume(); err != nil {
 			return dataFrame{}, fmt.Errorf("node %s: %w", node.ID, err)
 		}
-		ctx := node.Definition.cloneContext()
-		g.setContext(node, ctx)
+		ctx := g.acquireContext(node)
+		if node.Index < 0 {
+			g.setContext(node, ctx)
+		}
 		bindings := node.InputBindings
 		if len(bindings) == 0 {
 			bindings = make([]InputBinding, 0, len(node.Definition.DataInPortIndexes))
@@ -621,6 +675,7 @@ func (g *Graph) evaluateDataNode(target *ExecNode) error {
 					continue
 				}
 				if err := node.setInPort(g, ctx, inputPortID, ctx.InputPorts[inputPortID], false); err != nil {
+					g.releaseContext(node, ctx)
 					return dataFrame{}, err
 				}
 			}
@@ -633,6 +688,11 @@ func (g *Graph) evaluateDataNode(target *ExecNode) error {
 	}
 	active := map[*ExecNode]bool{target: true}
 	stack := []dataFrame{first}
+	defer func() {
+		for index := len(stack) - 1; index >= 0; index-- {
+			g.releaseContext(stack[index].node, stack[index].ctx)
+		}
+	}()
 	for len(stack) != 0 {
 		frame := &stack[len(stack)-1]
 		if frame.waiting != nil {
@@ -683,6 +743,7 @@ func (g *Graph) evaluateDataNode(target *ExecNode) error {
 		}
 		delete(active, frame.node)
 		node := frame.node
+		g.releaseContext(frame.node, frame.ctx)
 		stack = stack[:len(stack)-1]
 		if nextIndex != -1 {
 			if err := node.doNext(g, nextIndex); err != nil {
@@ -706,7 +767,9 @@ type CompiledGraph struct {
 // 它引用共享的 CompiledGraph，并挂接实例变量、timer 和函数调用上下文。
 type Graph struct {
 	compiled           *CompiledGraph
+	contextMu          sync.Mutex
 	context            []*ExecContext
+	contextGeneration  uint64
 	contextFallback    map[*ExecNode]*ExecContext
 	name               string
 	graphID            int64
@@ -752,6 +815,7 @@ func (g *Graph) Do(entranceID int64, args ...any) (PortArray, error) {
 	if errors.Is(err, ErrExecutionSuspended) {
 		return nil, ErrExecutionSuspended
 	}
+	g.releaseContextReferences()
 	if errors.Is(err, ErrFunctionReturned) {
 		return returns, nil
 	}
@@ -865,14 +929,58 @@ func compiledNodeCount(compiled *CompiledGraph) int {
 
 func (g *Graph) resetContext() {
 	g.clearSuspendedContinuation()
+	g.contextMu.Lock()
+	defer g.contextMu.Unlock()
+	g.contextGeneration = (g.contextGeneration + 1) & execContextGenerationMask
+	if g.contextGeneration == 0 {
+		g.contextGeneration = 1
+		clear(g.context)
+	}
 	nodeCount := compiledNodeCount(g.compiled)
 	if cap(g.context) >= nodeCount {
 		g.context = g.context[:nodeCount]
-		clear(g.context)
 	} else {
+		previous := g.context
 		g.context = make([]*ExecContext, nodeCount)
+		copy(g.context, previous)
 	}
 	g.contextFallback = nil
+}
+
+func (g *Graph) acquireContext(node *ExecNode) *ExecContext {
+	if node == nil || node.Definition == nil {
+		return nil
+	}
+	if g == nil || node.Index < 0 {
+		return node.Definition.cloneContext()
+	}
+	g.contextMu.Lock()
+	defer g.contextMu.Unlock()
+	if node.Index >= len(g.context) {
+		next := make([]*ExecContext, node.Index+1)
+		copy(next, g.context)
+		g.context = next
+	}
+	ctx := g.context[node.Index]
+	if ctx == nil || ctx.state&execContextActiveBit != 0 {
+		ctx = node.Definition.cloneContext()
+	}
+	ctx.reset(node.Definition)
+	ctx.state = g.contextGeneration | execContextActiveBit
+	g.context[node.Index] = ctx
+	return ctx
+}
+
+func (g *Graph) releaseContext(node *ExecNode, ctx *ExecContext) {
+	if g == nil || node == nil || ctx == nil || node.Index < 0 {
+		return
+	}
+	g.contextMu.Lock()
+	defer g.contextMu.Unlock()
+	if node.Index >= len(g.context) {
+		return
+	}
+	ctx.state &= execContextGenerationMask
 }
 
 func (g *Graph) setSuspendedContinuation(continuation *Continuation) {
@@ -902,16 +1010,62 @@ func (g *Graph) currentSuspendedContinuation() *Continuation {
 	return g.suspended
 }
 
+func (g *Graph) releaseContextReferences() {
+	if g == nil {
+		return
+	}
+	g.contextMu.Lock()
+	defer g.contextMu.Unlock()
+	for _, ctx := range g.context {
+		releaseExecContextReferences(ctx)
+	}
+	for _, ctx := range g.contextFallback {
+		releaseExecContextReferences(ctx)
+	}
+	clear(g.returns)
+	g.returns = g.returns[:0]
+	g.returnPort = nil
+	clear(g.functionResults)
+	g.functionResults = g.functionResults[:0]
+}
+
+func releaseExecContextReferences(ctx *ExecContext) {
+	if ctx == nil {
+		return
+	}
+	releasePortReferences(ctx.InputPorts)
+	releasePortReferences(ctx.OutputPorts)
+}
+
+func releasePortReferences(ports []IPort) {
+	for index, port := range ports {
+		builtin, ok := port.(*Port)
+		if !ok {
+			ports[index] = nil
+			continue
+		}
+		if builtin == nil {
+			continue
+		}
+		builtin.strv = ""
+		builtin.arrv = nil
+		builtin.anyv = nil
+	}
+}
+
 func (g *Graph) setContext(node *ExecNode, ctx *ExecContext) {
 	if g == nil || node == nil {
 		return
 	}
+	g.contextMu.Lock()
+	defer g.contextMu.Unlock()
 	if node.Index >= 0 {
 		if node.Index >= len(g.context) {
 			next := make([]*ExecContext, node.Index+1)
 			copy(next, g.context)
 			g.context = next
 		}
+		ctx.state = (ctx.state & execContextActiveBit) | g.contextGeneration
 		g.context[node.Index] = ctx
 		return
 	}
@@ -925,8 +1079,10 @@ func (g *Graph) getContext(node *ExecNode) (*ExecContext, bool) {
 	if g == nil || node == nil {
 		return nil, false
 	}
+	g.contextMu.Lock()
+	defer g.contextMu.Unlock()
 	if node.Index >= 0 {
-		if node.Index >= len(g.context) || g.context[node.Index] == nil {
+		if node.Index >= len(g.context) || g.context[node.Index] == nil || g.context[node.Index].state&execContextGenerationMask != g.contextGeneration {
 			return nil, false
 		}
 		return g.context[node.Index], true

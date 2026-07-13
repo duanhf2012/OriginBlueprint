@@ -153,6 +153,7 @@ func (c *Continuation) resumeReservedAt(nextIndex int, outPortArgs ...any) error
 		}
 		defer c.graph.instance.releaseLease()
 	}
+	defer c.graph.releaseContext(c.node, c.ctx)
 
 	if err := c.node.applyOutputArgs(c.ctx, outPortArgs...); err != nil {
 		return err

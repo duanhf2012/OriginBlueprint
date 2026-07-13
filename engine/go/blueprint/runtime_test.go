@@ -1,6 +1,7 @@
 package blueprint
 
 import (
+	"errors"
 	"sync"
 	"testing"
 )
@@ -298,5 +299,175 @@ func TestContinuationResumeOnlyOnce(t *testing.T) {
 	}
 	if err := async.continuation.Resume(43); err == nil {
 		t.Fatalf("second Resume succeeded, want error")
+	}
+}
+
+type contextArrayProducer struct{ BaseExecNode }
+
+func (n *contextArrayProducer) GetName() string { return "ContextArrayProducer" }
+
+func (n *contextArrayProducer) Exec() (int, error) {
+	values := make(PortArray, 1024)
+	n.GetOutPort(0).setAnyValue(values)
+	return -1, nil
+}
+
+type contextSuspendNode struct {
+	BaseExecNode
+	target **Continuation
+}
+
+func (n *contextSuspendNode) GetName() string { return "ContextSuspend" }
+
+func (n *contextSuspendNode) Exec() (int, error) {
+	continuation, err := n.Suspend(-1)
+	if err != nil {
+		return -1, err
+	}
+	*n.target = continuation
+	return -1, ErrExecutionSuspended
+}
+
+type reentrantContextNode struct {
+	BaseExecNode
+	t              *testing.T
+	outerContextOK *bool
+}
+
+func (n *reentrantContextNode) GetName() string { return "ReentrantContext" }
+
+func (n *reentrantContextNode) Exec() (int, error) {
+	if n.ctx.ExecInputPortID == 1 {
+		n.SetOutPortInt(1, 22)
+		return -1, nil
+	}
+	n.SetOutPortInt(1, 11)
+	if err := n.DoNext(0); err != nil {
+		return -1, err
+	}
+	value, ok := n.GetOutPortInt(1)
+	*n.outerContextOK = ok && value == 11
+	if !*n.outerContextOK {
+		n.t.Errorf("outer context changed during reentry: value=%d ok=%v", value, ok)
+	}
+	return -1, nil
+}
+
+func TestGraphReusesNodeContextFramesAcrossRuns(t *testing.T) {
+	registry := NewRegistry()
+	registry.Register(NewNodeDefinition("Entry", func() IExecNode { return &testEntrance{} }, nil, []IPort{NewPortExec()}))
+	registry.Register(NewNodeDefinition("Record", func() IExecNode { return &testRecorder{} }, []IPort{NewPortExec(), NewPortInt()}, nil))
+	compiled, err := CompileGraph(registry, GraphConfig{
+		Nodes: []NodeConfig{
+			{ID: "entry", Class: "Entry_1"},
+			{ID: "record", Class: "Record", PortDefault: map[int]any{1: 7}},
+		},
+		Edges: []EdgeConfig{{SourceNodeID: "entry", SourcePortID: 0, DesNodeID: "record", DesPortID: 0}},
+	})
+	if err != nil {
+		t.Fatalf("CompileGraph failed: %v", err)
+	}
+	graph := NewGraph(compiled)
+	if _, err := graph.Do(1); err != nil {
+		t.Fatalf("first Do failed: %v", err)
+	}
+	record := compiled.Entrances[1].Next[0]
+	first, ok := graph.getContext(record)
+	if !ok {
+		t.Fatal("first context not found")
+	}
+	if _, err := graph.Do(1); err != nil {
+		t.Fatalf("second Do failed: %v", err)
+	}
+	second, ok := graph.getContext(record)
+	if !ok {
+		t.Fatal("second context not found")
+	}
+	if first != second {
+		t.Fatalf("context frames were not reused: first=%p second=%p", first, second)
+	}
+}
+
+func TestGraphContextFramesKeepReentrantExecutionsIsolated(t *testing.T) {
+	outerContextOK := false
+	definition := NewNodeDefinition(
+		"ReentrantContext",
+		func() IExecNode { return &reentrantContextNode{t: t, outerContextOK: &outerContextOK} },
+		[]IPort{NewPortExec(), NewPortExec()},
+		[]IPort{NewPortExec(), NewPortInt()},
+	)
+	node := NewExecNode("reentrant", definition)
+	node.Index = 0
+	node.Next = []*ExecNode{node}
+	node.NextInPort = []int{1}
+	graph := NewGraph(&CompiledGraph{NodeCount: 1})
+	if err := node.doWithInput(graph, 0); err != nil {
+		t.Fatalf("reentrant execution failed: %v", err)
+	}
+	if !outerContextOK {
+		t.Fatal("outer execution context was not isolated")
+	}
+}
+
+func TestSuspendedContextFrameIsReleasedAfterResume(t *testing.T) {
+	var continuation *Continuation
+	entry := NewExecNode("entry", NewNodeDefinition("Entry", func() IExecNode { return &testEntrance{} }, nil, []IPort{NewPortExec()}))
+	wait := NewExecNode("wait", NewNodeDefinition(
+		"ContextSuspend",
+		func() IExecNode { return &contextSuspendNode{target: &continuation} },
+		[]IPort{NewPortExec()},
+		nil,
+	))
+	entry.Index = 0
+	wait.Index = 1
+	entry.Next = []*ExecNode{wait}
+	graph := NewGraph(&CompiledGraph{Entrances: map[int64]*ExecNode{1: entry}, NodeCount: 2})
+	if _, err := graph.Do(1); !errors.Is(err, ErrExecutionSuspended) {
+		t.Fatalf("Do error = %v, want ErrExecutionSuspended", err)
+	}
+	ctx, ok := graph.getContext(wait)
+	if !ok {
+		t.Fatal("suspended context not found")
+	}
+	if ctx.state&execContextActiveBit == 0 {
+		t.Fatalf("suspended context state = %x, want active", ctx.state)
+	}
+	if continuation == nil {
+		t.Fatal("continuation was not captured")
+	}
+	if err := continuation.Resume(); err != nil {
+		t.Fatalf("Resume failed: %v", err)
+	}
+	ctx, ok = graph.getContext(wait)
+	if !ok {
+		t.Fatal("resumed context not found")
+	}
+	if ctx.state&execContextActiveBit != 0 {
+		t.Fatalf("resumed context state = %x, want inactive", ctx.state)
+	}
+}
+
+func TestGraphCompletionReleasesCachedDynamicPortValues(t *testing.T) {
+	producer := NewExecNode("producer", NewNodeDefinition(
+		"ContextArrayProducer",
+		func() IExecNode { return &contextArrayProducer{} },
+		[]IPort{NewPortExec()},
+		[]IPort{NewPortArray()},
+	))
+	producer.Index = 1
+	entry := NewExecNode("entry", NewNodeDefinition("Entry", func() IExecNode { return &testEntrance{} }, nil, []IPort{NewPortExec()}))
+	entry.Index = 0
+	entry.Next = []*ExecNode{producer}
+	graph := NewGraph(&CompiledGraph{Entrances: map[int64]*ExecNode{1: entry}, NodeCount: 2})
+	if _, err := graph.Do(1); err != nil {
+		t.Fatalf("Do failed: %v", err)
+	}
+	ctx, ok := graph.getContext(producer)
+	if !ok {
+		t.Fatal("producer context not found")
+	}
+	values, ok := ctx.OutputPorts[0].GetArray()
+	if !ok || values != nil {
+		t.Fatalf("cached array value retained after completion: len=%d ok=%v", len(values), ok)
 	}
 }
