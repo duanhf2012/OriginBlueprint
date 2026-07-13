@@ -3,8 +3,32 @@ package blueprint
 import (
 	"context"
 	"errors"
+	"math"
 	"testing"
 )
+
+func TestExecutionBudgetSaturatesInsteadOfWrapping(t *testing.T) {
+	budget := newExecutionBudget(math.MaxUint64)
+	budget.steps.Store(math.MaxUint64)
+	if err := budget.consume(); !errors.Is(err, ErrExecutionBudgetExceeded) {
+		t.Fatalf("consume error=%v, want ErrExecutionBudgetExceeded", err)
+	}
+}
+
+func TestLegacyExecCycleStopsAtCallDepthBeforeLargeStepLimit(t *testing.T) {
+	step := NewExecNode("step", NewNodeDefinition("ExecStep", func() IExecNode { return &testEntrance{} }, []IPort{NewPortExec()}, []IPort{NewPortExec()}))
+	step.Next = []*ExecNode{step}
+	graph := NewGraph(&CompiledGraph{Entrances: map[int64]*ExecNode{1: step}, NodeCount: 1})
+	graph.stepLimit = 10_000
+
+	_, err := graph.Do(1)
+	if !errors.Is(err, ErrExecutionBudgetExceeded) {
+		t.Fatalf("Graph.Do error=%v, want ErrExecutionBudgetExceeded", err)
+	}
+	if steps := graph.budget.steps.Load(); steps > 4097 {
+		t.Fatalf("steps=%d, want call-depth guard at 4096", steps)
+	}
+}
 
 func TestGraphDoStopsLegacyExecCycleWithStableBudgetError(t *testing.T) {
 	step := NewExecNode("step", NewNodeDefinition("ExecStep", func() IExecNode { return &testEntrance{} }, []IPort{NewPortExec()}, []IPort{NewPortExec()}))

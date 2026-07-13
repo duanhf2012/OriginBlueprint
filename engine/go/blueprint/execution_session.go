@@ -19,10 +19,12 @@ var (
 )
 
 const defaultExecutionStepLimit uint64 = 1_000_000
+const maxExecutionCallDepth uint64 = 4_096
 
 type executionBudget struct {
 	limit uint64
 	steps atomic.Uint64
+	depth atomic.Uint64
 }
 
 func newExecutionBudget(limit uint64) *executionBudget {
@@ -33,11 +35,36 @@ func (b *executionBudget) consume() error {
 	if b == nil {
 		return nil
 	}
-	step := b.steps.Add(1)
-	if step > b.limit {
-		return fmt.Errorf("%w: limit %d", ErrExecutionBudgetExceeded, b.limit)
+	for {
+		step := b.steps.Load()
+		if step >= b.limit {
+			return fmt.Errorf("%w: step limit %d", ErrExecutionBudgetExceeded, b.limit)
+		}
+		if b.steps.CompareAndSwap(step, step+1) {
+			return nil
+		}
+	}
+}
+
+func (b *executionBudget) enter() error {
+	if b == nil {
+		return nil
+	}
+	if err := b.consume(); err != nil {
+		return err
+	}
+	depth := b.depth.Add(1)
+	if depth > maxExecutionCallDepth {
+		b.depth.Add(^uint64(0))
+		return fmt.Errorf("%w: call depth limit %d", ErrExecutionBudgetExceeded, maxExecutionCallDepth)
 	}
 	return nil
+}
+
+func (b *executionBudget) leave() {
+	if b != nil {
+		b.depth.Add(^uint64(0))
+	}
 }
 
 type ExecutionState uint8

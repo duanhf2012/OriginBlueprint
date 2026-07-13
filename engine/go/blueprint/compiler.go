@@ -231,6 +231,9 @@ func CompileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error
 		}
 
 		if sourcePort.IsPortExec() {
+			if !config.Legacy && edge.SourcePortID < len(source.Next) && source.Next[edge.SourcePortID] != nil {
+				return nil, fmt.Errorf("source node %s exec port %d has multiple targets", edge.SourceNodeID, edge.SourcePortID)
+			}
 			execEdges = append(execEdges, compiledExecEdge{source: source, destination: dest, sourcePortID: edge.SourcePortID, destPortID: edge.DesPortID})
 			source.ensureNext(edge.SourcePortID)
 			source.Next[edge.SourcePortID] = dest
@@ -267,113 +270,159 @@ func CompileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error
 }
 
 func validateDataDependencyCycles(nodes []*ExecNode) error {
-	states := make(map[*ExecNode]uint8, len(nodes))
-	stack := make([]*ExecNode, 0, len(nodes))
-	var visit func(*ExecNode) error
-	visit = func(node *ExecNode) error {
-		if node == nil {
-			return nil
-		}
-		switch states[node] {
-		case 1:
-			start := 0
-			for index, item := range stack {
-				if item == node {
-					start = index
-					break
-				}
+	indegree := make(map[*ExecNode]int, len(nodes))
+	adjacency := make(map[*ExecNode][]*ExecNode, len(nodes))
+	for _, node := range nodes {
+		indegree[node] = 0
+	}
+	for _, consumer := range nodes {
+		for _, producer := range consumer.PreInPort {
+			if producer == nil || producer.Node == nil {
+				continue
 			}
-			ids := make([]string, 0, len(stack)-start+1)
-			for _, item := range stack[start:] {
-				ids = append(ids, item.ID)
-			}
-			ids = append(ids, node.ID)
-			return fmt.Errorf("data dependency cycle: %s", strings.Join(ids, " -> "))
-		case 2:
-			return nil
+			adjacency[producer.Node] = append(adjacency[producer.Node], consumer)
+			indegree[consumer]++
 		}
-		states[node] = 1
-		stack = append(stack, node)
-		for _, producer := range node.PreInPort {
-			if producer != nil {
-				if err := visit(producer.Node); err != nil {
-					return err
-				}
+	}
+	queue := make([]*ExecNode, 0, len(nodes))
+	for _, node := range nodes {
+		if indegree[node] == 0 {
+			queue = append(queue, node)
+		}
+	}
+	processed := 0
+	for len(queue) != 0 {
+		node := queue[0]
+		queue = queue[1:]
+		processed++
+		for _, consumer := range adjacency[node] {
+			indegree[consumer]--
+			if indegree[consumer] == 0 {
+				queue = append(queue, consumer)
 			}
 		}
-		stack = stack[:len(stack)-1]
-		states[node] = 2
+	}
+	if processed == len(nodes) {
 		return nil
 	}
+	ids := make([]string, 0, len(nodes)-processed)
 	for _, node := range nodes {
-		if err := visit(node); err != nil {
-			return err
+		if indegree[node] > 0 {
+			ids = append(ids, node.ID)
 		}
 	}
-	return nil
+	return fmt.Errorf("data dependency cycle: %s", strings.Join(ids, ", "))
 }
 
 func validateExecCycles(nodes []*ExecNode, edges []compiledExecEdge) error {
-	adjacency := make(map[*ExecNode][]compiledExecEdge, len(nodes))
-	for _, edge := range edges {
-		adjacency[edge.source] = append(adjacency[edge.source], edge)
+	candidateBreak := make(map[int]bool)
+	baseAdjacency := make(map[*ExecNode][]compiledExecEdge, len(nodes))
+	baseIndegree := make(map[*ExecNode]int, len(nodes))
+	for _, node := range nodes {
+		baseIndegree[node] = 0
 	}
-	states := make(map[*ExecNode]uint8, len(nodes))
-	nodeStack := make([]*ExecNode, 0, len(nodes))
-	edgeStack := make([]compiledExecEdge, 0, len(nodes))
-	var visit func(*ExecNode) error
-	visit = func(node *ExecNode) error {
-		states[node] = 1
-		nodeStack = append(nodeStack, node)
-		for _, edge := range adjacency[node] {
-			dest := edge.destination
-			if states[dest] == 1 {
-				start := -1
-				for index, item := range nodeStack {
-					if item == dest {
-						start = index
-						break
-					}
-				}
-				bodyPath := edge.source == dest && edge.sourcePortID == 0
-				if !bodyPath && start >= 0 && start < len(edgeStack) {
-					bodyPath = edgeStack[start].source == dest && edgeStack[start].sourcePortID == 0
-				}
-				structuredBreak := start >= 0 && dest.Definition != nil && dest.Definition.Name == "ForLoopBreak" && edge.destPortID == 3 && bodyPath
-				if structuredBreak {
-					continue
-				}
-				ids := make([]string, 0, len(nodeStack)-start+1)
-				if start < 0 {
-					start = 0
-				}
-				for _, item := range nodeStack[start:] {
-					ids = append(ids, item.ID)
-				}
-				ids = append(ids, dest.ID)
-				return fmt.Errorf("exec cycle: %s", strings.Join(ids, " -> "))
-			}
-			if states[dest] == 2 {
-				continue
-			}
-			edgeStack = append(edgeStack, edge)
-			if err := visit(dest); err != nil {
-				return err
-			}
-			edgeStack = edgeStack[:len(edgeStack)-1]
+	for index, edge := range edges {
+		isBreak := edge.destination != nil && edge.destination.Definition != nil && edge.destination.Definition.Name == "ForLoopBreak" && edge.destPortID == 3
+		if isBreak {
+			candidateBreak[index] = true
+			continue
 		}
-		nodeStack = nodeStack[:len(nodeStack)-1]
-		states[node] = 2
+		baseAdjacency[edge.source] = append(baseAdjacency[edge.source], edge)
+		baseIndegree[edge.destination]++
+	}
+	roots := make([]*ExecNode, 0, len(nodes))
+	for _, node := range nodes {
+		if baseIndegree[node] == 0 {
+			roots = append(roots, node)
+		}
+	}
+
+	allowedBreak := make(map[int]bool)
+	for index := range candidateBreak {
+		edge := edges[index]
+		loop := edge.destination
+		if edge.source == loop && edge.sourcePortID == 0 {
+			allowedBreak[index] = true
+			continue
+		}
+		bodyStarts := make([]*ExecNode, 0, 1)
+		for _, next := range baseAdjacency[loop] {
+			if next.sourcePortID == 0 {
+				bodyStarts = append(bodyStarts, next.destination)
+			}
+		}
+		bodyReach := reachableExecNodes(bodyStarts, baseAdjacency, nil)
+		if !bodyReach[edge.source] {
+			continue
+		}
+		reachableWithoutBody := reachableExecNodes(roots, baseAdjacency, func(candidate compiledExecEdge) bool {
+			return candidate.source == loop && candidate.sourcePortID == 0
+		})
+		if !reachableWithoutBody[edge.source] {
+			allowedBreak[index] = true
+		}
+	}
+
+	indegree := make(map[*ExecNode]int, len(nodes))
+	adjacency := make(map[*ExecNode][]*ExecNode, len(nodes))
+	for _, node := range nodes {
+		indegree[node] = 0
+	}
+	for index, edge := range edges {
+		if allowedBreak[index] {
+			continue
+		}
+		adjacency[edge.source] = append(adjacency[edge.source], edge.destination)
+		indegree[edge.destination]++
+	}
+	queue := make([]*ExecNode, 0, len(nodes))
+	for _, node := range nodes {
+		if indegree[node] == 0 {
+			queue = append(queue, node)
+		}
+	}
+	processed := 0
+	for len(queue) != 0 {
+		node := queue[0]
+		queue = queue[1:]
+		processed++
+		for _, next := range adjacency[node] {
+			indegree[next]--
+			if indegree[next] == 0 {
+				queue = append(queue, next)
+			}
+		}
+	}
+	if processed == len(nodes) {
 		return nil
 	}
+	ids := make([]string, 0, len(nodes)-processed)
 	for _, node := range nodes {
-		if states[node] == 0 {
-			if err := visit(node); err != nil {
-				return err
-			}
+		if indegree[node] > 0 {
+			ids = append(ids, node.ID)
 		}
 	}
-	return nil
+	return fmt.Errorf("exec cycle: %s", strings.Join(ids, ", "))
+}
+
+func reachableExecNodes(starts []*ExecNode, adjacency map[*ExecNode][]compiledExecEdge, skip func(compiledExecEdge) bool) map[*ExecNode]bool {
+	reached := make(map[*ExecNode]bool, len(starts))
+	queue := append([]*ExecNode(nil), starts...)
+	for len(queue) != 0 {
+		node := queue[0]
+		queue = queue[1:]
+		if node == nil || reached[node] {
+			continue
+		}
+		reached[node] = true
+		for _, edge := range adjacency[node] {
+			if skip != nil && skip(edge) {
+				continue
+			}
+			queue = append(queue, edge.destination)
+		}
+	}
+	return reached
 }
 
 func portsCompatible(source, target IPort) bool {

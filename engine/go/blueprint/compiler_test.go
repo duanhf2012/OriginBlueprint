@@ -1,9 +1,30 @@
 package blueprint
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
+
+func TestCycleValidationHandlesDeepAcyclicGraphsIteratively(t *testing.T) {
+	const nodeCount = 20_000
+	nodes := make([]*ExecNode, nodeCount)
+	execEdges := make([]compiledExecEdge, 0, nodeCount-1)
+	for index := range nodes {
+		nodes[index] = NewExecNode(fmt.Sprintf("node-%d", index), NewNodeDefinition("DeepNode", func() IExecNode { return &testRecorder{} }, []IPort{NewPortInt()}, []IPort{NewPortInt()}))
+		if index == 0 {
+			continue
+		}
+		nodes[index].PreInPort[0] = &PrePortNode{Node: nodes[index-1], OutPortID: 0}
+		execEdges = append(execEdges, compiledExecEdge{source: nodes[index-1], destination: nodes[index]})
+	}
+	if err := validateDataDependencyCycles(nodes); err != nil {
+		t.Fatalf("deep data chain rejected: %v", err)
+	}
+	if err := validateExecCycles(nodes, execEdges); err != nil {
+		t.Fatalf("deep exec chain rejected: %v", err)
+	}
+}
 
 func validationRegistry() *Registry {
 	registry := NewRegistry()
@@ -87,6 +108,37 @@ func TestCompileGraphRejectsBreakInputCycleOutsideLoopBody(t *testing.T) {
 	}
 }
 
+func TestCompileGraphRejectsSharedBreakTargetRegardlessOfEdgeOrder(t *testing.T) {
+	edges := []EdgeConfig{
+		{SourceNodeID: "loop", SourcePortID: 0, DesNodeID: "body", DesPortID: 0},
+		{SourceNodeID: "body", SourcePortID: 0, DesNodeID: "shared", DesPortID: 0},
+		{SourceNodeID: "shared", SourcePortID: 0, DesNodeID: "loop", DesPortID: 3},
+		{SourceNodeID: "loop", SourcePortID: 2, DesNodeID: "shared", DesPortID: 0},
+	}
+	for _, ordered := range [][]EdgeConfig{edges, []EdgeConfig{edges[3], edges[0], edges[1], edges[2]}} {
+		_, err := CompileGraph(validationRegistry(), GraphConfig{
+			Nodes: []NodeConfig{{ID: "loop", Class: "ForLoopBreak"}, {ID: "body", Class: "ExecStep"}, {ID: "shared", Class: "ExecStep"}},
+			Edges: ordered,
+		})
+		if err == nil {
+			t.Fatal("CompileGraph accepted shared node reached from loop body and completed outputs")
+		}
+	}
+}
+
+func TestCompileGraphRejectsNewFormatExecFanout(t *testing.T) {
+	_, err := CompileGraph(validationRegistry(), GraphConfig{
+		Nodes: []NodeConfig{{ID: "entry", Class: "Entry_1"}, {ID: "left", Class: "ExecTarget"}, {ID: "right", Class: "ExecTarget"}},
+		Edges: []EdgeConfig{
+			{SourceNodeID: "entry", SourcePortID: 0, DesNodeID: "left", DesPortID: 0},
+			{SourceNodeID: "entry", SourcePortID: 0, DesNodeID: "right", DesPortID: 0},
+		},
+	})
+	if err == nil {
+		t.Fatal("CompileGraph accepted new-format exec fan-out")
+	}
+}
+
 func TestCompileGraphAllowsLegacyExecCycle(t *testing.T) {
 	_, err := CompileGraph(validationRegistry(), GraphConfig{
 		Legacy: true,
@@ -132,8 +184,9 @@ func TestCompileGraphRejectsInvalidStructure(t *testing.T) {
 
 func TestCompileGraphAllowsLegacyExecFanout(t *testing.T) {
 	config := GraphConfig{
-		Nodes: []NodeConfig{{ID: "entry", Class: "Entry_1"}, {ID: "left", Class: "ExecTarget"}, {ID: "right", Class: "ExecTarget"}},
-		Edges: []EdgeConfig{{SourceNodeID: "entry", SourcePortID: 0, DesNodeID: "left", DesPortID: 0}, {SourceNodeID: "entry", SourcePortID: 0, DesNodeID: "right", DesPortID: 0}},
+		Legacy: true,
+		Nodes:  []NodeConfig{{ID: "entry", Class: "Entry_1"}, {ID: "left", Class: "ExecTarget"}, {ID: "right", Class: "ExecTarget"}},
+		Edges:  []EdgeConfig{{SourceNodeID: "entry", SourcePortID: 0, DesNodeID: "left", DesPortID: 0}, {SourceNodeID: "entry", SourcePortID: 0, DesNodeID: "right", DesPortID: 0}},
 	}
 	if _, err := CompileGraph(validationRegistry(), config); err != nil {
 		t.Fatalf("CompileGraph rejected legacy exec fan-out: %v", err)

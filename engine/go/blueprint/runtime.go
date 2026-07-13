@@ -366,9 +366,10 @@ func (n *ExecNode) doWithInput(graph *Graph, execInputPortID int, outPortArgs ..
 	if n == nil || n.Definition == nil {
 		return fmt.Errorf("exec node is invalid")
 	}
-	if err := graph.consumeStep(); err != nil {
+	if err := graph.enterStep(); err != nil {
 		return fmt.Errorf("node %s: %w", n.ID, err)
 	}
+	defer graph.leaveStep()
 	ctx := n.Definition.cloneContext()
 	ctx.ExecInputPortID = execInputPortID
 	graph.setContext(n, ctx)
@@ -584,17 +585,25 @@ func (g *Graph) Do(entranceID int64, args ...any) (PortArray, error) {
 	return returns, err
 }
 
-func (g *Graph) consumeStep() error {
+func (g *Graph) executionBudget() *executionBudget {
 	if g == nil {
 		return nil
 	}
 	if g.execution != nil {
 		scope := g.execution.ensureScope()
 		if scope != nil {
-			return scope.budget.consume()
+			return scope.budget
 		}
 	}
-	return g.budget.consume()
+	return g.budget
+}
+
+func (g *Graph) enterStep() error {
+	return g.executionBudget().enter()
+}
+
+func (g *Graph) leaveStep() {
+	g.executionBudget().leave()
 }
 
 // runEntrance 执行入口节点并收集返回值。
