@@ -24,6 +24,7 @@ type Continuation struct {
 	ctx       *ExecContext
 	nextIndex int
 	dynamic   bool
+	pending   []execTarget
 
 	mu      sync.Mutex
 	resumed bool
@@ -34,13 +35,15 @@ func (n *BaseExecNode) SuspendForResume() (*Continuation, error) {
 	if n == nil || n.graph == nil || n.node == nil || n.ctx == nil {
 		return nil, fmt.Errorf("node is not executing")
 	}
-	return &Continuation{
+	continuation := &Continuation{
 		graph:     n.graph,
 		node:      n.node,
 		ctx:       n.ctx,
 		nextIndex: -1,
 		dynamic:   true,
-	}, nil
+	}
+	n.graph.setSuspendedContinuation(continuation)
+	return continuation, nil
 }
 
 // Suspend 暂停当前节点，并返回可在异步回调中恢复的续点。
@@ -53,15 +56,17 @@ func (n *BaseExecNode) Suspend(nextIndex int) (*Continuation, error) {
 	if nextIndex != -1 && nextIndex < 0 {
 		return nil, fmt.Errorf("next index %d not found", nextIndex)
 	}
-	if nextIndex != -1 && nextIndex >= len(n.node.Next) && !n.node.isOutPortExec(nextIndex) {
-		return nil, fmt.Errorf("next index %d not found", nextIndex)
+	if nextIndex != -1 && !n.node.isOutPortExec(nextIndex) {
+		return nil, fmt.Errorf("next index %d is not an exec output", nextIndex)
 	}
-	return &Continuation{
+	continuation := &Continuation{
 		graph:     n.graph,
 		node:      n.node,
 		ctx:       n.ctx,
 		nextIndex: nextIndex,
-	}, nil
+	}
+	n.graph.setSuspendedContinuation(continuation)
+	return continuation, nil
 }
 
 // Resume 恢复被暂停的节点，并把参数写入恢复节点的输出数据端口。
@@ -71,6 +76,9 @@ func (c *Continuation) Resume(outPortArgs ...any) error {
 	}
 	if c.dynamic {
 		return ErrContinuationTargetRequired
+	}
+	if c.graph != nil && c.graph.functionFrame != nil {
+		return c.graph.functionFrame.schedule(c, c.nextIndex, outPortArgs...)
 	}
 	if c.graph != nil && c.graph.execution != nil {
 		return c.graph.execution.scheduleContinuation(c, outPortArgs...)
@@ -88,6 +96,9 @@ func (c *Continuation) ResumeAsync(outPortArgs ...any) error {
 	}
 	if c.dynamic {
 		return ErrContinuationTargetRequired
+	}
+	if c.graph != nil && c.graph.functionFrame != nil {
+		return c.graph.functionFrame.schedule(c, c.nextIndex, outPortArgs...)
 	}
 	if c.graph != nil && c.graph.execution != nil {
 		return c.graph.execution.scheduleContinuation(c, outPortArgs...)
@@ -108,6 +119,9 @@ func (c *Continuation) ResumeTo(nextIndex int, outPortArgs ...any) error {
 	}
 	if c.node == nil || !c.node.isOutPortExec(nextIndex) {
 		return fmt.Errorf("next index %d is not an exec output", nextIndex)
+	}
+	if c.graph != nil && c.graph.functionFrame != nil {
+		return c.graph.functionFrame.schedule(c, nextIndex, outPortArgs...)
 	}
 	if c.graph != nil && c.graph.execution != nil {
 		return c.graph.execution.scheduleContinuationAt(c, nextIndex, outPortArgs...)
@@ -139,10 +153,26 @@ func (c *Continuation) resumeReservedAt(nextIndex int, outPortArgs ...any) error
 		}
 		defer c.graph.instance.releaseLease()
 	}
+	defer c.graph.releaseContext(c.node, c.ctx)
 
 	if err := c.node.applyOutputArgs(c.ctx, outPortArgs...); err != nil {
 		return err
 	}
 	c.graph.setContext(c.node, c.ctx)
-	return c.node.doNext(c.graph, nextIndex)
+	c.mu.Lock()
+	pending := append([]execTarget(nil), c.pending...)
+	c.mu.Unlock()
+	return c.node.doNextWithPending(c.graph, nextIndex, pending)
+}
+
+func (c *Continuation) prependPending(targets []execTarget) {
+	if c == nil || len(targets) == 0 {
+		return
+	}
+	c.mu.Lock()
+	pending := make([]execTarget, 0, len(targets)+len(c.pending))
+	pending = append(pending, targets...)
+	pending = append(pending, c.pending...)
+	c.pending = pending
+	c.mu.Unlock()
 }

@@ -89,6 +89,7 @@ func loadDefinitionDir(registry *Registry, dir string, factories []func() IExecN
 
 func loadGraphDir(registry *Registry, dir string) (map[string]*CompiledGraph, error) {
 	type graphFile struct {
+		path       string
 		name       string
 		aliases    []string
 		config     GraphConfig
@@ -111,7 +112,7 @@ func loadGraphDir(registry *Registry, dir string) (map[string]*CompiledGraph, er
 		if err != nil {
 			return fmt.Errorf("%s: %w", path, err)
 		}
-		files = append(files, graphFile{name: graphName, aliases: aliases, config: config, isFunction: isFunction})
+		files = append(files, graphFile{path: path, name: graphName, aliases: aliases, config: config, isFunction: isFunction})
 		return nil
 	})
 	if err != nil {
@@ -119,6 +120,30 @@ func loadGraphDir(registry *Registry, dir string) (map[string]*CompiledGraph, er
 	}
 
 	// 先编译函数图，普通图编译时可以直接绑定函数调用目标。
+	graphNameOwners := make(map[string]string, len(files))
+	functionKeyOwners := make(map[string]string)
+	for _, file := range files {
+		if owner, exists := graphNameOwners[file.name]; exists && owner != file.path {
+			return nil, fmt.Errorf("graph name %q from %s conflicts with %s", file.name, file.path, owner)
+		}
+		graphNameOwners[file.name] = file.path
+		if !file.isFunction {
+			continue
+		}
+		keys := make([]string, 0, len(file.aliases)+1)
+		keys = append(keys, file.name)
+		keys = append(keys, file.aliases...)
+		for _, key := range keys {
+			if owner, exists := functionKeyOwners[key]; exists {
+				if owner != file.path {
+					return nil, fmt.Errorf("function key %q from %s conflicts with %s", key, file.path, owner)
+				}
+				continue
+			}
+			functionKeyOwners[key] = file.path
+		}
+	}
+
 	functions := map[string]*CompiledGraph{}
 	for _, file := range files {
 		if !file.isFunction {

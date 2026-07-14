@@ -1,6 +1,7 @@
 package blueprint
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -55,6 +56,9 @@ func (p *PortDefinition) UnmarshalJSON(data []byte) error {
 //
 // factories 用于把 JSON 定义绑定到具体 Go 执行节点。
 func (r *Registry) LoadDefinitionsJSON(data []byte, factories []func() IExecNode) error {
+	if err := preflightDefinitionPortCounts(data); err != nil {
+		return err
+	}
 	var configs []ExecDefinitionConfig
 	if err := json.Unmarshal(data, &configs); err != nil {
 		var rawArray []json.RawMessage
@@ -62,7 +66,11 @@ func (r *Registry) LoadDefinitionsJSON(data []byte, factories []func() IExecNode
 			// 标准 JSON 数组里的字段类型错误应直接暴露；宽松解析只用于历史非标准节点文件。
 			return err
 		}
-		configs = parseLenientDefinitions(string(data))
+		var lenientErr error
+		configs, lenientErr = parseLenientDefinitions(string(data))
+		if lenientErr != nil {
+			return lenientErr
+		}
 		if len(configs) == 0 {
 			return err
 		}
@@ -108,6 +116,9 @@ func (r *Registry) LoadDefinitionsJSON(data []byte, factories []func() IExecNode
 		if factory == nil {
 			return fmt.Errorf("exec %s has not been registered", nodeName)
 		}
+		if err := validateTotalNodePortCount(len(config.Inputs), len(config.Outputs)); err != nil {
+			return fmt.Errorf("exec %s ports: %w", nodeName, err)
+		}
 
 		inputConfigs, err := normalizePortDefinitions(config.Inputs, schemaPortIndexes(config.ID, false))
 		if err != nil {
@@ -122,7 +133,11 @@ func (r *Registry) LoadDefinitionsJSON(data []byte, factories []func() IExecNode
 		if err != nil {
 			return fmt.Errorf("exec %s input ports: %w", nodeName, err)
 		}
-		outPorts, err := buildPorts(dynamicBranchDefinitionOutputs(config.Name, outputConfigs))
+		dynamicOutputs := dynamicBranchDefinitionOutputs(config.Name, outputConfigs)
+		if err := validateTotalNodePortCount(len(inputConfigs), len(dynamicOutputs)); err != nil {
+			return fmt.Errorf("exec %s ports: %w", nodeName, err)
+		}
+		outPorts, err := buildPorts(dynamicOutputs)
 		if err != nil {
 			return fmt.Errorf("exec %s output ports: %w", nodeName, err)
 		}
@@ -132,6 +147,96 @@ func (r *Registry) LoadDefinitionsJSON(data []byte, factories []func() IExecNode
 	}
 
 	return nil
+}
+
+type definitionJSONFrame struct {
+	delim          json.Delim
+	expectingKey   bool
+	pendingKey     string
+	rootArray      bool
+	nodeObject     bool
+	portArray      bool
+	nodeFrameIndex int
+	nodePortCount  int
+}
+
+func preflightDefinitionPortCounts(data []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	frames := make([]definitionJSONFrame, 0, 8)
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			// Syntax compatibility is decided by the regular and lenient parsers.
+			return nil
+		}
+
+		if delim, ok := token.(json.Delim); ok {
+			if delim == '}' || delim == ']' {
+				if len(frames) != 0 {
+					frames = frames[:len(frames)-1]
+				}
+				continue
+			}
+
+			parentIndex := len(frames) - 1
+			parentKey := ""
+			if parentIndex >= 0 && frames[parentIndex].delim == '{' && !frames[parentIndex].expectingKey {
+				parentKey = frames[parentIndex].pendingKey
+				frames[parentIndex].expectingKey = true
+				frames[parentIndex].pendingKey = ""
+			}
+
+			frame := definitionJSONFrame{delim: delim, expectingKey: delim == '{', nodeFrameIndex: -1}
+			if delim == '[' {
+				frame.rootArray = len(frames) == 0
+				if parentIndex >= 0 && frames[parentIndex].nodeObject && (parentKey == "inputs" || parentKey == "outputs") {
+					frame.portArray = true
+					frame.nodeFrameIndex = parentIndex
+				}
+			}
+			if delim == '{' && parentIndex >= 0 {
+				frame.nodeObject = frames[parentIndex].rootArray
+			}
+			if err := countDefinitionPortElement(frames, parentIndex); err != nil {
+				return err
+			}
+			frames = append(frames, frame)
+			continue
+		}
+
+		if len(frames) == 0 {
+			continue
+		}
+		top := &frames[len(frames)-1]
+		if top.delim == '{' {
+			if top.expectingKey {
+				key, ok := token.(string)
+				if ok {
+					top.pendingKey = key
+					top.expectingKey = false
+				}
+			} else {
+				top.expectingKey = true
+				top.pendingKey = ""
+			}
+			continue
+		}
+		if err := countDefinitionPortElement(frames, len(frames)-1); err != nil {
+			return err
+		}
+	}
+}
+
+func countDefinitionPortElement(frames []definitionJSONFrame, parentIndex int) error {
+	if parentIndex < 0 || parentIndex >= len(frames) || !frames[parentIndex].portArray {
+		return nil
+	}
+	nodeIndex := frames[parentIndex].nodeFrameIndex
+	if nodeIndex < 0 || nodeIndex >= len(frames) {
+		return nil
+	}
+	frames[nodeIndex].nodePortCount++
+	return validateMaximum("total port count", frames[nodeIndex].nodePortCount, maxNodePortCount)
 }
 
 func registryHasDefinition(r *Registry, name string) bool {
@@ -151,6 +256,9 @@ func parseJSONPortID(value any) (int, bool, error) {
 		if portID < 0 {
 			return 0, false, fmt.Errorf("invalid negative port_id %d", portID)
 		}
+		if portID > maxNodePortID {
+			return 0, false, fmt.Errorf("port_id %d exceeds maximum %d", portID, maxNodePortID)
+		}
 		return portID, true, nil
 	case string:
 		portID, err := strconv.Atoi(strings.TrimSpace(typed))
@@ -159,6 +267,9 @@ func parseJSONPortID(value any) (int, bool, error) {
 		}
 		if portID < 0 {
 			return 0, false, fmt.Errorf("invalid negative port_id %d", portID)
+		}
+		if portID > maxNodePortID {
+			return 0, false, fmt.Errorf("port_id %d exceeds maximum %d", portID, maxNodePortID)
 		}
 		return portID, true, nil
 	default:
@@ -279,7 +390,7 @@ func dynamicBranchDefinitionOutputs(name string, outputs []PortDefinition) []Por
 	return result
 }
 
-func parseLenientDefinitions(text string) []ExecDefinitionConfig {
+func parseLenientDefinitions(text string) ([]ExecDefinitionConfig, error) {
 	objects := splitTopLevelObjects(text)
 	configs := make([]ExecDefinitionConfig, 0, len(objects))
 	for _, object := range objects {
@@ -287,13 +398,21 @@ func parseLenientDefinitions(text string) []ExecDefinitionConfig {
 		if name == "" {
 			continue
 		}
+		inputs, err := parseLenientPorts(arrayField(object, "inputs"), 0)
+		if err != nil {
+			return nil, fmt.Errorf("exec %s input ports: %w", name, err)
+		}
+		outputs, err := parseLenientPorts(arrayField(object, "outputs"), len(inputs))
+		if err != nil {
+			return nil, fmt.Errorf("exec %s output ports: %w", name, err)
+		}
 		configs = append(configs, ExecDefinitionConfig{
 			Name:    name,
-			Inputs:  parseLenientPorts(arrayField(object, "inputs")),
-			Outputs: parseLenientPorts(arrayField(object, "outputs")),
+			Inputs:  inputs,
+			Outputs: outputs,
 		})
 	}
-	return configs
+	return configs, nil
 }
 
 func splitTopLevelObjects(text string) []string {
@@ -318,6 +437,31 @@ func splitTopLevelObjects(text string) []string {
 	return objects
 }
 
+func splitTopLevelObjectsLimited(text string, maximum int, field string) ([]string, error) {
+	objects := make([]string, 0, min(maximum, 16))
+	depth := 0
+	start := -1
+	for index, r := range text {
+		switch r {
+		case '{':
+			if depth == 0 {
+				start = index
+			}
+			depth++
+		case '}':
+			depth--
+			if depth == 0 && start >= 0 {
+				if len(objects) >= maximum {
+					return nil, fmt.Errorf("%s %d exceeds maximum %d", field, len(objects)+1, maximum)
+				}
+				objects = append(objects, text[start:index+1])
+				start = -1
+			}
+		}
+	}
+	return objects, nil
+}
+
 func firstStringField(text, field string) string {
 	re := regexp.MustCompile(`"` + regexp.QuoteMeta(field) + `"\s*:\s*"([^"]*)"`)
 	match := re.FindStringSubmatch(text)
@@ -327,17 +471,17 @@ func firstStringField(text, field string) string {
 	return match[1]
 }
 
-func firstIntField(text, field string) int {
+func firstIntField(text, field string) (int, bool) {
 	re := regexp.MustCompile(`"` + regexp.QuoteMeta(field) + `"\s*:\s*(-?\d+)`)
 	match := re.FindStringSubmatch(text)
 	if len(match) != 2 {
-		return -1
+		return 0, false
 	}
 	value, err := strconv.Atoi(match[1])
 	if err != nil {
-		return -1
+		return 0, false
 	}
-	return value
+	return value, true
 }
 
 func arrayField(text, field string) string {
@@ -362,12 +506,19 @@ func arrayField(text, field string) string {
 	return ""
 }
 
-func parseLenientPorts(text string) []PortDefinition {
-	objects := splitTopLevelObjects(text)
+func parseLenientPorts(text string, existingPortCount int) ([]PortDefinition, error) {
+	remaining := maxNodePortCount - existingPortCount
+	if remaining < 0 {
+		return nil, fmt.Errorf("total port count %d exceeds maximum %d", existingPortCount, maxNodePortCount)
+	}
+	objects, err := splitTopLevelObjectsLimited(text, remaining, "port count")
+	if err != nil {
+		return nil, fmt.Errorf("total port count %d exceeds maximum %d", maxNodePortCount+1, maxNodePortCount)
+	}
 	ports := make([]PortDefinition, 0, len(objects))
 	for _, object := range objects {
-		portID := firstIntField(object, "port_id")
-		if portID < 0 {
+		portID, ok := firstIntField(object, "port_id")
+		if !ok {
 			continue
 		}
 		ports = append(ports, PortDefinition{
@@ -376,12 +527,26 @@ func parseLenientPorts(text string) []PortDefinition {
 			PortID:   portID,
 		})
 	}
-	return ports
+	return ports, nil
 }
 
 func buildPorts(configs []PortDefinition) ([]IPort, error) {
+	if err := validateMaximum("port count", len(configs), maxNodePortCount); err != nil {
+		return nil, err
+	}
+	seen := make(map[int]struct{}, len(configs))
 	maxPortID := -1
 	for _, config := range configs {
+		if config.PortID < 0 {
+			return nil, fmt.Errorf("port_id %d must be nonnegative", config.PortID)
+		}
+		if config.PortID > maxNodePortID {
+			return nil, fmt.Errorf("port_id %d exceeds maximum %d", config.PortID, maxNodePortID)
+		}
+		if _, exists := seen[config.PortID]; exists {
+			return nil, fmt.Errorf("duplicate port_id %d", config.PortID)
+		}
+		seen[config.PortID] = struct{}{}
 		if config.PortID > maxPortID {
 			maxPortID = config.PortID
 		}

@@ -74,6 +74,13 @@ type GraphConfig struct {
 	Legacy    bool `json:"-"`
 }
 
+type compiledExecEdge struct {
+	source       *ExecNode
+	destination  *ExecNode
+	sourcePortID int
+	destPortID   int
+}
+
 // VariableConfig 描述蓝图实例变量的初始值。
 type VariableConfig struct {
 	Name  string `json:"name"`
@@ -104,6 +111,9 @@ func ParseGraphConfigJSON(data []byte) (GraphConfig, error) {
 	}
 	config.Legacy = true
 	for index := range config.Nodes {
+		if err := validateNodeConfigLimits(config.Nodes[index]); err != nil {
+			return GraphConfig{}, fmt.Errorf("node %s: %w", config.Nodes[index].ID, err)
+		}
 		config.Nodes[index].PortDefault = parsePortDefaults(config.Nodes[index].RawDefault)
 	}
 	return config, nil
@@ -133,6 +143,7 @@ func CompileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error
 	nodeOrder := make([]*ExecNode, 0, len(config.Nodes))
 	entrances := map[int64]*ExecNode{}
 	variables := make(map[string]VariableConfig, len(config.Variables))
+	execEdges := make([]compiledExecEdge, 0, len(config.Edges))
 	for _, variable := range config.Variables {
 		if strings.TrimSpace(variable.Name) == "" {
 			return nil, fmt.Errorf("variable name is empty")
@@ -155,6 +166,9 @@ func CompileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error
 	for _, nodeConfig := range config.Nodes {
 		if strings.TrimSpace(nodeConfig.ID) == "" {
 			return nil, fmt.Errorf("node id is empty")
+		}
+		if err := validateNodeConfigLimits(nodeConfig); err != nil {
+			return nil, fmt.Errorf("node %s: %w", nodeConfig.ID, err)
 		}
 		if _, exists := nodes[nodeConfig.ID]; exists {
 			return nil, fmt.Errorf("duplicate node id %q", nodeConfig.ID)
@@ -223,9 +237,29 @@ func CompileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error
 		}
 
 		if sourcePort.IsPortExec() {
+			if !config.Legacy && edge.SourcePortID < len(source.Next) && source.Next[edge.SourcePortID] != nil {
+				return nil, fmt.Errorf("source node %s exec port %d has multiple targets", edge.SourceNodeID, edge.SourcePortID)
+			}
+			execEdges = append(execEdges, compiledExecEdge{source: source, destination: dest, sourcePortID: edge.SourcePortID, destPortID: edge.DesPortID})
 			source.ensureNext(edge.SourcePortID)
-			source.Next[edge.SourcePortID] = dest
-			source.NextInPort[edge.SourcePortID] = edge.DesPortID
+			if source.Next[edge.SourcePortID] == nil {
+				source.Next[edge.SourcePortID] = dest
+				source.NextInPort[edge.SourcePortID] = edge.DesPortID
+			} else {
+				for len(source.legacyFanout) <= edge.SourcePortID {
+					source.legacyFanout = append(source.legacyFanout, nil)
+				}
+				if len(source.legacyFanout[edge.SourcePortID]) == 0 {
+					source.legacyFanout[edge.SourcePortID] = append(source.legacyFanout[edge.SourcePortID], execTarget{
+						node:        source.Next[edge.SourcePortID],
+						inputPortID: source.NextInPort[edge.SourcePortID],
+					})
+				}
+				source.legacyFanout[edge.SourcePortID] = append(source.legacyFanout[edge.SourcePortID], execTarget{
+					node:        dest,
+					inputPortID: edge.DesPortID,
+				})
+			}
 			dest.BeConnect = true
 			continue
 		}
@@ -234,6 +268,14 @@ func CompileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error
 			return nil, fmt.Errorf("destination node %s in port %d has multiple producers", edge.DesNodeID, edge.DesPortID)
 		}
 		dest.PreInPort[edge.DesPortID] = &PrePortNode{Node: source, OutPortID: edge.SourcePortID}
+	}
+	if err := validateDataDependencyCycles(nodeOrder); err != nil {
+		return nil, err
+	}
+	if !config.Legacy {
+		if err := validateExecCycles(nodeOrder, execEdges); err != nil {
+			return nil, err
+		}
 	}
 
 	for _, node := range nodeOrder {
@@ -247,6 +289,162 @@ func CompileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error
 	}
 
 	return &CompiledGraph{Entrances: entrances, Variables: variables, Functions: config.Functions, NodeCount: len(nodeOrder)}, nil
+}
+
+func validateDataDependencyCycles(nodes []*ExecNode) error {
+	indegree := make(map[*ExecNode]int, len(nodes))
+	adjacency := make(map[*ExecNode][]*ExecNode, len(nodes))
+	for _, node := range nodes {
+		indegree[node] = 0
+	}
+	for _, consumer := range nodes {
+		for _, producer := range consumer.PreInPort {
+			if producer == nil || producer.Node == nil {
+				continue
+			}
+			adjacency[producer.Node] = append(adjacency[producer.Node], consumer)
+			indegree[consumer]++
+		}
+	}
+	queue := make([]*ExecNode, 0, len(nodes))
+	for _, node := range nodes {
+		if indegree[node] == 0 {
+			queue = append(queue, node)
+		}
+	}
+	processed := 0
+	for len(queue) != 0 {
+		node := queue[0]
+		queue = queue[1:]
+		processed++
+		for _, consumer := range adjacency[node] {
+			indegree[consumer]--
+			if indegree[consumer] == 0 {
+				queue = append(queue, consumer)
+			}
+		}
+	}
+	if processed == len(nodes) {
+		return nil
+	}
+	ids := make([]string, 0, len(nodes)-processed)
+	for _, node := range nodes {
+		if indegree[node] > 0 {
+			ids = append(ids, node.ID)
+		}
+	}
+	return fmt.Errorf("data dependency cycle: %s", strings.Join(ids, ", "))
+}
+
+func validateExecCycles(nodes []*ExecNode, edges []compiledExecEdge) error {
+	candidateBreak := make(map[int]bool)
+	baseAdjacency := make(map[*ExecNode][]compiledExecEdge, len(nodes))
+	baseIndegree := make(map[*ExecNode]int, len(nodes))
+	for _, node := range nodes {
+		baseIndegree[node] = 0
+	}
+	for index, edge := range edges {
+		isBreak := edge.destination != nil && edge.destination.Definition != nil && edge.destination.Definition.Name == "ForLoopBreak" && edge.destPortID == 3
+		if isBreak {
+			candidateBreak[index] = true
+			continue
+		}
+		baseAdjacency[edge.source] = append(baseAdjacency[edge.source], edge)
+		baseIndegree[edge.destination]++
+	}
+	roots := make([]*ExecNode, 0, len(nodes))
+	for _, node := range nodes {
+		if baseIndegree[node] == 0 {
+			roots = append(roots, node)
+		}
+	}
+
+	allowedBreak := make(map[int]bool)
+	for index := range candidateBreak {
+		edge := edges[index]
+		loop := edge.destination
+		if edge.source == loop && edge.sourcePortID == 0 {
+			allowedBreak[index] = true
+			continue
+		}
+		bodyStarts := make([]*ExecNode, 0, 1)
+		for _, next := range baseAdjacency[loop] {
+			if next.sourcePortID == 0 {
+				bodyStarts = append(bodyStarts, next.destination)
+			}
+		}
+		bodyReach := reachableExecNodes(bodyStarts, baseAdjacency, nil)
+		if !bodyReach[edge.source] {
+			continue
+		}
+		reachableWithoutBody := reachableExecNodes(roots, baseAdjacency, func(candidate compiledExecEdge) bool {
+			return candidate.source == loop && candidate.sourcePortID == 0
+		})
+		if !reachableWithoutBody[edge.source] {
+			allowedBreak[index] = true
+		}
+	}
+
+	indegree := make(map[*ExecNode]int, len(nodes))
+	adjacency := make(map[*ExecNode][]*ExecNode, len(nodes))
+	for _, node := range nodes {
+		indegree[node] = 0
+	}
+	for index, edge := range edges {
+		if allowedBreak[index] {
+			continue
+		}
+		adjacency[edge.source] = append(adjacency[edge.source], edge.destination)
+		indegree[edge.destination]++
+	}
+	queue := make([]*ExecNode, 0, len(nodes))
+	for _, node := range nodes {
+		if indegree[node] == 0 {
+			queue = append(queue, node)
+		}
+	}
+	processed := 0
+	for len(queue) != 0 {
+		node := queue[0]
+		queue = queue[1:]
+		processed++
+		for _, next := range adjacency[node] {
+			indegree[next]--
+			if indegree[next] == 0 {
+				queue = append(queue, next)
+			}
+		}
+	}
+	if processed == len(nodes) {
+		return nil
+	}
+	ids := make([]string, 0, len(nodes)-processed)
+	for _, node := range nodes {
+		if indegree[node] > 0 {
+			ids = append(ids, node.ID)
+		}
+	}
+	return fmt.Errorf("exec cycle: %s", strings.Join(ids, ", "))
+}
+
+func reachableExecNodes(starts []*ExecNode, adjacency map[*ExecNode][]compiledExecEdge, skip func(compiledExecEdge) bool) map[*ExecNode]bool {
+	reached := make(map[*ExecNode]bool, len(starts))
+	queue := append([]*ExecNode(nil), starts...)
+	for len(queue) != 0 {
+		node := queue[0]
+		queue = queue[1:]
+		if node == nil || reached[node] {
+			continue
+		}
+		reached[node] = true
+		for _, edge := range adjacency[node] {
+			if skip != nil && skip(edge) {
+				continue
+			}
+			queue = append(queue, edge.destination)
+		}
+	}
+	return reached
 }
 
 func portsCompatible(source, target IPort) bool {
@@ -356,8 +554,8 @@ func dynamicDefinition(nodeConfig NodeConfig, variables map[string]VariableConfi
 	case "SetTimerByFunction":
 		return setTimerByFunctionDefinition(nodeConfig.FunctionInputTypes)
 	default:
-		if definition := dynamicSequenceDefinition(nodeConfig.Class); definition != nil {
-			return definition, nil
+		if definition, err := dynamicSequenceDefinition(nodeConfig.Class); definition != nil || err != nil {
+			return definition, err
 		}
 		if definition := builtinDynamicDefinition(nodeConfig.Class); definition != nil {
 			return definition, nil
@@ -366,15 +564,18 @@ func dynamicDefinition(nodeConfig NodeConfig, variables map[string]VariableConfi
 	}
 }
 
-func dynamicSequenceDefinition(className string) *NodeDefinition {
+func dynamicSequenceDefinition(className string) (*NodeDefinition, error) {
 	if !strings.HasPrefix(className, "SequenceDynamic") {
-		return nil
+		return nil, nil
 	}
 	count, err := strconv.Atoi(strings.TrimPrefix(className, "SequenceDynamic"))
 	if err != nil || count <= 0 {
-		return nil
+		return nil, nil
 	}
-	return NewNodeDefinition("Sequence", func() IExecNode { return &Sequence{} }, []IPort{NewPortExec()}, execPortList(count))
+	if err := validateMaximum("dynamic output count", count, maxDynamicSequenceOutputCount); err != nil {
+		return nil, err
+	}
+	return NewNodeDefinition("Sequence", func() IExecNode { return &Sequence{} }, []IPort{NewPortExec()}, execPortList(count)), nil
 }
 
 func execPortList(count int) []IPort {

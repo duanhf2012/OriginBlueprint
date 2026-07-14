@@ -76,6 +76,11 @@ func (n *FunctionCall) Exec() (int, error) {
 	child.module = n.graph.module
 	child.instance = n.graph.instance
 	child.callDepth = n.graph.callDepth + 1
+	child.budget = n.graph.budget
+	if n.graph.execution != nil {
+		child.execution = n.graph.execution.rootExecution()
+		child.functionFrame = newFunctionFrame(child.execution, child)
+	}
 	// 函数调用与父图共享实例变量锁，保证变量访问语义一致。
 	child.trace = n.graph.trace
 	child.onFunctionComplete = func(values []any) error {
@@ -88,10 +93,16 @@ func (n *FunctionCall) Exec() (int, error) {
 	}
 
 	_, runErr := child.runEntrance(FunctionEntranceID, args...)
+	if child.functionFrame != nil {
+		child.functionFrame.finish(runErr)
+	}
 	if runErr != nil && !isFunctionCallStop(runErr) {
 		return -1, runErr
 	}
 	if runErr == ErrFunctionReturned || child.functionCompleted.Load() {
+		if n.graph.execution != nil {
+			return -1, ErrExecutionSuspended
+		}
 		return -1, nil
 	}
 	if runErr == nil && child.onFunctionComplete != nil {
@@ -133,6 +144,9 @@ func isFunctionCallStop(err error) bool {
 }
 
 func functionEntryDefinition(inputTypes []string) (*NodeDefinition, error) {
+	if err := validateFunctionPortCounts(len(inputTypes), 0, "function input count", "function output count"); err != nil {
+		return nil, err
+	}
 	outPorts, err := functionPorts(inputTypes, true)
 	if err != nil {
 		return nil, err
@@ -141,6 +155,9 @@ func functionEntryDefinition(inputTypes []string) (*NodeDefinition, error) {
 }
 
 func functionReturnDefinition(outputTypes []string) (*NodeDefinition, error) {
+	if err := validateFunctionPortCounts(0, len(outputTypes), "function input count", "function output count"); err != nil {
+		return nil, err
+	}
 	inPorts, err := functionPorts(outputTypes, false)
 	if err != nil {
 		return nil, err
@@ -149,6 +166,9 @@ func functionReturnDefinition(outputTypes []string) (*NodeDefinition, error) {
 }
 
 func functionCallDefinition(inputTypes []string, outputTypes []string) (*NodeDefinition, error) {
+	if err := validateFunctionPortCounts(len(inputTypes), len(outputTypes), "function input count", "function output count"); err != nil {
+		return nil, err
+	}
 	inPorts, err := functionPorts(inputTypes, false)
 	if err != nil {
 		return nil, err

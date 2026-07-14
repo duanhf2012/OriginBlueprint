@@ -144,6 +144,72 @@ func TestBuiltinMathNodes(t *testing.T) {
 	}
 }
 
+func TestRandNumberSupportsExtremeInt64Ranges(t *testing.T) {
+	const (
+		minInt64 PortInt = -1 << 63
+		maxInt64 PortInt = 1<<63 - 1
+	)
+	tests := []struct {
+		name string
+		min  PortInt
+		max  PortInt
+	}{
+		{name: "full int64", min: minInt64, max: maxInt64},
+		{name: "width above max int64", min: -1, max: maxInt64},
+		{name: "minimum half", min: minInt64, max: 0},
+		{name: "maximum singleton", min: maxInt64, max: maxInt64},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			first := executeSeededRandNumber(t, 17, test.min, test.max)
+			second := executeSeededRandNumber(t, 17, test.min, test.max)
+			if first < test.min || first > test.max {
+				t.Fatalf("RandNumber output %d outside [%d,%d]", first, test.min, test.max)
+			}
+			if first != second {
+				t.Fatalf("seeded outputs differ: %d and %d", first, second)
+			}
+		})
+	}
+}
+
+func executeSeededRandNumber(t *testing.T, seed PortInt, minValue PortInt, maxValue PortInt) PortInt {
+	t.Helper()
+	node := &RandNumber{}
+	ctx := bindNode(t, node, []IPort{intPort(seed), intPort(minValue), intPort(maxValue)}, []IPort{NewPortInt()})
+	if _, err := node.Exec(); err != nil {
+		t.Fatalf("RandNumber Exec failed: %v", err)
+	}
+	value, ok := ctx.OutputPorts[0].GetInt()
+	if !ok {
+		t.Fatal("RandNumber output is not an integer")
+	}
+	return value
+}
+
+func TestRandomInt64RangeOffsetRejectsBiasedWideSamples(t *testing.T) {
+	width := uint64(1<<63 + 1)
+	threshold := -width % width
+	draws := []uint64{threshold - 1, threshold}
+	drawIndex := 0
+	offset := randomInt64RangeOffset(width, func(int64) int64 {
+		t.Fatal("wide range unexpectedly used Int63n")
+		return 0
+	}, func() uint64 {
+		value := draws[drawIndex]
+		drawIndex++
+		return value
+	})
+	if drawIndex != 2 || offset != threshold%width {
+		t.Fatalf("draws=%d offset=%d, want rejection then %d", drawIndex, offset, threshold%width)
+	}
+
+	const fullRangeDraw = uint64(0xfedcba9876543210)
+	if got := randomInt64RangeOffset(0, func(int64) int64 { return 0 }, func() uint64 { return fullRangeDraw }); got != fullRangeDraw {
+		t.Fatalf("full range offset=%#x, want %#x", got, fullRangeDraw)
+	}
+}
+
 func TestBuiltinArrayNodes(t *testing.T) {
 	create := &CreateIntArray{}
 	ctx := &ExecContext{InputPorts: []IPort{arrayPort(1, 2)}, OutputPorts: []IPort{NewPortArray()}}

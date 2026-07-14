@@ -345,15 +345,33 @@ func (n *RandNumber) Exec() (int, error) {
 	if maxv < minv {
 		return -1, fmt.Errorf("RandNumber invalid range")
 	}
-	var value PortInt
+	width := uint64(maxv) - uint64(minv) + 1
+	var offset uint64
 	if seed > 0 {
 		r := rand.New(rand.NewSource(int64(seed)))
-		value = PortInt(r.Int63n(int64(maxv-minv+1))) + minv
+		offset = randomInt64RangeOffset(width, r.Int63n, r.Uint64)
 	} else {
-		value = PortInt(rand.Int63n(int64(maxv-minv+1))) + minv
+		offset = randomInt64RangeOffset(width, rand.Int63n, rand.Uint64)
 	}
+	value := PortInt(uint64(minv) + offset)
 	n.SetOutPortInt(0, value)
 	return -1, nil
+}
+
+func randomInt64RangeOffset(width uint64, int63n func(int64) int64, uint64Value func() uint64) uint64 {
+	if width != 0 && width <= uint64(1<<63-1) {
+		return uint64(int63n(int64(width)))
+	}
+	if width == 0 {
+		return uint64Value()
+	}
+	threshold := -width % width
+	for {
+		value := uint64Value()
+		if value >= threshold {
+			return value % width
+		}
+	}
 }
 
 type GetArrayInt struct{ BaseExecNode }

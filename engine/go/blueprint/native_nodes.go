@@ -129,6 +129,9 @@ func (n *WhileNode) Exec() (int, error) {
 		if err := n.DoNext(0); err != nil {
 			return -1, err
 		}
+		if err := n.node.refreshInput(n.graph, n.ctx, 1); err != nil {
+			return -1, fmt.Errorf("WhileNode refresh condition: %w", err)
+		}
 	}
 	return -1, fmt.Errorf("WhileNode exceeded max iterations")
 }
