@@ -12,6 +12,22 @@ type ExecutionDispatcher interface {
 	Submit(task func()) error
 }
 
+type inlineExecutionDispatcher struct{}
+
+// NewInlineExecutionDispatcher 创建在调用方 goroutine 内立即执行任务的调度器。
+// 适用于要求保持调用方线程归属并允许同步嵌套执行的宿主环境。
+func NewInlineExecutionDispatcher() ExecutionDispatcher {
+	return inlineExecutionDispatcher{}
+}
+
+func (inlineExecutionDispatcher) Submit(task func()) error {
+	if task == nil {
+		return ErrExecutionRejected
+	}
+	task()
+	return nil
+}
+
 type workerExecutionDispatcher struct {
 	tasks chan func()
 }
