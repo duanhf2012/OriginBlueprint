@@ -2,13 +2,15 @@
 
 本文档记录当前 Go 版解析执行引擎的测试用例设计、覆盖范围和压测入口。范围覆盖顶层 `nodes/*.json`、业务 `nodes/json/**/*.json`、编辑器保存出的 `.obp/.obpf`、历史 `.vgf` 迁移文件，以及当前 `engine/go/blueprint` 能解析和执行的功能；RPC 业务节点、origin 服务器完整替换接入、C#、Lua 均不在本轮处理。
 
+> 2026-07-14 VM 重构基线：执行器采用 `Program + PC + FlowStack + LoopStack + CallStack`；异步统一使用 `YieldHandle`；Core Delay/Timer/Continuation 已删除。本文中仍出现的旧 Delay/Timer 测试条目只保留历史背景，不属于当前门禁。
+
 ## 测试目标
 
 - 验证旧蓝图 `.vgf` 能继续加载、编译和执行。
 - 验证旧 `.vgf` 与新 Go 解析/执行库兼容；兼容标准是 Go 库能正确加载、编译、执行并得到预期结果，不要求和旧编辑器导出的文件逐字一致。
 - 验证新蓝图 `.obp/.obpf` 的函数入口、函数返回、函数调用后续执行。
 - 验证由节点定义组装、连线并保存出的 `.obp/.obpf` 能被 Go engine 正确执行。
-- 验证异步 continuation 机制能在 sleep/timer 类节点回调后继续当前位置。
+- 验证 Yield/Resume 在 Sequence、fanout、五类循环、嵌套循环和函数调用中恢复完整 VM 上下文。
 - 验证 `nodes/**/*.json` 中所有基础系统节点和已恢复业务节点均有加载覆盖，关键节点有组合行为覆盖。
 - 验证已删除的文件、表格、字典相关节点和变量类型不会重新暴露。
 - 提供服务器高频执行的 benchmark 入口，用于观察共享编译树、多实例执行、并发执行的耗时和分配。
@@ -286,7 +288,9 @@ go test -race ./engine/go/blueprint -count=1
 - 打开后按实际执行顺序记录 `Step`、图名、图实例 ID、节点 ID、节点名称、执行输入口、下一个执行分支、输入端口值、输出端口值和错误文本。
 - 函数子图继承 caller 的 trace 状态，异步 continuation 后续节点仍走同一 trace logger。
 
-## Execution、Delay 与定时器验证
+## 历史：Execution、Delay 与定时器验证（已由 VM Yield 门禁替代）
+
+当前实际门禁位于 `vm_async_test.go`、`vm_lifecycle_test.go`、`vm_loop_test.go` 和 `vm_function_test.go`。Delay/Timer 仅保留可识别但执行时报 `ErrUnsupportedAsyncNode` 的文件兼容占位；不再提供 Scheduler、Timer 注册表或旧 Continuation API。
 
 覆盖测试：
 

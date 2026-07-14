@@ -288,7 +288,15 @@ func CompileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error
 		node.InputBindings = compileInputBindings(node)
 	}
 
-	return &CompiledGraph{Entrances: entrances, Variables: variables, Functions: config.Functions, NodeCount: len(nodeOrder)}, nil
+	compiled := &CompiledGraph{
+		Entrances: entrances,
+		Variables: variables,
+		Functions: config.Functions,
+		NodeCount: len(nodeOrder),
+		Nodes:     nodeOrder,
+	}
+	compiled.Program = compileVMProgram(compiled)
+	return compiled, nil
 }
 
 func validateDataDependencyCycles(nodes []*ExecNode) error {

@@ -1,7 +1,6 @@
 package blueprint
 
 import (
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -121,45 +120,11 @@ func (n *GetArrayAny) Exec() (int, error) {
 	return -1, nil
 }
 func (n *WhileNode) Exec() (int, error) {
-	for guard := 0; guard < 100000; guard++ {
-		condition, _ := n.GetInPortBool(1)
-		if !condition {
-			return 1, nil
-		}
-		if err := n.DoNext(0); err != nil {
-			return -1, err
-		}
-		if err := n.node.refreshInput(n.graph, n.ctx, 1); err != nil {
-			return -1, fmt.Errorf("WhileNode refresh condition: %w", err)
-		}
-	}
-	return -1, fmt.Errorf("WhileNode exceeded max iterations")
+	return -1, ErrControlNodeRequiresVM
 }
 func (n *ForLoopBreak) Exec() (int, error) {
-	if n.ctx != nil && n.ctx.ExecInputPortID == 3 {
-		return -1, ErrLoopBreak
-	}
-	start, _ := n.GetInPortInt(1)
-	end, _ := n.GetInPortInt(2)
-	for index := start; index < end; index++ {
-		n.SetOutPortInt(1, index)
-		if err := n.DoNext(0); err != nil {
-			if errors.Is(err, ErrLoopBreak) {
-				break
-			}
-			return -1, err
-		}
-	}
-	return 2, nil
+	return -1, ErrControlNodeRequiresVM
 }
 func (n *ForeachArray) Exec() (int, error) {
-	array, _ := n.GetInPortArray(1)
-	for index, item := range array {
-		n.GetOutPort(2).setAnyValue(item)
-		n.SetOutPortInt(3, PortInt(index))
-		if err := n.DoNext(0); err != nil {
-			return -1, err
-		}
-	}
-	return 1, nil
+	return -1, ErrControlNodeRequiresVM
 }

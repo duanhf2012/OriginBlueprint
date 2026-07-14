@@ -12,7 +12,7 @@
 - 已知业务节点、入口节点、函数节点和变量节点不丢失。
 - 旧 `port_id`、`port_defaultv`、exec/data 连线能映射到新端口。
 - `engine/go/blueprint` 可以编译并执行代表性用例。
-- 执行返回值、变量变化、分支命中和异步 continuation 行为符合预期。
+- 执行返回值、变量变化、分支命中和 VM Yield/Resume 行为符合预期。
 
 不要求新导出的 `.vgf` 与旧编辑器生成的 `.vgf` 字节完全一致。字段顺序、自动 id、保存时间、画布坐标微小差异不作为兼容失败；需要 round-trip 对比时，应使用 canonical 后的语义结构进行比较。
 
@@ -35,14 +35,14 @@
 - `GetLogger() IBlueprintLogger`
 - `GetGraphName(graphID int64) string`
 
-`Start` 是服务器事件循环推荐入口：它把执行提交到 Dispatcher 并立即返回，后续通过 `Execution.Done()`、`Result()` 和 `Cancel()` 管理生命周期。`Do`/`DoContext` 会阻塞当前 goroutine，直到包含 `Delay` 的完整执行结束，适合命令行、测试或明确允许阻塞的工作协程。
+`Start` 返回可管理生命周期的 `Execution`。默认 Dispatcher 异步启动；Actor-aware Dispatcher 在当前 Actor 内执行入口，并把 Yield 恢复投递回 Actor 队列。`Do`/`DoContext` 会等待最终结果；服务器同步封装应在发现挂起时取消并返回明确错误。
 
 低层 `NewGraph(...).Do(...)` 只支持同步执行；遇到异步节点时返回 `ErrExecutionSuspended`，不会等待，也不会静默返回 `(nil, nil)`。
 
 新增配置与排障入口：
 
 - `SetExecutionDispatcher(dispatcher ExecutionDispatcher)`
-- `SetTimerScheduler(scheduler TimerScheduler)`
+- `NewActorExecutionDispatcher(enqueue func(func()))`
 - `SetTraceLogger(logger BlueprintTraceLogger)`
 - `SetTraceEnabled(enabled bool)`
 
@@ -52,10 +52,9 @@
 
 - `engine/go/blueprint/compatibility_test.go`
   - `TestBlueprintLegacyFacadeIntegrationPath`
-- `engine/go/blueprint/execution_session_test.go`
-  - `TestBlueprintCloseCancelsExecutionsAndRejectsNewWork`
-- `engine/go/blueprint/timer_runtime_test.go`
-  - `TestReleaseGraphCancelsRuntimeTimers`
+- `engine/go/blueprint/vm_lifecycle_test.go`
+  - `TestVMCancelSuspendedExecutionInvalidatesYield`
+  - `TestVMHotReloadDoesNotChangeSuspendedProgram`
 
 覆盖内容：
 
@@ -67,7 +66,7 @@
 - logger 实现 `BlueprintTraceLogger` 时，可配合 `SetTraceEnabled(true)` 接收节点执行步骤、输入和输出。
 - `StartHotReload` 可重新加载图并返回可执行的替换函数。
 - `ReleaseGraph` 后再次 `Do` 返回 `ErrGraphNotFound`，不会继续执行实例。
-- `ReleaseGraph` 会直接清理实例的 Execution、Delay 和 Timer，不再委托 module 或旧 `cancelTimer` 回调。
+- `ReleaseGraph` 会取消实例上的未完成 Execution，并使未恢复的 YieldHandle 失效。
 - Running Execution 采用协作式取消：当前节点返回后停止后续节点并关闭 `Done`；`ReleaseGraph` 不等待可能长期阻塞的宿主节点。
 - 旧 `Timer事件入口`、`CreateTimer`、`CloseTimer`、`CancelTimerId` 和 `IBlueprintModule` timer 方法已删除；这些定时器从未正式投入使用，因此不保留运行时兼容层。
 
@@ -76,17 +75,17 @@
 - 收集服务器当前实际注册的所有自定义节点，逐个确认 `GetName()` 与节点 JSON 中的 `name` 去入口后缀后的类名一致。
 - 对照自定义节点的输入输出端口，确认 `port_id`、`type`、`data_type` 与旧定义一致。
 - 抽取真实服务器 `.vgf/.obp/.obpf` 文件跑离线加载和执行测试。
-- 只有固定后续出口的异步节点使用 `Suspend(nextIndex)`/`Continuation.Resume(...)`；RPC 等需要按结果选择成功、失败出口的节点使用 `SuspendForResume()`/`Continuation.ResumeTo(nextIndex, outputs...)`。
-- `ResumeTo` 的 `nextIndex` 是节点输出端口下标，不是第几个已连线节点；目标必须是 Exec 输出端口。`outputs` 按该节点的数据输出端口顺序回填，然后再执行选定分支。
-- RPC 回调必须检查 `ResumeTo` 返回的错误。continuation 只允许成功恢复一次，Execution 取消后到达的响应也会被拒绝，回调不得再次推进蓝图。
-- Timer 回调应选择蓝图函数，由运行时通过稳定函数 ID 启动独立 Execution；不要自行构造 Timer 事件入口。
+- 异步节点使用 `Yield(nextPort)`；RPC 等需要按结果选择成功、失败出口时保存 `YieldHandle`，回调调用 `ResumeTo(nextPort, outputs...)`。
+- `nextPort` 是节点 Exec 输出端口下标，不是第几个已连线节点；`outputs` 按该节点的数据输出端口顺序回填。
+- RPC 回调必须检查恢复错误。YieldHandle 只允许成功恢复一次，Execution 取消后到达的响应会被拒绝。
+- Core 不提供 Delay/Timer；需要定时行为时由业务宿主调度后恢复 YieldHandle。
 - 大规模开启 trace 前必须加业务侧过滤，只对指定 graph/object 开启。
 - 灰度期间保留旧库回退开关，先按模块或对象范围逐步替换。
 
 ## 推荐验证命令
 
 ```powershell
-go test ./engine/go/blueprint -run 'TestBlueprintLegacyFacadeIntegrationPath|TestReleaseGraphCancelsRuntimeTimers' -count=1
+go test ./engine/go/blueprint -run 'TestBlueprintLegacyFacadeIntegrationPath|TestVM' -count=1
 go test ./engine/go/blueprint -race -count=1
 go test ./...
 ```
@@ -97,7 +96,7 @@ go test ./...
 
 ```go
 func (n *QueryRoleNode) Exec() (int, error) {
-	continuation, err := n.SuspendForResume()
+	handle, err := n.Yield(0)
 	if err != nil {
 		return -1, err
 	}
@@ -105,11 +104,11 @@ func (n *QueryRoleNode) Exec() (int, error) {
 	n.client.QueryRole(n.roleID, func(role Role, callErr error) {
 		if callErr != nil {
 			// 输出端口 1：Failed；数据输出：错误码、错误信息。
-			_ = continuation.ResumeTo(1, errorCode(callErr), callErr.Error())
+			_ = handle.ResumeTo(1, errorCode(callErr), callErr.Error())
 			return
 		}
 		// 输出端口 0：Succeeded；数据输出：角色数据。
-		_ = continuation.ResumeTo(0, role)
+		_ = handle.ResumeTo(0, role)
 	})
 	return -1, blueprint.ErrExecutionSuspended
 }

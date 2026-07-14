@@ -79,19 +79,6 @@ func TestBlueprintCreateMissingGraphReturnsZero(t *testing.T) {
 	}
 }
 
-func TestBlueprintCreateLazilyAllocatesRuntimeTimerMap(t *testing.T) {
-	var bp Blueprint
-	bp.AddCompiledGraph("test", &CompiledGraph{Entrances: map[int64]*ExecNode{}})
-
-	graphID := bp.Create("test")
-	if graphID == 0 {
-		t.Fatalf("Create returned 0")
-	}
-	if bp.instances[graphID].runtimeTimers != nil {
-		t.Fatalf("Create allocated runtime timer map before a timer was registered")
-	}
-}
-
 func TestBlueprintFacadeMethodsRemainAvailable(t *testing.T) {
 	var bp Blueprint
 

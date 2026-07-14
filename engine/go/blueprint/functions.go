@@ -1,7 +1,5 @@
 package blueprint
 
-import "fmt"
-
 // FunctionEntranceID 是函数图固定使用的入口 ID。
 const FunctionEntranceID int64 = 1
 
@@ -36,17 +34,7 @@ func (n *FunctionReturn) GetName() string {
 }
 
 func (n *FunctionReturn) Exec() (int, error) {
-	values := make([]any, 0, len(n.ctx.InputPorts)-1)
-	n.graph.returns = nil
-	for index := 1; index < len(n.ctx.InputPorts); index++ {
-		value := portAnyValue(n.ctx.InputPorts[index])
-		values = append(values, value)
-		n.graph.appendReturn(arrayDataFromAny(value))
-	}
-	if err := n.graph.completeFunction(values); err != nil {
-		return -1, err
-	}
-	return -1, ErrFunctionReturned
+	return -1, ErrControlNodeRequiresVM
 }
 
 func (n *FunctionCall) GetName() string {
@@ -54,61 +42,7 @@ func (n *FunctionCall) GetName() string {
 }
 
 func (n *FunctionCall) Exec() (int, error) {
-	if n.graph == nil || n.graph.compiled == nil {
-		return -1, fmt.Errorf("function call is not executing")
-	}
-	functionGraph := n.lookupFunctionGraph()
-	if functionGraph == nil {
-		return -1, fmt.Errorf("function %s not found", n.functionLabel())
-	}
-	if n.graph.callDepth >= MaxFunctionCallDepth {
-		return -1, fmt.Errorf("maximum function call depth %d exceeded", MaxFunctionCallDepth)
-	}
-
-	continuation, err := n.Suspend(0)
-	if err != nil {
-		return -1, err
-	}
-
-	child := NewGraph(functionGraph)
-	child.name = n.functionLabel()
-	child.graphID = n.graph.graphID
-	child.module = n.graph.module
-	child.instance = n.graph.instance
-	child.callDepth = n.graph.callDepth + 1
-	child.budget = n.graph.budget
-	if n.graph.execution != nil {
-		child.execution = n.graph.execution.rootExecution()
-		child.functionFrame = newFunctionFrame(child.execution, child)
-	}
-	// 函数调用与父图共享实例变量锁，保证变量访问语义一致。
-	child.trace = n.graph.trace
-	child.onFunctionComplete = func(values []any) error {
-		return continuation.Resume(values...)
-	}
-
-	args := make([]any, 0, len(n.ctx.InputPorts)-1)
-	for index := 1; index < len(n.ctx.InputPorts); index++ {
-		args = append(args, portAnyValue(n.ctx.InputPorts[index]))
-	}
-
-	_, runErr := child.runEntrance(FunctionEntranceID, args...)
-	if child.functionFrame != nil {
-		child.functionFrame.finish(runErr)
-	}
-	if runErr != nil && !isFunctionCallStop(runErr) {
-		return -1, runErr
-	}
-	if runErr == ErrFunctionReturned || child.functionCompleted.Load() {
-		if n.graph.execution != nil {
-			return -1, ErrExecutionSuspended
-		}
-		return -1, nil
-	}
-	if runErr == nil && child.onFunctionComplete != nil {
-		return -1, fmt.Errorf("function %s completed without FunctionReturn", n.functionLabel())
-	}
-	return -1, ErrExecutionSuspended
+	return -1, ErrControlNodeRequiresVM
 }
 
 func (n *FunctionCall) lookupFunctionGraph() *CompiledGraph {
@@ -137,10 +71,6 @@ func (n *FunctionCall) functionLabel() string {
 		return n.node.FunctionName
 	}
 	return ""
-}
-
-func isFunctionCallStop(err error) bool {
-	return err == ErrExecutionSuspended || err == ErrFunctionReturned
 }
 
 func functionEntryDefinition(inputTypes []string) (*NodeDefinition, error) {

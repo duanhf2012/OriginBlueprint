@@ -1,0 +1,14 @@
+{
+  "graph_name": "business-stub",
+  "nodes": [
+    {"id":"entry","class":"Entrance_IntParam_1"},
+    {"id":"business","class":"LegacyBusinessNode","port_defaultv":{"1":99}},
+    {"id":"result","class":"AppendStringReturn","port_defaultv":{"1":"done"}}
+  ],
+  "edges": [
+    {"source_node_id":"entry","source_port_id":0,"des_node_id":"business","des_port_id":0},
+    {"source_node_id":"business","source_port_id":0,"des_node_id":"result","des_port_id":0}
+  ],
+  "groups": [],
+  "variables": []
+}

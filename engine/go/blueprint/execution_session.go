@@ -16,6 +16,7 @@ var (
 	ErrBlueprintClosed         = errors.New("golang blueprint closed")
 	ErrGraphNotFound           = errors.New("golang blueprint graph not found")
 	ErrEntranceNotFound        = errors.New("golang blueprint entrance not found")
+	ErrGraphReleased           = errors.New("golang blueprint graph released")
 )
 
 const defaultExecutionStepLimit uint64 = 1_000_000
@@ -89,6 +90,7 @@ type Execution struct {
 	graphID    int64
 	instance   *GraphInstance
 	graph      *Graph
+	vm         *vmMachine
 	dispatcher ExecutionDispatcher
 	entranceID int64
 	args       []any
@@ -103,18 +105,13 @@ type Execution struct {
 	stopContext     func() bool
 	cancelSeq       uint64
 	cancelHooks     map[uint64]func()
-	pending         *Continuation
-	pendingNext     int
-	pendingArgs     []any
 	completionHooks []func(*Execution)
 }
 
-// executionScope 保存一次顶层执行中所有函数帧共享的异步运行依赖。
-// 函数帧仍使用独立 Graph，只通过 scope 委托生命周期和调度。
+// executionScope 保存一次执行的串行调度队列和预算。
 type executionScope struct {
 	execution  *Execution
 	dispatcher ExecutionDispatcher
-	scheduler  TimerScheduler
 	budget     *executionBudget
 
 	mu       sync.Mutex
@@ -124,23 +121,6 @@ type executionScope struct {
 }
 
 type executionTerminal struct{ err error }
-
-type functionFrameState uint8
-
-const (
-	functionFrameRunning functionFrameState = iota
-	functionFrameSuspended
-	functionFrameCompleted
-	functionFrameFailed
-)
-
-type functionFrame struct {
-	root  *Execution
-	graph *Graph
-
-	mu    sync.Mutex
-	state functionFrameState
-}
 
 func (e *Execution) ID() uint64 { return e.id }
 
@@ -229,7 +209,12 @@ func (e *Execution) runInitial() {
 				err = fmt.Errorf("blueprint execution panic: %v", recovered)
 			}
 		}()
-		returns, err = e.graph.runEntrance(e.entranceID, e.args...)
+		var found bool
+		e.vm, found, err = e.graph.newVMMachineForEntrance(e.entranceID, e.args...)
+		if err == nil && found {
+			err = e.vm.run()
+			returns = e.graph.resultSnapshot()
+		}
 	}()
 	e.finishRun(returns, err)
 }
@@ -244,104 +229,6 @@ func (e *Execution) beginRun() bool {
 	return true
 }
 
-func (e *Execution) scheduleContinuation(c *Continuation, args ...any) error {
-	return e.scheduleContinuationAt(c, c.nextIndex, args...)
-}
-
-func (e *Execution) scheduleContinuationAt(c *Continuation, nextIndex int, args ...any) error {
-	if err := c.reserve(); err != nil {
-		return err
-	}
-	e.mu.Lock()
-	if e.cancelErr != nil {
-		err := e.cancelErr
-		e.mu.Unlock()
-		return err
-	}
-	switch e.state {
-	case ExecutionRunning:
-		if e.pending != nil {
-			e.mu.Unlock()
-			return ErrExecutionPending
-		}
-		e.pending = c
-		e.pendingNext = nextIndex
-		e.pendingArgs = append([]any(nil), args...)
-		e.mu.Unlock()
-		return nil
-	case ExecutionSuspended:
-		e.state = ExecutionPending
-		e.mu.Unlock()
-		return e.submitReservedContinuation(c, nextIndex, args...)
-	default:
-		state := e.state
-		stateErr := e.err
-		e.mu.Unlock()
-		if state == ExecutionCanceled {
-			return ErrExecutionCanceled
-		}
-		if state.terminal() {
-			return stateErr
-		}
-		return ErrExecutionPending
-	}
-}
-
-func (e *Execution) finishFrameRun(err error) {
-	if cancelErr := e.cancellationError(); cancelErr != nil {
-		e.finish(ExecutionCanceled, nil, cancelErr)
-		return
-	}
-	if err != nil && !isFunctionCallStop(err) {
-		e.finish(ExecutionFailed, nil, err)
-		return
-	}
-
-	e.mu.Lock()
-	if e.state.terminal() {
-		e.mu.Unlock()
-		return
-	}
-	if e.pending != nil {
-		continuation := e.pending
-		nextIndex := e.pendingNext
-		args := e.pendingArgs
-		e.pending = nil
-		e.pendingNext = -1
-		e.pendingArgs = nil
-		e.state = ExecutionPending
-		e.mu.Unlock()
-		if submitErr := e.submitReservedContinuation(continuation, nextIndex, args...); submitErr != nil {
-			e.finish(ExecutionFailed, nil, submitErr)
-		}
-		return
-	}
-	e.state = ExecutionSuspended
-	e.mu.Unlock()
-}
-
-func (e *Execution) submitReservedContinuation(c *Continuation, nextIndex int, args ...any) error {
-	if err := e.submit(func() {
-		if !e.beginRun() {
-			return
-		}
-		var err error
-		func() {
-			defer func() {
-				if recovered := recover(); recovered != nil {
-					err = fmt.Errorf("blueprint continuation panic: %v", recovered)
-				}
-			}()
-			err = c.resumeReservedAt(nextIndex, args...)
-		}()
-		e.finishRun(e.graph.resultSnapshot(), err)
-	}); err != nil {
-		e.finishSubmissionError(err)
-		return err
-	}
-	return nil
-}
-
 func (e *Execution) finishRun(result PortArray, err error) {
 	if cancelErr := e.cancellationError(); cancelErr != nil {
 		e.finish(ExecutionCanceled, nil, cancelErr)
@@ -350,27 +237,10 @@ func (e *Execution) finishRun(result PortArray, err error) {
 	if errors.Is(err, ErrExecutionSuspended) {
 		e.mu.Lock()
 		if !e.state.terminal() {
-			if e.pending != nil {
-				continuation := e.pending
-				nextIndex := e.pendingNext
-				args := e.pendingArgs
-				e.pending = nil
-				e.pendingNext = -1
-				e.pendingArgs = nil
-				e.state = ExecutionPending
-				e.mu.Unlock()
-				if submitErr := e.submitReservedContinuation(continuation, nextIndex, args...); submitErr != nil {
-					e.finish(ExecutionFailed, nil, submitErr)
-				}
-				return
-			}
 			e.state = ExecutionSuspended
 		}
 		e.mu.Unlock()
 		return
-	}
-	if errors.Is(err, ErrFunctionReturned) {
-		err = nil
 	}
 	if err != nil {
 		e.finish(ExecutionFailed, result, err)
@@ -409,7 +279,8 @@ func (e *Execution) finishWhen(state ExecutionState, result PortArray, err error
 	}
 	scope.markTerminal(terminalErr)
 	e.state = state
-	e.result = append(PortArray(nil), result...)
+	// result 由 Graph.resultSnapshot 创建，只属于当前 Execution，可以直接接管。
+	e.result = result
 	e.err = err
 	stopContext := e.stopContext
 	e.stopContext = nil
@@ -418,9 +289,6 @@ func (e *Execution) finishWhen(state ExecutionState, result PortArray, err error
 		cancelHooks = append(cancelHooks, cancelHook)
 	}
 	e.cancelHooks = nil
-	e.pending = nil
-	e.pendingNext = -1
-	e.pendingArgs = nil
 	completionHooks := append([]func(*Execution){}, e.completionHooks...)
 	e.completionHooks = nil
 	e.mu.Unlock()
@@ -430,7 +298,9 @@ func (e *Execution) finishWhen(state ExecutionState, result PortArray, err error
 	for _, cancelHook := range cancelHooks {
 		cancelHook()
 	}
-	if e.graph != nil {
+	if e.vm != nil {
+		e.vm.release()
+	} else if e.graph != nil {
 		e.graph.releaseContextReferences()
 	}
 	if e.blueprint != nil {
@@ -443,6 +313,7 @@ func (e *Execution) finishWhen(state ExecutionState, result PortArray, err error
 	e.mu.Lock()
 	e.args = nil
 	e.graph = nil
+	e.vm = nil
 	e.mu.Unlock()
 	return true
 }
@@ -502,15 +373,11 @@ func (e *Execution) ensureScope() *executionScope {
 	if e.scope != nil {
 		return e.scope
 	}
-	scheduler := defaultTimerScheduler
-	if e.blueprint != nil {
-		scheduler = e.blueprint.timerScheduler()
-	}
 	dispatcher := e.dispatcher
 	if dispatcher == nil {
 		dispatcher = defaultExecutionDispatcher
 	}
-	e.scope = &executionScope{execution: e, dispatcher: dispatcher, scheduler: scheduler, budget: newExecutionBudget(defaultExecutionStepLimit)}
+	e.scope = &executionScope{execution: e, dispatcher: dispatcher, budget: newExecutionBudget(defaultExecutionStepLimit)}
 	return e.scope
 }
 
@@ -521,7 +388,22 @@ func (e *Execution) submit(task func()) error {
 	return e.ensureScope().submit(task)
 }
 
+func (e *Execution) submitInitial(task func()) error {
+	if e == nil {
+		return fmt.Errorf("execution is nil")
+	}
+	return e.ensureScope().submitInitial(task)
+}
+
 func (s *executionScope) submit(task func()) error {
+	return s.submitTask(task, false)
+}
+
+func (s *executionScope) submitInitial(task func()) error {
+	return s.submitTask(task, true)
+}
+
+func (s *executionScope) submitTask(task func(), initial bool) error {
 	if s == nil || task == nil {
 		return fmt.Errorf("execution task is nil")
 	}
@@ -541,7 +423,17 @@ func (s *executionScope) submit(task func()) error {
 	s.draining = true
 	s.mu.Unlock()
 
-	if err := s.dispatcher.Submit(s.runOne); err != nil {
+	var err error
+	if initial {
+		if dispatcher, ok := s.dispatcher.(interface{ SubmitInitial(func()) error }); ok {
+			err = dispatcher.SubmitInitial(s.runOne)
+		} else {
+			err = s.dispatcher.Submit(s.runOne)
+		}
+	} else {
+		err = s.dispatcher.Submit(s.runOne)
+	}
+	if err != nil {
 		s.mu.Lock()
 		s.draining = false
 		s.queue = nil
@@ -609,81 +501,6 @@ func (s *executionScope) runOne() {
 	}
 }
 
-func newFunctionFrame(root *Execution, graph *Graph) *functionFrame {
-	return &functionFrame{root: root.rootExecution(), graph: graph, state: functionFrameRunning}
-}
-
-func (f *functionFrame) schedule(c *Continuation, nextIndex int, args ...any) error {
-	if f == nil || f.root == nil {
-		return fmt.Errorf("function frame is not executing")
-	}
-	if err := f.root.cancellationError(); err != nil {
-		return err
-	}
-	if err := c.reserve(); err != nil {
-		return err
-	}
-	f.mu.Lock()
-	if f.state == functionFrameCompleted || f.state == functionFrameFailed {
-		f.mu.Unlock()
-		return ErrContinuationResumed
-	}
-	f.mu.Unlock()
-
-	if err := f.root.submit(func() { f.resume(c, nextIndex, args...) }); err != nil {
-		f.root.finishSubmissionError(err)
-		return err
-	}
-	return nil
-}
-
-func (f *functionFrame) resume(c *Continuation, nextIndex int, args ...any) {
-	if !f.root.beginRun() {
-		return
-	}
-	f.mu.Lock()
-	f.state = functionFrameRunning
-	f.mu.Unlock()
-
-	var err error
-	func() {
-		defer func() {
-			if recovered := recover(); recovered != nil {
-				err = fmt.Errorf("blueprint function continuation panic: %v", recovered)
-			}
-		}()
-		err = c.resumeReservedAt(nextIndex, args...)
-		if err == nil && f.graph.onFunctionComplete != nil && !f.graph.functionCompleted.Load() {
-			err = fmt.Errorf("function %s completed without FunctionReturn", f.graph.name)
-		}
-	}()
-	f.finish(err)
-	f.root.finishFrameRun(err)
-}
-
-func (f *functionFrame) finish(err error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	switch {
-	case f.graph != nil && f.graph.functionCompleted.Load(), errors.Is(err, ErrFunctionReturned):
-		f.state = functionFrameCompleted
-	case errors.Is(err, ErrExecutionSuspended):
-		f.state = functionFrameSuspended
-	case err != nil:
-		f.state = functionFrameFailed
-	default:
-		f.state = functionFrameCompleted
-	}
-}
-
-func (e *Execution) timerScheduler() TimerScheduler {
-	scope := e.ensureScope()
-	if scope == nil || scope.scheduler == nil {
-		return defaultTimerScheduler
-	}
-	return scope.scheduler
-}
-
 func (e *Execution) addCompletionHook(hook func(*Execution)) {
 	if e == nil || hook == nil {
 		return
@@ -701,6 +518,9 @@ func (e *Execution) addCompletionHook(hook func(*Execution)) {
 }
 
 func (e *Execution) watchContext(ctx context.Context) {
+	if ctx == nil || ctx.Done() == nil {
+		return
+	}
 	stopContext := context.AfterFunc(ctx, func() { e.cancelWith(ctx.Err()) })
 	e.mu.Lock()
 	if e.state.terminal() {
@@ -740,10 +560,6 @@ func (b *Blueprint) Start(ctx context.Context, graphID int64, entranceID int64, 
 	if dispatcher == nil {
 		dispatcher = defaultExecutionDispatcher
 	}
-	scheduler := b.scheduler
-	if scheduler == nil {
-		scheduler = defaultTimerScheduler
-	}
 	b.executionSeed++
 	execution := &Execution{
 		id:         b.executionSeed,
@@ -756,7 +572,7 @@ func (b *Blueprint) Start(ctx context.Context, graphID int64, entranceID int64, 
 		done:       make(chan struct{}),
 		state:      ExecutionPending,
 	}
-	execution.scope = &executionScope{execution: execution, dispatcher: dispatcher, scheduler: scheduler, budget: newExecutionBudget(defaultExecutionStepLimit)}
+	execution.scope = &executionScope{execution: execution, dispatcher: dispatcher, budget: newExecutionBudget(defaultExecutionStepLimit)}
 	graph := NewGraph(state.compiled)
 	graph.name = instance.name
 	graph.graphID = graphID
@@ -766,6 +582,7 @@ func (b *Blueprint) Start(ctx context.Context, graphID int64, entranceID int64, 
 	graph.variableMu = &state.variableMu
 	graph.logger = b.logger
 	graph.execution = execution
+	graph.budget = execution.scope.budget
 	if b.traceEnabled && b.traceLogger != nil {
 		graph.trace = &blueprintTraceRuntime{logger: b.traceLogger, state: &blueprintTraceState{}}
 	}
@@ -774,7 +591,7 @@ func (b *Blueprint) Start(ctx context.Context, graphID int64, entranceID int64, 
 	b.mu.Unlock()
 
 	execution.watchContext(ctx)
-	if err := execution.submit(execution.runInitial); err != nil {
+	if err := execution.submitInitial(execution.runInitial); err != nil {
 		execution.finish(ExecutionFailed, nil, err)
 		return nil, err
 	}
@@ -800,22 +617,6 @@ func (b *Blueprint) SetExecutionDispatcher(dispatcher ExecutionDispatcher) {
 	b.mu.Lock()
 	b.dispatcher = dispatcher
 	b.mu.Unlock()
-}
-
-func (b *Blueprint) SetTimerScheduler(scheduler TimerScheduler) {
-	b.mu.Lock()
-	b.scheduler = scheduler
-	b.mu.Unlock()
-}
-
-func (b *Blueprint) timerScheduler() TimerScheduler {
-	b.mu.RLock()
-	scheduler := b.scheduler
-	b.mu.RUnlock()
-	if scheduler == nil {
-		return defaultTimerScheduler
-	}
-	return scheduler
 }
 
 func (b *Blueprint) activeExecutionCount() int {

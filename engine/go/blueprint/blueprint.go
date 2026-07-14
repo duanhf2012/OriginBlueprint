@@ -24,26 +24,21 @@ type Blueprint struct {
 	graphPath     string
 	seedID        int64
 	dispatcher    ExecutionDispatcher
-	scheduler     TimerScheduler
 	executions    map[uint64]*Execution
 	executionSeed uint64
 	closed        bool
-	runtimeID     uint64
 }
 
 // GraphInstance 保存单个 Create 实例的运行期状态。
 type GraphInstance struct {
-	name           string
-	graphID        int64
-	module         IBlueprintModule
-	timerMu        sync.Mutex
-	state          *instanceRuntimeState
-	lifecycleMu    sync.Mutex
-	released       bool
-	releasedCh     chan struct{}
-	leases         int
-	runtimeTimerID uint64
-	runtimeTimers  map[uint64]*runtimeTimer
+	name        string
+	graphID     int64
+	module      IBlueprintModule
+	state       *instanceRuntimeState
+	lifecycleMu sync.Mutex
+	released    bool
+	releasedCh  chan struct{}
+	leases      int
 }
 
 type instanceRuntimeState struct {
@@ -98,6 +93,7 @@ func (b *Blueprint) AddCompiledGraph(name string, graph *CompiledGraph) {
 	if name == "" || graph == nil {
 		return
 	}
+	ensureVMProgram(graph)
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.ensureLocked()
@@ -106,7 +102,7 @@ func (b *Blueprint) AddCompiledGraph(name string, graph *CompiledGraph) {
 
 // Create 创建一个蓝图实例并返回实例 ID。
 //
-// 同名蓝图的多个实例共享 CompiledGraph，但变量和 timer 互相隔离。
+// 同名蓝图的多个实例共享 CompiledGraph，但变量互相隔离。
 func (b *Blueprint) Create(graphName string) int64 {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -151,7 +147,6 @@ func (b *Blueprint) Close() error {
 	b.mu.Unlock()
 
 	for _, instance := range instances {
-		b.cancelInstanceRuntimeTimers(instance)
 		instance.markReleased()
 	}
 	for _, execution := range executions {
@@ -209,7 +204,7 @@ func (b *Blueprint) TriggerEvent(graphID int64, eventID int64, args ...any) erro
 	return err
 }
 
-// ReleaseGraph 释放实例并取消实例上仍然挂起的 timer。
+// ReleaseGraph 释放实例并取消仍未完成的执行。
 func (b *Blueprint) ReleaseGraph(graphID int64) {
 	b.mu.Lock()
 	instance := b.instances[graphID]
@@ -226,7 +221,6 @@ func (b *Blueprint) ReleaseGraph(graphID int64) {
 		return
 	}
 	instance.markReleased()
-	b.cancelInstanceRuntimeTimers(instance)
 	for _, execution := range executions {
 		execution.cancelWith(ErrGraphReleased)
 	}
@@ -340,9 +334,6 @@ func (b *Blueprint) ensure() {
 }
 
 func (b *Blueprint) ensureLocked() {
-	if b.runtimeID == 0 {
-		b.runtimeID = atomic.AddUint64(&blueprintRuntimeSeed, 1)
-	}
 	if b.graphs == nil {
 		b.graphs = map[string]*CompiledGraph{}
 	}

@@ -22,6 +22,33 @@ func TestInlineExecutionDispatcherRejectsNilTask(t *testing.T) {
 	}
 }
 
+func TestActorExecutionDispatcherRunsInitialInlineAndEnqueuesResume(t *testing.T) {
+	var queued []func()
+	dispatcher := NewActorExecutionDispatcher(func(task func()) { queued = append(queued, task) })
+	initial, ok := dispatcher.(interface{ SubmitInitial(func()) error })
+	if !ok {
+		t.Fatal("actor dispatcher does not support initial submission")
+	}
+	initialRan := false
+	if err := initial.SubmitInitial(func() { initialRan = true }); err != nil {
+		t.Fatalf("SubmitInitial failed: %v", err)
+	}
+	if !initialRan || len(queued) != 0 {
+		t.Fatalf("initialRan/queued = %v/%d, want true/0", initialRan, len(queued))
+	}
+	resumeRan := false
+	if err := dispatcher.Submit(func() { resumeRan = true }); err != nil {
+		t.Fatalf("Submit failed: %v", err)
+	}
+	if resumeRan || len(queued) != 1 {
+		t.Fatalf("resumeRan/queued = %v/%d, want false/1", resumeRan, len(queued))
+	}
+	queued[0]()
+	if !resumeRan {
+		t.Fatal("queued resume did not run")
+	}
+}
+
 type inlineNestedDoNode struct {
 	BaseExecNode
 	blueprint *Blueprint

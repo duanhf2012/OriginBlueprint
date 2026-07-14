@@ -28,6 +28,32 @@ func (inlineExecutionDispatcher) Submit(task func()) error {
 	return nil
 }
 
+type actorExecutionDispatcher struct {
+	enqueue func(func())
+}
+
+// NewActorExecutionDispatcher 创建 Actor-aware 调度器：入口在当前 Actor 内同步执行，
+// Yield 恢复等后续任务统一投递回宿主 Actor 队列。
+func NewActorExecutionDispatcher(enqueue func(func())) ExecutionDispatcher {
+	return &actorExecutionDispatcher{enqueue: enqueue}
+}
+
+func (d *actorExecutionDispatcher) SubmitInitial(task func()) error {
+	if d == nil || d.enqueue == nil || task == nil {
+		return ErrExecutionRejected
+	}
+	task()
+	return nil
+}
+
+func (d *actorExecutionDispatcher) Submit(task func()) error {
+	if d == nil || d.enqueue == nil || task == nil {
+		return ErrExecutionRejected
+	}
+	d.enqueue(task)
+	return nil
+}
+
 type workerExecutionDispatcher struct {
 	tasks chan func()
 }

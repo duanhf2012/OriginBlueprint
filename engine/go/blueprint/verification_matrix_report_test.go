@@ -33,7 +33,6 @@ func TestWriteVerificationMatrixReport(t *testing.T) {
 	appendVerificationMatrixSection(&report, "03_array_data_lab.obp", "入口对象 ID 与数组端口当前未接入执行流，因此十组输入用于确认固定数组与局部变量流程稳定。", verificationArrayMatrixRows(t, intInputs))
 	appendVerificationMatrixSection(&report, "04_deterministic_algorithm.obp", "参数 1、参数 2 参与整数评分、除法、取模和分支。", verificationAlgorithmMatrixRows(t, intInputs))
 	appendVerificationMatrixSection(&report, "05_function_orchestrator.obp", "主图入口当前未接入后续函数调用；每行同时列出四个内部函数调用的实际参数和返回值。", verificationFunctionMatrixRows(t, intInputs))
-	appendVerificationMatrixSection(&report, "06_timer_lifecycle.obp", "入口参数当前未接入定时器生命周期；每行执行创建、暂停、恢复、查询和清理，并列出定时器回调函数参数。", verificationTimerMatrixRows(t, intInputs))
 	appendVerificationMatrixSection(&report, "07_async_rpc_resume_to.obp", "入口参数当前未接入示例 RPC；每行依次执行成功与失败两次异步恢复。", verificationRPCMatrixRows(t, intInputs))
 
 	path := filepath.Join("..", "..", "..", "docs", "BLUEPRINT_VERIFICATION_MATRIX_ZH.md")
@@ -113,33 +112,6 @@ func verificationFunctionMatrixRows(t *testing.T, inputs [][3]PortInt) []verific
 	return rows
 }
 
-func verificationTimerMatrixRows(t *testing.T, inputs [][3]PortInt) []verificationMatrixRow {
-	rows := make([]verificationMatrixRow, 0, len(inputs))
-	want := PortArray{{StrVal: "timer-lifecycle-complete"}}
-	for _, input := range inputs {
-		graphs := loadVerificationFixtureSet(t)
-		callback := verificationFixtureFunction(t, graphs, "functions/13_local_state_isolation.obpf")
-		callbackReturns := verificationMatrixRun(t, NewGraph(callback), FunctionEntranceID, PortArray{{IntVal: 11}}, PortInt(11))
-		bp := &Blueprint{}
-		for name, graph := range graphs {
-			bp.AddCompiledGraph(name, graph)
-		}
-		graphID := bp.Create("新定时器生命周期")
-		actual, err := bp.Do(graphID, EntranceIDIntParam, input[0], input[1], input[2])
-		if err != nil {
-			t.Fatalf("timer Do(%s): %v", formatIntInputs(input), err)
-		}
-		assertVerificationReturns(t, actual, want)
-		rows = append(rows, verificationMatrixRow{
-			input:         formatIntInputs(input),
-			blueprint:     actual,
-			reference:     want,
-			functionCalls: "Set Timer by Function: 局部状态隔离(种子=11) => " + formatPortArray(callbackReturns) + "（循环回调，主图返回不包含回调结果）",
-		})
-	}
-	return rows
-}
-
 func verificationRPCMatrixRows(t *testing.T, inputs [][3]PortInt) []verificationMatrixRow {
 	rows := make([]verificationMatrixRow, 0, len(inputs))
 	want := PortArray{{IntVal: 314}, {IntVal: 503}, {StrVal: "mock rpc unavailable"}}
@@ -171,19 +143,20 @@ func verificationMatrixRunMockRPC(t *testing.T, input [3]PortInt) PortArray {
 	registry := verificationFixtureRegistry(t)
 	graph := loadVerificationGraphWithRegistry(t, "07_async_rpc_resume_to.obp", registry)
 	dispatcher := &manualExecutionDispatcher{}
-	scheduler := newManualTimerScheduler()
+	verificationMockRPCPending.Lock()
+	verificationMockRPCPending.calls = nil
+	verificationMockRPCPending.Unlock()
 	bp := &Blueprint{}
 	bp.SetExecutionDispatcher(dispatcher)
-	bp.SetTimerScheduler(scheduler)
 	bp.AddCompiledGraph("定时器模拟 RPC 异步恢复", graph)
 	execution, err := bp.Start(context.Background(), bp.Create("定时器模拟 RPC 异步恢复"), EntranceIDIntParam, input[0], input[1], input[2])
 	if err != nil {
 		t.Fatal(err)
 	}
 	dispatcher.runNext(t)
-	scheduler.fire(t, scheduler.onlyHandle(t))
+	resumeVerificationMockRPC(t)
 	dispatcher.runNext(t)
-	scheduler.fire(t, scheduler.onlyHandle(t))
+	resumeVerificationMockRPC(t)
 	dispatcher.runNext(t)
 	returns, err := execution.Result()
 	if err != nil {

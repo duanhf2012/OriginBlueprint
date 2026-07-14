@@ -79,60 +79,21 @@ type Sequence struct{ BaseExecNode }
 
 func (n *Sequence) GetName() string { return "Sequence" }
 func (n *Sequence) Exec() (int, error) {
-	for index, port := range n.ctx.OutputPorts {
-		if port == nil || !port.IsPortExec() {
-			break
-		}
-		if err := n.DoNext(index); err != nil {
-			return -1, err
-		}
-	}
-	return -1, nil
+	return -1, ErrControlNodeRequiresVM
 }
 
 type Foreach struct{ BaseExecNode }
 
 func (n *Foreach) GetName() string { return "Foreach" }
 func (n *Foreach) Exec() (int, error) {
-	start, ok := n.GetInPortInt(1)
-	if !ok {
-		return -1, fmt.Errorf("Foreach start input not found")
-	}
-	end, ok := n.GetInPortInt(2)
-	if !ok {
-		return -1, fmt.Errorf("Foreach end input not found")
-	}
-	for index := start; index < end; index++ {
-		n.SetOutPortInt(2, index)
-		if err := n.DoNext(0); err != nil {
-			return -1, err
-		}
-	}
-	if err := n.DoNext(1); err != nil {
-		return -1, err
-	}
-	return -1, nil
+	return -1, ErrControlNodeRequiresVM
 }
 
 type ForeachIntArray struct{ BaseExecNode }
 
 func (n *ForeachIntArray) GetName() string { return "ForeachIntArray" }
 func (n *ForeachIntArray) Exec() (int, error) {
-	array, ok := n.GetInPortArray(1)
-	if !ok {
-		return -1, fmt.Errorf("ForeachIntArray array input not found")
-	}
-	for index, item := range array {
-		n.SetOutPortInt(2, PortInt(index))
-		n.SetOutPortInt(3, item.IntVal)
-		if err := n.DoNext(0); err != nil {
-			return -1, err
-		}
-	}
-	if err := n.DoNext(1); err != nil {
-		return -1, err
-	}
-	return -1, nil
+	return -1, ErrControlNodeRequiresVM
 }
 
 type BoolIf struct{ BaseExecNode }

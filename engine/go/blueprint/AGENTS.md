@@ -1,32 +1,53 @@
-﻿# Go 钃濆浘寮曟搸 Agent 瑙勫垯
+# Go 蓝图引擎 Agent 规则
 
-鏈洰褰曞寘鍚潰鍚戞湇鍔″櫒杩愯鐨?Go 钃濆浘瑙ｆ瀽涓庢墽琛屽紩鎿庛€傝繖閲屽睘浜庨珮椋庨櫓杩愯鏃朵唬鐮侊紝淇敼鏃跺繀椤讳紭鍏堣€冭檻鍏煎鎬с€佺嚎绋嬪畨鍏ㄥ拰鎬ц兘銆?
-## 蹇呰涓婁笅鏂?
-淇敼鏈洰褰曞墠锛屽厛闃呰锛?
-- `../../docs/CODEX_BLUEPRINT_ENGINE_RULES_ZH.md`
-- `../../docs/BLUEPRINT_ENGINE_TEST_MATRIX_ZH.md`
-- 濡傛灉娑夊強 legacy `.vgf` 琛屼负锛岃繕瑕侀槄璇?`../../docs/LEGACY_COMPATIBILITY_ZH.md`
+本目录包含面向服务器运行的 Go 蓝图解析与执行引擎，属于高风险运行时代码。修改时必须优先考虑兼容性、并发安全和性能。
 
-## 纭€ц鍒?
-- 涓嶈鎶婂崟娆℃墽琛岀殑鍙彉鐘舵€佹斁鍒?`CompiledGraph`銆乣ExecNode` 鎴?`NodeDefinition` 涓婏紱瀹冧滑鏄叡浜彧璇昏繍琛屾椂缁撴瀯銆?- `Graph` 鏄崟娆℃墽琛?session锛屼笉鑳藉苟鍙戝鐢ㄣ€?- 鏈嶅姟鍣ㄤ唬鐮佸簲閫氳繃 `Blueprint` 璋冪敤锛沗Blueprint` 鏄澶栧苟鍙戝畨鍏?facade銆?- 寮傛 continuation 鐘舵€佸繀椤诲彧灞炰簬琚寕璧风殑 `Graph` session銆?- 濡傛灉鑺傜偣鍙兘 suspend锛屽湪 continuation 瀹屾垚鍓嶏紝涓嶈兘鎶婄浉鍏虫墽琛屽璞″綊杩樻睜鎴栧鐢ㄣ€?- 淇濇寔 `.vgf` 鍏煎鎬с€傚凡鍒犻櫎鎴栨湭鐭ョ殑 legacy 鑺傜偣搴旈殣钘忔垨淇濈暀锛屼笉鑳介潤榛樹涪寮冦€?- 椤跺眰 `nodes/*.json` 鏄郴缁熻妭鐐瑰畾涔夈€傞櫎闈炵敤鎴锋槑纭姹傦紝`nodes/json/**` 涓氬姟瀹氫箟涓嶅湪澶勭悊鑼冨洿銆?- 鏂囦欢銆佽〃鏍笺€佸瓧鍏歌摑鍥炬暟鎹被鍨嬪凡鎸夐渶姹傚垹闄ゃ€傛湭缁忕敤鎴锋槑纭悓鎰忥紝涓嶈鎭㈠銆?
-## 鎬ц兘瑙勫垯
+## 必读上下文
 
-- 浼樺厛鍋氱紪璇戞湡鎴栧姞杞芥湡棰勫鐞嗭紝鑰屼笉鏄墽琛屾湡鏌ユ壘銆?- `CompileGraph` 杩斿洖鍚庯紝缂栬瘧缁撴瀯蹇呴』淇濇寔涓嶅彲鍙樸€?- 鐑墽琛岃矾寰勪笂锛屽鏋滆兘浣跨敤 index 鎴栭璁＄畻 binding锛屽氨涓嶈浣跨敤 string-keyed map銆?- 涓嶈鍦ㄥ叡浜妭鐐逛笂缂撳瓨 `ExecContext` 鎴?port 鍊笺€?- 瀵硅薄姹犲繀椤昏€冭檻寮傛 continuation 鐢熷懡鍛ㄦ湡锛涜鎸傝捣鐨勭姸鎬佺粷涓嶈兘褰掕繕姹犮€?
-## 楠岃瘉鍛戒护
+修改本目录前，先阅读：
 
-淇敼 engine 鏃讹紝鍏堣窇绐勬祴璇曪紝鐒跺悗鑷冲皯杩愯锛?
+- `../../../docs/CODEX_BLUEPRINT_ENGINE_RULES_ZH.md`
+- `../../../docs/BLUEPRINT_ENGINE_TEST_MATRIX_ZH.md`
+- 涉及 legacy `.vgf` 行为时，还要阅读 `../../../docs/LEGACY_COMPATIBILITY_ZH.md`
+
+## 硬性规则
+
+- `Program`、`CompiledGraph`、`ExecNode` 和 `NodeDefinition` 是共享只读结构，不得保存单次执行的可变状态。
+- `Graph`、PC、Flow/Loop/Call Stack、Native Context 和 Yield token 只能属于单次 Execution，不得并发复用。
+- 生产执行只能经过 VM；不得恢复 `ExecNode.Do/doNext`、旧 `Continuation` 或双执行内核。
+- 普通 Native 业务节点必须同步完成；RPC 等异步节点通过 `BaseExecNode.Yield` 和一次性 `YieldHandle` 恢复。
+- Native 节点成功调用 `Yield` 后必须立即返回 `ErrExecutionSuspended`；恢复发生在所选 exec 出口，不会回到 `Exec()` 的 Go 语句中间。
+- Resume 必须经过 Execution 启动时捕获的 Dispatcher；业务宿主负责把恢复投递回所属 Actor。
+- VM Core 不实现 Delay/Timer 调度。需要时间语义时由业务或可选 stdlib 节点持有宿主调度器。
+- 挂起期间不得释放或复用 Execution 的 Context、Flow/Loop/Call Stack；取消、完成或失败时统一释放引用。
+- 保持 `.vgf` 兼容性。已删除或未知的 legacy 节点应隐藏或保留，不能静默丢弃。
+- 顶层 `nodes/*.json` 是系统节点定义。除非用户明确要求，`nodes/json/**` 业务定义不在处理范围。
+- 文件、表格、字典蓝图数据类型已经按需求删除，未经用户明确同意不得恢复。
+
+## 性能规则
+
+- 优先在编译期或加载期预处理，避免执行期字符串查找。
+- `CompileGraph` 返回后，Program 及其 NodePlan、binding、successor 必须保持不可变。
+- 热路径优先使用 index 和预计算 binding，不在共享节点上缓存 Context 或端口值。
+- 控制流使用显式 VM Frame，不依赖 Go 调用栈保存蓝图恢复上下文。
+
+## 验证命令
+
+修改 engine 时至少运行：
+
 ```powershell
 go test ./engine/go/blueprint -count=1
 go test -race ./engine/go/blueprint -count=1
 ```
 
-淇敼 facade 鎴栫嚎绋嬪畨鍏ㄧ浉鍏充唬鐮佹椂锛岃繕瑕佽繍琛岋細
+修改 facade 或线程安全相关代码时，还要运行：
 
 ```powershell
 go test -race ./... -count=1
 ```
 
-淇敼鎬ц兘鏁忔劅璺緞鏃讹紝杩愯锛?
+修改性能敏感路径时，运行：
+
 ```powershell
-go test ./engine/go/blueprint -run '^$' -bench 'BenchmarkBlueprintDo(Shared|Complex)|BenchmarkFunctionCall' -benchtime=3s -benchmem -count=1
+go test ./engine/go/blueprint -run '^$' -bench 'BenchmarkBlueprintDo(Shared|Complex|Parallel)|BenchmarkFunctionCall' -benchtime=3s -benchmem -count=1
 ```

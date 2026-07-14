@@ -1,5 +1,7 @@
 # 蓝图异步执行与定时器设计
 
+> **已废弃（2026-07-14）**：本文记录的是旧 Scheduler/Continuation 方案，不再代表当前实现。VM Core 已删除 Delay、TimerScheduler、Timer 注册表和 Continuation；只保留通用 `YieldHandle`。若未来需要 Delay/Timer，应在可选 stdlib 或业务宿主层重新设计，并通过 Actor-aware Dispatcher 恢复 VM，禁止照本文恢复旧 Core 实现。
+
 > 状态：第一版已实现并进入验证
 > 日期：2026-07-11
 > 适用范围：`engine/go/blueprint/`、系统节点定义、前端节点展示与相关测试

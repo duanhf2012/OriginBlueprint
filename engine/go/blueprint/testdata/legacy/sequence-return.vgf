@@ -1,0 +1,14 @@
+{
+  "graph_name": "sequence-return",
+  "nodes": [
+    {"id":"entry","class":"Entrance_IntParam_1"},
+    {"id":"sequence","class":"Sequence"},
+    {"id":"result","class":"AppendIntReturn","port_defaultv":{"1":7}}
+  ],
+  "edges": [
+    {"source_node_id":"entry","source_port_id":0,"des_node_id":"sequence","des_port_id":0},
+    {"source_node_id":"sequence","source_port_id":0,"des_node_id":"result","des_port_id":0}
+  ],
+  "groups": [],
+  "variables": []
+}

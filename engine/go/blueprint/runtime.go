@@ -4,17 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-	"sync/atomic"
 )
 
 // ErrExecutionSuspended 表示节点主动暂停，等待异步回调恢复。
 var ErrExecutionSuspended = errors.New("golang blueprint execution suspended")
-
-// ErrFunctionReturned 表示函数图已经执行到返回节点。
-var ErrFunctionReturned = errors.New("golang blueprint function returned")
-
-// ErrLoopBreak 表示循环节点收到 break 控制流。
-var ErrLoopBreak = errors.New("golang blueprint loop break")
 
 // IExecNode 是所有执行节点需要实现的接口。
 type IExecNode interface {
@@ -230,13 +223,6 @@ func (n *BaseExecNode) GetOutPortCount() int {
 	return len(n.ctx.OutputPorts)
 }
 
-func (n *BaseExecNode) DoNext(index int) error {
-	if n == nil || n.node == nil || n.graph == nil {
-		return fmt.Errorf("node is not executing")
-	}
-	return n.node.doNext(n.graph, index)
-}
-
 func (n *BaseExecNode) GetVariableName() string {
 	if n == nil || n.node == nil {
 		return ""
@@ -268,6 +254,7 @@ func (n *BaseExecNode) GetAndCreateReturnPort() IPort {
 type NodeDefinition struct {
 	Name                   string
 	New                    func() IExecNode
+	ControlKind            ControlKind
 	InPorts                []IPort
 	OutPorts               []IPort
 	OutPortParamStartIndex int
@@ -281,6 +268,7 @@ func NewNodeDefinition(name string, newExec func() IExecNode, inPorts []IPort, o
 	return &NodeDefinition{
 		Name:                   name,
 		New:                    newExec,
+		ControlKind:            builtinControlKind(name),
 		InPorts:                clonedInPorts,
 		OutPorts:               clonedOutPorts,
 		OutPortParamStartIndex: firstDataOutPort(outPorts),
@@ -397,21 +385,6 @@ func NewExecNode(id string, definition *NodeDefinition) *ExecNode {
 	}
 }
 
-// Do 从节点默认执行输入口开始执行。
-//
-// outPortArgs 会写入本节点输出数据端口，用于入口和异步恢复场景。
-func (n *ExecNode) Do(graph *Graph, outPortArgs ...any) error {
-	return n.doWithInput(graph, 0, outPortArgs...)
-}
-
-func (n *ExecNode) doWithInput(graph *Graph, execInputPortID int, outPortArgs ...any) error {
-	nextIndex, err := n.executeWithInput(graph, execInputPortID, true, outPortArgs...)
-	if err != nil {
-		return err
-	}
-	return n.doNext(graph, nextIndex)
-}
-
 func (n *ExecNode) executeWithInput(graph *Graph, execInputPortID int, recomputeInputs bool, outPortArgs ...any) (int, error) {
 	if graph != nil && graph.execution != nil {
 		if err := graph.execution.cancellationError(); err != nil {
@@ -436,8 +409,6 @@ func (n *ExecNode) executeWithInput(graph *Graph, execInputPortID int, recompute
 	if n.Index < 0 {
 		graph.setContext(n, ctx)
 	}
-	graph.clearSuspendedContinuation()
-
 	if err := n.applyOutputArgs(ctx, outPortArgs...); err != nil {
 		return -1, err
 	}
@@ -473,68 +444,6 @@ func (n *ExecNode) executeWithInput(graph *Graph, execInputPortID int, recompute
 		return -1, err
 	}
 	return nextIndex, nil
-}
-
-func (n *ExecNode) doNext(graph *Graph, index int) error {
-	return n.doNextWithPending(graph, index, nil)
-}
-
-func (n *ExecNode) doNextWithPending(graph *Graph, index int, inherited []execTarget) error {
-	current := n
-	pending := append([]execTarget(nil), inherited...)
-	for {
-		if graph != nil && graph.execution != nil {
-			if err := graph.execution.cancellationError(); err != nil {
-				return err
-			}
-		}
-		if index < -1 {
-			return fmt.Errorf("next index %d not found", index)
-		}
-
-		target, remaining, found := current.nextExecTarget(index)
-		if !found {
-			if len(pending) == 0 {
-				return nil
-			}
-			target = pending[len(pending)-1]
-			pending = pending[:len(pending)-1]
-		} else {
-			for remainingIndex := len(remaining) - 1; remainingIndex >= 0; remainingIndex-- {
-				pending = append(pending, remaining[remainingIndex])
-			}
-		}
-
-		current = target.node
-		nextIndex, err := current.executeWithInput(graph, target.inputPortID, true)
-		if err != nil {
-			if errors.Is(err, ErrExecutionSuspended) && len(pending) != 0 && graph != nil {
-				if continuation := graph.currentSuspendedContinuation(); continuation != nil {
-					continuation.prependPending(pending)
-				}
-			}
-			return err
-		}
-		index = nextIndex
-	}
-}
-
-func (n *ExecNode) nextExecTarget(index int) (execTarget, []execTarget, bool) {
-	if index < 0 {
-		return execTarget{}, nil, false
-	}
-	if index < len(n.legacyFanout) && len(n.legacyFanout[index]) != 0 {
-		targets := n.legacyFanout[index]
-		return targets[0], targets[1:], true
-	}
-	if index >= len(n.Next) || n.Next[index] == nil {
-		return execTarget{}, nil, false
-	}
-	inputPortID := 0
-	if index < len(n.NextInPort) {
-		inputPortID = n.NextInPort[index]
-	}
-	return execTarget{node: n.Next[index], inputPortID: inputPortID}, nil, true
 }
 
 func (n *ExecNode) refreshInput(graph *Graph, ctx *ExecContext, inputPortID int) error {
@@ -742,13 +651,10 @@ func (g *Graph) evaluateDataNode(target *ExecNode) error {
 			return err
 		}
 		delete(active, frame.node)
-		node := frame.node
 		g.releaseContext(frame.node, frame.ctx)
 		stack = stack[:len(stack)-1]
 		if nextIndex != -1 {
-			if err := node.doNext(g, nextIndex); err != nil {
-				return err
-			}
+			return fmt.Errorf("data node %s selected exec output %d", frame.node.ID, nextIndex)
 		}
 	}
 	return nil
@@ -760,43 +666,40 @@ type CompiledGraph struct {
 	Variables map[string]VariableConfig
 	Functions map[string]*CompiledGraph
 	NodeCount int
+	Nodes     []*ExecNode
+	Program   *Program
 }
 
 // Graph 是单次执行过程中的轻量运行对象。
 //
-// 它引用共享的 CompiledGraph，并挂接实例变量、timer 和函数调用上下文。
+// 它引用共享的 CompiledGraph，并挂接实例变量、VM 状态和函数调用上下文。
 type Graph struct {
-	compiled           *CompiledGraph
-	contextMu          sync.Mutex
-	context            []*ExecContext
-	contextGeneration  uint64
-	contextFallback    map[*ExecNode]*ExecContext
-	name               string
-	graphID            int64
-	module             IBlueprintModule
-	instance           *GraphInstance
-	returns            PortArray
-	returnPort         IPort
-	functionResults    []any
-	functionCompleted  atomic.Bool
-	onFunctionComplete func([]any) error
-	callDepth          int
-	variables          map[string]IPort
-	variableMu         *sync.RWMutex
-	logger             IBlueprintLogger
-	trace              *blueprintTraceRuntime
-	execution          *Execution
-	functionFrame      *functionFrame
-	suspendedMu        sync.Mutex
-	suspended          *Continuation
-	budget             *executionBudget
-	stepLimit          uint64
+	compiled          *CompiledGraph
+	contextMu         sync.Mutex
+	context           []*ExecContext
+	contextGeneration uint64
+	contextFallback   map[*ExecNode]*ExecContext
+	name              string
+	graphID           int64
+	module            IBlueprintModule
+	instance          *GraphInstance
+	returns           PortArray
+	returnPort        IPort
+	variables         map[string]IPort
+	variableMu        *sync.RWMutex
+	logger            IBlueprintLogger
+	trace             *blueprintTraceRuntime
+	execution         *Execution
+	vm                *vmMachine
+	budget            *executionBudget
+	stepLimit         uint64
 }
 
 // NewGraph 创建一次执行用的运行对象。
 //
 // 传入的 CompiledGraph 不会被修改。
 func NewGraph(compiled *CompiledGraph) *Graph {
+	ensureVMProgram(compiled)
 	return &Graph{compiled: compiled}
 }
 
@@ -811,13 +714,19 @@ func (g *Graph) Do(entranceID int64, args ...any) (PortArray, error) {
 		}
 		g.budget = newExecutionBudget(limit)
 	}
-	returns, err := g.runEntrance(entranceID, args...)
+	var returns PortArray
+	var err error
+	if g == nil || g.compiled == nil || g.compiled.Program == nil {
+		return nil, fmt.Errorf("blueprint VM program is nil")
+	}
+	returns, err = g.runVMEntrance(entranceID, args...)
 	if errors.Is(err, ErrExecutionSuspended) {
 		return nil, ErrExecutionSuspended
 	}
-	g.releaseContextReferences()
-	if errors.Is(err, ErrFunctionReturned) {
-		return returns, nil
+	if g.vm != nil {
+		g.vm.release()
+	} else {
+		g.releaseContextReferences()
 	}
 	return returns, err
 }
@@ -826,10 +735,14 @@ func (g *Graph) executionBudget() *executionBudget {
 	if g == nil {
 		return nil
 	}
+	if g.budget != nil {
+		return g.budget
+	}
 	if g.execution != nil {
 		scope := g.execution.ensureScope()
 		if scope != nil {
-			return scope.budget
+			g.budget = scope.budget
+			return g.budget
 		}
 	}
 	return g.budget
@@ -841,43 +754,6 @@ func (g *Graph) enterStep() error {
 
 func (g *Graph) leaveStep() {
 	g.executionBudget().leave()
-}
-
-// runEntrance 执行入口节点并收集返回值。
-func (g *Graph) runEntrance(entranceID int64, args ...any) (PortArray, error) {
-	if g == nil || g.compiled == nil {
-		return nil, nil
-	}
-	entrance := g.compiled.Entrances[entranceID]
-	if entrance == nil {
-		return nil, nil
-	}
-
-	g.resetContext()
-	clear(g.returns)
-	g.returns = g.returns[:0]
-	g.returnPort = nil
-	clear(g.functionResults)
-	g.functionResults = g.functionResults[:0]
-	g.functionCompleted.Store(false)
-	if g.variableMu == nil {
-		g.variableMu = &sync.RWMutex{}
-	}
-	if g.variables == nil {
-		g.variables = g.initialVariables()
-	}
-	if err := entrance.Do(g, args...); err != nil {
-		if errors.Is(err, ErrExecutionSuspended) {
-			return nil, err
-		}
-		return append(PortArray(nil), g.returns...), err
-	}
-	if len(g.returns) == 0 && g.returnPort != nil {
-		if returns, ok := g.returnPort.GetArray(); ok {
-			return append(PortArray(nil), returns...), nil
-		}
-	}
-	return append(PortArray(nil), g.returns...), nil
 }
 
 func (g *Graph) resultSnapshot() PortArray {
@@ -928,7 +804,6 @@ func compiledNodeCount(compiled *CompiledGraph) int {
 }
 
 func (g *Graph) resetContext() {
-	g.clearSuspendedContinuation()
 	g.contextMu.Lock()
 	defer g.contextMu.Unlock()
 	g.contextGeneration = (g.contextGeneration + 1) & execContextGenerationMask
@@ -983,33 +858,6 @@ func (g *Graph) releaseContext(node *ExecNode, ctx *ExecContext) {
 	ctx.state &= execContextGenerationMask
 }
 
-func (g *Graph) setSuspendedContinuation(continuation *Continuation) {
-	if g == nil {
-		return
-	}
-	g.suspendedMu.Lock()
-	g.suspended = continuation
-	g.suspendedMu.Unlock()
-}
-
-func (g *Graph) clearSuspendedContinuation() {
-	if g == nil {
-		return
-	}
-	g.suspendedMu.Lock()
-	g.suspended = nil
-	g.suspendedMu.Unlock()
-}
-
-func (g *Graph) currentSuspendedContinuation() *Continuation {
-	if g == nil {
-		return nil
-	}
-	g.suspendedMu.Lock()
-	defer g.suspendedMu.Unlock()
-	return g.suspended
-}
-
 func (g *Graph) releaseContextReferences() {
 	if g == nil {
 		return
@@ -1025,8 +873,6 @@ func (g *Graph) releaseContextReferences() {
 	clear(g.returns)
 	g.returns = g.returns[:0]
 	g.returnPort = nil
-	clear(g.functionResults)
-	g.functionResults = g.functionResults[:0]
 }
 
 func releaseExecContextReferences(ctx *ExecContext) {
@@ -1127,15 +973,6 @@ func (g *Graph) getAndCreateReturnPort() IPort {
 	}
 	g.returnPort = NewPortArray()
 	return g.returnPort
-}
-
-func (g *Graph) completeFunction(values []any) error {
-	g.functionResults = append(g.functionResults[:0], values...)
-	g.functionCompleted.Store(true)
-	if g.onFunctionComplete != nil {
-		return g.onFunctionComplete(values)
-	}
-	return nil
 }
 
 func firstDataOutPort(ports []IPort) int {

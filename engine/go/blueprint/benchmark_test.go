@@ -76,6 +76,19 @@ func BenchmarkBlueprintDoComplexSharedCompiledGraph(b *testing.B) {
 	}
 }
 
+func BenchmarkBlueprintDoComplexActorDispatcher(b *testing.B) {
+	bp, graphIDs := newBenchmarkComplexBlueprint(b, 4096)
+	bp.SetExecutionDispatcher(NewActorExecutionDispatcher(func(task func()) { task() }))
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for index := 0; index < b.N; index++ {
+		if _, err := bp.Do(graphIDs[index%len(graphIDs)], 1, PortInt(100), PortInt(index%8), PortInt(7)); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 func BenchmarkBlueprintDoComplexSharedCompiledGraphParallel(b *testing.B) {
 	bp, graphIDs := newBenchmarkComplexBlueprint(b, 65536)
 	var next uint64

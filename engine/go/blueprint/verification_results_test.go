@@ -6,8 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"testing"
-	"time"
 )
 
 func TestVerificationControlFlowMazeMatchesReference(t *testing.T) {
@@ -205,44 +205,40 @@ func referenceLocalStateIsolation(seed PortInt) PortInt {
 	return callCounter
 }
 
-func TestVerificationTimerLifecycleMatchesReference(t *testing.T) {
-	graphs := loadVerificationFixtureSet(t)
-	bp := &Blueprint{}
-	for name, graph := range graphs {
-		bp.AddCompiledGraph(name, graph)
-	}
-	graphID := bp.Create("新定时器生命周期")
-	returns, err := bp.Do(graphID, EntranceIDIntParam, PortInt(1), PortInt(2), PortInt(3))
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertVerificationReturns(t, returns, PortArray{{StrVal: "timer-lifecycle-complete"}})
+type verificationMockRPCNode struct{ BaseExecNode }
+
+type verificationMockRPCPendingCall struct {
+	handle  *YieldHandle
+	branch  int
+	outputs []any
 }
 
-type verificationMockRPCNode struct{ BaseExecNode }
+var verificationMockRPCPending struct {
+	sync.Mutex
+	calls []*verificationMockRPCPendingCall
+}
 
 func (n *verificationMockRPCNode) GetName() string { return "MockRpcAsync" }
 
 func (n *verificationMockRPCNode) Exec() (int, error) {
-	delay, _ := n.GetInPortInt(1)
+	_, _ = n.GetInPortInt(1)
 	succeed, _ := n.GetInPortBool(2)
 	value, _ := n.GetInPortInt(3)
 	code, _ := n.GetInPortInt(4)
 	message, _ := n.GetInPortStr(5)
-	continuation, err := n.SuspendForResume()
+	branch := 1
+	outputs := []any{PortInt(0), code, message}
+	if succeed {
+		branch = 0
+		outputs = []any{value, PortInt(0), PortString("")}
+	}
+	handle, err := n.Yield(branch)
 	if err != nil {
 		return -1, err
 	}
-	_, err = n.graph.execution.blueprint.timerScheduler().Schedule(time.Duration(delay)*time.Millisecond, func() {
-		if succeed {
-			_ = continuation.ResumeTo(0, value, PortInt(0), PortString(""))
-			return
-		}
-		_ = continuation.ResumeTo(1, PortInt(0), code, message)
-	})
-	if err != nil {
-		return -1, err
-	}
+	verificationMockRPCPending.Lock()
+	verificationMockRPCPending.calls = append(verificationMockRPCPending.calls, &verificationMockRPCPendingCall{handle: handle, branch: branch, outputs: outputs})
+	verificationMockRPCPending.Unlock()
 	return -1, ErrExecutionSuspended
 }
 
@@ -250,25 +246,41 @@ func TestVerificationMockRPCResumeToMatchesReference(t *testing.T) {
 	registry := verificationFixtureRegistry(t)
 	graph := loadVerificationGraphWithRegistry(t, "07_async_rpc_resume_to.obp", registry)
 	dispatcher := &manualExecutionDispatcher{}
-	scheduler := newManualTimerScheduler()
+	verificationMockRPCPending.Lock()
+	verificationMockRPCPending.calls = nil
+	verificationMockRPCPending.Unlock()
 	bp := &Blueprint{}
 	bp.SetExecutionDispatcher(dispatcher)
-	bp.SetTimerScheduler(scheduler)
 	bp.AddCompiledGraph("定时器模拟 RPC 异步恢复", graph)
 	execution, err := bp.Start(context.Background(), bp.Create("定时器模拟 RPC 异步恢复"), EntranceIDIntParam, PortInt(1), PortInt(2), PortInt(3))
 	if err != nil {
 		t.Fatal(err)
 	}
 	dispatcher.runNext(t)
-	scheduler.fire(t, scheduler.onlyHandle(t))
+	resumeVerificationMockRPC(t)
 	dispatcher.runNext(t)
-	scheduler.fire(t, scheduler.onlyHandle(t))
+	resumeVerificationMockRPC(t)
 	dispatcher.runNext(t)
 	returns, err := execution.Result()
 	if err != nil {
 		t.Fatal(err)
 	}
 	assertVerificationReturns(t, returns, PortArray{{IntVal: 314}, {IntVal: 503}, {StrVal: "mock rpc unavailable"}})
+}
+
+func resumeVerificationMockRPC(t *testing.T) {
+	t.Helper()
+	verificationMockRPCPending.Lock()
+	if len(verificationMockRPCPending.calls) == 0 {
+		verificationMockRPCPending.Unlock()
+		t.Fatal("mock RPC has no pending call")
+	}
+	call := verificationMockRPCPending.calls[0]
+	verificationMockRPCPending.calls = verificationMockRPCPending.calls[1:]
+	verificationMockRPCPending.Unlock()
+	if err := call.handle.ResumeTo(call.branch, call.outputs...); err != nil {
+		t.Fatalf("mock RPC ResumeTo failed: %v", err)
+	}
 }
 
 func verificationFixtureRegistry(t *testing.T) *Registry {

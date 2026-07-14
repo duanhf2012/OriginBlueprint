@@ -101,7 +101,7 @@ func (g *Graph) logLegacyNode(node *ExecNode, ctx *ExecContext, nextIndex int, e
 }
 
 func isTraceControlError(err error) bool {
-	return errors.Is(err, ErrExecutionSuspended) || errors.Is(err, ErrFunctionReturned) || errors.Is(err, ErrLoopBreak)
+	return errors.Is(err, ErrExecutionSuspended)
 }
 
 func tracePortValues(ports []IPort) []BlueprintTracePortValue {

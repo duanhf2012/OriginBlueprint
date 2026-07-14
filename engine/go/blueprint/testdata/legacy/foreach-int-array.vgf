@@ -1,0 +1,17 @@
+{
+  "graph_name": "foreach-int-array",
+  "nodes": [
+    {"id":"entry","class":"Entrance_IntParam_1"},
+    {"id":"array","class":"CreateIntArray","port_defaultv":{"0":[10,20,30]}},
+    {"id":"loop","class":"ForeachIntArray"},
+    {"id":"result","class":"AppendIntReturn"}
+  ],
+  "edges": [
+    {"source_node_id":"entry","source_port_id":0,"des_node_id":"loop","des_port_id":0},
+    {"source_node_id":"array","source_port_id":0,"des_node_id":"loop","des_port_id":1},
+    {"source_node_id":"loop","source_port_id":0,"des_node_id":"result","des_port_id":0},
+    {"source_node_id":"loop","source_port_id":3,"des_node_id":"result","des_port_id":1}
+  ],
+  "groups": [],
+  "variables": []
+}

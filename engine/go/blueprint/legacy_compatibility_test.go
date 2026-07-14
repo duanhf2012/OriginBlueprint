@@ -10,9 +10,9 @@ import (
 
 func TestRepresentativeLegacyVGFFilesAreHandledByGoLoader(t *testing.T) {
 	fixtures := []string{
-		filepath.Join("..", "..", "..", "build", "bin", "vgf", "monsterChoiceskill", "choiceskill_easy.vgf"),
-		filepath.Join("..", "..", "..", "build", "bin", "vgf", "battle", "battle_1.vgf"),
-		filepath.Join("..", "..", "..", "build", "bin", "vgf", "buffskill", "skilltemplate.vgf"),
+		filepath.Join("testdata", "legacy", "sequence-return.vgf"),
+		filepath.Join("testdata", "legacy", "foreach-int-array.vgf"),
+		filepath.Join("testdata", "legacy", "business-stub.vgf"),
 	}
 
 	for _, fixture := range fixtures {
