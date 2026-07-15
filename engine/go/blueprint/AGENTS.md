@@ -6,9 +6,8 @@
 
 修改本目录前，先阅读：
 
-- `../../../docs/CODEX_BLUEPRINT_ENGINE_RULES_ZH.md`
-- `../../../docs/BLUEPRINT_ENGINE_TEST_MATRIX_ZH.md`
-- 涉及 legacy `.vgf` 行为时，还要阅读 `../../../docs/LEGACY_COMPATIBILITY_ZH.md`
+- `../../../docs/ORIGIN_BLUEPRINT_USER_GUIDE_ZH.md`：当前 Go API、VM、Yield/Resume、并发、兼容性和禁止用法的唯一权威说明。
+- `../../../docs/BLUEPRINT_VERIFICATION_MATRIX_ZH.md`：验证蓝图与独立 Go 参考实现的自动对比结果。
 
 ## 硬性规则
 

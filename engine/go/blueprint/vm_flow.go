@@ -201,7 +201,10 @@ func (m *vmMachine) completeLoop(loopID uint64) error {
 		return fmt.Errorf("blueprint VM loop frame %d not found", loopID)
 	}
 	frame := m.loopStack[loopIndex]
-	m.loopStack = append(m.loopStack[:loopIndex], m.loopStack[loopIndex+1:]...)
+	copy(m.loopStack[loopIndex:], m.loopStack[loopIndex+1:])
+	last := len(m.loopStack) - 1
+	m.loopStack[last] = vmLoopFrame{}
+	m.loopStack = m.loopStack[:last]
 	m.graph.releaseContext(frame.node, frame.ctx)
 	completedPort := 1
 	if frame.kind == vmLoopBreakable {
@@ -231,6 +234,7 @@ func (m *vmMachine) breakLoop(pc PC) error {
 	for index := len(m.loopStack) - 1; index > loopIndex; index-- {
 		nested := m.loopStack[index]
 		m.graph.releaseContext(nested.node, nested.ctx)
+		m.loopStack[index] = vmLoopFrame{}
 	}
 	m.loopStack = m.loopStack[:loopIndex+1]
 	return m.completeLoop(loopID)

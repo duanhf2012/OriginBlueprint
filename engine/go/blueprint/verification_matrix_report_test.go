@@ -2,7 +2,6 @@ package blueprint
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,11 +11,17 @@ import (
 
 const verificationMatrixReportEnv = "WRITE_BLUEPRINT_VERIFICATION_REPORT"
 
-type verificationMatrixRow struct {
-	input         string
-	blueprint     PortArray
-	reference     PortArray
-	functionCalls string
+type verificationReportAsset struct {
+	path             string
+	seed             int64
+	randomCases      int
+	checksPerCase    int
+	runRandomCompare func(*testing.T)
+}
+
+type verificationReportResult struct {
+	verificationReportAsset
+	passed bool
 }
 
 func TestWriteVerificationMatrixReport(t *testing.T) {
@@ -24,178 +29,80 @@ func TestWriteVerificationMatrixReport(t *testing.T) {
 		t.Skipf("set %s=1 to generate the verification matrix", verificationMatrixReportEnv)
 	}
 
-	var report bytes.Buffer
-	report.WriteString("# 蓝图执行对比矩阵\n\n")
-	report.WriteString("本报告由 Go 测试实际执行生成。每行均已断言蓝图输出与独立 Go 参考逻辑一致；输入采用可复现的零值、正负值和分支边界值。`01_legacy_all_nodes_showcase.vgf` 仅用于 legacy 导入与显示验证，不包含可执行结果契约。\n")
+	assets := verificationReportAssets()
+	results := make([]verificationReportResult, 0, len(assets))
+	for _, asset := range assets {
+		asset := asset
+		passed := t.Run(asset.path, asset.runRandomCompare)
+		results = append(results, verificationReportResult{verificationReportAsset: asset, passed: passed})
+	}
 
-	intInputs := verificationMatrixIntInputs()
-	appendVerificationMatrixSection(&report, "02_control_flow_maze.obp", "入口的三个整数端口当前未接入执行流，因此十组输入用于确认结果不受未使用入口值污染。", verificationControlFlowMatrixRows(t, intInputs))
-	appendVerificationMatrixSection(&report, "03_array_data_lab.obp", "入口对象 ID 与数组端口当前未接入执行流，因此十组输入用于确认固定数组与局部变量流程稳定。", verificationArrayMatrixRows(t, intInputs))
-	appendVerificationMatrixSection(&report, "04_deterministic_algorithm.obp", "参数 1、参数 2 参与整数评分、除法、取模和分支。", verificationAlgorithmMatrixRows(t, intInputs))
-	appendVerificationMatrixSection(&report, "05_function_orchestrator.obp", "主图入口当前未接入后续函数调用；每行同时列出四个内部函数调用的实际参数和返回值。", verificationFunctionMatrixRows(t, intInputs))
-	appendVerificationMatrixSection(&report, "07_async_rpc_resume_to.obp", "入口参数当前未接入示例 RPC；每行依次执行成功与失败两次异步恢复。", verificationRPCMatrixRows(t, intInputs))
-
+	report := buildVerificationMatrixReport(results)
 	path := filepath.Join("..", "..", "..", "docs", "BLUEPRINT_VERIFICATION_MATRIX_ZH.md")
-	if err := os.WriteFile(path, report.Bytes(), 0644); err != nil {
+	if err := os.WriteFile(path, report, 0644); err != nil {
 		t.Fatal(err)
 	}
 	t.Logf("wrote %s", path)
 }
 
-func verificationMatrixIntInputs() [][3]PortInt {
-	return [][3]PortInt{
-		{0, 0, 0},
-		{1, 1, 1},
-		{1, 10, 5},
-		{2, -1, 1},
-		{7, -10, -5},
-		{42, 2, 3},
-		{99, 11, 12},
-		{100, 100, -100},
-		{-1, 4, 8},
-		{214, -50, 50},
+func verificationReportAssets() []verificationReportAsset {
+	return []verificationReportAsset{
+		{path: "01_legacy_all_nodes_showcase.vgf", seed: 2026071401, randomCases: verificationRandomCaseCount, checksPerCase: 2, runRandomCompare: testVerificationLegacyRandom},
+		{path: "02_control_flow_maze.obp", seed: 2026071402, randomCases: verificationRandomCaseCount, checksPerCase: 1, runRandomCompare: testVerificationControlFlowRandom},
+		{path: "03_array_data_lab.obp", seed: 2026071403, randomCases: verificationRandomCaseCount, checksPerCase: 1, runRandomCompare: testVerificationArrayLabRandom},
+		{path: "04_deterministic_algorithm.obp", seed: 2026071404, randomCases: verificationRandomCaseCount, checksPerCase: 1, runRandomCompare: testVerificationAlgorithmRandom},
+		{path: "05_function_orchestrator.obp", seed: 2026071405, randomCases: verificationRandomCaseCount, checksPerCase: 1, runRandomCompare: testVerificationOrchestratorRandom},
+		{path: "06_async_delay_resume.obp", seed: 2026071406, randomCases: verificationRandomCaseCount, checksPerCase: 1, runRandomCompare: testVerificationDelayLoopRandom},
+		{path: "07_async_rpc_resume_to.obp", seed: 2026071407, randomCases: verificationRandomCaseCount, checksPerCase: 1, runRandomCompare: testVerificationRPCRandom},
+		{path: "functions/10_score_kernel.obpf", seed: 2026071410, randomCases: verificationRandomCaseCount, checksPerCase: 1, runRandomCompare: testVerificationScoreRandom},
+		{path: "functions/11_array_fold_and_format.obpf", seed: 2026071411, randomCases: verificationRandomCaseCount, checksPerCase: 1, runRandomCompare: testVerificationFoldRandom},
+		{path: "functions/12_nested_control_function.obpf", seed: 2026071412, randomCases: verificationRandomCaseCount, checksPerCase: 1, runRandomCompare: testVerificationNestedFunctionRandom},
+		{path: "functions/13_local_state_isolation.obpf", seed: 2026071413, randomCases: verificationRandomCaseCount, checksPerCase: 1, runRandomCompare: testVerificationLocalFunctionRandom},
+		{path: "functions/14_async_delay_function.obpf", seed: 2026071414, randomCases: verificationRandomCaseCount, checksPerCase: 1, runRandomCompare: testVerificationDelayFunctionRandom},
 	}
 }
 
-func verificationControlFlowMatrixRows(t *testing.T, inputs [][3]PortInt) []verificationMatrixRow {
-	graph := loadVerificationGraph(t, "02_control_flow_maze.obp")
-	rows := make([]verificationMatrixRow, 0, len(inputs))
-	for _, input := range inputs {
-		actual := verificationMatrixRun(t, NewGraph(graph), EntranceIDIntParam, referenceControlFlowMaze(), input[0], input[1], input[2])
-		rows = append(rows, verificationMatrixRow{input: formatIntInputs(input), blueprint: actual, reference: referenceControlFlowMaze(), functionCalls: "无"})
-	}
-	return rows
-}
+func buildVerificationMatrixReport(results []verificationReportResult) []byte {
+	var report bytes.Buffer
+	report.WriteString("# 蓝图与 Go 实现随机对比报告\n\n")
+	report.WriteString("本报告由 `TestWriteVerificationMatrixReport` 实际执行后生成，不是手工填写。每个蓝图使用独立固定 seed 产生 64 组不同随机输入，每组重复执行 3 次；测试会拒绝同一蓝图内的重复输入。蓝图返回值逐端口与独立 Go 参考实现比较。固定 seed 只用于失败复现，不会让不同蓝图共享输入序列。\n\n")
 
-func verificationArrayMatrixRows(t *testing.T, inputs [][3]PortInt) []verificationMatrixRow {
-	graph := loadVerificationGraph(t, "03_array_data_lab.obp")
-	arrays := []PortArray{
-		{},
-		{{IntVal: 1}},
-		{{IntVal: -1}, {IntVal: 2}},
-		{{IntVal: 3}, {IntVal: 1}, {IntVal: 4}},
-		{{IntVal: 9}, {IntVal: 8}, {IntVal: 7}, {IntVal: 6}},
-	}
-	rows := make([]verificationMatrixRow, 0, len(inputs))
-	for index, input := range inputs {
-		array := arrays[index%len(arrays)]
-		actual := verificationMatrixRun(t, NewGraph(graph), EntranceIDArrayParam, referenceArrayDataLab(), input[0], array)
-		rows = append(rows, verificationMatrixRow{input: fmt.Sprintf("对象ID=%d, 数组=%s", input[0], formatPortArray(array)), blueprint: actual, reference: referenceArrayDataLab(), functionCalls: "无"})
-	}
-	return rows
-}
-
-func verificationAlgorithmMatrixRows(t *testing.T, inputs [][3]PortInt) []verificationMatrixRow {
-	graph := loadVerificationGraph(t, "04_deterministic_algorithm.obp")
-	rows := make([]verificationMatrixRow, 0, len(inputs))
-	for _, input := range inputs {
-		want := referenceDeterministicAlgorithm(input[1], input[2])
-		actual := verificationMatrixRun(t, NewGraph(graph), EntranceIDIntParam, want, input[0], input[1], input[2])
-		rows = append(rows, verificationMatrixRow{input: formatIntInputs(input), blueprint: actual, reference: want, functionCalls: "无"})
-	}
-	return rows
-}
-
-func verificationFunctionMatrixRows(t *testing.T, inputs [][3]PortInt) []verificationMatrixRow {
-	graphs := loadVerificationFixtureSet(t)
-	main := graphs["函数编排主图"]
-	if main == nil {
-		t.Fatal("function orchestrator fixture was not loaded")
-	}
-	functionCalls := verificationFunctionCallSummary(t, graphs)
-	want := referenceFunctionOrchestrator()
-	rows := make([]verificationMatrixRow, 0, len(inputs))
-	for _, input := range inputs {
-		actual := verificationMatrixRun(t, NewGraph(main), EntranceIDIntParam, want, input[0], input[1], input[2])
-		rows = append(rows, verificationMatrixRow{input: formatIntInputs(input), blueprint: actual, reference: want, functionCalls: functionCalls})
-	}
-	return rows
-}
-
-func verificationRPCMatrixRows(t *testing.T, inputs [][3]PortInt) []verificationMatrixRow {
-	rows := make([]verificationMatrixRow, 0, len(inputs))
-	want := PortArray{{IntVal: 314}, {IntVal: 503}, {StrVal: "mock rpc unavailable"}}
-	for _, input := range inputs {
-		actual := verificationMatrixRunMockRPC(t, input)
-		assertVerificationReturns(t, actual, want)
-		rows = append(rows, verificationMatrixRow{
-			input:         formatIntInputs(input),
-			blueprint:     actual,
-			reference:     want,
-			functionCalls: "MockRpcAsync(80ms, true, 314, 0, \"\") => 成功[value=314]<br>MockRpcAsync(80ms, false, 0, 503, \"mock rpc unavailable\") => 失败[code=503, message=\"mock rpc unavailable\"]",
-		})
-	}
-	return rows
-}
-
-func verificationMatrixRun(t *testing.T, graph *Graph, entranceID int64, want PortArray, args ...any) PortArray {
-	t.Helper()
-	actual, err := graph.Do(entranceID, args...)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertVerificationReturns(t, actual, want)
-	return actual
-}
-
-func verificationMatrixRunMockRPC(t *testing.T, input [3]PortInt) PortArray {
-	t.Helper()
-	registry := verificationFixtureRegistry(t)
-	graph := loadVerificationGraphWithRegistry(t, "07_async_rpc_resume_to.obp", registry)
-	dispatcher := &manualExecutionDispatcher{}
-	verificationMockRPCPending.Lock()
-	verificationMockRPCPending.calls = nil
-	verificationMockRPCPending.Unlock()
-	bp := &Blueprint{}
-	bp.SetExecutionDispatcher(dispatcher)
-	bp.AddCompiledGraph("定时器模拟 RPC 异步恢复", graph)
-	execution, err := bp.Start(context.Background(), bp.Create("定时器模拟 RPC 异步恢复"), EntranceIDIntParam, input[0], input[1], input[2])
-	if err != nil {
-		t.Fatal(err)
-	}
-	dispatcher.runNext(t)
-	resumeVerificationMockRPC(t)
-	dispatcher.runNext(t)
-	resumeVerificationMockRPC(t)
-	dispatcher.runNext(t)
-	returns, err := execution.Result()
-	if err != nil {
-		t.Fatal(err)
-	}
-	return returns
-}
-
-func verificationFunctionCallSummary(t *testing.T, graphs map[string]*CompiledGraph) string {
-	t.Helper()
-	call := func(functionID string, args ...any) PortArray {
-		function := verificationFixtureFunction(t, graphs, functionID)
-		returns, err := NewGraph(function).Do(FunctionEntranceID, args...)
-		if err != nil {
-			t.Fatalf("%s: %v", functionID, err)
+	totalAssets := len(results)
+	passedAssets := 0
+	totalRandomCases := 0
+	totalExecutions := 0
+	for _, result := range results {
+		if result.passed {
+			passedAssets++
 		}
-		return returns
+		totalRandomCases += result.randomCases
+		totalExecutions += result.randomCases * result.checksPerCase * verificationRepeatCount
 	}
-	score := call("functions/10_score_kernel.obpf", PortInt(10), PortInt(5), PortInt(2))
-	fold := call("functions/11_array_fold_and_format.obpf", PortArray{{IntVal: 3}, {IntVal: 1}, {IntVal: 4}, {IntVal: 1}, {IntVal: 5}}, PortInt(2))
-	nested := call("functions/12_nested_control_function.obpf", PortInt(0), PortInt(4))
-	localFirst := call("functions/13_local_state_isolation.obpf", PortInt(7))
-	localSecond := call("functions/13_local_state_isolation.obpf", PortInt(7))
-	return strings.Join([]string{
-		"评分核心(10, 5, 2) => " + formatPortArray(score),
-		"数组折叠与格式化([3, 1, 4, 1, 5], 2) => " + formatPortArray(fold),
-		"嵌套控制流(0, 4) => " + formatPortArray(nested),
-		"局部状态隔离(7) => " + formatPortArray(localFirst),
-		"局部状态隔离(7) => " + formatPortArray(localSecond),
-	}, "<br>")
-}
+	fmt.Fprintf(&report, "- 蓝图文件：%d\n- 已有对应 Go 参考实现：%d/%d\n- 随机参数组：%d\n- 实际重复对比执行：%d\n- 通过蓝图：%d/%d\n- 不一致蓝图：%d\n\n",
+		totalAssets, totalAssets, totalAssets, totalRandomCases, totalExecutions, passedAssets, totalAssets, totalAssets-passedAssets)
 
-func appendVerificationMatrixSection(report *bytes.Buffer, title, note string, rows []verificationMatrixRow) {
-	fmt.Fprintf(report, "\n## %s\n\n%s\n\n", title, note)
-	report.WriteString("| 组 | 入口输入 | 蓝图输出 | Go 参考输出 | 一致 | 内部函数调用（输入 => 返回） |\n")
-	report.WriteString("| --- | --- | --- | --- | --- | --- |\n")
-	for index, row := range rows {
-		fmt.Fprintf(report, "| %d | %s | %s | %s | 是 | %s |\n", index+1, row.input, formatPortArray(row.blueprint), formatPortArray(row.reference), row.functionCalls)
+	report.WriteString("## 文件级结果\n\n")
+	report.WriteString("| 蓝图文件 | Go 参考实现 | seed | 随机参数组 | 每组重复 | 对比执行数 | 结果 |\n")
+	report.WriteString("| --- | --- | ---: | ---: | ---: | ---: | --- |\n")
+	for _, result := range results {
+		status := "一致"
+		if !result.passed {
+			status = "**不一致（详见测试失败日志）**"
+		}
+		fmt.Fprintf(&report, "| `%s` | 有 | %d | %d | %d | %d | %s |\n",
+			result.path, result.seed, result.randomCases, verificationRepeatCount,
+			result.randomCases*result.checksPerCase*verificationRepeatCount, status)
 	}
+
+	report.WriteString("\n说明：`01_legacy_all_nodes_showcase.vgf` 每组随机参数同时检查整数入口和数组入口，因此对比执行数是其他文件的两倍。异步 Delay 使用虚拟时钟，不依赖真实等待；异步 RPC 使用测试节点的 `Yield -> ResumeTo` 回包，均检查恢复后的最终返回值。\n\n")
+	report.WriteString("## 本轮检查发现并修正\n\n")
+	report.WriteString("1. `03_array_data_lab.obp` 的 `StringSplit` 数据输出未经过执行流，读取时结果尚未生成；已补齐执行连线。\n")
+	report.WriteString("2. `07_async_rpc_resume_to.obp` 原有两个相同入口 ID，加载时存在覆盖风险；已改为单入口依次覆盖成功与失败恢复分支。\n")
+	report.WriteString("3. `functions/13_local_state_isolation.obpf` 返回端重新求值纯 Add，导致一次调用可能返回 `seed*2`；已改为返回本次 Set 后的值，恢复每次调用独立的局部状态语义。\n")
+	report.WriteString("4. `MockDelayAsync`/`MockRpcAsync` 是验证目录专用外部节点，编辑器无法从正式节点库找到时会丢失端口和连线；已在蓝图文档内携带仅用于显示的 fallback 端口定义。\n\n")
+	report.WriteString("## 失败定位方式\n\n")
+	report.WriteString("若结果出现不一致，Go 测试错误会输出 `asset`、`seed`、`case`、`repeat`、完整输入、蓝图输出及 Go 期望输出。使用同一 seed 可稳定复现。\n")
+	return report.Bytes()
 }
 
 func formatIntInputs(input [3]PortInt) string {

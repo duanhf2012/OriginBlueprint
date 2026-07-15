@@ -1,105 +1,40 @@
-# 蓝图执行对比矩阵
+# 蓝图与 Go 实现随机对比报告
 
-本报告由 Go 测试实际执行生成。每行均已断言蓝图输出与独立 Go 参考逻辑一致；输入采用可复现的零值、正负值和分支边界值。`01_legacy_all_nodes_showcase.vgf` 仅用于 legacy 导入与显示验证，不包含可执行结果契约。
+本报告由 `TestWriteVerificationMatrixReport` 实际执行后生成，不是手工填写。每个蓝图使用独立固定 seed 产生 64 组不同随机输入，每组重复执行 3 次；测试会拒绝同一蓝图内的重复输入。蓝图返回值逐端口与独立 Go 参考实现比较。固定 seed 只用于失败复现，不会让不同蓝图共享输入序列。
 
-## 02_control_flow_maze.obp
+- 蓝图文件：12
+- 已有对应 Go 参考实现：12/12
+- 随机参数组：768
+- 实际重复对比执行：2496
+- 通过蓝图：12/12
+- 不一致蓝图：0
 
-入口的三个整数端口当前未接入执行流，因此十组输入用于确认结果不受未使用入口值污染。
+## 文件级结果
 
-| 组 | 入口输入 | 蓝图输出 | Go 参考输出 | 一致 | 内部函数调用（输入 => 返回） |
-| --- | --- | --- | --- | --- | --- |
-| 1 | 对象ID=0, 参数1=0, 参数2=0 | [2, 4, 6, 3, 5, 7, 4, 6, 8, "range-branch-true"] | [2, 4, 6, 3, 5, 7, 4, 6, 8, "range-branch-true"] | 是 | 无 |
-| 2 | 对象ID=1, 参数1=1, 参数2=1 | [2, 4, 6, 3, 5, 7, 4, 6, 8, "range-branch-true"] | [2, 4, 6, 3, 5, 7, 4, 6, 8, "range-branch-true"] | 是 | 无 |
-| 3 | 对象ID=1, 参数1=10, 参数2=5 | [2, 4, 6, 3, 5, 7, 4, 6, 8, "range-branch-true"] | [2, 4, 6, 3, 5, 7, 4, 6, 8, "range-branch-true"] | 是 | 无 |
-| 4 | 对象ID=2, 参数1=-1, 参数2=1 | [2, 4, 6, 3, 5, 7, 4, 6, 8, "range-branch-true"] | [2, 4, 6, 3, 5, 7, 4, 6, 8, "range-branch-true"] | 是 | 无 |
-| 5 | 对象ID=7, 参数1=-10, 参数2=-5 | [2, 4, 6, 3, 5, 7, 4, 6, 8, "range-branch-true"] | [2, 4, 6, 3, 5, 7, 4, 6, 8, "range-branch-true"] | 是 | 无 |
-| 6 | 对象ID=42, 参数1=2, 参数2=3 | [2, 4, 6, 3, 5, 7, 4, 6, 8, "range-branch-true"] | [2, 4, 6, 3, 5, 7, 4, 6, 8, "range-branch-true"] | 是 | 无 |
-| 7 | 对象ID=99, 参数1=11, 参数2=12 | [2, 4, 6, 3, 5, 7, 4, 6, 8, "range-branch-true"] | [2, 4, 6, 3, 5, 7, 4, 6, 8, "range-branch-true"] | 是 | 无 |
-| 8 | 对象ID=100, 参数1=100, 参数2=-100 | [2, 4, 6, 3, 5, 7, 4, 6, 8, "range-branch-true"] | [2, 4, 6, 3, 5, 7, 4, 6, 8, "range-branch-true"] | 是 | 无 |
-| 9 | 对象ID=-1, 参数1=4, 参数2=8 | [2, 4, 6, 3, 5, 7, 4, 6, 8, "range-branch-true"] | [2, 4, 6, 3, 5, 7, 4, 6, 8, "range-branch-true"] | 是 | 无 |
-| 10 | 对象ID=214, 参数1=-50, 参数2=50 | [2, 4, 6, 3, 5, 7, 4, 6, 8, "range-branch-true"] | [2, 4, 6, 3, 5, 7, 4, 6, 8, "range-branch-true"] | 是 | 无 |
+| 蓝图文件 | Go 参考实现 | seed | 随机参数组 | 每组重复 | 对比执行数 | 结果 |
+| --- | --- | ---: | ---: | ---: | ---: | --- |
+| `01_legacy_all_nodes_showcase.vgf` | 有 | 2026071401 | 64 | 3 | 384 | 一致 |
+| `02_control_flow_maze.obp` | 有 | 2026071402 | 64 | 3 | 192 | 一致 |
+| `03_array_data_lab.obp` | 有 | 2026071403 | 64 | 3 | 192 | 一致 |
+| `04_deterministic_algorithm.obp` | 有 | 2026071404 | 64 | 3 | 192 | 一致 |
+| `05_function_orchestrator.obp` | 有 | 2026071405 | 64 | 3 | 192 | 一致 |
+| `06_async_delay_resume.obp` | 有 | 2026071406 | 64 | 3 | 192 | 一致 |
+| `07_async_rpc_resume_to.obp` | 有 | 2026071407 | 64 | 3 | 192 | 一致 |
+| `functions/10_score_kernel.obpf` | 有 | 2026071410 | 64 | 3 | 192 | 一致 |
+| `functions/11_array_fold_and_format.obpf` | 有 | 2026071411 | 64 | 3 | 192 | 一致 |
+| `functions/12_nested_control_function.obpf` | 有 | 2026071412 | 64 | 3 | 192 | 一致 |
+| `functions/13_local_state_isolation.obpf` | 有 | 2026071413 | 64 | 3 | 192 | 一致 |
+| `functions/14_async_delay_function.obpf` | 有 | 2026071414 | 64 | 3 | 192 | 一致 |
 
-## 03_array_data_lab.obp
+说明：`01_legacy_all_nodes_showcase.vgf` 每组随机参数同时检查整数入口和数组入口，因此对比执行数是其他文件的两倍。异步 Delay 使用虚拟时钟，不依赖真实等待；异步 RPC 使用测试节点的 `Yield -> ResumeTo` 回包，均检查恢复后的最终返回值。
 
-入口对象 ID 与数组端口当前未接入执行流，因此十组输入用于确认固定数组与局部变量流程稳定。
+## 本轮检查发现并修正
 
-| 组 | 入口输入 | 蓝图输出 | Go 参考输出 | 一致 | 内部函数调用（输入 => 返回） |
-| --- | --- | --- | --- | --- | --- |
-| 1 | 对象ID=0, 数组=[] | [4, 6, 4, "green", "violet"] | [4, 6, 4, "green", "violet"] | 是 | 无 |
-| 2 | 对象ID=1, 数组=[1] | [4, 6, 4, "green", "violet"] | [4, 6, 4, "green", "violet"] | 是 | 无 |
-| 3 | 对象ID=1, 数组=[-1, 2] | [4, 6, 4, "green", "violet"] | [4, 6, 4, "green", "violet"] | 是 | 无 |
-| 4 | 对象ID=2, 数组=[3, 1, 4] | [4, 6, 4, "green", "violet"] | [4, 6, 4, "green", "violet"] | 是 | 无 |
-| 5 | 对象ID=7, 数组=[9, 8, 7, 6] | [4, 6, 4, "green", "violet"] | [4, 6, 4, "green", "violet"] | 是 | 无 |
-| 6 | 对象ID=42, 数组=[] | [4, 6, 4, "green", "violet"] | [4, 6, 4, "green", "violet"] | 是 | 无 |
-| 7 | 对象ID=99, 数组=[1] | [4, 6, 4, "green", "violet"] | [4, 6, 4, "green", "violet"] | 是 | 无 |
-| 8 | 对象ID=100, 数组=[-1, 2] | [4, 6, 4, "green", "violet"] | [4, 6, 4, "green", "violet"] | 是 | 无 |
-| 9 | 对象ID=-1, 数组=[3, 1, 4] | [4, 6, 4, "green", "violet"] | [4, 6, 4, "green", "violet"] | 是 | 无 |
-| 10 | 对象ID=214, 数组=[9, 8, 7, 6] | [4, 6, 4, "green", "violet"] | [4, 6, 4, "green", "violet"] | 是 | 无 |
+1. `03_array_data_lab.obp` 的 `StringSplit` 数据输出未经过执行流，读取时结果尚未生成；已补齐执行连线。
+2. `07_async_rpc_resume_to.obp` 原有两个相同入口 ID，加载时存在覆盖风险；已改为单入口依次覆盖成功与失败恢复分支。
+3. `functions/13_local_state_isolation.obpf` 返回端重新求值纯 Add，导致一次调用可能返回 `seed*2`；已改为返回本次 Set 后的值，恢复每次调用独立的局部状态语义。
+4. `MockDelayAsync`/`MockRpcAsync` 是验证目录专用外部节点，编辑器无法从正式节点库找到时会丢失端口和连线；已在蓝图文档内携带仅用于显示的 fallback 端口定义。
 
-## 04_deterministic_algorithm.obp
+## 失败定位方式
 
-参数 1、参数 2 参与整数评分、除法、取模和分支。
-
-| 组 | 入口输入 | 蓝图输出 | Go 参考输出 | 一致 | 内部函数调用（输入 => 返回） |
-| --- | --- | --- | --- | --- | --- |
-| 1 | 对象ID=0, 参数1=0, 参数2=0 | [-2, -2, 42, "score-low", "range-case-3", "switch-case-2", "5"] | [-2, -2, 42, "score-low", "range-case-3", "switch-case-2", "5"] | 是 | 无 |
-| 2 | 对象ID=1, 参数1=1, 参数2=1 | [0, 0, 42, "score-low", "range-case-3", "switch-case-2", "5"] | [0, 0, 42, "score-low", "range-case-3", "switch-case-2", "5"] | 是 | 无 |
-| 3 | 对象ID=1, 参数1=10, 参数2=5 | [8, 1, 42, "score-low", "range-case-3", "switch-case-2", "5"] | [8, 1, 42, "score-low", "range-case-3", "switch-case-2", "5"] | 是 | 无 |
-| 4 | 对象ID=2, 参数1=-1, 参数2=1 | [-2, -2, 42, "score-low", "range-case-3", "switch-case-2", "5"] | [-2, -2, 42, "score-low", "range-case-3", "switch-case-2", "5"] | 是 | 无 |
-| 5 | 对象ID=7, 参数1=-10, 参数2=-5 | [-12, -5, 42, "score-low", "range-case-3", "switch-case-2", "5"] | [-12, -5, 42, "score-low", "range-case-3", "switch-case-2", "5"] | 是 | 无 |
-| 6 | 对象ID=42, 参数1=2, 参数2=3 | [1, 1, 42, "score-low", "range-case-3", "switch-case-2", "5"] | [1, 1, 42, "score-low", "range-case-3", "switch-case-2", "5"] | 是 | 无 |
-| 7 | 对象ID=99, 参数1=11, 参数2=12 | [13, 6, 42, "score-high", "range-case-3", "switch-case-2", "5"] | [13, 6, 42, "score-high", "range-case-3", "switch-case-2", "5"] | 是 | 无 |
-| 8 | 对象ID=100, 参数1=100, 参数2=-100 | [-2, -2, 42, "score-low", "range-case-3", "switch-case-2", "5"] | [-2, -2, 42, "score-low", "range-case-3", "switch-case-2", "5"] | 是 | 无 |
-| 9 | 对象ID=-1, 参数1=4, 参数2=8 | [6, 6, 42, "score-low", "range-case-3", "switch-case-2", "5"] | [6, 6, 42, "score-low", "range-case-3", "switch-case-2", "5"] | 是 | 无 |
-| 10 | 对象ID=214, 参数1=-50, 参数2=50 | [-2, -2, 42, "score-low", "range-case-3", "switch-case-2", "5"] | [-2, -2, 42, "score-low", "range-case-3", "switch-case-2", "5"] | 是 | 无 |
-
-## 05_function_orchestrator.obp
-
-主图入口当前未接入后续函数调用；每行同时列出四个内部函数调用的实际参数和返回值。
-
-| 组 | 入口输入 | 蓝图输出 | Go 参考输出 | 一致 | 内部函数调用（输入 => 返回） |
-| --- | --- | --- | --- | --- | --- |
-| 1 | 对象ID=0, 参数1=0, 参数2=0 | [30, "gold", 28, "16", 9, "nested-control:complete", 7, 7] | [30, "gold", 28, "16", 9, "nested-control:complete", 7, 7] | 是 | 评分核心(10, 5, 2) => [30, "gold"]<br>数组折叠与格式化([3, 1, 4, 1, 5], 2) => [28, "16"]<br>嵌套控制流(0, 4) => [9, "nested-control:complete"]<br>局部状态隔离(7) => [7]<br>局部状态隔离(7) => [7] |
-| 2 | 对象ID=1, 参数1=1, 参数2=1 | [30, "gold", 28, "16", 9, "nested-control:complete", 7, 7] | [30, "gold", 28, "16", 9, "nested-control:complete", 7, 7] | 是 | 评分核心(10, 5, 2) => [30, "gold"]<br>数组折叠与格式化([3, 1, 4, 1, 5], 2) => [28, "16"]<br>嵌套控制流(0, 4) => [9, "nested-control:complete"]<br>局部状态隔离(7) => [7]<br>局部状态隔离(7) => [7] |
-| 3 | 对象ID=1, 参数1=10, 参数2=5 | [30, "gold", 28, "16", 9, "nested-control:complete", 7, 7] | [30, "gold", 28, "16", 9, "nested-control:complete", 7, 7] | 是 | 评分核心(10, 5, 2) => [30, "gold"]<br>数组折叠与格式化([3, 1, 4, 1, 5], 2) => [28, "16"]<br>嵌套控制流(0, 4) => [9, "nested-control:complete"]<br>局部状态隔离(7) => [7]<br>局部状态隔离(7) => [7] |
-| 4 | 对象ID=2, 参数1=-1, 参数2=1 | [30, "gold", 28, "16", 9, "nested-control:complete", 7, 7] | [30, "gold", 28, "16", 9, "nested-control:complete", 7, 7] | 是 | 评分核心(10, 5, 2) => [30, "gold"]<br>数组折叠与格式化([3, 1, 4, 1, 5], 2) => [28, "16"]<br>嵌套控制流(0, 4) => [9, "nested-control:complete"]<br>局部状态隔离(7) => [7]<br>局部状态隔离(7) => [7] |
-| 5 | 对象ID=7, 参数1=-10, 参数2=-5 | [30, "gold", 28, "16", 9, "nested-control:complete", 7, 7] | [30, "gold", 28, "16", 9, "nested-control:complete", 7, 7] | 是 | 评分核心(10, 5, 2) => [30, "gold"]<br>数组折叠与格式化([3, 1, 4, 1, 5], 2) => [28, "16"]<br>嵌套控制流(0, 4) => [9, "nested-control:complete"]<br>局部状态隔离(7) => [7]<br>局部状态隔离(7) => [7] |
-| 6 | 对象ID=42, 参数1=2, 参数2=3 | [30, "gold", 28, "16", 9, "nested-control:complete", 7, 7] | [30, "gold", 28, "16", 9, "nested-control:complete", 7, 7] | 是 | 评分核心(10, 5, 2) => [30, "gold"]<br>数组折叠与格式化([3, 1, 4, 1, 5], 2) => [28, "16"]<br>嵌套控制流(0, 4) => [9, "nested-control:complete"]<br>局部状态隔离(7) => [7]<br>局部状态隔离(7) => [7] |
-| 7 | 对象ID=99, 参数1=11, 参数2=12 | [30, "gold", 28, "16", 9, "nested-control:complete", 7, 7] | [30, "gold", 28, "16", 9, "nested-control:complete", 7, 7] | 是 | 评分核心(10, 5, 2) => [30, "gold"]<br>数组折叠与格式化([3, 1, 4, 1, 5], 2) => [28, "16"]<br>嵌套控制流(0, 4) => [9, "nested-control:complete"]<br>局部状态隔离(7) => [7]<br>局部状态隔离(7) => [7] |
-| 8 | 对象ID=100, 参数1=100, 参数2=-100 | [30, "gold", 28, "16", 9, "nested-control:complete", 7, 7] | [30, "gold", 28, "16", 9, "nested-control:complete", 7, 7] | 是 | 评分核心(10, 5, 2) => [30, "gold"]<br>数组折叠与格式化([3, 1, 4, 1, 5], 2) => [28, "16"]<br>嵌套控制流(0, 4) => [9, "nested-control:complete"]<br>局部状态隔离(7) => [7]<br>局部状态隔离(7) => [7] |
-| 9 | 对象ID=-1, 参数1=4, 参数2=8 | [30, "gold", 28, "16", 9, "nested-control:complete", 7, 7] | [30, "gold", 28, "16", 9, "nested-control:complete", 7, 7] | 是 | 评分核心(10, 5, 2) => [30, "gold"]<br>数组折叠与格式化([3, 1, 4, 1, 5], 2) => [28, "16"]<br>嵌套控制流(0, 4) => [9, "nested-control:complete"]<br>局部状态隔离(7) => [7]<br>局部状态隔离(7) => [7] |
-| 10 | 对象ID=214, 参数1=-50, 参数2=50 | [30, "gold", 28, "16", 9, "nested-control:complete", 7, 7] | [30, "gold", 28, "16", 9, "nested-control:complete", 7, 7] | 是 | 评分核心(10, 5, 2) => [30, "gold"]<br>数组折叠与格式化([3, 1, 4, 1, 5], 2) => [28, "16"]<br>嵌套控制流(0, 4) => [9, "nested-control:complete"]<br>局部状态隔离(7) => [7]<br>局部状态隔离(7) => [7] |
-
-## 06_timer_lifecycle.obp
-
-入口参数当前未接入定时器生命周期；每行执行创建、暂停、恢复、查询和清理，并列出定时器回调函数参数。
-
-| 组 | 入口输入 | 蓝图输出 | Go 参考输出 | 一致 | 内部函数调用（输入 => 返回） |
-| --- | --- | --- | --- | --- | --- |
-| 1 | 对象ID=0, 参数1=0, 参数2=0 | ["timer-lifecycle-complete"] | ["timer-lifecycle-complete"] | 是 | Set Timer by Function: 局部状态隔离(种子=11) => [11]（循环回调，主图返回不包含回调结果） |
-| 2 | 对象ID=1, 参数1=1, 参数2=1 | ["timer-lifecycle-complete"] | ["timer-lifecycle-complete"] | 是 | Set Timer by Function: 局部状态隔离(种子=11) => [11]（循环回调，主图返回不包含回调结果） |
-| 3 | 对象ID=1, 参数1=10, 参数2=5 | ["timer-lifecycle-complete"] | ["timer-lifecycle-complete"] | 是 | Set Timer by Function: 局部状态隔离(种子=11) => [11]（循环回调，主图返回不包含回调结果） |
-| 4 | 对象ID=2, 参数1=-1, 参数2=1 | ["timer-lifecycle-complete"] | ["timer-lifecycle-complete"] | 是 | Set Timer by Function: 局部状态隔离(种子=11) => [11]（循环回调，主图返回不包含回调结果） |
-| 5 | 对象ID=7, 参数1=-10, 参数2=-5 | ["timer-lifecycle-complete"] | ["timer-lifecycle-complete"] | 是 | Set Timer by Function: 局部状态隔离(种子=11) => [11]（循环回调，主图返回不包含回调结果） |
-| 6 | 对象ID=42, 参数1=2, 参数2=3 | ["timer-lifecycle-complete"] | ["timer-lifecycle-complete"] | 是 | Set Timer by Function: 局部状态隔离(种子=11) => [11]（循环回调，主图返回不包含回调结果） |
-| 7 | 对象ID=99, 参数1=11, 参数2=12 | ["timer-lifecycle-complete"] | ["timer-lifecycle-complete"] | 是 | Set Timer by Function: 局部状态隔离(种子=11) => [11]（循环回调，主图返回不包含回调结果） |
-| 8 | 对象ID=100, 参数1=100, 参数2=-100 | ["timer-lifecycle-complete"] | ["timer-lifecycle-complete"] | 是 | Set Timer by Function: 局部状态隔离(种子=11) => [11]（循环回调，主图返回不包含回调结果） |
-| 9 | 对象ID=-1, 参数1=4, 参数2=8 | ["timer-lifecycle-complete"] | ["timer-lifecycle-complete"] | 是 | Set Timer by Function: 局部状态隔离(种子=11) => [11]（循环回调，主图返回不包含回调结果） |
-| 10 | 对象ID=214, 参数1=-50, 参数2=50 | ["timer-lifecycle-complete"] | ["timer-lifecycle-complete"] | 是 | Set Timer by Function: 局部状态隔离(种子=11) => [11]（循环回调，主图返回不包含回调结果） |
-
-## 07_async_rpc_resume_to.obp
-
-入口参数当前未接入示例 RPC；每行依次执行成功与失败两次异步恢复。
-
-| 组 | 入口输入 | 蓝图输出 | Go 参考输出 | 一致 | 内部函数调用（输入 => 返回） |
-| --- | --- | --- | --- | --- | --- |
-| 1 | 对象ID=0, 参数1=0, 参数2=0 | [314, 503, "mock rpc unavailable"] | [314, 503, "mock rpc unavailable"] | 是 | MockRpcAsync(80ms, true, 314, 0, "") => 成功[value=314]<br>MockRpcAsync(80ms, false, 0, 503, "mock rpc unavailable") => 失败[code=503, message="mock rpc unavailable"] |
-| 2 | 对象ID=1, 参数1=1, 参数2=1 | [314, 503, "mock rpc unavailable"] | [314, 503, "mock rpc unavailable"] | 是 | MockRpcAsync(80ms, true, 314, 0, "") => 成功[value=314]<br>MockRpcAsync(80ms, false, 0, 503, "mock rpc unavailable") => 失败[code=503, message="mock rpc unavailable"] |
-| 3 | 对象ID=1, 参数1=10, 参数2=5 | [314, 503, "mock rpc unavailable"] | [314, 503, "mock rpc unavailable"] | 是 | MockRpcAsync(80ms, true, 314, 0, "") => 成功[value=314]<br>MockRpcAsync(80ms, false, 0, 503, "mock rpc unavailable") => 失败[code=503, message="mock rpc unavailable"] |
-| 4 | 对象ID=2, 参数1=-1, 参数2=1 | [314, 503, "mock rpc unavailable"] | [314, 503, "mock rpc unavailable"] | 是 | MockRpcAsync(80ms, true, 314, 0, "") => 成功[value=314]<br>MockRpcAsync(80ms, false, 0, 503, "mock rpc unavailable") => 失败[code=503, message="mock rpc unavailable"] |
-| 5 | 对象ID=7, 参数1=-10, 参数2=-5 | [314, 503, "mock rpc unavailable"] | [314, 503, "mock rpc unavailable"] | 是 | MockRpcAsync(80ms, true, 314, 0, "") => 成功[value=314]<br>MockRpcAsync(80ms, false, 0, 503, "mock rpc unavailable") => 失败[code=503, message="mock rpc unavailable"] |
-| 6 | 对象ID=42, 参数1=2, 参数2=3 | [314, 503, "mock rpc unavailable"] | [314, 503, "mock rpc unavailable"] | 是 | MockRpcAsync(80ms, true, 314, 0, "") => 成功[value=314]<br>MockRpcAsync(80ms, false, 0, 503, "mock rpc unavailable") => 失败[code=503, message="mock rpc unavailable"] |
-| 7 | 对象ID=99, 参数1=11, 参数2=12 | [314, 503, "mock rpc unavailable"] | [314, 503, "mock rpc unavailable"] | 是 | MockRpcAsync(80ms, true, 314, 0, "") => 成功[value=314]<br>MockRpcAsync(80ms, false, 0, 503, "mock rpc unavailable") => 失败[code=503, message="mock rpc unavailable"] |
-| 8 | 对象ID=100, 参数1=100, 参数2=-100 | [314, 503, "mock rpc unavailable"] | [314, 503, "mock rpc unavailable"] | 是 | MockRpcAsync(80ms, true, 314, 0, "") => 成功[value=314]<br>MockRpcAsync(80ms, false, 0, 503, "mock rpc unavailable") => 失败[code=503, message="mock rpc unavailable"] |
-| 9 | 对象ID=-1, 参数1=4, 参数2=8 | [314, 503, "mock rpc unavailable"] | [314, 503, "mock rpc unavailable"] | 是 | MockRpcAsync(80ms, true, 314, 0, "") => 成功[value=314]<br>MockRpcAsync(80ms, false, 0, 503, "mock rpc unavailable") => 失败[code=503, message="mock rpc unavailable"] |
-| 10 | 对象ID=214, 参数1=-50, 参数2=50 | [314, 503, "mock rpc unavailable"] | [314, 503, "mock rpc unavailable"] | 是 | MockRpcAsync(80ms, true, 314, 0, "") => 成功[value=314]<br>MockRpcAsync(80ms, false, 0, 503, "mock rpc unavailable") => 失败[code=503, message="mock rpc unavailable"] |
+若结果出现不一致，Go 测试错误会输出 `asset`、`seed`、`case`、`repeat`、完整输入、蓝图输出及 Go 期望输出。使用同一 seed 可稳定复现。

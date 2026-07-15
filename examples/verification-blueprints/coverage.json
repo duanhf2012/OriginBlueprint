@@ -9,12 +9,11 @@
                                                           "02_control_flow_maze.obp:execution",
                                                           "04_deterministic_algorithm.obp:execution",
                                                           "05_function_orchestrator.obp:execution",
-                                                          "06_timer_lifecycle.obp:async"
+                                                          "06_async_delay_resume.obp:async"
                                                       ],
                   "origin.debug.output":  [
                                               "01_legacy_all_nodes_showcase.vgf:visual",
-                                              "04_deterministic_algorithm.obp:visual",
-                                              "06_timer_lifecycle.obp:async"
+                                              "04_deterministic_algorithm.obp:visual"
                                           ],
                   "origin.cast.integer-string":  [
                                                      "04_deterministic_algorithm.obp:visual"
@@ -73,11 +72,13 @@
                   "origin.flow.sequence":  [
                                                "01_legacy_all_nodes_showcase.vgf:execution",
                                                "02_control_flow_maze.obp:execution",
+                                               "06_async_delay_resume.obp:async",
                                                "functions/12_nested_control_function.obpf:visual"
                                            ],
                   "origin.flow.for-loop":  [
                                                "01_legacy_all_nodes_showcase.vgf:execution",
-                                               "02_control_flow_maze.obp:execution"
+                                               "02_control_flow_maze.obp:execution",
+                                               "06_async_delay_resume.obp:async"
                                            ],
                   "origin.flow.branch":  [
                                              "01_legacy_all_nodes_showcase.vgf:execution",
@@ -97,18 +98,22 @@
                                                 ],
                   "origin.flow.foreach-integer-array":  [
                                                             "01_legacy_all_nodes_showcase.vgf:execution",
-                                                            "02_control_flow_maze.obp:execution"
+                                                            "02_control_flow_maze.obp:execution",
+                                                            "06_async_delay_resume.obp:async"
                                                         ],
                   "origin.flow.while":  [
                                             "02_control_flow_maze.obp:execution",
+                                            "06_async_delay_resume.obp:async",
                                             "functions/12_nested_control_function.obpf:visual"
                                         ],
                   "origin.flow.for-loop-break":  [
                                                      "02_control_flow_maze.obp:execution",
+                                                     "06_async_delay_resume.obp:async",
                                                      "functions/12_nested_control_function.obpf:visual"
                                                  ],
                   "origin.flow.foreach-array":  [
-                                                    "02_control_flow_maze.obp:visual"
+                                                    "02_control_flow_maze.obp:visual",
+                                                    "06_async_delay_resume.obp:async"
                                                 ],
                   "origin.flow.probability":  [
                                                   "01_legacy_all_nodes_showcase.vgf:visual",
@@ -170,36 +175,10 @@
                                                       "02_control_flow_maze.obp:execution",
                                                       "04_deterministic_algorithm.obp:execution"
                                                   ],
-                  "origin.flow.delay":  [
-                                            "06_timer_lifecycle.obp:async"
-                                        ],
-                  "origin.timer.set-by-function":  [
-                                                       "06_timer_lifecycle.obp:async"
-                                                   ],
-                  "origin.timer.clear":  [
-                                             "06_timer_lifecycle.obp:async"
-                                         ],
-                  "origin.timer.pause":  [
-                                             "06_timer_lifecycle.obp:async"
-                                         ],
-                  "origin.timer.unpause":  [
-                                               "06_timer_lifecycle.obp:async"
-                                           ],
-                  "origin.timer.is-active":  [
-                                                 "06_timer_lifecycle.obp:async"
-                                             ],
-                  "origin.timer.is-paused":  [
-                                                 "06_timer_lifecycle.obp:async"
-                                             ],
-                  "origin.timer.is-valid":  [
-                                                "06_timer_lifecycle.obp:async"
-                                            ],
-                  "origin.timer.remaining":  [
-                                                 "06_timer_lifecycle.obp:async"
-                                             ],
-                  "origin.timer.elapsed":  [
-                                               "06_timer_lifecycle.obp:async"
-                                           ],
+                  "origin.example.mock-delay-async":  [
+                                                          "06_async_delay_resume.obp:async-demo",
+                                                          "functions/14_async_delay_function.obpf:async-demo"
+                                                      ],
                   "origin.example.mock-rpc-async":  [
                                                         "07_async_rpc_resume_to.obp:async-demo"
                                                     ],
@@ -208,26 +187,31 @@
                                           ],
                   "origin.variable.get":  [
                                               "03_array_data_lab.obp:visual",
+                                              "06_async_delay_resume.obp:async",
                                               "functions/13_local_state_isolation.obpf:visual"
                                           ],
                   "origin.variable.set":  [
                                               "03_array_data_lab.obp:visual",
+                                              "06_async_delay_resume.obp:async",
                                               "functions/13_local_state_isolation.obpf:visual"
                                           ],
                   "origin.function.entry":  [
                                                 "functions/10_score_kernel.obpf:visual",
                                                 "functions/11_array_fold_and_format.obpf:visual",
                                                 "functions/12_nested_control_function.obpf:visual",
-                                                "functions/13_local_state_isolation.obpf:visual"
+                                                "functions/13_local_state_isolation.obpf:visual",
+                                                "functions/14_async_delay_function.obpf:async"
                                             ],
                   "origin.function.return":  [
                                                  "functions/10_score_kernel.obpf:execution",
                                                  "functions/11_array_fold_and_format.obpf:execution",
                                                  "functions/12_nested_control_function.obpf:execution",
-                                                 "functions/13_local_state_isolation.obpf:execution"
+                                                 "functions/13_local_state_isolation.obpf:execution",
+                                                 "functions/14_async_delay_function.obpf:async"
                                              ],
                   "origin.function.call":  [
                                                "05_function_orchestrator.obp:execution",
+                                               "06_async_delay_resume.obp:async",
                                                "functions/11_array_fold_and_format.obpf:visual"
                                            ]
               }

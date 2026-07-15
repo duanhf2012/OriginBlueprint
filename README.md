@@ -259,11 +259,8 @@ Desktop-only today:
 
 ## More Documentation
 
-- [Architecture](docs/ARCHITECTURE.md)
-- [Node JSON format, Chinese](docs/NODE_JSON_FORMAT_ZH.md)
-- [Legacy compatibility, Chinese](docs/LEGACY_COMPATIBILITY_ZH.md)
-- [Blueprint change safety, Chinese](docs/BLUEPRINT_CHANGE_SAFETY_ZH.md)
-- [Engine test matrix, Chinese](docs/BLUEPRINT_ENGINE_TEST_MATRIX_ZH.md)
+- [Authoritative editor and Go library guide, Chinese](docs/ORIGIN_BLUEPRINT_USER_GUIDE_ZH.md)
+- [Generated blueprint differential verification report, Chinese](docs/BLUEPRINT_VERIFICATION_MATRIX_ZH.md)
 
 ## Continuous Integration
 

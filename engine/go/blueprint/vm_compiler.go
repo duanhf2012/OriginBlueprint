@@ -8,6 +8,11 @@ import (
 var vmProgramVersion atomic.Uint64
 var vmCompatibilityCompileMu sync.Mutex
 
+const (
+	vmFlowStackHintLimit = 16
+	vmLoopStackHintLimit = 4
+)
+
 func compileVMProgram(compiled *CompiledGraph) *Program {
 	if compiled == nil {
 		return nil
@@ -66,7 +71,9 @@ func compileVMStackHints(nodes []NodePlan) (flowHint, loopHint int) {
 			}
 		}
 	}
-	return min(flowHint, 64), min(loopHint, 16)
+	// 提示只用于减少常见浅层流程的扩容；大型图的节点总数不等于单次执行深度，
+	// 因此限制预分配上限，深层流程按需由 append 扩容。
+	return min(flowHint, vmFlowStackHintLimit), min(loopHint, vmLoopStackHintLimit)
 }
 
 func compileVMSuccessors(node *ExecNode) [][]VMTarget {

@@ -267,11 +267,8 @@ GraphDocument JSON
 
 ## 更多文档
 
-- [架构说明](docs/ARCHITECTURE.md)
-- [节点 JSON 格式](docs/NODE_JSON_FORMAT_ZH.md)
-- [Legacy 兼容说明](docs/LEGACY_COMPATIBILITY_ZH.md)
-- [蓝图修改安全规则](docs/BLUEPRINT_CHANGE_SAFETY_ZH.md)
-- [Go 引擎测试矩阵](docs/BLUEPRINT_ENGINE_TEST_MATRIX_ZH.md)
+- [编辑器与 Go 库唯一权威使用手册](docs/ORIGIN_BLUEPRINT_USER_GUIDE_ZH.md)
+- [蓝图与 Go 实现自动对比报告](docs/BLUEPRINT_VERIFICATION_MATRIX_ZH.md)
 
 ## 持续集成
 

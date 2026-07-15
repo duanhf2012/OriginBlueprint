@@ -2,6 +2,7 @@ package blueprint
 
 import (
 	"context"
+	"fmt"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -29,13 +30,25 @@ func TestVerificationArrayDataLabMatchesReference(t *testing.T) {
 }
 
 func referenceControlFlowMaze() PortArray {
-	returns := make(PortArray, 0, 10)
+	returns := make(PortArray, 0, 20)
 	for outer := PortInt(0); outer < 3; outer++ {
 		for _, value := range []PortInt{2, 4, 6} {
 			returns = append(returns, ArrayData{IntVal: outer + value})
 		}
 	}
-	return append(returns, ArrayData{StrVal: "range-branch-true"})
+	returns = append(returns, ArrayData{StrVal: "range-branch-true"})
+	for index := PortInt(0); index <= 2; index++ {
+		returns = append(returns, ArrayData{IntVal: index})
+	}
+	returns = append(returns,
+		ArrayData{StrVal: "break-loop-complete"},
+		ArrayData{StrVal: "probability-hit"},
+		ArrayData{StrVal: "comparison-switch-complete"},
+	)
+	for _, value := range []PortString{"alpha", "beta", "gamma"} {
+		returns = append(returns, ArrayData{StrVal: PortString(fmt.Sprint(ArrayData{StrVal: value}))})
+	}
+	return append(returns, ArrayData{StrVal: "control-flow-complete"})
 }
 
 func referenceArrayDataLab() PortArray {
@@ -50,6 +63,7 @@ func referenceArrayDataLab() PortArray {
 		{IntVal: arraySum},
 		{StrVal: "green"},
 		{StrVal: strings[3]},
+		{StrVal: PortString(fmt.Sprint(ArrayData{StrVal: "north"}))},
 	}
 }
 
@@ -284,9 +298,14 @@ func resumeVerificationMockRPC(t *testing.T) {
 }
 
 func verificationFixtureRegistry(t *testing.T) *Registry {
+	return verificationFixtureRegistryWithClock(t, nil)
+}
+
+func verificationFixtureRegistryWithClock(t *testing.T, clock *verificationFakeClock) *Registry {
 	t.Helper()
 	registry := testSystemRegistry(t)
 	registry.Register(NewNodeDefinition("MockRpcAsync", func() IExecNode { return &verificationMockRPCNode{} }, []IPort{NewPortExec(), NewPortInt(), NewPortBool(), NewPortInt(), NewPortInt(), NewPortStr()}, []IPort{NewPortExec(), NewPortExec(), NewPortInt(), NewPortInt(), NewPortStr()}))
+	registry.Register(NewNodeDefinition("MockDelayAsync", func() IExecNode { return &verificationMockDelayNode{clock: clock} }, []IPort{NewPortExec(), NewPortInt(), NewPortInt(), NewPortStr()}, []IPort{NewPortExec(), NewPortInt(), NewPortStr()}))
 	return registry
 }
 
@@ -317,16 +336,21 @@ func loadVerificationGraphWithRegistry(t *testing.T, fileName string, registry *
 }
 
 func loadVerificationFixtureSet(t *testing.T) map[string]*CompiledGraph {
+	return loadVerificationFixtureSetWithRegistry(t, verificationFixtureRegistry(t))
+}
+
+func loadVerificationFixtureSetWithRegistry(t *testing.T, registry *Registry) map[string]*CompiledGraph {
 	t.Helper()
 	source := filepath.Join("..", "..", "..", "examples", "verification-blueprints")
 	root := t.TempDir()
 	for _, relative := range []string{
 		"05_function_orchestrator.obp",
-		"06_timer_lifecycle.obp",
+		"06_async_delay_resume.obp",
 		"functions/10_score_kernel.obpf",
 		"functions/11_array_fold_and_format.obpf",
 		"functions/12_nested_control_function.obpf",
 		"functions/13_local_state_isolation.obpf",
+		"functions/14_async_delay_function.obpf",
 	} {
 		data, err := os.ReadFile(filepath.Join(source, relative))
 		if err != nil {
@@ -340,7 +364,7 @@ func loadVerificationFixtureSet(t *testing.T) map[string]*CompiledGraph {
 			t.Fatal(err)
 		}
 	}
-	graphs, err := loadGraphDir(testSystemRegistry(t), root)
+	graphs, err := loadGraphDir(registry, root)
 	if err != nil {
 		t.Fatal(err)
 	}

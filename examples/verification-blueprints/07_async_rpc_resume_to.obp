@@ -1,26 +1,387 @@
 {
-  "schemaVersion": 1,
-  "graphName": "定时器模拟 RPC 异步恢复",
-  "nodes": [
-    {"id":"entry","typeId":"origin.event.entry-two-integers","position":{"x":80,"y":160},"values":{},"properties":{}},
-    {"id":"success_rpc","typeId":"origin.example.mock-rpc-async","position":{"x":350,"y":120},"values":{"delayMs":80,"succeed":true,"successValue":314,"failureCode":0,"failureMessage":""},"properties":{}},
-    {"id":"success_return","typeId":"origin.result.append-integer","position":{"x":760,"y":100},"values":{},"properties":{}},
-    {"id":"failure_rpc","typeId":"origin.example.mock-rpc-async","position":{"x":1040,"y":120},"values":{"delayMs":80,"succeed":false,"successValue":0,"failureCode":503,"failureMessage":"mock rpc unavailable"},"properties":{}},
-    {"id":"failure_code_return","typeId":"origin.result.append-integer","position":{"x":1450,"y":100},"values":{},"properties":{}},
-    {"id":"failure_return","typeId":"origin.result.append-string","position":{"x":1710,"y":100},"values":{},"properties":{}}
-  ],
-  "connections": [
-    {"source":"entry","sourceOutput":"exec","target":"success_rpc","targetInput":"exec"},
-    {"source":"success_rpc","sourceOutput":"succeeded","target":"success_return","targetInput":"exec"},
-    {"source":"success_rpc","sourceOutput":"value","target":"success_return","targetInput":"value"},
-    {"source":"success_return","sourceOutput":"exec","target":"failure_rpc","targetInput":"exec"},
-    {"source":"failure_rpc","sourceOutput":"failed","target":"failure_code_return","targetInput":"exec"},
-    {"source":"failure_rpc","sourceOutput":"errorCode","target":"failure_code_return","targetInput":"value"},
-    {"source":"failure_code_return","sourceOutput":"exec","target":"failure_return","targetInput":"exec"},
-    {"source":"failure_rpc","sourceOutput":"errorMessage","target":"failure_return","targetInput":"value"}
-  ],
-  "groups": [{"id":"rpc-flow","title":"定时器模拟 RPC：成功 ResumeTo 后继续失败 ResumeTo","x":35,"y":35,"width":1950,"height":330,"nodeIds":["entry","success_rpc","success_return","failure_rpc","failure_code_return","failure_return"]}],
-  "variables": [],
-  "variableGroups": [{"id":"default","name":"默认","collapsed":false}],
-  "view":{"x":0,"y":0,"zoom":0.72}
+    "schemaVersion":  1,
+    "graphName":  "定时器模拟 RPC 异步恢复",
+    "nodes":  [
+                  {
+                      "id":  "success_entry",
+                      "typeId":  "origin.event.entry-two-integers",
+                      "position":  {
+                                       "x":  80,
+                                       "y":  150
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "success_rpc",
+                      "typeId":  "origin.example.mock-rpc-async",
+                      "position":  {
+                                       "x":  380,
+                                       "y":  120
+                                   },
+                      "values":  {
+                                     "delayMs":  80,
+                                     "succeed":  true,
+                                     "failureMessage":  "",
+                                     "successValue":  314,
+                                     "failureCode":  0
+                                 },
+                      "properties":  {
+                                         "label":  "模拟 RPC 异步调用",
+                                         "legacyOutputs":  [
+                                                               {
+                                                                   "key":  "succeeded",
+                                                                   "label":  "成功",
+                                                                   "type":  "exec"
+                                                               },
+                                                               {
+                                                                   "key":  "failed",
+                                                                   "label":  "失败",
+                                                                   "type":  "exec"
+                                                               },
+                                                               {
+                                                                   "key":  "value",
+                                                                   "label":  "成功值",
+                                                                   "type":  "integer"
+                                                               },
+                                                               {
+                                                                   "key":  "errorCode",
+                                                                   "label":  "失败码",
+                                                                   "type":  "integer"
+                                                               },
+                                                               {
+                                                                   "key":  "errorMessage",
+                                                                   "label":  "失败信息",
+                                                                   "type":  "string"
+                                                               }
+                                                           ],
+                                         "legacyModule":  "verification.fixture",
+                                         "legacyInputs":  [
+                                                              {
+                                                                  "key":  "exec",
+                                                                  "label":  "执行",
+                                                                  "type":  "exec"
+                                                              },
+                                                              {
+                                                                  "key":  "delayMs",
+                                                                  "label":  "延迟（毫秒）",
+                                                                  "type":  "integer"
+                                                              },
+                                                              {
+                                                                  "key":  "succeed",
+                                                                  "label":  "是否成功",
+                                                                  "type":  "boolean"
+                                                              },
+                                                              {
+                                                                  "key":  "successValue",
+                                                                  "label":  "成功值",
+                                                                  "type":  "integer"
+                                                              },
+                                                              {
+                                                                  "key":  "failureCode",
+                                                                  "label":  "失败码",
+                                                                  "type":  "integer"
+                                                              },
+                                                              {
+                                                                  "key":  "failureMessage",
+                                                                  "label":  "失败信息",
+                                                                  "type":  "string"
+                                                              }
+                                                          ],
+                                         "legacyClass":  "MockRpcAsync"
+                                     }
+                  },
+                  {
+                      "id":  "success_return",
+                      "typeId":  "origin.result.append-integer",
+                      "position":  {
+                                       "x":  790,
+                                       "y":  90
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "success_unexpected_text",
+                      "typeId":  "origin.literal.string",
+                      "position":  {
+                                       "x":  710,
+                                       "y":  280
+                                   },
+                      "values":  {
+                                     "value":  "unexpected failure from success request"
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "success_unexpected_return",
+                      "typeId":  "origin.result.append-string",
+                      "position":  {
+                                       "x":  990,
+                                       "y":  230
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "failure_rpc",
+                      "typeId":  "origin.example.mock-rpc-async",
+                      "position":  {
+                                       "x":  1180,
+                                       "y":  90
+                                   },
+                      "values":  {
+                                     "delayMs":  80,
+                                     "succeed":  false,
+                                     "failureMessage":  "mock rpc unavailable",
+                                     "successValue":  0,
+                                     "failureCode":  503
+                                 },
+                      "properties":  {
+                                         "label":  "模拟 RPC 异步调用",
+                                         "legacyOutputs":  [
+                                                               {
+                                                                   "key":  "succeeded",
+                                                                   "label":  "成功",
+                                                                   "type":  "exec"
+                                                               },
+                                                               {
+                                                                   "key":  "failed",
+                                                                   "label":  "失败",
+                                                                   "type":  "exec"
+                                                               },
+                                                               {
+                                                                   "key":  "value",
+                                                                   "label":  "成功值",
+                                                                   "type":  "integer"
+                                                               },
+                                                               {
+                                                                   "key":  "errorCode",
+                                                                   "label":  "失败码",
+                                                                   "type":  "integer"
+                                                               },
+                                                               {
+                                                                   "key":  "errorMessage",
+                                                                   "label":  "失败信息",
+                                                                   "type":  "string"
+                                                               }
+                                                           ],
+                                         "legacyModule":  "verification.fixture",
+                                         "legacyInputs":  [
+                                                              {
+                                                                  "key":  "exec",
+                                                                  "label":  "执行",
+                                                                  "type":  "exec"
+                                                              },
+                                                              {
+                                                                  "key":  "delayMs",
+                                                                  "label":  "延迟（毫秒）",
+                                                                  "type":  "integer"
+                                                              },
+                                                              {
+                                                                  "key":  "succeed",
+                                                                  "label":  "是否成功",
+                                                                  "type":  "boolean"
+                                                              },
+                                                              {
+                                                                  "key":  "successValue",
+                                                                  "label":  "成功值",
+                                                                  "type":  "integer"
+                                                              },
+                                                              {
+                                                                  "key":  "failureCode",
+                                                                  "label":  "失败码",
+                                                                  "type":  "integer"
+                                                              },
+                                                              {
+                                                                  "key":  "failureMessage",
+                                                                  "label":  "失败信息",
+                                                                  "type":  "string"
+                                                              }
+                                                          ],
+                                         "legacyClass":  "MockRpcAsync"
+                                     }
+                  },
+                  {
+                      "id":  "failure_unexpected_return",
+                      "typeId":  "origin.result.append-integer",
+                      "position":  {
+                                       "x":  1570,
+                                       "y":  40
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "failure_code_return",
+                      "typeId":  "origin.result.append-integer",
+                      "position":  {
+                                       "x":  1570,
+                                       "y":  190
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "failure_return",
+                      "typeId":  "origin.result.append-string",
+                      "position":  {
+                                       "x":  1810,
+                                       "y":  190
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  }
+              ],
+    "connections":  [
+                        {
+                            "source":  "success_entry",
+                            "sourceOutput":  "exec",
+                            "target":  "success_rpc",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "success_rpc",
+                            "sourceOutput":  "succeeded",
+                            "target":  "success_return",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "success_rpc",
+                            "sourceOutput":  "value",
+                            "target":  "success_return",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "success_rpc",
+                            "sourceOutput":  "failed",
+                            "target":  "success_unexpected_return",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "success_unexpected_text",
+                            "sourceOutput":  "value",
+                            "target":  "success_unexpected_return",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "success_return",
+                            "sourceOutput":  "exec",
+                            "target":  "failure_rpc",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "failure_rpc",
+                            "sourceOutput":  "succeeded",
+                            "target":  "failure_unexpected_return",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "failure_rpc",
+                            "sourceOutput":  "value",
+                            "target":  "failure_unexpected_return",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "failure_rpc",
+                            "sourceOutput":  "failed",
+                            "target":  "failure_code_return",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "failure_rpc",
+                            "sourceOutput":  "errorCode",
+                            "target":  "failure_code_return",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "failure_code_return",
+                            "sourceOutput":  "exec",
+                            "target":  "failure_return",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "failure_rpc",
+                            "sourceOutput":  "errorMessage",
+                            "target":  "failure_return",
+                            "targetInput":  "value"
+                        }
+                    ],
+    "groups":  [
+                   {
+                       "id":  "success-rpc",
+                       "title":  "单入口第一步：ResumeTo(成功) 返回成功值",
+                       "x":  35,
+                       "y":  35,
+                       "width":  1080,
+                       "height":  350,
+                       "nodeIds":  [
+                                       "success_entry",
+                                       "success_rpc",
+                                       "success_return",
+                                       "success_unexpected_text",
+                                       "success_unexpected_return"
+                                   ]
+                   },
+                   {
+                       "id":  "failure-rpc",
+                       "title":  "成功步骤完成后：ResumeTo(失败) 返回错误码和错误文本",
+                       "x":  1120,
+                       "y":  35,
+                       "width":  900,
+                       "height":  350,
+                       "nodeIds":  [
+                                       "failure_rpc",
+                                       "failure_unexpected_return",
+                                       "failure_code_return",
+                                       "failure_return"
+                                   ]
+                   }
+               ],
+    "variables":  [
+
+                  ],
+    "variableGroups":  [
+                           {
+                               "id":  "default",
+                               "name":  "默认",
+                               "collapsed":  false
+                           },
+                           {
+                               "id":  "local",
+                               "name":  "局部状态",
+                               "collapsed":  false
+                           }
+                       ],
+    "view":  {
+                 "x":  0,
+                 "y":  0,
+                 "zoom":  0.72
+             }
 }

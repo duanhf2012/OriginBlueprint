@@ -80,13 +80,17 @@ func TestVerificationBlueprintFixturesLoadThroughEngine(t *testing.T) {
 	}
 	for _, name := range []string{
 		"01_legacy_all_nodes_showcase",
+		"控制流迷宫",
+		"数组数据实验室",
 		"确定性评分算法",
 		"函数编排主图",
-		"新定时器生命周期",
+		"异步 Delay 恢复验证",
+		"定时器模拟 RPC 异步恢复",
 		"评分核心",
 		"数组折叠与格式化",
 		"嵌套控制流",
 		"局部状态隔离",
+		"函数内异步 Delay",
 	} {
 		if graphs[name] == nil {
 			t.Errorf("loaded fixtures do not contain graph %q", name)

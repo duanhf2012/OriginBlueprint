@@ -1,0 +1,65 @@
+{
+    "id":  "origin.example.mock-delay-async",
+    "sourceName":  "MockDelayAsync",
+    "title":  "模拟 Delay 异步恢复",
+    "titleEn":  "Mock Delay Async Resume",
+    "category":  "示例 / 异步",
+    "categoryEn":  "Examples / Async",
+    "subtitle":  "测试专用：挂起当前 Execution，并在假时钟到期后从原位置恢复。",
+    "subtitleEn":  "Test only: yields the current execution and resumes it after the fake deadline.",
+    "width":  330,
+    "inputs":  [
+                   {
+                       "key":  "exec",
+                       "label":  "执行",
+                       "labelEn":  "Exec",
+                       "type":  "exec"
+                   },
+                   {
+                       "key":  "delayMs",
+                       "label":  "延迟（毫秒）",
+                       "labelEn":  "Delay (ms)",
+                       "type":  "data",
+                       "data_type":  "Integer",
+                       "defaultValue":  10
+                   },
+                   {
+                       "key":  "value",
+                       "label":  "透传整数",
+                       "labelEn":  "Pass-through Value",
+                       "type":  "data",
+                       "data_type":  "Integer",
+                       "defaultValue":  0
+                   },
+                   {
+                       "key":  "tag",
+                       "label":  "透传标记",
+                       "labelEn":  "Pass-through Tag",
+                       "type":  "data",
+                       "data_type":  "String",
+                       "defaultValue":  "delay-resumed"
+                   }
+               ],
+    "outputs":  [
+                    {
+                        "key":  "completed",
+                        "label":  "完成",
+                        "labelEn":  "Completed",
+                        "type":  "exec"
+                    },
+                    {
+                        "key":  "value",
+                        "label":  "恢复整数",
+                        "labelEn":  "Resumed Value",
+                        "type":  "data",
+                        "data_type":  "Integer"
+                    },
+                    {
+                        "key":  "tag",
+                        "label":  "恢复标记",
+                        "labelEn":  "Resumed Tag",
+                        "type":  "data",
+                        "data_type":  "String"
+                    }
+                ]
+}

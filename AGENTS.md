@@ -18,15 +18,10 @@
 
 ## 修改前必读
 
-做非 trivial 修改前，先阅读这些文档：
+做非 trivial 修改前，先阅读唯一权威说明：
 
-- `docs/AI_PROJECT_CONTEXT_ZH.md`：给 agent 的项目速览。
-- `docs/LEGACY_COMPATIBILITY_ZH.md`：`.vgf` 和旧节点兼容规则。
-- `docs/ARCHITECTURE.md`：Go 和前端的职责边界。
-- `docs/NODE_JSON_FORMAT_ZH.md`：节点 JSON 格式。
-- `docs/ORIGIN_NODE_EDITOR_PARITY.md`：历史功能和兼容性清单。
-- `docs/BLUEPRINT_ENGINE_TEST_MATRIX_ZH.md`：Go engine 当前测试、压测和 race 验证矩阵。
-- `docs/CODEX_BLUEPRINT_ENGINE_RULES_ZH.md`：Go 蓝图引擎的 Codex 维护规则。
+- `docs/ORIGIN_BLUEPRINT_USER_GUIDE_ZH.md`：编辑器、节点 JSON、Go API、VM 异步、兼容性、使用禁区和验证要求。
+- `docs/BLUEPRINT_VERIFICATION_MATRIX_ZH.md`：当前验证蓝图与独立 Go 实现的自动对比结果。
 
 如果修改 `engine/go/blueprint/`，还必须阅读 `engine/go/blueprint/AGENTS.md`。
 
@@ -51,7 +46,7 @@
 - `graph.go`：`GraphDocument`、校验、稳定的节点端口类型表。
 - `legacy.go`：legacy `.vgf` 迁移和导出。
 - `node_schemas.go`：运行时加载 `nodes/**/*.json`。
-- `execution.go`：Go 运行时执行语义。
+- `execution.go`：桌面工具的文档执行/验证服务；服务器 Go VM 位于 `engine/go/blueprint/`。
 - `app.go`：Wails 暴露的文件、workspace 和 platform 服务。
 - `frontend/src/platform.ts`：桌面和浏览器能力适配层。
 - `frontend/src/App.vue`：应用壳、标签页、打开保存流程、节点库加载。
@@ -100,4 +95,4 @@ wails build
 
 - 某些旧 JSON 或旧文档里的中文在不同终端编码下可能显示为乱码。除非用户要求，不要只为了显示正常而重写大型 JSON。
 - 不要引用或依赖仓库外的旧项目目录；clone 本仓库后应能独立阅读、构建和维护。
-- `.vgf` 和 `.obp` 的保存、导出语义对兼容性敏感。修改前先看 `app.go`、`legacy.go` 和 `docs/LEGACY_COMPATIBILITY_ZH.md`。
+- `.vgf` 和 `.obp` 的保存、导出语义对兼容性敏感。修改前先看 `app.go`、`legacy.go` 和唯一权威使用手册中的兼容性与禁止用法。

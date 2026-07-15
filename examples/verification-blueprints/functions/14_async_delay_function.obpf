@@ -1,0 +1,271 @@
+{
+    "schemaVersion":  1,
+    "graphName":  "函数内异步 Delay",
+    "nodes":  [
+                  {
+                      "id":  "entry",
+                      "typeId":  "origin.function.entry",
+                      "position":  {
+                                       "x":  80,
+                                       "y":  130
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+                                         "label":  "函数内异步 Delay Entry",
+                                         "functionRole":  "entry",
+                                         "functionSource":  "workspace",
+                                         "functionId":  "functions/14_async_delay_function.obpf",
+                                         "functionSignature":  {
+                                                                   "inputs":  [
+                                                                                  {
+                                                                                      "id":  "delayMs",
+                                                                                      "name":  "延迟毫秒",
+                                                                                      "type":  "integer"
+                                                                                  },
+                                                                                  {
+                                                                                      "id":  "value",
+                                                                                      "name":  "透传整数",
+                                                                                      "type":  "integer"
+                                                                                  },
+                                                                                  {
+                                                                                      "id":  "tag",
+                                                                                      "name":  "透传标记",
+                                                                                      "type":  "string"
+                                                                                  }
+                                                                              ],
+                                                                   "outputs":  [
+                                                                                   {
+                                                                                       "id":  "value",
+                                                                                       "name":  "恢复整数",
+                                                                                       "type":  "integer"
+                                                                                   },
+                                                                                   {
+                                                                                       "id":  "tag",
+                                                                                       "name":  "恢复标记",
+                                                                                       "type":  "string"
+                                                                                   }
+                                                                               ]
+                                                               },
+                                         "functionName":  "函数内异步 Delay"
+                                     }
+                  },
+                  {
+                      "id":  "delay",
+                      "typeId":  "origin.example.mock-delay-async",
+                      "position":  {
+                                       "x":  430,
+                                       "y":  110
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+                                         "label":  "模拟 Delay 异步恢复",
+                                         "legacyOutputs":  [
+                                                               {
+                                                                   "key":  "completed",
+                                                                   "label":  "完成",
+                                                                   "type":  "exec"
+                                                               },
+                                                               {
+                                                                   "key":  "value",
+                                                                   "label":  "恢复整数",
+                                                                   "type":  "integer"
+                                                               },
+                                                               {
+                                                                   "key":  "tag",
+                                                                   "label":  "恢复标记",
+                                                                   "type":  "string"
+                                                               }
+                                                           ],
+                                         "legacyModule":  "verification.fixture",
+                                         "legacyInputs":  [
+                                                              {
+                                                                  "key":  "exec",
+                                                                  "label":  "执行",
+                                                                  "type":  "exec"
+                                                              },
+                                                              {
+                                                                  "key":  "delayMs",
+                                                                  "label":  "延迟（毫秒）",
+                                                                  "type":  "integer"
+                                                              },
+                                                              {
+                                                                  "key":  "value",
+                                                                  "label":  "透传整数",
+                                                                  "type":  "integer"
+                                                              },
+                                                              {
+                                                                  "key":  "tag",
+                                                                  "label":  "透传标记",
+                                                                  "type":  "string"
+                                                              }
+                                                          ],
+                                         "legacyClass":  "MockDelayAsync"
+                                     }
+                  },
+                  {
+                      "id":  "return",
+                      "typeId":  "origin.function.return",
+                      "position":  {
+                                       "x":  820,
+                                       "y":  130
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+                                         "label":  "函数内异步 Delay Return",
+                                         "functionRole":  "return",
+                                         "functionSource":  "workspace",
+                                         "functionId":  "functions/14_async_delay_function.obpf",
+                                         "functionSignature":  {
+                                                                   "inputs":  [
+                                                                                  {
+                                                                                      "id":  "delayMs",
+                                                                                      "name":  "延迟毫秒",
+                                                                                      "type":  "integer"
+                                                                                  },
+                                                                                  {
+                                                                                      "id":  "value",
+                                                                                      "name":  "透传整数",
+                                                                                      "type":  "integer"
+                                                                                  },
+                                                                                  {
+                                                                                      "id":  "tag",
+                                                                                      "name":  "透传标记",
+                                                                                      "type":  "string"
+                                                                                  }
+                                                                              ],
+                                                                   "outputs":  [
+                                                                                   {
+                                                                                       "id":  "value",
+                                                                                       "name":  "恢复整数",
+                                                                                       "type":  "integer"
+                                                                                   },
+                                                                                   {
+                                                                                       "id":  "tag",
+                                                                                       "name":  "恢复标记",
+                                                                                       "type":  "string"
+                                                                                   }
+                                                                               ]
+                                                               },
+                                         "functionName":  "函数内异步 Delay"
+                                     }
+                  }
+              ],
+    "connections":  [
+                        {
+                            "source":  "entry",
+                            "sourceOutput":  "exec",
+                            "target":  "delay",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "entry",
+                            "sourceOutput":  "input_delayMs",
+                            "target":  "delay",
+                            "targetInput":  "delayMs"
+                        },
+                        {
+                            "source":  "entry",
+                            "sourceOutput":  "input_value",
+                            "target":  "delay",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "entry",
+                            "sourceOutput":  "input_tag",
+                            "target":  "delay",
+                            "targetInput":  "tag"
+                        },
+                        {
+                            "source":  "delay",
+                            "sourceOutput":  "completed",
+                            "target":  "return",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "delay",
+                            "sourceOutput":  "value",
+                            "target":  "return",
+                            "targetInput":  "output_value"
+                        },
+                        {
+                            "source":  "delay",
+                            "sourceOutput":  "tag",
+                            "target":  "return",
+                            "targetInput":  "output_tag"
+                        }
+                    ],
+    "groups":  [
+                   {
+                       "id":  "async-function",
+                       "title":  "函数入口 -\u003e 挂起 -\u003e 原函数帧恢复 -\u003e 返回",
+                       "x":  35,
+                       "y":  55,
+                       "width":  1080,
+                       "height":  260,
+                       "nodeIds":  [
+                                       "entry",
+                                       "delay",
+                                       "return"
+                                   ]
+                   }
+               ],
+    "variables":  [
+
+                  ],
+    "variableGroups":  [
+                           {
+                               "id":  "default",
+                               "name":  "默认",
+                               "collapsed":  false
+                           },
+                           {
+                               "id":  "local",
+                               "name":  "局部状态",
+                               "collapsed":  false
+                           }
+                       ],
+    "view":  {
+                 "x":  0,
+                 "y":  0,
+                 "zoom":  0.72
+             },
+    "functionCategory":  "验证函数",
+    "functionSignature":  {
+                              "inputs":  [
+                                             {
+                                                 "id":  "delayMs",
+                                                 "name":  "延迟毫秒",
+                                                 "type":  "integer"
+                                             },
+                                             {
+                                                 "id":  "value",
+                                                 "name":  "透传整数",
+                                                 "type":  "integer"
+                                             },
+                                             {
+                                                 "id":  "tag",
+                                                 "name":  "透传标记",
+                                                 "type":  "string"
+                                             }
+                                         ],
+                              "outputs":  [
+                                              {
+                                                  "id":  "value",
+                                                  "name":  "恢复整数",
+                                                  "type":  "integer"
+                                              },
+                                              {
+                                                  "id":  "tag",
+                                                  "name":  "恢复标记",
+                                                  "type":  "string"
+                                              }
+                                          ]
+                          },
+    "functionId":  "functions/14_async_delay_function.obpf"
+}

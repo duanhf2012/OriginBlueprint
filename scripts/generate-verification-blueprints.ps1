@@ -128,6 +128,66 @@ $mockRpcAsyncSchema = [ordered]@{
     )
 }
 WriteArtifact 'nodes/MockRpcAsync.json' $mockRpcAsyncSchema
+$mockRpcFallbackProperties = @{
+    label = '模拟 RPC 异步调用'
+    legacyClass = 'MockRpcAsync'
+    legacyModule = 'verification.fixture'
+    legacyInputs = @(
+        [ordered]@{ key = 'exec'; label = '执行'; type = 'exec' },
+        [ordered]@{ key = 'delayMs'; label = '延迟（毫秒）'; type = 'integer' },
+        [ordered]@{ key = 'succeed'; label = '是否成功'; type = 'boolean' },
+        [ordered]@{ key = 'successValue'; label = '成功值'; type = 'integer' },
+        [ordered]@{ key = 'failureCode'; label = '失败码'; type = 'integer' },
+        [ordered]@{ key = 'failureMessage'; label = '失败信息'; type = 'string' }
+    )
+    legacyOutputs = @(
+        [ordered]@{ key = 'succeeded'; label = '成功'; type = 'exec' },
+        [ordered]@{ key = 'failed'; label = '失败'; type = 'exec' },
+        [ordered]@{ key = 'value'; label = '成功值'; type = 'integer' },
+        [ordered]@{ key = 'errorCode'; label = '失败码'; type = 'integer' },
+        [ordered]@{ key = 'errorMessage'; label = '失败信息'; type = 'string' }
+    )
+}
+
+$mockDelayAsyncSchema = [ordered]@{
+    id = 'origin.example.mock-delay-async'
+    sourceName = 'MockDelayAsync'
+    title = '模拟 Delay 异步恢复'
+    titleEn = 'Mock Delay Async Resume'
+    category = '示例 / 异步'
+    categoryEn = 'Examples / Async'
+    subtitle = '测试专用：挂起当前 Execution，并在假时钟到期后从原位置恢复。'
+    subtitleEn = 'Test only: yields the current execution and resumes it after the fake deadline.'
+    width = 330
+    inputs = @(
+        [ordered]@{ key = 'exec'; label = '执行'; labelEn = 'Exec'; type = 'exec' },
+        [ordered]@{ key = 'delayMs'; label = '延迟（毫秒）'; labelEn = 'Delay (ms)'; type = 'data'; data_type = 'Integer'; defaultValue = 10 },
+        [ordered]@{ key = 'value'; label = '透传整数'; labelEn = 'Pass-through Value'; type = 'data'; data_type = 'Integer'; defaultValue = 0 },
+        [ordered]@{ key = 'tag'; label = '透传标记'; labelEn = 'Pass-through Tag'; type = 'data'; data_type = 'String'; defaultValue = 'delay-resumed' }
+    )
+    outputs = @(
+        [ordered]@{ key = 'completed'; label = '完成'; labelEn = 'Completed'; type = 'exec' },
+        [ordered]@{ key = 'value'; label = '恢复整数'; labelEn = 'Resumed Value'; type = 'data'; data_type = 'Integer' },
+        [ordered]@{ key = 'tag'; label = '恢复标记'; labelEn = 'Resumed Tag'; type = 'data'; data_type = 'String' }
+    )
+}
+WriteArtifact 'nodes/MockDelayAsync.json' $mockDelayAsyncSchema
+$mockDelayFallbackProperties = @{
+    label = '模拟 Delay 异步恢复'
+    legacyClass = 'MockDelayAsync'
+    legacyModule = 'verification.fixture'
+    legacyInputs = @(
+        [ordered]@{ key = 'exec'; label = '执行'; type = 'exec' },
+        [ordered]@{ key = 'delayMs'; label = '延迟（毫秒）'; type = 'integer' },
+        [ordered]@{ key = 'value'; label = '透传整数'; type = 'integer' },
+        [ordered]@{ key = 'tag'; label = '透传标记'; type = 'string' }
+    )
+    legacyOutputs = @(
+        [ordered]@{ key = 'completed'; label = '完成'; type = 'exec' },
+        [ordered]@{ key = 'value'; label = '恢复整数'; type = 'integer' },
+        [ordered]@{ key = 'tag'; label = '恢复标记'; type = 'string' }
+    )
+}
 
 $scoreSignature = [ordered]@{
     inputs = @(
@@ -163,6 +223,17 @@ $controlSignature = [ordered]@{
 $localSignature = [ordered]@{
     inputs = @((Port 'seed' '种子' 'integer'))
     outputs = @((Port 'result' '局部结果' 'integer'))
+}
+$asyncDelaySignature = [ordered]@{
+    inputs = @(
+        (Port 'delayMs' '延迟毫秒' 'integer'),
+        (Port 'value' '透传整数' 'integer'),
+        (Port 'tag' '透传标记' 'string')
+    )
+    outputs = @(
+        (Port 'value' '恢复整数' 'integer'),
+        (Port 'tag' '恢复标记' 'string')
+    )
 }
 
 # 01: legacy 格式。两个入口分别形成整数与数组控制流。
@@ -346,10 +417,11 @@ $arrayLinks = @(
     (Link 'strings_new' 'array' 'append_string' 'array'),
     (Link 'append_string' 'array' 'get_string' 'array'),
     (Link 'get_string' 'value' 'string_return' 'value'),
-    (Link 'string_return' 'exec' 'cast_any' 'exec'),
+    (Link 'string_return' 'exec' 'split' 'exec'),
     (Link 'literal' 'value' 'split' 'text'),
     (Link 'split' 'array' 'get_any' 'array'),
     (Link 'get_any' 'value' 'cast_any' 'value'),
+    (Link 'split' 'exec' 'cast_any' 'exec'),
     (Link 'cast_any' 'exec' 'label_set' 'exec'),
     (Link 'cast_any' 'result' 'label_set' 'value'),
     (Link 'label_set' 'exec' 'any_return' 'exec'),
@@ -584,7 +656,7 @@ $localFunctionLinks = @(
     (Link 'get_before' 'value' 'add' 'b'),
     (Link 'add' 'result' 'set_after' 'value'),
     (Link 'set_after' 'exec' 'return' 'exec'),
-    (Link 'add' 'result' 'return' 'output_result'),
+    (Link 'set_after' 'value' 'return' 'output_result'),
     (Link 'array' 'array' 'loop' 'array'),
     (Link 'loop' 'body' 'branch' 'exec'),
     (Link 'loop' 'index' 'loop_compare' 'a'),
@@ -597,6 +669,25 @@ WriteArtifact 'functions/13_local_state_isolation.obpf' (NativeDocument '局部�
     (New-GraphGroup 'local-main' '局部变量读写与函数返回' 35 50 1500 240 @('entry','sequence','get_before','add','set_after','return')),
     (New-GraphGroup 'local-branch' '函数内部数组循环、比较与双分支' 520 250 1240 300 @('array','loop','loop_compare','branch','loop_true_debug','loop_false_debug'))
 ) $localFunctionVariables ([ordered]@{ functionId = 'functions/13_local_state_isolation.obpf'; functionCategory = '验证函数'; functionSignature = $localSignature }))
+
+# 14: 函数内部挂起与恢复。用于确认函数帧、输入和返回端口在异步恢复后保持不变。
+$asyncDelayFunctionNodes = @(
+    (Node 'entry' 'origin.function.entry' 80 130 @{} (FunctionProperties 'Entry' 'functions/14_async_delay_function.obpf' '函数内异步 Delay' $asyncDelaySignature)),
+    (Node 'delay' 'origin.example.mock-delay-async' 430 110 @{} $mockDelayFallbackProperties),
+    (Node 'return' 'origin.function.return' 820 130 @{} (FunctionProperties 'Return' 'functions/14_async_delay_function.obpf' '函数内异步 Delay' $asyncDelaySignature))
+)
+$asyncDelayFunctionLinks = @(
+    (Link 'entry' 'exec' 'delay' 'exec'),
+    (Link 'entry' 'input_delayMs' 'delay' 'delayMs'),
+    (Link 'entry' 'input_value' 'delay' 'value'),
+    (Link 'entry' 'input_tag' 'delay' 'tag'),
+    (Link 'delay' 'completed' 'return' 'exec'),
+    (Link 'delay' 'value' 'return' 'output_value'),
+    (Link 'delay' 'tag' 'return' 'output_tag')
+)
+WriteArtifact 'functions/14_async_delay_function.obpf' (NativeDocument '函数内异步 Delay' $asyncDelayFunctionNodes $asyncDelayFunctionLinks @(
+    (New-GraphGroup 'async-function' '函数入口 -> 挂起 -> 原函数帧恢复 -> 返回' 35 55 1080 260 @('entry','delay','return'))
+) @() ([ordered]@{ functionId = 'functions/14_async_delay_function.obpf'; functionCategory = '验证函数'; functionSignature = $asyncDelaySignature }))
 
 # 05: 主图编排所有函数，并显式连续两次调用局部状态函数。
 $orchestratorNodes = @(
@@ -651,87 +742,138 @@ WriteArtifact '05_function_orchestrator.obp' (NativeDocument '函数编排主图
     (New-GraphGroup 'local-isolation' '同输入连续调用：局部状态必须隔离' 480 740 1100 250 @('local_call_a','local_sequence','local_call_b','local_return_a','local_return_b'))
 ))
 
-# 06: 新定时器生命周期。Timer 直接绑定函数，不再使用 Timer 事件入口。
-$timerNodes = @(
-    (Node 'entry' 'origin.event.entry-two-integers' 80 180),
-    (Node 'set_timer' 'origin.timer.set-by-function' 330 130 @{ time = 250; looping = $true; firstDelay = -1; input_seed = 11 } (FunctionProperties 'timer' 'functions/13_local_state_isolation.obpf' '局部状态隔离' $localSignature)),
-    (Node 'debug_create' 'origin.debug.output' 650 130 @{ string = 'timer-created' }),
-    (Node 'delay_before_pause' 'origin.flow.delay' 900 130 @{ duration = 500 }),
-    (Node 'pause_timer' 'origin.timer.pause' 1150 130),
-    (Node 'is_paused' 'origin.timer.is-paused' 1320 360),
-    (Node 'paused_branch' 'origin.flow.branch' 1420 130),
-    (Node 'paused_error_text' 'origin.literal.string' 1420 500 @{ value = 'timer-not-paused' }),
-    (Node 'paused_error_return' 'origin.result.append-string' 1680 430 @{ value = 'timer-not-paused' }),
-    (Node 'delay_paused' 'origin.flow.delay' 1680 130 @{ duration = 100 }),
-    (Node 'unpause_timer' 'origin.timer.unpause' 1930 130),
-    (Node 'is_valid' 'origin.timer.is-valid' 2100 360),
-    (Node 'valid_branch' 'origin.flow.branch' 2180 130),
-    (Node 'invalid_error_text' 'origin.literal.string' 2180 500 @{ value = 'timer-handle-invalid' }),
-    (Node 'invalid_error_return' 'origin.result.append-string' 2440 430 @{ value = 'timer-handle-invalid' }),
-    (Node 'delay_before_clear' 'origin.flow.delay' 2440 130 @{ duration = 300 }),
-    (Node 'remaining' 'origin.timer.remaining' 2600 360),
-    (Node 'elapsed' 'origin.timer.elapsed' 2850 360),
-    (Node 'add_timing' 'origin.math.add-integer' 3100 360),
-    (Node 'debug_timing' 'origin.debug.output' 3100 130),
-    (Node 'is_active' 'origin.timer.is-active' 3350 360),
-    (Node 'active_branch' 'origin.flow.branch' 3400 130),
-    (Node 'inactive_debug' 'origin.debug.output' 3650 300 @{ string = 'timer-inactive' }),
-    (Node 'clear_timer' 'origin.timer.clear' 3900 130 @{ cancelRunningCallback = $true }),
-    (Node 'result_text' 'origin.literal.string' 3900 340 @{ value = 'timer-lifecycle-complete' }),
-    (Node 'return_result' 'origin.result.append-string' 4170 130 @{ value = 'timer-lifecycle-complete' })
+# 06: 测试专用异步 Delay。单入口覆盖所有循环上下文；截止时间排序与取消由函数图的多个独立 Execution 验证。
+$asyncDelayVariables = @(
+    [ordered]@{ id = 'while_counter'; name = 'WhileCounter'; type = 'integer'; defaultValue = 0; groupId = 'local'; description = 'While 每次异步恢复后递增，验证恢复点不会重复执行当前迭代' }
 )
-$timerLinks = @(
-    (Link 'entry' 'exec' 'set_timer' 'exec'),
-    (Link 'set_timer' 'then' 'debug_create' 'exec'),
-    (Link 'debug_create' 'exec' 'delay_before_pause' 'exec'),
-    (Link 'delay_before_pause' 'completed' 'pause_timer' 'exec'),
-    (Link 'set_timer' 'timerHandle' 'pause_timer' 'timerHandle'),
-    (Link 'pause_timer' 'then' 'paused_branch' 'exec'),
-    (Link 'set_timer' 'timerHandle' 'is_paused' 'timerHandle'),
-    (Link 'is_paused' 'paused' 'paused_branch' 'condition'),
-    (Link 'paused_branch' 'true' 'delay_paused' 'exec'),
-    (Link 'paused_branch' 'false' 'paused_error_return' 'exec'),
-    (Link 'paused_error_text' 'value' 'paused_error_return' 'value'),
-    (Link 'delay_paused' 'completed' 'unpause_timer' 'exec'),
-    (Link 'set_timer' 'timerHandle' 'unpause_timer' 'timerHandle'),
-    (Link 'unpause_timer' 'then' 'valid_branch' 'exec'),
-    (Link 'set_timer' 'timerHandle' 'is_valid' 'timerHandle'),
-    (Link 'is_valid' 'valid' 'valid_branch' 'condition'),
-    (Link 'valid_branch' 'true' 'delay_before_clear' 'exec'),
-    (Link 'valid_branch' 'false' 'invalid_error_return' 'exec'),
-    (Link 'invalid_error_text' 'value' 'invalid_error_return' 'value'),
-    (Link 'delay_before_clear' 'completed' 'debug_timing' 'exec'),
-    (Link 'set_timer' 'timerHandle' 'remaining' 'timerHandle'),
-    (Link 'set_timer' 'timerHandle' 'elapsed' 'timerHandle'),
-    (Link 'remaining' 'remaining' 'add_timing' 'a'),
-    (Link 'elapsed' 'elapsed' 'add_timing' 'b'),
-    (Link 'add_timing' 'result' 'debug_timing' 'integer'),
-    (Link 'debug_timing' 'exec' 'active_branch' 'exec'),
-    (Link 'set_timer' 'timerHandle' 'is_active' 'timerHandle'),
-    (Link 'is_active' 'active' 'active_branch' 'condition'),
-    (Link 'active_branch' 'true' 'clear_timer' 'exec'),
-    (Link 'active_branch' 'false' 'inactive_debug' 'exec'),
-    (Link 'inactive_debug' 'exec' 'clear_timer' 'exec'),
-    (Link 'set_timer' 'timerHandle' 'clear_timer' 'timerHandle'),
-    (Link 'clear_timer' 'then' 'return_result' 'exec'),
-    (Link 'result_text' 'value' 'return_result' 'value')
-)
-WriteArtifact '06_timer_lifecycle.obp' (NativeDocument '新定时器生命周期' $timerNodes $timerLinks @(
-    (New-GraphGroup 'timer-lifecycle' '按函数设置循环定时器：创建、暂停、恢复、查询与清除' 35 40 4400 620 @('entry','set_timer','debug_create','delay_before_pause','pause_timer','is_paused','paused_branch','paused_error_text','paused_error_return','delay_paused','unpause_timer','is_valid','valid_branch','invalid_error_text','invalid_error_return','delay_before_clear','remaining','elapsed','add_timing','debug_timing','is_active','active_branch','inactive_debug','clear_timer','result_text','return_result'))
-))
+$asyncDelayNodes = @(
+    (Node 'loop_entry' 'origin.event.entry-two-integers' 80 120),
+    (Node 'loop_sequence' 'origin.flow.sequence' 320 120 @{} @{ label = '循环异步恢复序列'; dynamicOutputCount = 5 }),
 
-# 07: 使用定时器模拟 RPC 回包。成功和失败分别通过 ResumeTo 选择不同的 Exec 输出。
+    (Node 'nested_outer' 'origin.flow.for-loop' 600 70 @{ start = 0; end = 2 }),
+    (Node 'nested_values' 'origin.array.create-integer-new' 600 250 @{ items = @(2, 4, 6) }),
+    (Node 'nested_inner' 'origin.flow.foreach-integer-array' 880 70),
+    (Node 'nested_delay' 'origin.example.mock-delay-async' 1160 70 @{ delayMs = 10; value = 0; tag = 'nested-loop' } $mockDelayFallbackProperties),
+    (Node 'nested_value_return' 'origin.result.append-integer' 1520 45),
+    (Node 'nested_tag_return' 'origin.result.append-string' 1750 100),
+    (Node 'nested_done' 'origin.result.append-string' 1520 250 @{ value = 'nested-loop:completed' }),
+
+    (Node 'any_values' 'origin.array.create-string-new' 600 470 @{ items = @('alpha', 'beta', 'gamma') }),
+    (Node 'any_loop' 'origin.flow.foreach-array' 880 430),
+    (Node 'any_delay' 'origin.example.mock-delay-async' 1160 430 @{ delayMs = 10; value = 0; tag = 'foreach-any' } $mockDelayFallbackProperties),
+    (Node 'any_value_return' 'origin.result.append-integer' 1520 405),
+    (Node 'any_tag_return' 'origin.result.append-string' 1750 460),
+    (Node 'any_done' 'origin.result.append-string' 1520 590 @{ value = 'foreach-any:completed' }),
+
+    (Node 'break_loop' 'origin.flow.for-loop-break' 600 780 @{ start = 0; end = 5 }),
+    (Node 'break_delay' 'origin.example.mock-delay-async' 880 750 @{ delayMs = 10; value = 0; tag = 'break-loop' } $mockDelayFallbackProperties),
+    (Node 'break_compare' 'origin.compare.greater-integer' 1240 700 @{ b = 1 }),
+    (Node 'break_branch' 'origin.flow.branch' 1480 750),
+    (Node 'break_value_return' 'origin.result.append-integer' 1740 820),
+    (Node 'break_tag_return' 'origin.result.append-string' 1970 850),
+    (Node 'break_done' 'origin.result.append-string' 1740 680 @{ value = 'break-loop:completed' }),
+
+    (Node 'while_init' 'origin.variable.set' 600 1110 @{ value = 0 } @{ variableId = 'while_counter'; variableAccess = 'set'; label = 'Initialize WhileCounter' }),
+    (Node 'while_loop' 'origin.flow.while' 880 1080),
+    (Node 'while_get' 'origin.variable.get' 880 1260 @{} @{ variableId = 'while_counter'; variableAccess = 'get'; label = 'Get WhileCounter' }),
+    (Node 'while_condition' 'origin.compare.greater-integer' 1160 1260),
+    (Node 'while_delay' 'origin.example.mock-delay-async' 1160 1050 @{ delayMs = 10; value = 0; tag = 'while-loop' } $mockDelayFallbackProperties),
+    (Node 'while_value_return' 'origin.result.append-integer' 1520 1020),
+    (Node 'while_tag_return' 'origin.result.append-string' 1750 1070),
+    (Node 'while_add' 'origin.math.add-integer' 1980 1200 @{ b = 1 }),
+    (Node 'while_set' 'origin.variable.set' 2220 1090 @{} @{ variableId = 'while_counter'; variableAccess = 'set'; label = 'Increment WhileCounter' }),
+    (Node 'while_done' 'origin.result.append-string' 1520 1350 @{ value = 'while-loop:completed' }),
+
+    (Node 'function_call' 'origin.function.call' 600 1530 @{ input_delayMs = 10; input_value = 900; input_tag = 'function-delay' } (FunctionCallProperties 'functions/14_async_delay_function.obpf' '函数内异步 Delay' $asyncDelaySignature)),
+    (Node 'function_value_return' 'origin.result.append-integer' 980 1500),
+    (Node 'function_tag_return' 'origin.result.append-string' 1210 1550)
+)
+$asyncDelayLinks = @(
+    (Link 'loop_entry' 'exec' 'loop_sequence' 'exec'),
+
+    (Link 'loop_sequence' 'then0' 'nested_outer' 'exec'),
+    (Link 'loop_entry' 'param1' 'nested_outer' 'end'),
+    (Link 'nested_outer' 'body' 'nested_inner' 'exec'),
+    (Link 'nested_values' 'array' 'nested_inner' 'array'),
+    (Link 'nested_inner' 'body' 'nested_delay' 'exec'),
+    (Link 'loop_entry' 'param2' 'nested_delay' 'delayMs'),
+    (Link 'nested_inner' 'value' 'nested_delay' 'value'),
+    (Link 'nested_delay' 'completed' 'nested_value_return' 'exec'),
+    (Link 'nested_delay' 'value' 'nested_value_return' 'value'),
+    (Link 'nested_value_return' 'exec' 'nested_tag_return' 'exec'),
+    (Link 'nested_delay' 'tag' 'nested_tag_return' 'value'),
+    (Link 'nested_outer' 'completed' 'nested_done' 'exec'),
+
+    (Link 'loop_sequence' 'then1' 'any_loop' 'exec'),
+    (Link 'any_values' 'array' 'any_loop' 'array'),
+    (Link 'any_loop' 'body' 'any_delay' 'exec'),
+    (Link 'loop_entry' 'param2' 'any_delay' 'delayMs'),
+    (Link 'any_loop' 'index' 'any_delay' 'value'),
+    (Link 'any_delay' 'completed' 'any_value_return' 'exec'),
+    (Link 'any_delay' 'value' 'any_value_return' 'value'),
+    (Link 'any_value_return' 'exec' 'any_tag_return' 'exec'),
+    (Link 'any_delay' 'tag' 'any_tag_return' 'value'),
+    (Link 'any_loop' 'completed' 'any_done' 'exec'),
+
+    (Link 'loop_sequence' 'then2' 'break_loop' 'exec'),
+    (Link 'loop_entry' 'param1' 'break_loop' 'end'),
+    (Link 'break_loop' 'body' 'break_delay' 'exec'),
+    (Link 'loop_entry' 'param2' 'break_delay' 'delayMs'),
+    (Link 'break_loop' 'index' 'break_delay' 'value'),
+    (Link 'break_delay' 'completed' 'break_branch' 'exec'),
+    (Link 'break_delay' 'value' 'break_compare' 'a'),
+    (Link 'break_compare' 'result' 'break_branch' 'condition'),
+    (Link 'break_branch' 'true' 'break_loop' 'break'),
+    (Link 'break_branch' 'false' 'break_value_return' 'exec'),
+    (Link 'break_delay' 'value' 'break_value_return' 'value'),
+    (Link 'break_value_return' 'exec' 'break_tag_return' 'exec'),
+    (Link 'break_delay' 'tag' 'break_tag_return' 'value'),
+    (Link 'break_loop' 'completed' 'break_done' 'exec'),
+
+    (Link 'loop_sequence' 'then3' 'while_init' 'exec'),
+    (Link 'while_init' 'exec' 'while_loop' 'exec'),
+    (Link 'loop_entry' 'param1' 'while_condition' 'a'),
+    (Link 'while_get' 'value' 'while_condition' 'b'),
+    (Link 'while_condition' 'result' 'while_loop' 'condition'),
+    (Link 'while_loop' 'body' 'while_delay' 'exec'),
+    (Link 'loop_entry' 'param2' 'while_delay' 'delayMs'),
+    (Link 'while_get' 'value' 'while_delay' 'value'),
+    (Link 'while_delay' 'completed' 'while_value_return' 'exec'),
+    (Link 'while_delay' 'value' 'while_value_return' 'value'),
+    (Link 'while_value_return' 'exec' 'while_tag_return' 'exec'),
+    (Link 'while_delay' 'tag' 'while_tag_return' 'value'),
+    (Link 'while_tag_return' 'exec' 'while_set' 'exec'),
+    (Link 'while_get' 'value' 'while_add' 'a'),
+    (Link 'while_add' 'result' 'while_set' 'value'),
+    (Link 'while_loop' 'completed' 'while_done' 'exec'),
+
+    (Link 'loop_sequence' 'then4' 'function_call' 'exec'),
+    (Link 'loop_entry' 'param2' 'function_call' 'input_delayMs'),
+    (Link 'loop_entry' 'objectId' 'function_call' 'input_value'),
+    (Link 'function_call' 'exec' 'function_value_return' 'exec'),
+    (Link 'function_call' 'output_value' 'function_value_return' 'value'),
+    (Link 'function_value_return' 'exec' 'function_tag_return' 'exec'),
+    (Link 'function_call' 'output_tag' 'function_tag_return' 'value')
+)
+WriteArtifact '06_async_delay_resume.obp' (NativeDocument '异步 Delay 恢复验证' $asyncDelayNodes $asyncDelayLinks @(
+    (New-GraphGroup 'nested-loop-delay' '嵌套 For + ForeachIntArray：每次恢复后只进入下一迭代' 35 35 2050 310 @('loop_entry','loop_sequence','nested_outer','nested_values','nested_inner','nested_delay','nested_value_return','nested_tag_return','nested_done')),
+    (New-GraphGroup 'foreach-any-delay' 'ForeachArray：任意数组循环内挂起与恢复' 540 380 1545 300 @('any_values','any_loop','any_delay','any_value_return','any_tag_return','any_done')),
+    (New-GraphGroup 'break-loop-delay' 'ForLoopWithBreak：恢复后判断 break，不重复或多跑迭代' 540 650 1700 360 @('break_loop','break_delay','break_compare','break_branch','break_value_return','break_tag_return','break_done')),
+    (New-GraphGroup 'while-delay' 'While：恢复后递增计数，再重新判断下一轮条件' 540 1000 1960 500 @('while_init','while_loop','while_get','while_condition','while_delay','while_value_return','while_tag_return','while_add','while_set','while_done')),
+    (New-GraphGroup 'function-delay' '函数调用内部挂起：恢复后回到原函数帧并返回输出' 540 1460 1000 260 @('function_call','function_value_return','function_tag_return'))
+) $asyncDelayVariables)
+
+# 07: 使用测试节点模拟 RPC 回包。单入口依次验证成功和失败 ResumeTo 出口。
 $mockRpcNodes = @(
     (Node 'success_entry' 'origin.event.entry-two-integers' 80 150),
-    (Node 'success_rpc' 'origin.example.mock-rpc-async' 380 120 @{ delayMs = 80; succeed = $true; successValue = 314; failureCode = 0; failureMessage = '' }),
+    (Node 'success_rpc' 'origin.example.mock-rpc-async' 380 120 @{ delayMs = 80; succeed = $true; successValue = 314; failureCode = 0; failureMessage = '' } $mockRpcFallbackProperties),
     (Node 'success_return' 'origin.result.append-integer' 790 90),
     (Node 'success_unexpected_text' 'origin.literal.string' 710 280 @{ value = 'unexpected failure from success request' }),
     (Node 'success_unexpected_return' 'origin.result.append-string' 990 230),
-    (Node 'failure_entry' 'origin.event.entry-two-integers' 80 610),
-    (Node 'failure_rpc' 'origin.example.mock-rpc-async' 380 580 @{ delayMs = 80; succeed = $false; successValue = 0; failureCode = 503; failureMessage = 'mock rpc unavailable' }),
-    (Node 'failure_unexpected_return' 'origin.result.append-integer' 790 550),
-    (Node 'failure_code_return' 'origin.result.append-integer' 790 700),
-    (Node 'failure_return' 'origin.result.append-string' 1040 700)
+    (Node 'failure_rpc' 'origin.example.mock-rpc-async' 1180 90 @{ delayMs = 80; succeed = $false; successValue = 0; failureCode = 503; failureMessage = 'mock rpc unavailable' } $mockRpcFallbackProperties),
+    (Node 'failure_unexpected_return' 'origin.result.append-integer' 1570 40),
+    (Node 'failure_code_return' 'origin.result.append-integer' 1570 190),
+    (Node 'failure_return' 'origin.result.append-string' 1810 190)
 )
 $mockRpcLinks = @(
     (Link 'success_entry' 'exec' 'success_rpc' 'exec'),
@@ -739,7 +881,7 @@ $mockRpcLinks = @(
     (Link 'success_rpc' 'value' 'success_return' 'value'),
     (Link 'success_rpc' 'failed' 'success_unexpected_return' 'exec'),
     (Link 'success_unexpected_text' 'value' 'success_unexpected_return' 'value'),
-    (Link 'failure_entry' 'exec' 'failure_rpc' 'exec'),
+    (Link 'success_return' 'exec' 'failure_rpc' 'exec'),
     (Link 'failure_rpc' 'succeeded' 'failure_unexpected_return' 'exec'),
     (Link 'failure_rpc' 'value' 'failure_unexpected_return' 'value'),
     (Link 'failure_rpc' 'failed' 'failure_code_return' 'exec'),
@@ -748,8 +890,8 @@ $mockRpcLinks = @(
     (Link 'failure_rpc' 'errorMessage' 'failure_return' 'value')
 )
 WriteArtifact '07_async_rpc_resume_to.obp' (NativeDocument '定时器模拟 RPC 异步恢复' $mockRpcNodes $mockRpcLinks @(
-    (New-GraphGroup 'success-rpc' '成功回包：定时器到期后 ResumeTo(成功) 继续原执行' 35 35 1220 350 @('success_entry','success_rpc','success_return','success_unexpected_text','success_unexpected_return')),
-    (New-GraphGroup 'failure-rpc' '失败回包：定时器到期后 ResumeTo(失败) 返回错误码和错误文本' 35 500 1320 350 @('failure_entry','failure_rpc','failure_unexpected_return','failure_code_return','failure_return'))
+    (New-GraphGroup 'success-rpc' '单入口第一步：ResumeTo(成功) 返回成功值' 35 35 1080 350 @('success_entry','success_rpc','success_return','success_unexpected_text','success_unexpected_return')),
+    (New-GraphGroup 'failure-rpc' '成功步骤完成后：ResumeTo(失败) 返回错误码和错误文本' 1120 35 900 350 @('failure_rpc','failure_unexpected_return','failure_code_return','failure_return'))
 ))
 
 $coverage = [ordered]@{
@@ -757,8 +899,8 @@ $coverage = [ordered]@{
     description = '顶层系统节点的样本覆盖矩阵。visual 表示第 1 阶段人工检查；execution/async 留给后续阶段。'
     nodes = [ordered]@{
         'origin.event.entry-array' = @('03_array_data_lab.obp:visual')
-        'origin.event.entry-two-integers' = @('02_control_flow_maze.obp:execution','04_deterministic_algorithm.obp:execution','05_function_orchestrator.obp:execution','06_timer_lifecycle.obp:async')
-        'origin.debug.output' = @('01_legacy_all_nodes_showcase.vgf:visual','04_deterministic_algorithm.obp:visual','06_timer_lifecycle.obp:async')
+        'origin.event.entry-two-integers' = @('02_control_flow_maze.obp:execution','04_deterministic_algorithm.obp:execution','05_function_orchestrator.obp:execution','06_async_delay_resume.obp:async')
+        'origin.debug.output' = @('01_legacy_all_nodes_showcase.vgf:visual','04_deterministic_algorithm.obp:visual')
         'origin.cast.integer-string' = @('04_deterministic_algorithm.obp:visual')
         'origin.cast.float-string' = @('04_deterministic_algorithm.obp:visual')
         'origin.cast.any-string' = @('02_control_flow_maze.obp:visual','03_array_data_lab.obp:visual')
@@ -774,16 +916,16 @@ $coverage = [ordered]@{
         'origin.math.multiply-float' = @('04_deterministic_algorithm.obp:visual')
         'origin.math.divide-float' = @('04_deterministic_algorithm.obp:visual')
         'origin.compare.greater-integer' = @('04_deterministic_algorithm.obp:execution')
-        'origin.flow.sequence' = @('01_legacy_all_nodes_showcase.vgf:execution','02_control_flow_maze.obp:execution','functions/12_nested_control_function.obpf:visual')
-        'origin.flow.for-loop' = @('01_legacy_all_nodes_showcase.vgf:execution','02_control_flow_maze.obp:execution')
+        'origin.flow.sequence' = @('01_legacy_all_nodes_showcase.vgf:execution','02_control_flow_maze.obp:execution','06_async_delay_resume.obp:async','functions/12_nested_control_function.obpf:visual')
+        'origin.flow.for-loop' = @('01_legacy_all_nodes_showcase.vgf:execution','02_control_flow_maze.obp:execution','06_async_delay_resume.obp:async')
         'origin.flow.branch' = @('01_legacy_all_nodes_showcase.vgf:execution','02_control_flow_maze.obp:execution')
         'origin.flow.greater-integer' = @('01_legacy_all_nodes_showcase.vgf:visual','02_control_flow_maze.obp:visual')
         'origin.flow.less-integer' = @('01_legacy_all_nodes_showcase.vgf:visual','02_control_flow_maze.obp:visual')
         'origin.flow.equal-integer' = @('01_legacy_all_nodes_showcase.vgf:visual','02_control_flow_maze.obp:visual')
-        'origin.flow.foreach-integer-array' = @('01_legacy_all_nodes_showcase.vgf:execution','02_control_flow_maze.obp:execution')
-        'origin.flow.while' = @('02_control_flow_maze.obp:execution','functions/12_nested_control_function.obpf:visual')
-        'origin.flow.for-loop-break' = @('02_control_flow_maze.obp:execution','functions/12_nested_control_function.obpf:visual')
-        'origin.flow.foreach-array' = @('02_control_flow_maze.obp:visual')
+        'origin.flow.foreach-integer-array' = @('01_legacy_all_nodes_showcase.vgf:execution','02_control_flow_maze.obp:execution','06_async_delay_resume.obp:async')
+        'origin.flow.while' = @('02_control_flow_maze.obp:execution','06_async_delay_resume.obp:async','functions/12_nested_control_function.obpf:visual')
+        'origin.flow.for-loop-break' = @('02_control_flow_maze.obp:execution','06_async_delay_resume.obp:async','functions/12_nested_control_function.obpf:visual')
+        'origin.flow.foreach-array' = @('02_control_flow_maze.obp:visual','06_async_delay_resume.obp:async')
         'origin.flow.probability' = @('01_legacy_all_nodes_showcase.vgf:visual','02_control_flow_maze.obp:execution','functions/10_score_kernel.obpf:visual')
         'origin.flow.range-compare' = @('01_legacy_all_nodes_showcase.vgf:execution','02_control_flow_maze.obp:execution')
         'origin.flow.equal-switch' = @('01_legacy_all_nodes_showcase.vgf:execution','02_control_flow_maze.obp:visual')
@@ -800,23 +942,14 @@ $coverage = [ordered]@{
         'origin.array.append-integer' = @('03_array_data_lab.obp:execution')
         'origin.result.append-integer' = @('01_legacy_all_nodes_showcase.vgf:execution','02_control_flow_maze.obp:execution','04_deterministic_algorithm.obp:execution')
         'origin.result.append-string' = @('01_legacy_all_nodes_showcase.vgf:execution','02_control_flow_maze.obp:execution','04_deterministic_algorithm.obp:execution')
-        'origin.flow.delay' = @('06_timer_lifecycle.obp:async')
-        'origin.timer.set-by-function' = @('06_timer_lifecycle.obp:async')
-        'origin.timer.clear' = @('06_timer_lifecycle.obp:async')
-        'origin.timer.pause' = @('06_timer_lifecycle.obp:async')
-        'origin.timer.unpause' = @('06_timer_lifecycle.obp:async')
-        'origin.timer.is-active' = @('06_timer_lifecycle.obp:async')
-        'origin.timer.is-paused' = @('06_timer_lifecycle.obp:async')
-        'origin.timer.is-valid' = @('06_timer_lifecycle.obp:async')
-        'origin.timer.remaining' = @('06_timer_lifecycle.obp:async')
-        'origin.timer.elapsed' = @('06_timer_lifecycle.obp:async')
+        'origin.example.mock-delay-async' = @('06_async_delay_resume.obp:async-demo','functions/14_async_delay_function.obpf:async-demo')
         'origin.example.mock-rpc-async' = @('07_async_rpc_resume_to.obp:async-demo')
         'origin.string.split' = @('03_array_data_lab.obp:visual')
-        'origin.variable.get' = @('03_array_data_lab.obp:visual','functions/13_local_state_isolation.obpf:visual')
-        'origin.variable.set' = @('03_array_data_lab.obp:visual','functions/13_local_state_isolation.obpf:visual')
-        'origin.function.entry' = @('functions/10_score_kernel.obpf:visual','functions/11_array_fold_and_format.obpf:visual','functions/12_nested_control_function.obpf:visual','functions/13_local_state_isolation.obpf:visual')
-        'origin.function.return' = @('functions/10_score_kernel.obpf:execution','functions/11_array_fold_and_format.obpf:execution','functions/12_nested_control_function.obpf:execution','functions/13_local_state_isolation.obpf:execution')
-        'origin.function.call' = @('05_function_orchestrator.obp:execution','functions/11_array_fold_and_format.obpf:visual')
+        'origin.variable.get' = @('03_array_data_lab.obp:visual','06_async_delay_resume.obp:async','functions/13_local_state_isolation.obpf:visual')
+        'origin.variable.set' = @('03_array_data_lab.obp:visual','06_async_delay_resume.obp:async','functions/13_local_state_isolation.obpf:visual')
+        'origin.function.entry' = @('functions/10_score_kernel.obpf:visual','functions/11_array_fold_and_format.obpf:visual','functions/12_nested_control_function.obpf:visual','functions/13_local_state_isolation.obpf:visual','functions/14_async_delay_function.obpf:async')
+        'origin.function.return' = @('functions/10_score_kernel.obpf:execution','functions/11_array_fold_and_format.obpf:execution','functions/12_nested_control_function.obpf:execution','functions/13_local_state_isolation.obpf:execution','functions/14_async_delay_function.obpf:async')
+        'origin.function.call' = @('05_function_orchestrator.obp:execution','06_async_delay_resume.obp:async','functions/11_array_fold_and_format.obpf:visual')
     }
 }
 WriteArtifact 'coverage.json' $coverage
@@ -824,7 +957,7 @@ WriteArtifact 'coverage.json' $coverage
 $readme = @'
 # 蓝图验证样本
 
-这些文件是 OriginBlueprint 的人工可视化检查样本。它们只用于验证节点显示、端口、连线、分组、函数签名、变量和 legacy 导入形态；当前阶段不会修改引擎，也不会把这些样本作为自动化结果断言。
+这些文件既用于 OriginBlueprint 的人工可视化检查，也由 Go 自动化测试加载执行。测试会将每个蓝图的实际返回值与独立 Go 参考实现比较。
 
 ## 建议打开顺序
 
@@ -832,10 +965,10 @@ $readme = @'
 2. `02_control_flow_maze.obp`：确认 Sequence、嵌套循环、动态分支、while、break 与任意数组循环的布局和连线。
 3. `03_array_data_lab.obp`：确认数组控件、字符串控件、转换节点和局部变量节点。
 4. `04_deterministic_algorithm.obp`：确认算术、浮点、比较、Branch、Range、Switch 和固定随机数的端口。
-5. 打开 `functions/` 下四个 `.obpf`：确认函数入口/返回的参数名、类型和函数内变量显示。
+5. 打开 `functions/` 下五个 `.obpf`：确认函数入口/返回的参数名、类型、函数内变量和异步恢复端口显示。
 6. `05_function_orchestrator.obp`：确认外部函数调用节点的输入输出端口，以及连续两次调用局部状态函数的可读性。
-7. `06_timer_lifecycle.obp`：确认 Delay、按函数设置定时器、暂停、恢复、状态查询和清除节点的显示与完整连线。
-8. `07_async_rpc_resume_to.obp`：确认 demo 节点以定时器模拟异步回包，并展示成功、失败两个 ResumeTo 出口的连线。
+7. `06_async_delay_resume.obp`：确认所有循环内挂起恢复和函数内挂起的显示与完整连线；再打开 `functions/14_async_delay_function.obpf` 确认可独立传入延迟、整数和标记。
+8. `07_async_rpc_resume_to.obp`：确认单一入口依次执行成功、失败两次异步回包，并展示两个 ResumeTo 出口的连线。
 
 ## 关键预期
 
@@ -844,7 +977,9 @@ $readme = @'
 - 图中每个分组标题应完整可读，节点不应重叠遮挡端口。
 - `13_local_state_isolation.obpf` 的变量属于函数局部状态；`05_function_orchestrator.obp` 连续调用它两次，是后续隔离验证的样本入口。
 - `coverage.json` 记录全部当前系统节点的样本位置和阶段覆盖范围。
-- `nodes/MockRpcAsync.json` 是本目录专用 demo 节点定义，不属于正式系统节点库；其 Go 实现和结果断言留待后续测试阶段加入。
+- `nodes/MockDelayAsync.json` 和 `nodes/MockRpcAsync.json` 是本目录专用测试节点定义，不属于正式系统节点库；其 Go 实现和结果断言位于 `engine/go/blueprint` 的验证测试中。
+- `MockDelayAsync` 只表达业务异步节点的 `Yield -> Resume` 语义，不重新引入正式 `Delay`、`Timer` 或 `TimerHandle` 节点。
+- `MockDelayAsync` 和 `MockRpcAsync` 节点同时在文档属性中携带测试专用 fallback 端口；这是因为编辑器只扫描根目录 `nodes/`，fallback 仅用于让示例目录中的外部节点和连线可视化，不会将这些节点加入正式模块库。
 
 ## 第 2 阶段结果契约
 
@@ -853,9 +988,10 @@ $readme = @'
 - `03_array_data_lab.obp`：固定数组应依次返回整数 `4`、长度 `6`、字符串 `green` 和局部变量字符串 `north`。
 - `04_deterministic_algorithm.obp`：输入参数决定整数评分分支；固定随机数恒为 `42`，Range/Switch 与浮点转换返回固定文本。后续随机输入阶段会以同一入口参数调用 Go 参考实现。
 - `05_function_orchestrator.obp`：验证评分函数、加权数组折叠、嵌套控制函数和两次独立局部状态函数调用的全部输出。
-- `06_timer_lifecycle.obp`：验证 Timer 创建、暂停、恢复、查询和清除；创建 Execution 的正常返回为 `timer-lifecycle-complete`，Timer 回调本身属于独立 Execution，不能混入该返回数组。
-- `07_async_rpc_resume_to.obp`：待 demo Go 节点实现后，成功入口应返回 `314`；失败入口应依次返回错误码 `503` 和文本 `mock rpc unavailable`。
-- `functions/10_score_kernel.obpf`、`functions/11_array_fold_and_format.obpf`、`functions/12_nested_control_function.obpf`、`functions/13_local_state_isolation.obpf` 分别验证评分、加权累计、真实 break 和函数局部变量隔离。
+- `06_async_delay_resume.obp`：唯一入口依次验证嵌套 For/ForeachIntArray、ForeachArray、ForLoopWithBreak、While 和函数调用内部的挂起恢复；每次恢复只能继续当前迭代余下语句，随后进入下一迭代。
+- `functions/14_async_delay_function.obpf`：Go 测试会对该函数图启动多个独立 Execution，分别传入 10ms、30ms 和 5000ms；验证截止时间顺序，并验证取消 5000ms Execution 后不会恢复。截止时间和取消属于 Execution 调度测试，不应伪装成同一图中的多个同 ID 入口。
+- `07_async_rpc_resume_to.obp`：单一入口先从成功分支返回 `314`，再从失败分支返回错误码 `503` 和文本 `mock rpc unavailable`。
+- `functions/10_score_kernel.obpf`、`functions/11_array_fold_and_format.obpf`、`functions/12_nested_control_function.obpf`、`functions/13_local_state_isolation.obpf`、`functions/14_async_delay_function.obpf` 分别验证评分、加权累计、真实 break、函数局部变量隔离和函数帧异步恢复。
 
 ## 重新生成
 
@@ -867,9 +1003,9 @@ $readme = @'
 
 请勿在 Windows PowerShell 5 中直接执行 `.ps1`；它可能用系统代码页误读无 BOM 的 UTF-8 中文文本。
 
-## 后续阶段
+## 自动化对比
 
-第 2 阶段会为每个可执行样本编写独立 Go 参考实现并比较输出。第 3 阶段会在安全输入范围内生成带种子的随机参数。第 4、5 阶段仅在发现差异后总结并修复问题。
+每个蓝图均已有独立 Go 参考实现。随机对比使用每个文件独立的固定 seed 和 64 组不重复输入，每组重复 3 次；测试会主动拒绝重复输入。异步 Delay 使用虚拟时钟，测试不依赖真实等待。设置 `WRITE_BLUEPRINT_VERIFICATION_REPORT=1` 执行报告测试可更新 `docs/BLUEPRINT_VERIFICATION_MATRIX_ZH.md`。
 '@
 WriteArtifact 'README.md' $readme
 

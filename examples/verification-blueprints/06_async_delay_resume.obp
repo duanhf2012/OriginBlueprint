@@ -1,0 +1,1197 @@
+{
+    "schemaVersion":  1,
+    "graphName":  "异步 Delay 恢复验证",
+    "nodes":  [
+                  {
+                      "id":  "loop_entry",
+                      "typeId":  "origin.event.entry-two-integers",
+                      "position":  {
+                                       "x":  80,
+                                       "y":  120
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "loop_sequence",
+                      "typeId":  "origin.flow.sequence",
+                      "position":  {
+                                       "x":  320,
+                                       "y":  120
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+                                         "dynamicOutputCount":  5,
+                                         "label":  "循环异步恢复序列"
+                                     }
+                  },
+                  {
+                      "id":  "nested_outer",
+                      "typeId":  "origin.flow.for-loop",
+                      "position":  {
+                                       "x":  600,
+                                       "y":  70
+                                   },
+                      "values":  {
+                                     "start":  0,
+                                     "end":  2
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "nested_values",
+                      "typeId":  "origin.array.create-integer-new",
+                      "position":  {
+                                       "x":  600,
+                                       "y":  250
+                                   },
+                      "values":  {
+                                     "items":  [
+                                                   2,
+                                                   4,
+                                                   6
+                                               ]
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "nested_inner",
+                      "typeId":  "origin.flow.foreach-integer-array",
+                      "position":  {
+                                       "x":  880,
+                                       "y":  70
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "nested_delay",
+                      "typeId":  "origin.example.mock-delay-async",
+                      "position":  {
+                                       "x":  1160,
+                                       "y":  70
+                                   },
+                      "values":  {
+                                     "delayMs":  10,
+                                     "tag":  "nested-loop",
+                                     "value":  0
+                                 },
+                      "properties":  {
+                                         "label":  "模拟 Delay 异步恢复",
+                                         "legacyOutputs":  [
+                                                               {
+                                                                   "key":  "completed",
+                                                                   "label":  "完成",
+                                                                   "type":  "exec"
+                                                               },
+                                                               {
+                                                                   "key":  "value",
+                                                                   "label":  "恢复整数",
+                                                                   "type":  "integer"
+                                                               },
+                                                               {
+                                                                   "key":  "tag",
+                                                                   "label":  "恢复标记",
+                                                                   "type":  "string"
+                                                               }
+                                                           ],
+                                         "legacyModule":  "verification.fixture",
+                                         "legacyInputs":  [
+                                                              {
+                                                                  "key":  "exec",
+                                                                  "label":  "执行",
+                                                                  "type":  "exec"
+                                                              },
+                                                              {
+                                                                  "key":  "delayMs",
+                                                                  "label":  "延迟（毫秒）",
+                                                                  "type":  "integer"
+                                                              },
+                                                              {
+                                                                  "key":  "value",
+                                                                  "label":  "透传整数",
+                                                                  "type":  "integer"
+                                                              },
+                                                              {
+                                                                  "key":  "tag",
+                                                                  "label":  "透传标记",
+                                                                  "type":  "string"
+                                                              }
+                                                          ],
+                                         "legacyClass":  "MockDelayAsync"
+                                     }
+                  },
+                  {
+                      "id":  "nested_value_return",
+                      "typeId":  "origin.result.append-integer",
+                      "position":  {
+                                       "x":  1520,
+                                       "y":  45
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "nested_tag_return",
+                      "typeId":  "origin.result.append-string",
+                      "position":  {
+                                       "x":  1750,
+                                       "y":  100
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "nested_done",
+                      "typeId":  "origin.result.append-string",
+                      "position":  {
+                                       "x":  1520,
+                                       "y":  250
+                                   },
+                      "values":  {
+                                     "value":  "nested-loop:completed"
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "any_values",
+                      "typeId":  "origin.array.create-string-new",
+                      "position":  {
+                                       "x":  600,
+                                       "y":  470
+                                   },
+                      "values":  {
+                                     "items":  [
+                                                   "alpha",
+                                                   "beta",
+                                                   "gamma"
+                                               ]
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "any_loop",
+                      "typeId":  "origin.flow.foreach-array",
+                      "position":  {
+                                       "x":  880,
+                                       "y":  430
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "any_delay",
+                      "typeId":  "origin.example.mock-delay-async",
+                      "position":  {
+                                       "x":  1160,
+                                       "y":  430
+                                   },
+                      "values":  {
+                                     "delayMs":  10,
+                                     "tag":  "foreach-any",
+                                     "value":  0
+                                 },
+                      "properties":  {
+                                         "label":  "模拟 Delay 异步恢复",
+                                         "legacyOutputs":  [
+                                                               {
+                                                                   "key":  "completed",
+                                                                   "label":  "完成",
+                                                                   "type":  "exec"
+                                                               },
+                                                               {
+                                                                   "key":  "value",
+                                                                   "label":  "恢复整数",
+                                                                   "type":  "integer"
+                                                               },
+                                                               {
+                                                                   "key":  "tag",
+                                                                   "label":  "恢复标记",
+                                                                   "type":  "string"
+                                                               }
+                                                           ],
+                                         "legacyModule":  "verification.fixture",
+                                         "legacyInputs":  [
+                                                              {
+                                                                  "key":  "exec",
+                                                                  "label":  "执行",
+                                                                  "type":  "exec"
+                                                              },
+                                                              {
+                                                                  "key":  "delayMs",
+                                                                  "label":  "延迟（毫秒）",
+                                                                  "type":  "integer"
+                                                              },
+                                                              {
+                                                                  "key":  "value",
+                                                                  "label":  "透传整数",
+                                                                  "type":  "integer"
+                                                              },
+                                                              {
+                                                                  "key":  "tag",
+                                                                  "label":  "透传标记",
+                                                                  "type":  "string"
+                                                              }
+                                                          ],
+                                         "legacyClass":  "MockDelayAsync"
+                                     }
+                  },
+                  {
+                      "id":  "any_value_return",
+                      "typeId":  "origin.result.append-integer",
+                      "position":  {
+                                       "x":  1520,
+                                       "y":  405
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "any_tag_return",
+                      "typeId":  "origin.result.append-string",
+                      "position":  {
+                                       "x":  1750,
+                                       "y":  460
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "any_done",
+                      "typeId":  "origin.result.append-string",
+                      "position":  {
+                                       "x":  1520,
+                                       "y":  590
+                                   },
+                      "values":  {
+                                     "value":  "foreach-any:completed"
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "break_loop",
+                      "typeId":  "origin.flow.for-loop-break",
+                      "position":  {
+                                       "x":  600,
+                                       "y":  780
+                                   },
+                      "values":  {
+                                     "start":  0,
+                                     "end":  5
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "break_delay",
+                      "typeId":  "origin.example.mock-delay-async",
+                      "position":  {
+                                       "x":  880,
+                                       "y":  750
+                                   },
+                      "values":  {
+                                     "delayMs":  10,
+                                     "tag":  "break-loop",
+                                     "value":  0
+                                 },
+                      "properties":  {
+                                         "label":  "模拟 Delay 异步恢复",
+                                         "legacyOutputs":  [
+                                                               {
+                                                                   "key":  "completed",
+                                                                   "label":  "完成",
+                                                                   "type":  "exec"
+                                                               },
+                                                               {
+                                                                   "key":  "value",
+                                                                   "label":  "恢复整数",
+                                                                   "type":  "integer"
+                                                               },
+                                                               {
+                                                                   "key":  "tag",
+                                                                   "label":  "恢复标记",
+                                                                   "type":  "string"
+                                                               }
+                                                           ],
+                                         "legacyModule":  "verification.fixture",
+                                         "legacyInputs":  [
+                                                              {
+                                                                  "key":  "exec",
+                                                                  "label":  "执行",
+                                                                  "type":  "exec"
+                                                              },
+                                                              {
+                                                                  "key":  "delayMs",
+                                                                  "label":  "延迟（毫秒）",
+                                                                  "type":  "integer"
+                                                              },
+                                                              {
+                                                                  "key":  "value",
+                                                                  "label":  "透传整数",
+                                                                  "type":  "integer"
+                                                              },
+                                                              {
+                                                                  "key":  "tag",
+                                                                  "label":  "透传标记",
+                                                                  "type":  "string"
+                                                              }
+                                                          ],
+                                         "legacyClass":  "MockDelayAsync"
+                                     }
+                  },
+                  {
+                      "id":  "break_compare",
+                      "typeId":  "origin.compare.greater-integer",
+                      "position":  {
+                                       "x":  1240,
+                                       "y":  700
+                                   },
+                      "values":  {
+                                     "b":  1
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "break_branch",
+                      "typeId":  "origin.flow.branch",
+                      "position":  {
+                                       "x":  1480,
+                                       "y":  750
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "break_value_return",
+                      "typeId":  "origin.result.append-integer",
+                      "position":  {
+                                       "x":  1740,
+                                       "y":  820
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "break_tag_return",
+                      "typeId":  "origin.result.append-string",
+                      "position":  {
+                                       "x":  1970,
+                                       "y":  850
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "break_done",
+                      "typeId":  "origin.result.append-string",
+                      "position":  {
+                                       "x":  1740,
+                                       "y":  680
+                                   },
+                      "values":  {
+                                     "value":  "break-loop:completed"
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "while_init",
+                      "typeId":  "origin.variable.set",
+                      "position":  {
+                                       "x":  600,
+                                       "y":  1110
+                                   },
+                      "values":  {
+                                     "value":  0
+                                 },
+                      "properties":  {
+                                         "label":  "Initialize WhileCounter",
+                                         "variableAccess":  "set",
+                                         "variableId":  "while_counter"
+                                     }
+                  },
+                  {
+                      "id":  "while_loop",
+                      "typeId":  "origin.flow.while",
+                      "position":  {
+                                       "x":  880,
+                                       "y":  1080
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "while_get",
+                      "typeId":  "origin.variable.get",
+                      "position":  {
+                                       "x":  880,
+                                       "y":  1260
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+                                         "label":  "Get WhileCounter",
+                                         "variableAccess":  "get",
+                                         "variableId":  "while_counter"
+                                     }
+                  },
+                  {
+                      "id":  "while_condition",
+                      "typeId":  "origin.compare.greater-integer",
+                      "position":  {
+                                       "x":  1160,
+                                       "y":  1260
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "while_delay",
+                      "typeId":  "origin.example.mock-delay-async",
+                      "position":  {
+                                       "x":  1160,
+                                       "y":  1050
+                                   },
+                      "values":  {
+                                     "delayMs":  10,
+                                     "tag":  "while-loop",
+                                     "value":  0
+                                 },
+                      "properties":  {
+                                         "label":  "模拟 Delay 异步恢复",
+                                         "legacyOutputs":  [
+                                                               {
+                                                                   "key":  "completed",
+                                                                   "label":  "完成",
+                                                                   "type":  "exec"
+                                                               },
+                                                               {
+                                                                   "key":  "value",
+                                                                   "label":  "恢复整数",
+                                                                   "type":  "integer"
+                                                               },
+                                                               {
+                                                                   "key":  "tag",
+                                                                   "label":  "恢复标记",
+                                                                   "type":  "string"
+                                                               }
+                                                           ],
+                                         "legacyModule":  "verification.fixture",
+                                         "legacyInputs":  [
+                                                              {
+                                                                  "key":  "exec",
+                                                                  "label":  "执行",
+                                                                  "type":  "exec"
+                                                              },
+                                                              {
+                                                                  "key":  "delayMs",
+                                                                  "label":  "延迟（毫秒）",
+                                                                  "type":  "integer"
+                                                              },
+                                                              {
+                                                                  "key":  "value",
+                                                                  "label":  "透传整数",
+                                                                  "type":  "integer"
+                                                              },
+                                                              {
+                                                                  "key":  "tag",
+                                                                  "label":  "透传标记",
+                                                                  "type":  "string"
+                                                              }
+                                                          ],
+                                         "legacyClass":  "MockDelayAsync"
+                                     }
+                  },
+                  {
+                      "id":  "while_value_return",
+                      "typeId":  "origin.result.append-integer",
+                      "position":  {
+                                       "x":  1520,
+                                       "y":  1020
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "while_tag_return",
+                      "typeId":  "origin.result.append-string",
+                      "position":  {
+                                       "x":  1750,
+                                       "y":  1070
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "while_add",
+                      "typeId":  "origin.math.add-integer",
+                      "position":  {
+                                       "x":  1980,
+                                       "y":  1200
+                                   },
+                      "values":  {
+                                     "b":  1
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "while_set",
+                      "typeId":  "origin.variable.set",
+                      "position":  {
+                                       "x":  2220,
+                                       "y":  1090
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+                                         "label":  "Increment WhileCounter",
+                                         "variableAccess":  "set",
+                                         "variableId":  "while_counter"
+                                     }
+                  },
+                  {
+                      "id":  "while_done",
+                      "typeId":  "origin.result.append-string",
+                      "position":  {
+                                       "x":  1520,
+                                       "y":  1350
+                                   },
+                      "values":  {
+                                     "value":  "while-loop:completed"
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "function_call",
+                      "typeId":  "origin.function.call",
+                      "position":  {
+                                       "x":  600,
+                                       "y":  1530
+                                   },
+                      "values":  {
+                                     "input_tag":  "function-delay",
+                                     "input_value":  900,
+                                     "input_delayMs":  10
+                                 },
+                      "properties":  {
+                                         "functionName":  "函数内异步 Delay",
+                                         "functionSource":  "workspace",
+                                         "functionSignature":  {
+                                                                   "inputs":  [
+                                                                                  {
+                                                                                      "id":  "delayMs",
+                                                                                      "name":  "延迟毫秒",
+                                                                                      "type":  "integer"
+                                                                                  },
+                                                                                  {
+                                                                                      "id":  "value",
+                                                                                      "name":  "透传整数",
+                                                                                      "type":  "integer"
+                                                                                  },
+                                                                                  {
+                                                                                      "id":  "tag",
+                                                                                      "name":  "透传标记",
+                                                                                      "type":  "string"
+                                                                                  }
+                                                                              ],
+                                                                   "outputs":  [
+                                                                                   {
+                                                                                       "id":  "value",
+                                                                                       "name":  "恢复整数",
+                                                                                       "type":  "integer"
+                                                                                   },
+                                                                                   {
+                                                                                       "id":  "tag",
+                                                                                       "name":  "恢复标记",
+                                                                                       "type":  "string"
+                                                                                   }
+                                                                               ]
+                                                               },
+                                         "label":  "Call 函数内异步 Delay",
+                                         "functionId":  "functions/14_async_delay_function.obpf"
+                                     }
+                  },
+                  {
+                      "id":  "function_value_return",
+                      "typeId":  "origin.result.append-integer",
+                      "position":  {
+                                       "x":  980,
+                                       "y":  1500
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "function_tag_return",
+                      "typeId":  "origin.result.append-string",
+                      "position":  {
+                                       "x":  1210,
+                                       "y":  1550
+                                   },
+                      "values":  {
+
+                                 },
+                      "properties":  {
+
+                                     }
+                  }
+              ],
+    "connections":  [
+                        {
+                            "source":  "loop_entry",
+                            "sourceOutput":  "exec",
+                            "target":  "loop_sequence",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "loop_sequence",
+                            "sourceOutput":  "then0",
+                            "target":  "nested_outer",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "loop_entry",
+                            "sourceOutput":  "param1",
+                            "target":  "nested_outer",
+                            "targetInput":  "end"
+                        },
+                        {
+                            "source":  "nested_outer",
+                            "sourceOutput":  "body",
+                            "target":  "nested_inner",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "nested_values",
+                            "sourceOutput":  "array",
+                            "target":  "nested_inner",
+                            "targetInput":  "array"
+                        },
+                        {
+                            "source":  "nested_inner",
+                            "sourceOutput":  "body",
+                            "target":  "nested_delay",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "loop_entry",
+                            "sourceOutput":  "param2",
+                            "target":  "nested_delay",
+                            "targetInput":  "delayMs"
+                        },
+                        {
+                            "source":  "nested_inner",
+                            "sourceOutput":  "value",
+                            "target":  "nested_delay",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "nested_delay",
+                            "sourceOutput":  "completed",
+                            "target":  "nested_value_return",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "nested_delay",
+                            "sourceOutput":  "value",
+                            "target":  "nested_value_return",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "nested_value_return",
+                            "sourceOutput":  "exec",
+                            "target":  "nested_tag_return",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "nested_delay",
+                            "sourceOutput":  "tag",
+                            "target":  "nested_tag_return",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "nested_outer",
+                            "sourceOutput":  "completed",
+                            "target":  "nested_done",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "loop_sequence",
+                            "sourceOutput":  "then1",
+                            "target":  "any_loop",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "any_values",
+                            "sourceOutput":  "array",
+                            "target":  "any_loop",
+                            "targetInput":  "array"
+                        },
+                        {
+                            "source":  "any_loop",
+                            "sourceOutput":  "body",
+                            "target":  "any_delay",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "loop_entry",
+                            "sourceOutput":  "param2",
+                            "target":  "any_delay",
+                            "targetInput":  "delayMs"
+                        },
+                        {
+                            "source":  "any_loop",
+                            "sourceOutput":  "index",
+                            "target":  "any_delay",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "any_delay",
+                            "sourceOutput":  "completed",
+                            "target":  "any_value_return",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "any_delay",
+                            "sourceOutput":  "value",
+                            "target":  "any_value_return",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "any_value_return",
+                            "sourceOutput":  "exec",
+                            "target":  "any_tag_return",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "any_delay",
+                            "sourceOutput":  "tag",
+                            "target":  "any_tag_return",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "any_loop",
+                            "sourceOutput":  "completed",
+                            "target":  "any_done",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "loop_sequence",
+                            "sourceOutput":  "then2",
+                            "target":  "break_loop",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "loop_entry",
+                            "sourceOutput":  "param1",
+                            "target":  "break_loop",
+                            "targetInput":  "end"
+                        },
+                        {
+                            "source":  "break_loop",
+                            "sourceOutput":  "body",
+                            "target":  "break_delay",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "loop_entry",
+                            "sourceOutput":  "param2",
+                            "target":  "break_delay",
+                            "targetInput":  "delayMs"
+                        },
+                        {
+                            "source":  "break_loop",
+                            "sourceOutput":  "index",
+                            "target":  "break_delay",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "break_delay",
+                            "sourceOutput":  "completed",
+                            "target":  "break_branch",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "break_delay",
+                            "sourceOutput":  "value",
+                            "target":  "break_compare",
+                            "targetInput":  "a"
+                        },
+                        {
+                            "source":  "break_compare",
+                            "sourceOutput":  "result",
+                            "target":  "break_branch",
+                            "targetInput":  "condition"
+                        },
+                        {
+                            "source":  "break_branch",
+                            "sourceOutput":  "true",
+                            "target":  "break_loop",
+                            "targetInput":  "break"
+                        },
+                        {
+                            "source":  "break_branch",
+                            "sourceOutput":  "false",
+                            "target":  "break_value_return",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "break_delay",
+                            "sourceOutput":  "value",
+                            "target":  "break_value_return",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "break_value_return",
+                            "sourceOutput":  "exec",
+                            "target":  "break_tag_return",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "break_delay",
+                            "sourceOutput":  "tag",
+                            "target":  "break_tag_return",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "break_loop",
+                            "sourceOutput":  "completed",
+                            "target":  "break_done",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "loop_sequence",
+                            "sourceOutput":  "then3",
+                            "target":  "while_init",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "while_init",
+                            "sourceOutput":  "exec",
+                            "target":  "while_loop",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "loop_entry",
+                            "sourceOutput":  "param1",
+                            "target":  "while_condition",
+                            "targetInput":  "a"
+                        },
+                        {
+                            "source":  "while_get",
+                            "sourceOutput":  "value",
+                            "target":  "while_condition",
+                            "targetInput":  "b"
+                        },
+                        {
+                            "source":  "while_condition",
+                            "sourceOutput":  "result",
+                            "target":  "while_loop",
+                            "targetInput":  "condition"
+                        },
+                        {
+                            "source":  "while_loop",
+                            "sourceOutput":  "body",
+                            "target":  "while_delay",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "loop_entry",
+                            "sourceOutput":  "param2",
+                            "target":  "while_delay",
+                            "targetInput":  "delayMs"
+                        },
+                        {
+                            "source":  "while_get",
+                            "sourceOutput":  "value",
+                            "target":  "while_delay",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "while_delay",
+                            "sourceOutput":  "completed",
+                            "target":  "while_value_return",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "while_delay",
+                            "sourceOutput":  "value",
+                            "target":  "while_value_return",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "while_value_return",
+                            "sourceOutput":  "exec",
+                            "target":  "while_tag_return",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "while_delay",
+                            "sourceOutput":  "tag",
+                            "target":  "while_tag_return",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "while_tag_return",
+                            "sourceOutput":  "exec",
+                            "target":  "while_set",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "while_get",
+                            "sourceOutput":  "value",
+                            "target":  "while_add",
+                            "targetInput":  "a"
+                        },
+                        {
+                            "source":  "while_add",
+                            "sourceOutput":  "result",
+                            "target":  "while_set",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "while_loop",
+                            "sourceOutput":  "completed",
+                            "target":  "while_done",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "loop_sequence",
+                            "sourceOutput":  "then4",
+                            "target":  "function_call",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "loop_entry",
+                            "sourceOutput":  "param2",
+                            "target":  "function_call",
+                            "targetInput":  "input_delayMs"
+                        },
+                        {
+                            "source":  "loop_entry",
+                            "sourceOutput":  "objectId",
+                            "target":  "function_call",
+                            "targetInput":  "input_value"
+                        },
+                        {
+                            "source":  "function_call",
+                            "sourceOutput":  "exec",
+                            "target":  "function_value_return",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "function_call",
+                            "sourceOutput":  "output_value",
+                            "target":  "function_value_return",
+                            "targetInput":  "value"
+                        },
+                        {
+                            "source":  "function_value_return",
+                            "sourceOutput":  "exec",
+                            "target":  "function_tag_return",
+                            "targetInput":  "exec"
+                        },
+                        {
+                            "source":  "function_call",
+                            "sourceOutput":  "output_tag",
+                            "target":  "function_tag_return",
+                            "targetInput":  "value"
+                        }
+                    ],
+    "groups":  [
+                   {
+                       "id":  "nested-loop-delay",
+                       "title":  "嵌套 For + ForeachIntArray：每次恢复后只进入下一迭代",
+                       "x":  35,
+                       "y":  35,
+                       "width":  2050,
+                       "height":  310,
+                       "nodeIds":  [
+                                       "loop_entry",
+                                       "loop_sequence",
+                                       "nested_outer",
+                                       "nested_values",
+                                       "nested_inner",
+                                       "nested_delay",
+                                       "nested_value_return",
+                                       "nested_tag_return",
+                                       "nested_done"
+                                   ]
+                   },
+                   {
+                       "id":  "foreach-any-delay",
+                       "title":  "ForeachArray：任意数组循环内挂起与恢复",
+                       "x":  540,
+                       "y":  380,
+                       "width":  1545,
+                       "height":  300,
+                       "nodeIds":  [
+                                       "any_values",
+                                       "any_loop",
+                                       "any_delay",
+                                       "any_value_return",
+                                       "any_tag_return",
+                                       "any_done"
+                                   ]
+                   },
+                   {
+                       "id":  "break-loop-delay",
+                       "title":  "ForLoopWithBreak：恢复后判断 break，不重复或多跑迭代",
+                       "x":  540,
+                       "y":  650,
+                       "width":  1700,
+                       "height":  360,
+                       "nodeIds":  [
+                                       "break_loop",
+                                       "break_delay",
+                                       "break_compare",
+                                       "break_branch",
+                                       "break_value_return",
+                                       "break_tag_return",
+                                       "break_done"
+                                   ]
+                   },
+                   {
+                       "id":  "while-delay",
+                       "title":  "While：恢复后递增计数，再重新判断下一轮条件",
+                       "x":  540,
+                       "y":  1000,
+                       "width":  1960,
+                       "height":  500,
+                       "nodeIds":  [
+                                       "while_init",
+                                       "while_loop",
+                                       "while_get",
+                                       "while_condition",
+                                       "while_delay",
+                                       "while_value_return",
+                                       "while_tag_return",
+                                       "while_add",
+                                       "while_set",
+                                       "while_done"
+                                   ]
+                   },
+                   {
+                       "id":  "function-delay",
+                       "title":  "函数调用内部挂起：恢复后回到原函数帧并返回输出",
+                       "x":  540,
+                       "y":  1460,
+                       "width":  1000,
+                       "height":  260,
+                       "nodeIds":  [
+                                       "function_call",
+                                       "function_value_return",
+                                       "function_tag_return"
+                                   ]
+                   }
+               ],
+    "variables":  [
+                      {
+                          "id":  "while_counter",
+                          "name":  "WhileCounter",
+                          "type":  "integer",
+                          "defaultValue":  0,
+                          "groupId":  "local",
+                          "description":  "While 每次异步恢复后递增，验证恢复点不会重复执行当前迭代"
+                      }
+                  ],
+    "variableGroups":  [
+                           {
+                               "id":  "default",
+                               "name":  "默认",
+                               "collapsed":  false
+                           },
+                           {
+                               "id":  "local",
+                               "name":  "局部状态",
+                               "collapsed":  false
+                           }
+                       ],
+    "view":  {
+                 "x":  0,
+                 "y":  0,
+                 "zoom":  0.72
+             }
+}
