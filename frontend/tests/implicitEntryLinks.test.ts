@@ -10,6 +10,7 @@ import {
   type EntryBindingConnection,
   type EntryBindingNode
 } from '../src/editor/implicitEntryLinks'
+import { describe, it } from 'vitest'
 
 function assert(value: unknown, message: string) {
   if (!value) throw new Error(message)
@@ -66,6 +67,8 @@ const connection: EntryBindingConnection = {
   targetInput: 'targetId'
 }
 
+describe('implicit entry links', () => {
+it('detects, groups and describes compatible entry bindings', () => {
 assert(isEntryOutputConnection(connection, id => id === 'entry' ? entry : target), 'detects data connections sourced from an entry node')
 assert(isEntryNode(legacyEntry), 'detects legacy Entrance_* nodes as entry nodes')
 assert(isEntryNode(customEntry), 'detects schema-generated origin.custom.entrance-* nodes as entry nodes')
@@ -92,5 +95,5 @@ assert(binding?.label === 'ObjectId', 'uses only the field name for the visible 
 assert(entryBindingLabel(binding) === 'ObjectId', 'formats a compact field-only badge label')
 assert(entryBindingBadgeLabel(binding) === 'ObjectId', 'formats the visible field-only badge text')
 assert(entryBindingTitle(binding) === 'Skill Entry/ObjectId', 'formats the tooltip without an entry prefix')
-
-console.log('implicitEntryLinks tests passed')
+})
+})
