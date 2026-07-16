@@ -86,6 +86,9 @@ export interface LegacyGraphState {
   groups?: Array<{ title: string; nodes: string[] }>
   variables?: Array<Record<string, unknown>>
   residualNodeDefaults?: Record<string, LegacyResidualNodeDefaults>
+  extraRootFields?: Record<string, unknown>
+  extraNodeFields?: Record<string, { class: string; fields: Record<string, unknown> }>
+  extraEdgeFields?: Record<string, Record<string, unknown>>
 }
 
 export interface NodeSnapshot {

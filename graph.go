@@ -73,6 +73,14 @@ type GraphLegacyState struct {
 	Groups               []legacyGroup                          `json:"groups,omitempty"`
 	Variables            []map[string]interface{}               `json:"variables,omitempty"`
 	ResidualNodeDefaults map[string]GraphLegacyResidualDefaults `json:"residualNodeDefaults,omitempty"`
+	ExtraRootFields      map[string]json.RawMessage             `json:"extraRootFields,omitempty"`
+	ExtraNodeFields      map[string]GraphLegacyNodeExtraFields  `json:"extraNodeFields,omitempty"`
+	ExtraEdgeFields      map[string]map[string]json.RawMessage  `json:"extraEdgeFields,omitempty"`
+}
+
+type GraphLegacyNodeExtraFields struct {
+	Class  string                     `json:"class"`
+	Fields map[string]json.RawMessage `json:"fields"`
 }
 
 type GraphLegacyResidualDefaults struct {
