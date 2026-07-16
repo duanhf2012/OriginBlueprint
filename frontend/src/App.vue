@@ -2,12 +2,13 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { toPng } from 'html-to-image'
 import { createBlueprintEditor, type BlueprintEditorHandle, type EditorMetrics, type FunctionSignature, type FunctionSignaturePort, type GraphDocument, type GraphVariable, type GraphVariableGroup, type SelectedNodeInfo, type ValidationIssue, type VariableType } from './editor/createEditor'
-import type { FunctionNodeMetadata, NodeSnapshot } from './editor/document'
+import type { FunctionNodeMetadata, NodeSnapshot, RestoreLossReport } from './editor/document'
 import { getNodeDefinitions, registerNodeSchemas, type NodeDefinition } from './editor/nodeRegistry'
 import { menuLocales, normalizeLocale, type LocaleId } from './i18n'
 import { platform, type NodeReferenceResult, type WorkspaceEntry } from './platform'
+import { compatibilitySaveOptions, findOpenTab, hasRestoreLoss, resolveCompatibilitySaveAction as resolveCompatibilityPersistenceAction, type CompatibilitySaveAction } from './documentSafety'
 
-interface GraphTab { id: string; title: string; path: string; dirty: boolean; document: GraphDocument | null }
+interface GraphTab { id: string; title: string; path: string; dirty: boolean; document: GraphDocument | null; restoreLoss?: RestoreLossReport | null; restoreFatal?: boolean }
 interface WorkspaceTreeNode extends WorkspaceEntry { children: WorkspaceTreeNode[]; loaded: boolean; loading: boolean }
 interface VisibleWorkspaceNode { node: WorkspaceTreeNode; depth: number }
 type UnsavedCloseAction = 'save' | 'discard' | 'cancel'
@@ -122,6 +123,7 @@ const selectedNode = ref<SelectedNodeInfo | null>(null)
 const validationIssues = ref<ValidationIssue[]>([])
 const selectedValidationIssueKey = ref('')
 const unsavedCloseDialog = ref<{ visible: boolean; names: string[]; resolve?: (action: UnsavedCloseAction) => void }>({ visible: false, names: [] })
+const compatibilitySaveDialog = ref<{ visible: boolean; droppedNodes: number; droppedConnections: number; alteredNodes: number; fatal: boolean; forceAllowed: boolean; resolve?: (action: CompatibilitySaveAction) => void }>({ visible: false, droppedNodes: 0, droppedConnections: 0, alteredNodes: 0, fatal: false, forceAllowed: false })
 let untitledCount = 1
 const tabDragIndex = ref(-1)
 const tabDragOverIndex = ref(-1)
@@ -595,7 +597,14 @@ async function switchTab(id: string) {
   if (id === activeTabId.value) return
   persistActive(); activeTabId.value = id; selectedVariableId.value = null
   const tab = activeTab.value
-  if (tab.document) { await syncCallableFunctionsToEditor(); await editor?.loadDocument(tab.document) } else await editor?.newDocument()
+  if (tab.document) {
+    await syncCallableFunctionsToEditor()
+    try { await editor?.loadDocument(tab.document) }
+    catch (error) {
+      tab.restoreFatal = true
+      status.value = `Graph restore failed: ${error instanceof Error ? error.message : String(error)}`
+    }
+  } else await editor?.newDocument()
   functionSignature.value = normalizeFunctionSignature(tab.document?.functionSignature)
   functionTitle.value = isFunctionBlueprintPath(tab.path || tab.title) ? functionTitleFromDocument(tab.document, tab.path || tab.title, tab.title) : ''
   functionId.value = isFunctionBlueprintPath(tab.path || tab.title) ? functionIdFromDocument(tab.document) : ''
@@ -1480,6 +1489,13 @@ async function highlightIssue(issue: ValidationIssue, index: number) {
 async function openGraph(path = '', highlightTypeId = '') {
   const file = await platform.openGraph(path)
   if (!file) return
+  const existing = findOpenTab(tabs.value, file.path, platform.isDesktop())
+  if (existing) {
+    await switchTab(existing.id)
+    status.value = `${existing.title} is already open`
+    await highlightReferenceSearchTarget(highlightTypeId)
+    return
+  }
   let parsed: any
   try { parsed = JSON.parse(file.content) } catch { status.value = 'Invalid graph file'; return }
   let document: GraphDocument
@@ -1492,24 +1508,6 @@ async function openGraph(path = '', highlightTypeId = '') {
   await loadFunctionLibraryTitles(functionLibraryItems.value)
   await refreshDocumentFunctionReferencesOnOpen(document, file.path)
   persistActive()
-  const existing = tabs.value.find(tab => tab.path === file.path)
-  if (existing) {
-    persistActive()
-    existing.document = document
-    existing.dirty = false
-    activeTabId.value = existing.id
-    selectedVariableId.value = null
-    functionSignature.value = normalizeFunctionSignature(document.functionSignature)
-    functionTitle.value = isFunctionBlueprintPath(file.path) ? functionTitleFromDocument(document, file.path, existing.title) : ''
-    functionId.value = isFunctionBlueprintPath(file.path) ? functionIdFromDocument(document) : ''
-    functionCategory.value = isFunctionBlueprintPath(file.path) ? functionCategoryFromDocument(document, file.path) : ''
-    if (isFunctionBlueprintPath(file.path)) functionTitleByPath.value = { ...functionTitleByPath.value, [file.path]: functionTitle.value }
-    if (isFunctionBlueprintPath(file.path) && functionId.value) functionIdByPath.value = { ...functionIdByPath.value, [file.path]: functionId.value }
-    if (isFunctionBlueprintPath(file.path)) functionCategoryByPath.value = { ...functionCategoryByPath.value, [file.path]: functionCategory.value }
-    await syncCallableFunctionsToEditor(); await editor?.loadDocument(document)
-    await highlightReferenceSearchTarget(highlightTypeId)
-    return
-  }
   const title = file.path.split(/[\\/]/).pop() ?? document.graphName
   const tab: GraphTab = { id: crypto.randomUUID(), title, path: file.path, dirty: false, document }
   tabs.value.push(tab)
@@ -1522,13 +1520,45 @@ async function openGraph(path = '', highlightTypeId = '') {
   if (isFunctionBlueprintPath(file.path)) functionTitleByPath.value = { ...functionTitleByPath.value, [file.path]: functionTitle.value }
   if (isFunctionBlueprintPath(file.path) && functionId.value) functionIdByPath.value = { ...functionIdByPath.value, [file.path]: functionId.value }
   if (isFunctionBlueprintPath(file.path)) functionCategoryByPath.value = { ...functionCategoryByPath.value, [file.path]: functionCategory.value }
-  await syncCallableFunctionsToEditor(); await editor?.loadDocument(document)
-  if (document.legacy?.format === 'vgf') {
+  await syncCallableFunctionsToEditor()
+  try {
+    const report = await editor?.loadDocument(document)
+    tab.restoreLoss = hasRestoreLoss(report) ? report : null
+    tab.restoreFatal = false
+  } catch (error) {
+    tab.restoreFatal = true
+    status.value = `Graph restore failed; source overwrite is disabled: ${error instanceof Error ? error.message : String(error)}`
+  }
+  if (!tab.restoreFatal && document.legacy?.format === 'vgf') {
     const hiddenCount = document.legacy.hiddenNodes?.length ?? 0
     status.value = `Loaded ${document.nodes.length} visible node(s), ${hiddenCount} hidden undefined node(s)`
   }
+  if (tab.restoreLoss) {
+    status.value = `Compatibility limited: ${tab.restoreLoss.droppedNodes.length} node(s), ${tab.restoreLoss.droppedConnections.length} connection(s), and ${tab.restoreLoss.alteredNodes.length} normalized node(s); source overwrite is disabled by default`
+  }
   await highlightReferenceSearchTarget(highlightTypeId)
   recentFiles.value = await platform.recentFiles()
+}
+
+function requestCompatibilitySaveAction(tab: GraphTab, forceAllowed: boolean) {
+  const options = compatibilitySaveOptions({ fatal: Boolean(tab.restoreFatal), hasLoss: hasRestoreLoss(tab.restoreLoss), formatAllowsForce: forceAllowed })
+  return new Promise<CompatibilitySaveAction>(resolve => {
+    compatibilitySaveDialog.value = {
+      visible: true,
+      droppedNodes: tab.restoreLoss?.droppedNodes.length ?? 0,
+      droppedConnections: tab.restoreLoss?.droppedConnections.length ?? 0,
+      alteredNodes: tab.restoreLoss?.alteredNodes.length ?? 0,
+      fatal: Boolean(tab.restoreFatal),
+      forceAllowed: options.includes('force'),
+      resolve
+    }
+  })
+}
+
+function resolveCompatibilitySaveAction(action: CompatibilitySaveAction) {
+  const resolve = compatibilitySaveDialog.value.resolve
+  compatibilitySaveDialog.value = { visible: false, droppedNodes: 0, droppedConnections: 0, alteredNodes: 0, fatal: false, forceAllowed: false }
+  resolve?.(action)
 }
 
 async function saveGraph(saveAs: boolean) {
@@ -1554,12 +1584,31 @@ async function saveGraphUnchecked(saveAs: boolean) {
     }
   }
   const requiresNativePersistence = documentRequiresNativePersistence(document)
-  const forceNativeSaveAs = !saveAs && isLegacyGraphPath(tab.path) && requiresNativePersistence
-  const shouldSaveLegacy = !saveAs && !forceNativeSaveAs && isLegacyGraphPath(tab.path)
+  let effectiveSaveAs = saveAs
+  let forceOriginal = false
+  if (!saveAs && tab.path && (tab.restoreFatal || hasRestoreLoss(tab.restoreLoss))) {
+    const forceAllowed = !tab.restoreFatal && !(isLegacyGraphPath(tab.path) && requiresNativePersistence)
+    const action = await requestCompatibilitySaveAction(tab, forceAllowed)
+    const persistenceAction = resolveCompatibilityPersistenceAction(action, { fatal: Boolean(tab.restoreFatal), hasLoss: hasRestoreLoss(tab.restoreLoss), formatAllowsForce: forceAllowed })
+    if (persistenceAction === 'cancel') return
+    if (persistenceAction === 'recovery-copy') effectiveSaveAs = true
+    if (persistenceAction === 'force-source-with-backup') {
+      const droppedNodes = tab.restoreLoss?.droppedNodes.length ?? 0
+      const droppedConnections = tab.restoreLoss?.droppedConnections.length ?? 0
+      const alteredNodes = tab.restoreLoss?.alteredNodes.length ?? 0
+      const confirmed = window.confirm(`强制覆盖会永久移除或调整编辑器无法完整恢复的 ${droppedNodes} 个结点、${droppedConnections} 条连线和 ${alteredNodes} 个结点属性。将先创建 ${tab.path}.bak。确认继续？`)
+      if (!confirmed) return
+      forceOriginal = true
+    }
+  }
+  const forceNativeSaveAs = !effectiveSaveAs && !forceOriginal && isLegacyGraphPath(tab.path) && requiresNativePersistence
+  const shouldSaveLegacy = !effectiveSaveAs && !forceNativeSaveAs && isLegacyGraphPath(tab.path)
   const content = shouldSaveLegacy ? await platform.exportLegacyGraph(JSON.stringify(document)) : JSON.stringify(document, null, 2)
-  const path = await platform.saveGraph(saveAs || forceNativeSaveAs ? '' : tab.path, content)
+  const path = forceOriginal
+    ? await platform.forceSaveGraph(tab.path, content)
+    : await platform.saveGraph(effectiveSaveAs || forceNativeSaveAs ? '' : tab.path, content)
   if (!path) return
-  tab.path = path; tab.title = path.split(/[\\/]/).pop() ?? tab.title; tab.document = document; tab.dirty = false
+  tab.path = path; tab.title = path.split(/[\\/]/).pop() ?? tab.title; tab.document = document; tab.dirty = false; tab.restoreLoss = null; tab.restoreFatal = false
   if (isFunctionBlueprintPath(path)) {
     functionTitle.value = activeFunctionTitle()
     functionTitleByPath.value = { ...functionTitleByPath.value, [path]: functionTitle.value }
@@ -1569,7 +1618,7 @@ async function saveGraphUnchecked(saveAs: boolean) {
     functionCategoryByPath.value = { ...functionCategoryByPath.value, [path]: functionCategory.value }
     await syncOpenFunctionReferences(activeFunctionMetadata('call'))
   }
-  recentFiles.value = await platform.recentFiles(); status.value = `Saved ${tab.title}`
+  recentFiles.value = await platform.recentFiles(); status.value = forceOriginal ? `Saved ${tab.title}; backup created at ${path}.bak` : `Saved ${tab.title}`
 }
 
 async function saveAll() {
@@ -2784,6 +2833,18 @@ function toggleModuleCategory(category: string) {
         <dl><dt>{{ menuText.update.currentVersion }}</dt><dd>{{ updateState.currentVersion }}</dd><dt>{{ menuText.update.latestVersion }}</dt><dd>{{ updateState.latestVersion }}</dd></dl>
         <pre v-if="updateState.notes">{{ updateState.notes }}</pre>
         <footer><button @click="closeUpdateDialog">{{ menuText.update.remindLater }}</button><button class="primary" @click="openUpdateRelease">{{ menuText.update.openRelease }}</button></footer>
+      </section>
+    </div>
+    <div v-if="compatibilitySaveDialog.visible" class="unsaved-close-backdrop">
+      <section class="unsaved-close-dialog">
+        <header>蓝图存在兼容性丢失风险</header>
+        <p v-if="compatibilitySaveDialog.fatal">蓝图恢复未完整完成。为保护原文件，只能另存为恢复副本。</p>
+        <p v-else>编辑器无法完整恢复 {{ compatibilitySaveDialog.droppedNodes }} 个结点、{{ compatibilitySaveDialog.droppedConnections }} 条连线和 {{ compatibilitySaveDialog.alteredNodes }} 个结点属性。默认另存为恢复副本，不会改动原文件。</p>
+        <footer>
+          <button class="primary" @click="resolveCompatibilitySaveAction('copy')">另存恢复副本</button>
+          <button v-if="compatibilitySaveDialog.forceAllowed" @click="resolveCompatibilitySaveAction('force')">强制覆盖原文件</button>
+          <button @click="resolveCompatibilitySaveAction('cancel')">取消</button>
+        </footer>
       </section>
     </div>
     <div v-if="unsavedCloseDialog.visible" class="unsaved-close-backdrop">

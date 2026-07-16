@@ -152,7 +152,7 @@ assert(app.includes('loadFunctionSignatureForId'), 'openGraph refresh must read 
 assert(app.includes('loadFunctionSignatureForModuleItem'), 'workspace function call nodes must load signatures from .obpf files')
 assert(app.includes('platform.openGraph(item.path)'), 'workspace function signatures must be read from the function file')
 assert(app.includes('isNativeGraphDocument(parsed)'), 'openGraph must distinguish native documents from legacy-shaped files')
-assert(app.includes('existing.document = document'), 'reopening an already-open graph must refresh stale tab contents')
+assert(!app.includes('existing.document = document'), 'reopening an already-open graph must preserve unsaved tab contents')
 assert(!app.includes('!item.functionPlaceholder && beginNodePointerDrag'), 'function placeholders must not disable pointer drag')
 assert(!app.includes('!item.functionPlaceholder && addNodeAt'), 'function placeholders must not disable double-click creation')
 

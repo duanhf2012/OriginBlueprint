@@ -122,6 +122,34 @@ export interface GraphSnapshot {
   groups: GroupSnapshot[]
 }
 
+export interface RestoreDroppedNode {
+  id: string
+  typeId: string
+  reason: 'missing-type-id' | 'unknown-node-type'
+}
+
+export interface RestoreDroppedConnection {
+  source: string
+  sourceOutput: string
+  target: string
+  targetInput: string
+  reason: 'missing-endpoint' | 'missing-source-port' | 'missing-target-port'
+}
+
+export interface RestoreAlteredNode {
+  id: string
+  typeId: string
+  reason: 'invalid-dynamic-output-count'
+  originalValue: unknown
+  restoredValue: number
+}
+
+export interface RestoreLossReport {
+  droppedNodes: RestoreDroppedNode[]
+  droppedConnections: RestoreDroppedConnection[]
+  alteredNodes: RestoreAlteredNode[]
+}
+
 export interface GraphDocument extends GraphSnapshot {
   schemaVersion: 1
   graphName: string

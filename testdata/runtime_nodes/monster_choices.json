@@ -1,0 +1,61 @@
+[
+  {
+    "name": "Entrance_MonsterChoiceSkill_40300",
+    "outputs": [
+      { "port_id": 0, "name": "Exec", "type": "exec" },
+      { "port_id": 2, "name": "ObjectId", "data_type": "integer" }
+    ]
+  },
+  {
+    "name": "GetObjectInfo",
+    "inputs": [
+      { "port_id": 0, "name": "Exec", "type": "exec" },
+      { "port_id": 1, "name": "ObjectId", "data_type": "integer" }
+    ],
+    "outputs": [
+      { "port_id": 0, "name": "Exec", "type": "exec" },
+      { "port_id": 2, "name": "ObjectInfo", "data_type": "integer" }
+    ]
+  },
+  {
+    "name": "GetMinHpTarget",
+    "inputs": [
+      { "port_id": 0, "name": "Exec", "type": "exec" },
+      { "port_id": 1, "name": "ObjectId", "data_type": "integer" }
+    ],
+    "outputs": [
+      { "port_id": 0, "name": "Exec", "type": "exec" },
+      { "port_id": 1, "name": "TargetId", "data_type": "integer" }
+    ]
+  },
+  {
+    "name": "GetSkillByType",
+    "inputs": [
+      { "port_id": 0, "name": "Exec", "type": "exec" },
+      { "port_id": 1, "name": "ObjectId", "data_type": "integer" }
+    ],
+    "outputs": [
+      { "port_id": 0, "name": "Exec", "type": "exec" },
+      { "port_id": 1, "name": "SkillId", "data_type": "integer" }
+    ]
+  },
+  {
+    "name": "AppendAiChoiceSkillAndTarget",
+    "inputs": [
+      { "port_id": 0, "name": "Exec", "type": "exec" },
+      { "port_id": 1, "name": "SkillId", "data_type": "integer" },
+      { "port_id": 2, "name": "TargetId", "data_type": "integer" }
+    ]
+  },
+  {
+    "name": "GetTargetsByCamp",
+    "inputs": [
+      { "port_id": 0, "name": "Exec", "type": "exec" },
+      { "port_id": 1, "name": "ObjectId", "data_type": "integer" }
+    ],
+    "outputs": [
+      { "port_id": 0, "name": "Exec", "type": "exec" },
+      { "port_id": 1, "name": "Targets", "data_type": "array" }
+    ]
+  }
+]

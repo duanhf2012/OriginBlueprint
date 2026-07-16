@@ -155,11 +155,14 @@ func (a *App) ExportLegacyGraph(content string) (string, error) {
 }
 
 func migrateLegacyGraph(data []byte) (GraphDocument, error) {
+	return migrateLegacyGraphWithRuntimeSpecs(data, runtimeLegacyNodeSpecs())
+}
+
+func migrateLegacyGraphWithRuntimeSpecs(data []byte, runtimeSpecs map[string]runtimeLegacySpec) (GraphDocument, error) {
 	var legacy legacyGraph
 	if err := json.Unmarshal(data, &legacy); err != nil {
 		return GraphDocument{}, fmt.Errorf("decode legacy graph: %w", err)
 	}
-	runtimeSpecs := runtimeLegacyNodeSpecs()
 	document := GraphDocument{
 		SchemaVersion:  GraphSchemaVersion,
 		GraphName:      legacy.GraphName,
@@ -819,12 +822,16 @@ func legacyPortTypesCompatible(source, target string) bool {
 }
 
 func runtimeLegacyNodeSpecs() map[string]runtimeLegacySpec {
+	loadResult := loadRuntimeNodeSchemaDocumentsWithEmbedded(runtimeNodeDirectories())
+	return runtimeLegacyNodeSpecsFromDocuments(loadResult.Documents)
+}
+
+func runtimeLegacyNodeSpecsFromDocuments(documents []RuntimeNodeSchemaDocument) map[string]runtimeLegacySpec {
 	result := map[string]runtimeLegacySpec{}
 	for name, spec := range legacyNodeSpecs {
 		result[name] = runtimeLegacySpec{legacyNodeSpec: spec}
 	}
-	loadResult := loadRuntimeNodeSchemaDocumentsWithEmbedded(runtimeNodeDirectories())
-	for _, document := range loadResult.Documents {
+	for _, document := range documents {
 		// 这里服务于 legacy .vgf 的 class/port_id 映射，只从旧 name/port_id 定义推导。
 		// 新 id/key schema 若需要 .vgf round-trip，应在静态映射或显式导出逻辑中维护。
 		for _, definition := range parseLegacyRuntimeNodeDefinitions([]byte(document.Content)) {

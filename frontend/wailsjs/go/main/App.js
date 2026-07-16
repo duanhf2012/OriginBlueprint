@@ -34,6 +34,10 @@ export function FindNodeReferences(arg1, arg2) {
   return window['go']['main']['App']['FindNodeReferences'](arg1, arg2);
 }
 
+export function ForceSaveGraph(arg1, arg2) {
+  return window['go']['main']['App']['ForceSaveGraph'](arg1, arg2);
+}
+
 export function GetRecentFiles() {
   return window['go']['main']['App']['GetRecentFiles']();
 }

@@ -7,7 +7,13 @@ import (
 	"strings"
 )
 
-const GraphSchemaVersion = 1
+const (
+	GraphSchemaVersion          = 1
+	maxDynamicSequenceOutputs   = 256
+	maxFunctionSignatureInputs  = 128
+	maxFunctionSignatureOutputs = 128
+	maxLegacyPortsPerNode       = 4096
+)
 
 type GraphDocument struct {
 	SchemaVersion     int                    `json:"schemaVersion"`
@@ -397,6 +403,10 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 		issues = append(issues, ValidationIssue{Severity: "error", Code: "schema.unsupported", Message: fmt.Sprintf("不支持的蓝图版本：%d", document.SchemaVersion)})
 	}
 
+	if len(document.FunctionSignature.Inputs) > maxFunctionSignatureInputs || len(document.FunctionSignature.Outputs) > maxFunctionSignatureOutputs {
+		issues = append(issues, ValidationIssue{Severity: "error", Code: "function.signature-limit", Message: "Function signature exceeds the safe port limit"})
+	}
+
 	variables := make(map[string]GraphVariable, len(document.Variables))
 	variableNames := make(map[string]bool, len(document.Variables))
 	variableTypes := map[string]bool{"boolean": true, "integer": true, "float": true, "string": true, "array": true, "timerhandle": true}
@@ -460,6 +470,10 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 			if count == 0 {
 				count = 3
 			}
+			if count < 1 || count > maxDynamicSequenceOutputs {
+				issues = append(issues, ValidationIssue{Severity: "error", Code: "node.dynamic-output-count", Message: fmt.Sprintf("Sequence output count must be between 1 and %d", maxDynamicSequenceOutputs), NodeID: node.ID})
+				continue
+			}
 			outputs := make(map[string]string, count)
 			for index := 0; index < count; index++ {
 				outputs[fmt.Sprintf("then%d", index)] = "exec"
@@ -468,10 +482,18 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 			known = true
 		}
 		if strings.HasPrefix(node.TypeID, "origin.function.") {
+			if len(node.Properties.FunctionSignature.Inputs) > maxFunctionSignatureInputs || len(node.Properties.FunctionSignature.Outputs) > maxFunctionSignatureOutputs {
+				issues = append(issues, ValidationIssue{Severity: "error", Code: "function.signature-limit", Message: "Function signature exceeds the safe port limit", NodeID: node.ID})
+				continue
+			}
 			definition = functionNodePortDefinition(node)
 			known = true
 		}
 		if node.TypeID == "origin.timer.set-by-function" {
+			if len(node.Properties.FunctionSignature.Inputs) > maxFunctionSignatureInputs || len(node.Properties.FunctionSignature.Outputs) > maxFunctionSignatureOutputs {
+				issues = append(issues, ValidationIssue{Severity: "error", Code: "function.signature-limit", Message: "Function signature exceeds the safe port limit", NodeID: node.ID})
+				continue
+			}
 			definition = timerFunctionNodePortDefinition(node)
 			known = true
 			if strings.TrimSpace(node.Properties.FunctionID) == "" {
@@ -498,6 +520,10 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 		}
 		if node.TypeID == "origin.legacy.placeholder" {
 			hasLegacyPlaceholder = true
+			if len(node.Properties.LegacyInputs)+len(node.Properties.LegacyOutputs) > maxLegacyPortsPerNode {
+				issues = append(issues, ValidationIssue{Severity: "error", Code: "node.port-limit", Message: "Legacy node port count exceeds the safe limit", NodeID: node.ID})
+				continue
+			}
 			inputs := make(map[string]string, len(node.Properties.LegacyInputs))
 			outputs := make(map[string]string, len(node.Properties.LegacyOutputs))
 			for _, port := range node.Properties.LegacyInputs {
@@ -511,6 +537,10 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 			issues = append(issues, ValidationIssue{Severity: "warning", Code: "node.legacy-placeholder", Message: "老版本结点已保留，但当前不可执行：" + node.Properties.LegacyClass, NodeID: node.ID})
 		}
 		if !known && (len(node.Properties.LegacyInputs) > 0 || len(node.Properties.LegacyOutputs) > 0) {
+			if len(node.Properties.LegacyInputs)+len(node.Properties.LegacyOutputs) > maxLegacyPortsPerNode {
+				issues = append(issues, ValidationIssue{Severity: "error", Code: "node.port-limit", Message: "Legacy node port count exceeds the safe limit", NodeID: node.ID})
+				continue
+			}
 			inputs := make(map[string]string, len(node.Properties.LegacyInputs))
 			outputs := make(map[string]string, len(node.Properties.LegacyOutputs))
 			for _, port := range node.Properties.LegacyInputs {
@@ -621,40 +651,40 @@ func validateExecutionFlow(nodes map[string]GraphNode, ports map[string]portDefi
 	}
 	execVisited := make(map[string]bool)
 	dataVisited := make(map[string]bool)
-	var visitDataInputs func(string, string)
-	var visitDataNode func(string, string)
-	var visitExecNode func(string, string)
-	visitDataNode = func(nodeID, entryID string) {
-		if entries[nodeID] && nodeID != entryID {
-			return
-		}
-		key := entryID + "\x00" + nodeID
-		if dataVisited[key] {
-			return
-		}
-		dataVisited[key] = true
-		markReachable(nodeID, entryID)
-		visitDataInputs(nodeID, entryID)
-	}
-	visitDataInputs = func(nodeID, entryID string) {
-		for _, connection := range dataInputs[nodeID] {
-			visitDataNode(connection.Source, entryID)
-		}
-	}
-	visitExecNode = func(nodeID, entryID string) {
-		markReachable(nodeID, entryID)
-		key := entryID + "\x00" + nodeID
-		if execVisited[key] {
-			return
-		}
-		execVisited[key] = true
-		visitDataInputs(nodeID, entryID)
-		for _, next := range execEdges[nodeID] {
-			visitExecNode(next, entryID)
-		}
-	}
 	for entryID := range entries {
-		visitExecNode(entryID, entryID)
+		execStack := []string{entryID}
+		for len(execStack) > 0 {
+			nodeID := execStack[len(execStack)-1]
+			execStack = execStack[:len(execStack)-1]
+			markReachable(nodeID, entryID)
+			key := entryID + "\x00" + nodeID
+			if execVisited[key] {
+				continue
+			}
+			execVisited[key] = true
+
+			dataStack := make([]string, 0, len(dataInputs[nodeID]))
+			for _, connection := range dataInputs[nodeID] {
+				dataStack = append(dataStack, connection.Source)
+			}
+			for len(dataStack) > 0 {
+				dataNodeID := dataStack[len(dataStack)-1]
+				dataStack = dataStack[:len(dataStack)-1]
+				if entries[dataNodeID] && dataNodeID != entryID {
+					continue
+				}
+				dataKey := entryID + "\x00" + dataNodeID
+				if dataVisited[dataKey] {
+					continue
+				}
+				dataVisited[dataKey] = true
+				markReachable(dataNodeID, entryID)
+				for _, connection := range dataInputs[dataNodeID] {
+					dataStack = append(dataStack, connection.Source)
+				}
+			}
+			execStack = append(execStack, execEdges[nodeID]...)
+		}
 	}
 	for nodeID := range executable {
 		if !reachable[nodeID] {
@@ -681,30 +711,46 @@ func validateExecutionFlow(nodes map[string]GraphNode, ports map[string]portDefi
 		}
 	}
 
-	visiting := make(map[string]bool)
-	visited := make(map[string]bool)
+	const (
+		cycleUnvisited uint8 = iota
+		cycleVisiting
+		cycleVisited
+	)
+	cycleState := make(map[string]uint8)
 	cycleReported := make(map[string]bool)
-	var detectCycle func(string)
-	detectCycle = func(nodeID string) {
-		if visiting[nodeID] {
-			if !cycleReported[nodeID] {
-				issues = append(issues, ValidationIssue{Severity: "error", Code: "flow.possible-cycle", Message: "从入口开始可能产生直接或间接死循环", NodeID: nodeID})
-				cycleReported[nodeID] = true
-			}
-			return
-		}
-		if visited[nodeID] || !reachable[nodeID] {
-			return
-		}
-		visiting[nodeID] = true
-		for _, next := range execEdges[nodeID] {
-			detectCycle(next)
-		}
-		visiting[nodeID] = false
-		visited[nodeID] = true
+	type cycleFrame struct {
+		nodeID string
+		next   int
 	}
 	for nodeID := range entries {
-		detectCycle(nodeID)
+		if cycleState[nodeID] != cycleUnvisited || !reachable[nodeID] {
+			continue
+		}
+		cycleState[nodeID] = cycleVisiting
+		stack := []cycleFrame{{nodeID: nodeID}}
+		for len(stack) > 0 {
+			frame := &stack[len(stack)-1]
+			nextNodes := execEdges[frame.nodeID]
+			if frame.next >= len(nextNodes) {
+				cycleState[frame.nodeID] = cycleVisited
+				stack = stack[:len(stack)-1]
+				continue
+			}
+			next := nextNodes[frame.next]
+			frame.next++
+			if !reachable[next] || cycleState[next] == cycleVisited {
+				continue
+			}
+			if cycleState[next] == cycleVisiting {
+				if !cycleReported[next] {
+					issues = append(issues, ValidationIssue{Severity: "error", Code: "flow.possible-cycle", Message: "从入口开始可能产生直接或间接死循环", NodeID: next})
+					cycleReported[next] = true
+				}
+				continue
+			}
+			cycleState[next] = cycleVisiting
+			stack = append(stack, cycleFrame{nodeID: next})
+		}
 	}
 	return issues
 }

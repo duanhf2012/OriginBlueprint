@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -167,11 +168,71 @@ func (a *App) SaveGraph(path, content string) (string, error) {
 			return "", err
 		}
 	}
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	if err := writeFileAtomically(path, data, 0644); err != nil {
 		return "", err
 	}
 	a.recordRecent(path)
 	return path, nil
+}
+
+// ForceSaveGraph intentionally replaces an existing graph after first preserving
+// its exact bytes in a sibling .bak file. The frontend only exposes this through
+// the compatibility-loss flow with a second destructive confirmation.
+func (a *App) ForceSaveGraph(path, content string) (string, error) {
+	if strings.TrimSpace(path) == "" {
+		return "", errors.New("force save requires an existing graph path")
+	}
+	data, err := graphContentForPath(path, content)
+	if err != nil {
+		return "", err
+	}
+	original, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read graph before force save: %w", err)
+	}
+	mode := os.FileMode(0644)
+	if info, statErr := os.Stat(path); statErr == nil {
+		mode = info.Mode().Perm()
+	}
+	if err := writeFileAtomically(path+".bak", original, mode); err != nil {
+		return "", fmt.Errorf("create graph backup: %w", err)
+	}
+	if err := writeFileAtomically(path, data, mode); err != nil {
+		return "", fmt.Errorf("replace graph after backup: %w", err)
+	}
+	a.recordRecent(path)
+	return path, nil
+}
+
+func writeFileAtomically(path string, data []byte, mode os.FileMode) (err error) {
+	dir := filepath.Dir(path)
+	if dir != "." && dir != "" {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return err
+		}
+	}
+	temporary, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	temporaryPath := temporary.Name()
+	defer func() {
+		_ = temporary.Close()
+		_ = os.Remove(temporaryPath)
+	}()
+	if err := temporary.Chmod(mode); err != nil {
+		return err
+	}
+	if _, err := temporary.Write(data); err != nil {
+		return err
+	}
+	if err := temporary.Sync(); err != nil {
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	return atomicReplaceFile(temporaryPath, path)
 }
 
 func graphContentForPath(path, content string) ([]byte, error) {

@@ -18,6 +18,8 @@ export function ExportPNG(arg1:string):Promise<string>;
 
 export function FindNodeReferences(arg1:string,arg2:string):Promise<Array<main.NodeReferenceResult>>;
 
+export function ForceSaveGraph(arg1:string,arg2:string):Promise<string>;
+
 export function GetRecentFiles():Promise<Array<string>>;
 
 export function ListWorkspace(arg1:string):Promise<Array<main.WorkspaceEntry>>;

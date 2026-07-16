@@ -16,6 +16,7 @@ type RawNodeSchemaDocumentLoadResult = NodeSchemaDocumentLoadResult & {
 type DesktopApp = {
   OpenGraph(path: string): Promise<FileResult>
   SaveGraph(path: string, content: string): Promise<string>
+  ForceSaveGraph(path: string, content: string): Promise<string>
   CurrentWorkingDirectory(): Promise<string>
   ChooseWorkspace(): Promise<string>
   LoadProjectSettings(root: string): Promise<ProjectSettingsResult>
@@ -143,6 +144,10 @@ export const platform = {
     if (desktop()) return withDesktopLogging('SaveGraph', () => desktop()!.SaveGraph(path, content))
     download(path || 'Untitled.obp', content, 'application/json')
     return path || 'Untitled.obp'
+  },
+  async forceSaveGraph(path: string, content: string) {
+    if (!desktop()) throw new Error('Force overwrite is only available in the desktop application')
+    return withDesktopLogging('ForceSaveGraph', () => desktop()!.ForceSaveGraph(path, content))
   },
   async currentWorkingDirectory() { return desktop() ? withDesktopLogging('CurrentWorkingDirectory', () => desktop()!.CurrentWorkingDirectory()) : '' },
   async chooseWorkspace() { return desktop() ? withDesktopLogging('ChooseWorkspace', () => desktop()!.ChooseWorkspace()) : '' },

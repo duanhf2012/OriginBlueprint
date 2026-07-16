@@ -39,6 +39,40 @@ func TestGraphFileRoundTrip(t *testing.T) {
 	}
 }
 
+func TestForceSaveGraphCreatesBackupBeforeReplacingSource(t *testing.T) {
+	t.Setenv("ORIGIN_BLUEPRINT_CONFIG_PATH", filepath.Join(t.TempDir(), "config.json"))
+	app := NewApp()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "recover.obpf")
+	original := []byte(`{"schemaVersion":1,"graphName":"Original","nodes":[],"connections":[],"groups":[],"variables":[],"variableGroups":[],"view":{"x":0,"y":0,"zoom":1}}`)
+	updated := `{"schemaVersion":1,"graphName":"Updated","nodes":[],"connections":[],"groups":[],"variables":[],"variableGroups":[],"view":{"x":0,"y":0,"zoom":1}}`
+	if err := os.WriteFile(path, original, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	saved, err := app.ForceSaveGraph(path, updated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved != path {
+		t.Fatalf("saved path = %q, want %q", saved, path)
+	}
+	backup, err := os.ReadFile(path + ".bak")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(backup) != string(original) {
+		t.Fatalf("backup = %q, want original %q", backup, original)
+	}
+	current, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(current) != updated {
+		t.Fatalf("current = %q, want updated %q", current, updated)
+	}
+}
+
 func TestGraphContentForLegacyPathExportsVGF(t *testing.T) {
 	document := GraphDocument{
 		SchemaVersion: GraphSchemaVersion,
@@ -793,6 +827,94 @@ func TestValidateGraphAcceptsArrayAndDynamicSequence(t *testing.T) {
 	}
 }
 
+func TestValidateGraphRejectsUnsafeDynamicSequenceCounts(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		count int
+	}{
+		{name: "negative", count: -1},
+		{name: "above engine limit", count: 257},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			document := GraphDocument{
+				SchemaVersion: GraphSchemaVersion,
+				Nodes: []GraphNode{{
+					ID:         "sequence",
+					TypeID:     "origin.flow.sequence",
+					Properties: GraphNodeProperties{DynamicOutputCount: test.count},
+				}},
+			}
+			issues := validateGraph(document)
+			if !hasIssue(issues, "node.dynamic-output-count", "sequence") {
+				t.Fatalf("issues = %#v, want dynamic output count error", issues)
+			}
+		})
+	}
+}
+
+func TestValidateGraphRejectsOversizedFunctionSignature(t *testing.T) {
+	inputs := make([]GraphFunctionSignaturePort, 129)
+	for index := range inputs {
+		inputs[index] = GraphFunctionSignaturePort{ID: fmt.Sprintf("input-%d", index), Name: fmt.Sprintf("Input %d", index), Type: "integer"}
+	}
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		Nodes: []GraphNode{{
+			ID:     "call",
+			TypeID: "origin.function.call",
+			Properties: GraphNodeProperties{FunctionSignature: GraphFunctionSignature{
+				Inputs: inputs,
+			}},
+		}},
+	}
+	issues := validateGraph(document)
+	if !hasIssue(issues, "function.signature-limit", "call") {
+		t.Fatalf("issues = %#v, want function signature limit error", issues)
+	}
+}
+
+func TestValidateGraphRejectsOversizedLegacyPortList(t *testing.T) {
+	inputs := make([]GraphLegacyPort, 4097)
+	for index := range inputs {
+		inputs[index] = GraphLegacyPort{Key: fmt.Sprintf("input-%d", index), Type: "any"}
+	}
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		Nodes: []GraphNode{{
+			ID:     "legacy",
+			TypeID: "origin.legacy.placeholder",
+			Properties: GraphNodeProperties{
+				LegacyClass:  "HugeLegacyNode",
+				LegacyInputs: inputs,
+			},
+		}},
+	}
+	issues := validateGraph(document)
+	if !hasIssue(issues, "node.port-limit", "legacy") {
+		t.Fatalf("issues = %#v, want legacy port limit error", issues)
+	}
+}
+
+func TestValidateGraphHandlesDeepExecutionFlowIteratively(t *testing.T) {
+	const depth = 20000
+	nodes := make([]GraphNode, 0, depth+1)
+	connections := make([]GraphConnection, 0, depth)
+	nodes = append(nodes, GraphNode{ID: "entry", TypeID: "origin.event.begin"})
+	previous := "entry"
+	previousOutput := "exec"
+	for index := 0; index < depth; index++ {
+		id := fmt.Sprintf("sequence-%d", index)
+		nodes = append(nodes, GraphNode{ID: id, TypeID: "origin.flow.sequence", Properties: GraphNodeProperties{DynamicOutputCount: 1}})
+		connections = append(connections, GraphConnection{Source: previous, SourceOutput: previousOutput, Target: id, TargetInput: "exec"})
+		previous = id
+		previousOutput = "then0"
+	}
+	document := GraphDocument{SchemaVersion: GraphSchemaVersion, Nodes: nodes, Connections: connections}
+	if issues := validateGraph(document); hasValidationErrors(issues) {
+		t.Fatalf("deep acyclic flow should validate without errors, got first issues: %#v", issues[:min(5, len(issues))])
+	}
+}
+
 func TestValidateGraphRejectsUnknownVariableType(t *testing.T) {
 	document := GraphDocument{SchemaVersion: GraphSchemaVersion, Variables: []GraphVariable{{ID: "bad", Name: "Bad", Type: "mystery"}}}
 	issues := validateGraph(document)
@@ -1103,6 +1225,15 @@ func TestMigrateBuildBinVGFFilesShowsAllDefinedNodes(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		var native GraphDocument
+		if err := json.Unmarshal(data, &native); err == nil && native.SchemaVersion == GraphSchemaVersion {
+			for _, node := range native.Nodes {
+				if strings.TrimSpace(node.TypeID) == "" {
+					t.Fatalf("%s contains native node %q without a type id", path, node.ID)
+				}
+			}
+			continue
+		}
 		var source legacyGraph
 		if err := json.Unmarshal(data, &source); err != nil {
 			t.Fatalf("%s: %v", path, err)
@@ -1140,6 +1271,15 @@ func TestMigrateBuildBinVGFFilesShowsAllDefinedNodes(t *testing.T) {
 			t.Fatalf("%s exported new-format fields in legacy output", path)
 		}
 	}
+}
+
+func monsterChoiceRuntimeSpecs(t *testing.T) map[string]runtimeLegacySpec {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("testdata", "runtime_nodes", "monster_choices.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return runtimeLegacyNodeSpecsFromDocuments([]RuntimeNodeSchemaDocument{{Path: "testdata/runtime_nodes/monster_choices.json", Content: string(data)}})
 }
 
 func TestMigrateLegacyRepositorySamples(t *testing.T) {
@@ -1221,7 +1361,7 @@ func TestChoiceskillEqualSwitchRoundTripKeepsLegacyBranchPorts(t *testing.T) {
 	if err != nil {
 		t.Skip("choiceskill_easy.vgf sample not available")
 	}
-	document, err := migrateLegacyGraph(data)
+	document, err := migrateLegacyGraphWithRuntimeSpecs(data, monsterChoiceRuntimeSpecs(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1281,7 +1421,7 @@ func TestValidateChoiceskillEasyRecognizesMonsterChoiceSkillEntry(t *testing.T) 
 	if err != nil {
 		t.Skip("choiceskill_easy.vgf sample not available")
 	}
-	document, err := migrateLegacyGraph(data)
+	document, err := migrateLegacyGraphWithRuntimeSpecs(data, monsterChoiceRuntimeSpecs(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1300,7 +1440,7 @@ func TestChoiceskillEasyUsesRuntimeJsonTitlesInsteadOfFallbackNames(t *testing.T
 	if err != nil {
 		t.Skip("choiceskill_easy.vgf sample not available")
 	}
-	document, err := migrateLegacyGraph(data)
+	document, err := migrateLegacyGraphWithRuntimeSpecs(data, monsterChoiceRuntimeSpecs(t))
 	if err != nil {
 		t.Fatal(err)
 	}
