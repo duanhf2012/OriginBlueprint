@@ -7,6 +7,7 @@ import { getNodeDefinitions, registerNodeSchemas, type NodeDefinition } from './
 import { menuLocales, normalizeLocale, type LocaleId } from './i18n'
 import { platform, type NodeReferenceResult, type WorkspaceEntry } from './platform'
 import { compatibilitySaveOptions, findOpenTab, hasRestoreLoss, resolveCompatibilitySaveAction as resolveCompatibilityPersistenceAction, sourceRequiresProtection, type CompatibilitySaveAction } from './documentSafety'
+import { autoSaveIntervalMs, isAutoSaveEligible, type AutoSaveMode } from './autoSavePolicy'
 
 interface GraphTab { id: string; title: string; path: string; dirty: boolean; document: GraphDocument | null; restoreLoss?: RestoreLossReport | null; restoreFatal?: boolean }
 interface WorkspaceTreeNode extends WorkspaceEntry { children: WorkspaceTreeNode[]; loaded: boolean; loading: boolean }
@@ -21,7 +22,6 @@ interface FunctionLibraryItem { id: string; functionId: string; name: string; ca
 interface ModuleLibraryItem extends NodeDefinition { functionPlaceholder?: boolean; functionSource?: FunctionLibraryItem['source']; functionItem?: FunctionLibraryItem; path?: string }
 type UiScale = 'small' | 'normal' | 'large'
 type NodeScale = 'normal' | 'large'
-type AutoSaveMode = 'off' | '1m' | '3m' | '5m'
 type ImageExportScale = 1 | 2 | 4
 interface ProjectSettings {
   version: number
@@ -138,6 +138,8 @@ let workspaceRefreshTimer: ReturnType<typeof window.setInterval> | undefined
 let validationIssueClickTimer: ReturnType<typeof window.setTimeout> | undefined
 let canvasToastTimer: ReturnType<typeof window.setTimeout> | undefined
 let updateCheckTimer: ReturnType<typeof window.setTimeout> | undefined
+let autoSaveTimer: ReturnType<typeof window.setInterval> | undefined
+let persistenceInFlight = false
 let applyingProjectSettings = false
 const loadingFunctionTitles = new Set<string>()
 const workspaceRefreshIntervalKey = 'origin-blueprint-workspace-refresh-interval'
@@ -258,6 +260,7 @@ onMounted(async () => {
   if (updateState.value.autoCheck) {
     updateCheckTimer = window.setTimeout(() => { void checkForUpdates(false) }, 12000)
   }
+  resetAutoSaveTimer()
 })
 
 function savedPanelWidth(key: string, fallback: number, min = 140, max = 360) {
@@ -521,6 +524,7 @@ onBeforeUnmount(() => {
   clearValidationIssueClickTimer()
   if (canvasToastTimer) window.clearTimeout(canvasToastTimer)
   if (workspaceRefreshTimer) window.clearInterval(workspaceRefreshTimer)
+  if (autoSaveTimer) window.clearInterval(autoSaveTimer)
   if (updateCheckTimer) window.clearTimeout(updateCheckTimer)
   removeNodePointerListeners()
   unsubscribeCloseRequest()
@@ -1574,12 +1578,79 @@ function resolveCompatibilitySaveAction(action: CompatibilitySaveAction) {
 }
 
 async function saveGraph(saveAs: boolean) {
+  if (persistenceInFlight) {
+    status.value = 'A save operation is already in progress'
+    return
+  }
+  persistenceInFlight = true
   try {
     await saveGraphUnchecked(saveAs)
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error)
     status.value = `${menuText.value.status.saveFailed}: ${detail}`
+  } finally {
+    persistenceInFlight = false
   }
+}
+
+function resetAutoSaveTimer() {
+  if (autoSaveTimer) window.clearInterval(autoSaveTimer)
+  autoSaveTimer = undefined
+  const interval = autoSaveIntervalMs(projectSettingsContent.value.editor.autoSave)
+  if (!interval || !platform.isDesktop()) return
+  autoSaveTimer = window.setInterval(() => { void autoSaveDirtyTabs() }, interval)
+}
+
+function documentForAutoSave(tab: GraphTab) {
+  if (tab.id === activeTabId.value && editor) {
+    return documentWithFunctionSignature(editor.getDocument(tab.title, variables.value, variableGroups.value), tab)
+  }
+  return tab.document
+}
+
+async function autoSaveDirtyTabs() {
+  if (persistenceInFlight || !platform.isDesktop()) return
+  persistenceInFlight = true
+  let saved = 0
+  const failures: string[] = []
+  try {
+    for (const tab of tabs.value) {
+      const document = documentForAutoSave(tab)
+      if (!document) continue
+      const requiresNativePersistence = documentRequiresNativePersistence(document)
+      if (!isAutoSaveEligible({
+        dirty: tab.dirty,
+        path: tab.path,
+        restoreFatal: Boolean(tab.restoreFatal),
+        hasRestoreLoss: hasRestoreLoss(tab.restoreLoss),
+        legacyRequiresNative: isLegacyGraphPath(tab.path) && requiresNativePersistence,
+        saving: false,
+      })) continue
+      try {
+        const issues = await platform.validateGraph(JSON.stringify(document), workspaceRoot.value, tab.path)
+        if (sourceRequiresProtection(issues)) {
+          failures.push(`${tab.title}: validation failed`)
+          continue
+        }
+        const content = isLegacyGraphPath(tab.path)
+          ? await platform.exportLegacyGraph(JSON.stringify(document))
+          : JSON.stringify(document, null, 2)
+        const path = await platform.saveGraph(tab.path, content)
+        if (!path) continue
+        tab.path = path
+        tab.title = path.split(/[\\/]/).pop() ?? tab.title
+        tab.document = document
+        tab.dirty = false
+        saved++
+      } catch (error) {
+        failures.push(`${tab.title}: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+  } finally {
+    persistenceInFlight = false
+  }
+  if (failures.length) status.value = `Auto-save saved ${saved} graph(s); ${failures.length} failed: ${failures.join('; ')}`
+  else if (saved) status.value = `Auto-saved ${saved} graph(s)`
 }
 
 async function saveGraphUnchecked(saveAs: boolean) {
@@ -1753,6 +1824,10 @@ async function hydrateWorkspaceTree(nodes: WorkspaceTreeNode[], depth: number, t
 
 watch(workspaceSearch, value => {
   if (value.trim()) void hydrateWorkspaceTree(workspaceTree.value, 1, workspaceLoadToken)
+})
+
+watch([() => projectSettingsContent.value.editor.autoSave, workspaceRoot], () => {
+  resetAutoSaveTimer()
 })
 
 watch(activeWorkspacePath, path => {

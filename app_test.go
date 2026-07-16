@@ -39,6 +39,45 @@ func TestGraphFileRoundTrip(t *testing.T) {
 	}
 }
 
+func TestProjectSettingsWritesUseAtomicBoundary(t *testing.T) {
+	root := t.TempDir()
+	var writes []string
+	app := NewApp()
+	app.atomicWrite = func(path string, data []byte, mode fs.FileMode) error {
+		writes = append(writes, fmt.Sprintf("%s:%s:%o", path, data, mode))
+		return nil
+	}
+	loaded, err := app.LoadProjectSettings(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Content != defaultProjectSettingsContent || len(writes) != 1 {
+		t.Fatalf("loaded = %#v, writes = %#v", loaded, writes)
+	}
+	if _, err := app.SaveProjectSettings(root, `{"version":1}`); err != nil {
+		t.Fatal(err)
+	}
+	if len(writes) != 2 || !strings.Contains(writes[1], `{"version":1}`) {
+		t.Fatalf("writes = %#v", writes)
+	}
+}
+
+func TestWriteAppConfigReturnsAtomicWriteFailure(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "config.json")
+	if err := os.Mkdir(path, 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ORIGIN_BLUEPRINT_CONFIG_PATH", path)
+	if err := writeAppConfig(appConfig{RecentFiles: []string{"graph.obp"}}); err == nil {
+		t.Fatal("writeAppConfig should return the atomic replacement failure")
+	}
+	info, err := os.Stat(path)
+	if err != nil || !info.IsDir() {
+		t.Fatalf("failed config write replaced the existing target: info=%#v err=%v", info, err)
+	}
+}
+
 func TestForceSaveGraphCreatesBackupBeforeReplacingSource(t *testing.T) {
 	t.Setenv("ORIGIN_BLUEPRINT_CONFIG_PATH", filepath.Join(t.TempDir(), "config.json"))
 	app := NewApp()
