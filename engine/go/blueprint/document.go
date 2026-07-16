@@ -1,7 +1,10 @@
 package blueprint
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 )
 
@@ -12,26 +15,37 @@ type graphDocument struct {
 	SchemaVersion     int                        `json:"schemaVersion"`
 	GraphName         string                     `json:"graphName"`
 	FunctionID        string                     `json:"functionId,omitempty"`
+	FunctionCategory  string                     `json:"functionCategory,omitempty"`
 	Nodes             []graphDocumentNode        `json:"nodes"`
 	Connections       []graphDocumentConnection  `json:"connections"`
 	Variables         []graphDocumentVariable    `json:"variables"`
+	Groups            json.RawMessage            `json:"groups,omitempty"`
+	VariableGroups    json.RawMessage            `json:"variableGroups,omitempty"`
+	View              json.RawMessage            `json:"view,omitempty"`
+	Legacy            json.RawMessage            `json:"legacy,omitempty"`
 	FunctionSignature graphDocumentFuncSignature `json:"functionSignature,omitempty"`
 }
 
 type graphDocumentNode struct {
 	ID         string                  `json:"id"`
 	TypeID     string                  `json:"typeId"`
+	Position   json.RawMessage         `json:"position,omitempty"`
 	Values     map[string]any          `json:"values"`
 	Properties graphDocumentProperties `json:"properties,omitempty"`
 }
 
 type graphDocumentProperties struct {
+	Label              string                     `json:"label,omitempty"`
 	VariableID         string                     `json:"variableId,omitempty"`
+	VariableAccess     string                     `json:"variableAccess,omitempty"`
 	DynamicOutputCount int                        `json:"dynamicOutputCount,omitempty"`
+	FunctionRole       string                     `json:"functionRole,omitempty"`
 	FunctionID         string                     `json:"functionId,omitempty"`
 	FunctionName       string                     `json:"functionName,omitempty"`
+	FunctionSource     string                     `json:"functionSource,omitempty"`
 	FunctionSignature  graphDocumentFuncSignature `json:"functionSignature,omitempty"`
 	LegacyClass        string                     `json:"legacyClass,omitempty"`
+	LegacyModule       string                     `json:"legacyModule,omitempty"`
 	LegacyInputs       []graphDocumentLegacyPort  `json:"legacyInputs,omitempty"`
 	LegacyOutputs      []graphDocumentLegacyPort  `json:"legacyOutputs,omitempty"`
 }
@@ -52,18 +66,40 @@ type graphDocumentVariable struct {
 	Name         string `json:"name"`
 	Type         string `json:"type"`
 	DefaultValue any    `json:"defaultValue"`
+	GroupID      string `json:"groupId,omitempty"`
+	Description  string `json:"description,omitempty"`
 }
 
 type graphDocumentLegacyPort struct {
-	Key  string `json:"key"`
-	Type string `json:"type"`
+	Key   string `json:"key"`
+	Label string `json:"label,omitempty"`
+	Type  string `json:"type"`
 }
 
 type graphDocumentConnection struct {
-	Source       string `json:"source"`
-	SourceOutput string `json:"sourceOutput"`
-	Target       string `json:"target"`
-	TargetInput  string `json:"targetInput"`
+	Source                 string          `json:"source"`
+	SourceOutput           string          `json:"sourceOutput"`
+	Target                 string          `json:"target"`
+	TargetInput            string          `json:"targetInput"`
+	EntryConnectionVisible bool            `json:"entryConnectionVisible,omitempty"`
+	LegacyEdgeID           string          `json:"legacyEdgeId,omitempty"`
+	LegacyOrdinal          json.RawMessage `json:"legacyOrdinal,omitempty"`
+}
+
+func decodeGraphDocument(data []byte, target *graphDocument) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("unexpected trailing JSON value")
+		}
+		return err
+	}
+	return nil
 }
 
 // documentNodeSpec 描述新版节点端口 key 到旧版端口索引的映射。
@@ -154,7 +190,15 @@ func graphDocumentToConfig(document graphDocument) (GraphConfig, bool, error) {
 	}
 	variables := make([]VariableConfig, 0, len(document.Variables))
 	variableByID := make(map[string]graphDocumentVariable, len(document.Variables))
-	for _, variable := range document.Variables {
+	for index, variable := range document.Variables {
+		variableID := strings.TrimSpace(variable.ID)
+		if variableID == "" {
+			return GraphConfig{}, false, fmt.Errorf("variable id is empty at index %d", index)
+		}
+		if _, exists := variableByID[variableID]; exists {
+			return GraphConfig{}, false, fmt.Errorf("duplicate variable id %q", variableID)
+		}
+		variable.ID = variableID
 		variableByID[variable.ID] = variable
 		variables = append(variables, VariableConfig{Name: variable.Name, Type: variable.Type, Value: variable.DefaultValue})
 	}
@@ -165,6 +209,11 @@ func graphDocumentToConfig(document graphDocument) (GraphConfig, bool, error) {
 		config, spec, err := documentNodeToConfig(node, variableByID)
 		if err != nil {
 			return GraphConfig{}, false, err
+		}
+		for key := range node.Values {
+			if _, ok := spec.inputs[key]; !ok {
+				return GraphConfig{}, false, fmt.Errorf("node %s value %q is not a known input", node.ID, key)
+			}
 		}
 		nodes = append(nodes, config)
 		specs[node.ID] = spec

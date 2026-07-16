@@ -1,6 +1,9 @@
 package blueprint
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 type testReadVariable struct {
 	BaseExecNode
@@ -56,7 +59,7 @@ func TestCompilerSupportsLegacyGetSetVariableNodes(t *testing.T) {
 	}
 }
 
-func TestBlueprintInstanceVariablesPersistAcrossEntrances(t *testing.T) {
+func TestBlueprintVariablesResetAcrossExecutions(t *testing.T) {
 	var reader *testReadVariable
 	registry := NewRegistry()
 	registry.Register(NewNodeDefinition("Entrance_IntParam", func() IExecNode {
@@ -95,7 +98,55 @@ func TestBlueprintInstanceVariablesPersistAcrossEntrances(t *testing.T) {
 	if _, err := bp.Do(graphID, 2); err != nil {
 		t.Fatalf("read Do failed: %v", err)
 	}
-	if reader == nil || len(reader.values) != 1 || reader.values[0] != 44 {
-		t.Fatalf("reader values = %#v, want [44]", reader)
+	if reader == nil || len(reader.values) != 1 || reader.values[0] != 0 {
+		t.Fatalf("reader values = %#v, want [0]", reader)
+	}
+}
+
+func TestBlueprintConcurrentStartsUseIndependentVariableSlots(t *testing.T) {
+	compiled, err := CompileGraph(vmNativeRegistry(), GraphConfig{
+		Variables: []VariableConfig{{Name: "Count", Type: "Integer"}},
+		Nodes: []NodeConfig{
+			{ID: "entry", Class: "VMEntry_1"},
+			{ID: "set", Class: "Set_Count"},
+			{ID: "get", Class: "Get_Count"},
+			{ID: "result", Class: "VMReturnPort"},
+		},
+		Edges: []EdgeConfig{
+			{SourceNodeID: "entry", SourcePortID: 0, DesNodeID: "set", DesPortID: 0},
+			{SourceNodeID: "entry", SourcePortID: 1, DesNodeID: "set", DesPortID: 1},
+			{SourceNodeID: "set", SourcePortID: 0, DesNodeID: "result", DesPortID: 0},
+			{SourceNodeID: "get", SourcePortID: 0, DesNodeID: "result", DesPortID: 1},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CompileGraph failed: %v", err)
+	}
+	dispatcher := &manualExecutionDispatcher{}
+	bp := &Blueprint{}
+	bp.SetExecutionDispatcher(dispatcher)
+	bp.AddCompiledGraph("variables", compiled)
+	graphID := bp.Create("variables")
+	first, err := bp.Start(context.Background(), graphID, 1, 11)
+	if err != nil {
+		t.Fatalf("first Start failed: %v", err)
+	}
+	second, err := bp.Start(context.Background(), graphID, 1, 22)
+	if err != nil {
+		t.Fatalf("second Start failed: %v", err)
+	}
+	firstGraph := first.graph
+	secondGraph := second.graph
+	dispatcher.runNext(t)
+	dispatcher.runNext(t)
+	firstResult, firstErr := first.Result()
+	secondResult, secondErr := second.Result()
+	if firstErr != nil || secondErr != nil {
+		t.Fatalf("Result errors = %v, %v", firstErr, secondErr)
+	}
+	assertVMIntReturns(t, firstResult, 11)
+	assertVMIntReturns(t, secondResult, 22)
+	if firstGraph.variables[0] == secondGraph.variables[0] {
+		t.Fatal("executions share the same variable slot")
 	}
 }

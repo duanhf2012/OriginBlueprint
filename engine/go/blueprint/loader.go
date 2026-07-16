@@ -32,13 +32,21 @@ func (b *Blueprint) RegisterExecNode(factory func() IExecNode) {
 func (b *Blueprint) Init(execDefFilePath string, graphFilePath string, blueprintModule IBlueprintModule, logger ...IBlueprintLogger) error {
 	b.mu.Lock()
 	b.ensureLocked()
-	b.module = blueprintModule
-	b.execDefPath = execDefFilePath
-	b.graphPath = graphFilePath
+	if b.closed {
+		b.mu.Unlock()
+		return ErrBlueprintClosed
+	}
+	if len(b.instances) != 0 || len(b.executions) != 0 {
+		b.mu.Unlock()
+		return ErrBlueprintInUse
+	}
+	nextLogger := b.logger
+	nextTraceLogger := b.traceLogger
 	if len(logger) > 0 {
-		b.logger = logger[0]
+		nextLogger = logger[0]
+		nextTraceLogger = nil
 		if traceLogger, ok := logger[0].(BlueprintTraceLogger); ok {
-			b.traceLogger = traceLogger
+			nextTraceLogger = traceLogger
 		}
 	}
 	execFactories := append([]func() IExecNode(nil), b.execFactories...)
@@ -54,11 +62,20 @@ func (b *Blueprint) Init(execDefFilePath string, graphFilePath string, blueprint
 		return err
 	}
 	b.mu.Lock()
+	defer b.mu.Unlock()
 	b.ensureLocked()
-	for name, graph := range graphs {
-		b.graphs[name] = graph
+	if b.closed {
+		return ErrBlueprintClosed
 	}
-	b.mu.Unlock()
+	if len(b.instances) != 0 || len(b.executions) != 0 {
+		return ErrBlueprintInUse
+	}
+	b.module = blueprintModule
+	b.logger = nextLogger
+	b.traceLogger = nextTraceLogger
+	b.execDefPath = execDefFilePath
+	b.graphPath = graphFilePath
+	b.graphs = graphs
 	return nil
 }
 
@@ -110,7 +127,7 @@ func loadGraphDir(registry *Registry, dir string) (map[string]*CompiledGraph, er
 		}
 		config, isFunction, graphName, aliases, err := parseGraphFile(data, dir, path)
 		if err != nil {
-			return fmt.Errorf("%s: %w", path, err)
+			return wrapBlueprintStageError(BlueprintStageParse, path, err)
 		}
 		files = append(files, graphFile{path: path, name: graphName, aliases: aliases, config: config, isFunction: isFunction})
 		return nil
@@ -151,7 +168,10 @@ func loadGraphDir(registry *Registry, dir string) (map[string]*CompiledGraph, er
 		}
 		graph, err := CompileGraph(registry, file.config)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", file.name, err)
+			return nil, wrapBlueprintStageError(BlueprintStageCompile, file.path, err)
+		}
+		if err := validateLoadedGraphContract(graph, true, false); err != nil {
+			return nil, wrapBlueprintStageError(BlueprintStageCompile, file.path, err)
 		}
 		functions[file.name] = graph
 		for _, alias := range file.aliases {
@@ -163,17 +183,50 @@ func loadGraphDir(registry *Registry, dir string) (map[string]*CompiledGraph, er
 		graph.Functions = functions
 	}
 	for _, file := range files {
+		if !file.isFunction {
+			continue
+		}
+		if err := bindAndValidateFunctionCalls(graphs[file.name], true); err != nil {
+			return nil, wrapBlueprintStageError(BlueprintStageCompile, file.path, err)
+		}
+	}
+	for _, file := range files {
 		if file.isFunction {
 			continue
 		}
 		file.config.Functions = functions
 		graph, err := CompileGraph(registry, file.config)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", file.name, err)
+			return nil, wrapBlueprintStageError(BlueprintStageCompile, file.path, err)
+		}
+		allowEmptyLegacyPlaceholder := file.config.Legacy && len(graph.Nodes) == 0
+		if err := validateLoadedGraphContract(graph, false, allowEmptyLegacyPlaceholder); err != nil {
+			return nil, wrapBlueprintStageError(BlueprintStageCompile, file.path, err)
 		}
 		graphs[file.name] = graph
 	}
 	return graphs, nil
+}
+
+func validateLoadedGraphContract(graph *CompiledGraph, function bool, allowEmptyLegacyPlaceholder bool) error {
+	if graph == nil {
+		return fmt.Errorf("compiled graph is nil")
+	}
+	if !function {
+		if len(graph.Entrances) == 0 && !allowEmptyLegacyPlaceholder {
+			return fmt.Errorf("graph has no entrance")
+		}
+		return nil
+	}
+	if graph.Entrances[FunctionEntranceID] == nil {
+		return fmt.Errorf("function graph has no FunctionEntry")
+	}
+	for _, node := range graph.Nodes {
+		if node != nil && node.Definition != nil && node.Definition.ControlKind == ControlFunctionReturn {
+			return nil
+		}
+	}
+	return fmt.Errorf("function graph has no FunctionReturn")
 }
 
 func isGraphFile(path string) bool {
@@ -200,7 +253,7 @@ func parseGraphFile(data []byte, root string, path string) (GraphConfig, bool, s
 			return GraphConfig{}, false, "", nil, err
 		}
 		var document graphDocument
-		if err := json.Unmarshal(data, &document); err != nil {
+		if err := decodeGraphDocument(data, &document); err != nil {
 			return GraphConfig{}, false, "", nil, err
 		}
 		config, isFunction, err := graphDocumentToConfig(document)

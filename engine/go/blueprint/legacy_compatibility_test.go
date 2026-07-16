@@ -101,6 +101,9 @@ func registerLegacyCompatStubs(t *testing.T, registry *Registry, config GraphCon
 		destKnown := registry.Get(destClass)
 		sourceExec := legacyCompatKnownOutputIsExec(sourceKnown, edge.SourcePortID)
 		destExec := legacyCompatKnownInputIsExec(destKnown, edge.DesPortID)
+		if sourceKnown == nil {
+			sourceExec = destExec && edge.SourcePortID == 0
+		}
 		if sourceKnown == nil && destKnown == nil {
 			destExec = edge.DesPortID == 0
 			sourceExec = destExec && edge.SourcePortID == 0

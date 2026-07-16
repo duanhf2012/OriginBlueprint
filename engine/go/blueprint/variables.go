@@ -2,12 +2,12 @@ package blueprint
 
 import "fmt"
 
-// GetVariableNode 读取蓝图实例变量。
+// GetVariableNode 读取当前 Execution 的局部变量。
 type GetVariableNode struct {
 	BaseExecNode
 }
 
-// SetVariableNode 写入蓝图实例变量。
+// SetVariableNode 写入当前 Execution 的局部变量。
 type SetVariableNode struct {
 	BaseExecNode
 }
@@ -17,16 +17,11 @@ func (n *GetVariableNode) GetName() string {
 }
 
 func (n *GetVariableNode) Exec() (int, error) {
-	if n.graph.variableMu != nil {
-		n.graph.variableMu.RLock()
+	index := n.node.VariableIndex
+	if index < 0 || index >= len(n.graph.variables) {
+		return -1, fmt.Errorf("variable %s not found", n.node.VariableName)
 	}
-	port := n.graph.variables[n.node.VariableName]
-	if port != nil {
-		// 这里只判断变量存在；实际复制在释放读锁后写入输出端口。
-	}
-	if n.graph.variableMu != nil {
-		n.graph.variableMu.RUnlock()
-	}
+	port := n.graph.variables[index]
 	if port == nil {
 		return -1, fmt.Errorf("variable %s not found", n.node.VariableName)
 	}
@@ -48,13 +43,11 @@ func (n *SetVariableNode) Exec() (int, error) {
 		return -1, fmt.Errorf("SetVariable input not found")
 	}
 	value := in.Clone()
-	if n.graph.variableMu != nil {
-		n.graph.variableMu.Lock()
+	index := n.node.VariableIndex
+	if index < 0 || index >= len(n.graph.variables) {
+		return -1, fmt.Errorf("variable %s not found", n.node.VariableName)
 	}
-	n.graph.variables[n.node.VariableName] = value
-	if n.graph.variableMu != nil {
-		n.graph.variableMu.Unlock()
-	}
+	n.graph.variables[index] = value
 	out := n.GetOutPort(1)
 	if out != nil {
 		out.SetValue(value)

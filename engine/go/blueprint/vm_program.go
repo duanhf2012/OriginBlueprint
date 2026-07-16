@@ -8,9 +8,11 @@ type VMTarget struct {
 
 // NodePlan 保存节点的只读编译信息。
 type NodePlan struct {
-	Node       *ExecNode
-	Control    ControlKind
-	Successors [][]VMTarget
+	Node            *ExecNode
+	Control         ControlKind
+	Successors      [][]VMTarget
+	ExecOutputs     []bool
+	SequenceTargets []VMTarget
 }
 
 // Program 是可由多个实例并发共享的只读 VM 程序。

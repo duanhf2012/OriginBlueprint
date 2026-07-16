@@ -61,6 +61,62 @@ func TestBlueprintInitLoadsDefinitionsAndGraphsFromDirectories(t *testing.T) {
 	}
 }
 
+func TestBlueprintInitRejectsReinitializationWhileInstanceExists(t *testing.T) {
+	var bp Blueprint
+	bp.AddCompiledGraph("test", &CompiledGraph{})
+	if graphID := bp.Create("test"); graphID == 0 {
+		t.Fatal("Create returned 0")
+	}
+
+	err := bp.Init(filepath.Join(t.TempDir(), "missing-definitions"), filepath.Join(t.TempDir(), "missing-graphs"), nil)
+	if err != ErrBlueprintInUse {
+		t.Fatalf("Init error = %v, want %v", err, ErrBlueprintInUse)
+	}
+}
+
+func TestBlueprintInitFailureDoesNotChangePublishedConfiguration(t *testing.T) {
+	var bp Blueprint
+	bp.execDefPath = "old-definitions"
+	bp.graphPath = "old-graphs"
+	oldGraph := &CompiledGraph{}
+	bp.AddCompiledGraph("old", oldGraph)
+
+	err := bp.Init(filepath.Join(t.TempDir(), "missing-definitions"), filepath.Join(t.TempDir(), "missing-graphs"), nil)
+	if err == nil {
+		t.Fatal("Init succeeded, want load error")
+	}
+	if bp.execDefPath != "old-definitions" || bp.graphPath != "old-graphs" {
+		t.Fatalf("paths changed after failed Init: %q %q", bp.execDefPath, bp.graphPath)
+	}
+	if len(bp.graphs) != 1 || bp.graphs["old"] != oldGraph {
+		t.Fatalf("graphs changed after failed Init: %#v", bp.graphs)
+	}
+}
+
+func TestBlueprintRepeatedInitWithoutInstancesReplacesGraphPool(t *testing.T) {
+	definitions := t.TempDir()
+	graphs := t.TempDir()
+	var bp Blueprint
+	bp.AddCompiledGraph("old", &CompiledGraph{})
+
+	if err := bp.Init(definitions, graphs, nil); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	if len(bp.graphs) != 0 {
+		t.Fatalf("graphs = %#v, want complete replacement with empty pool", bp.graphs)
+	}
+}
+
+func TestBlueprintInitAfterCloseReturnsStableError(t *testing.T) {
+	var bp Blueprint
+	if err := bp.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+	if err := bp.Init(t.TempDir(), t.TempDir(), nil); err != ErrBlueprintClosed {
+		t.Fatalf("Init error = %v, want %v", err, ErrBlueprintClosed)
+	}
+}
+
 func TestBlueprintHotReloadReplacesGraphsForExistingInstances(t *testing.T) {
 	var recorder *testRecorder
 	root := t.TempDir()
@@ -117,8 +173,8 @@ func TestBlueprintHotReloadReplacesGraphsForExistingInstances(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HotReload failed: %v", err)
 	}
-	if result == nil || result.GraphCount != 1 || result.UpdatedInstances != 1 || result.UnchangedInstances != 0 {
-		t.Fatalf("HotReload result = %#v, want graph=1 updated=1 unchanged=0", result)
+	if result == nil || result.GraphCount != 1 {
+		t.Fatalf("HotReload result = %#v, want graph=1", result)
 	}
 	if _, err := bp.Do(graphID, 1); err != nil {
 		t.Fatalf("second Do failed: %v", err)
@@ -128,42 +184,22 @@ func TestBlueprintHotReloadReplacesGraphsForExistingInstances(t *testing.T) {
 	}
 }
 
-func TestHotReloadMigratesCompatibleVariablesAndResetsChangedTypes(t *testing.T) {
-	oldGraph := &CompiledGraph{Entrances: map[int64]*ExecNode{}, Variables: map[string]VariableConfig{
-		"score":   {Name: "score", Type: "int", Value: 1},
-		"changed": {Name: "changed", Type: "integer", Value: 2},
-		"removed": {Name: "removed", Type: "string", Value: "old"},
-	}}
+func TestHotReloadDoesNotMutateExistingInstance(t *testing.T) {
+	oldGraph := &CompiledGraph{Entrances: map[int64]*ExecNode{}}
 	var bp Blueprint
 	bp.AddCompiledGraph("test", oldGraph)
 	graphID := bp.Create("test")
 	instance := bp.instances[graphID]
-	instance.state.variableMu.Lock()
-	instance.state.variables["score"].SetInt(9)
-	instance.state.variables["changed"].SetInt(8)
-	instance.state.variableMu.Unlock()
-
-	newGraph := &CompiledGraph{Entrances: map[int64]*ExecNode{}, Variables: map[string]VariableConfig{
-		"score":   {Name: "score", Type: "INTEGER", Value: 3},
-		"changed": {Name: "changed", Type: "string", Value: "reset"},
-		"added":   {Name: "added", Type: "boolean", Value: true},
-	}}
+	newGraph := &CompiledGraph{Entrances: map[int64]*ExecNode{}}
 	result := (&hotReloadPlan{blueprint: &bp, graphs: map[string]*CompiledGraph{"test": newGraph}, result: HotReloadResult{GraphCount: 1}}).apply()
-	if result.UpdatedInstances != 1 {
+	if result.GraphCount != 1 {
 		t.Fatalf("result = %#v", result)
 	}
-	state := instance.state
-	if score, ok := state.variables["score"].GetInt(); !ok || score != 9 {
-		t.Fatalf("score = %d,%v, want migrated 9", score, ok)
+	if bp.instances[graphID] != instance {
+		t.Fatal("hot reload replaced GraphInstance identity")
 	}
-	if changed, ok := state.variables["changed"].GetStr(); !ok || changed != "reset" {
-		t.Fatalf("changed = %q,%v, want reset", changed, ok)
-	}
-	if added, ok := state.variables["added"].GetBool(); !ok || !added {
-		t.Fatalf("added = %v,%v, want true", added, ok)
-	}
-	if _, exists := state.variables["removed"]; exists {
-		t.Fatal("removed variable survived hot reload")
+	if bp.graphs["test"] != newGraph {
+		t.Fatal("hot reload did not replace compiled graph pool")
 	}
 }
 
@@ -174,11 +210,18 @@ func TestHotReloadRemovedGraphKeepsExistingInstanceOnly(t *testing.T) {
 	graphID := bp.Create("removed")
 	instance := bp.instances[graphID]
 	result := (&hotReloadPlan{blueprint: &bp, graphs: map[string]*CompiledGraph{}, result: HotReloadResult{}}).apply()
-	if result.UnchangedInstances != 1 || bp.instances[graphID] != instance {
+	if result.GraphCount != 0 || bp.instances[graphID] != instance {
 		t.Fatalf("result=%#v instance changed", result)
+	}
+	if _, err := bp.Start(nil, graphID, 1); err != ErrGraphNotFound {
+		t.Fatalf("Start removed graph error = %v, want %v", err, ErrGraphNotFound)
 	}
 	if got := bp.Create("removed"); got != 0 {
 		t.Fatalf("Create removed graph = %d, want 0", got)
+	}
+	(&hotReloadPlan{blueprint: &bp, graphs: map[string]*CompiledGraph{"removed": compiled}, result: HotReloadResult{GraphCount: 1}}).apply()
+	if _, err := bp.Start(nil, graphID, 1); err != ErrEntranceNotFound {
+		t.Fatalf("Start re-added graph error = %v, want %v", err, ErrEntranceNotFound)
 	}
 }
 
@@ -243,8 +286,8 @@ func TestBlueprintPrepareHotReloadAppliesOnlyWhenRequested(t *testing.T) {
 	}
 
 	result := plan.apply()
-	if result.GraphCount != 1 || result.UpdatedInstances != 1 || result.UnchangedInstances != 0 {
-		t.Fatalf("Apply result = %#v, want graph=1 updated=1 unchanged=0", result)
+	if result.GraphCount != 1 {
+		t.Fatalf("Apply result = %#v, want graph=1", result)
 	}
 	if _, err := bp.Do(graphID, 1); err != nil {
 		t.Fatalf("Do after apply failed: %v", err)
@@ -404,8 +447,8 @@ func TestBlueprintHotReloadCanRunInGoroutineWithConcurrentDo(t *testing.T) {
 		if hotReload.err != nil {
 			t.Fatalf("HotReload failed: %v", hotReload.err)
 		}
-		if hotReload.result == nil || hotReload.result.GraphCount != 1 || hotReload.result.UpdatedInstances != len(graphIDs) {
-			t.Fatalf("HotReload result = %#v, want graph=1 updated=%d", hotReload.result, len(graphIDs))
+		if hotReload.result == nil || hotReload.result.GraphCount != 1 {
+			t.Fatalf("HotReload result = %#v, want graph=1", hotReload.result)
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatalf("HotReload timed out")

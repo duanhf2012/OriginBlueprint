@@ -129,3 +129,56 @@ func TestVMHotReloadDoesNotChangeSuspendedProgram(t *testing.T) {
 	}
 	assertVMIntReturns(t, newReturns, 20)
 }
+
+func TestVMYieldResumePreservesExecutionLocalVariables(t *testing.T) {
+	var handle *YieldHandle
+	yielded := false
+	registry := vmNativeRegistry()
+	registry.Register(NewNodeDefinition("VMYieldOnce", func() IExecNode {
+		return &vmYieldOnceNode{handle: &handle, yielded: &yielded}
+	}, []IPort{NewPortExec(), NewPortInt()}, []IPort{NewPortExec()}))
+	compiled, err := CompileGraph(registry, GraphConfig{
+		Variables: []VariableConfig{{Name: "Count", Type: "Integer", Value: 3}},
+		Nodes: []NodeConfig{
+			{ID: "entry", Class: "VMEntry_1"},
+			{ID: "set", Class: "Set_Count"},
+			{ID: "yield", Class: "VMYieldOnce", PortDefault: map[int]any{1: 1}},
+			{ID: "get", Class: "Get_Count"},
+			{ID: "result", Class: "VMReturnPort"},
+		},
+		Edges: []EdgeConfig{
+			{SourceNodeID: "entry", SourcePortID: 0, DesNodeID: "set", DesPortID: 0},
+			{SourceNodeID: "entry", SourcePortID: 1, DesNodeID: "set", DesPortID: 1},
+			{SourceNodeID: "set", SourcePortID: 0, DesNodeID: "yield", DesPortID: 0},
+			{SourceNodeID: "yield", SourcePortID: 0, DesNodeID: "result", DesPortID: 0},
+			{SourceNodeID: "get", SourcePortID: 0, DesNodeID: "result", DesPortID: 1},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CompileGraph failed: %v", err)
+	}
+	dispatcher := &manualExecutionDispatcher{}
+	bp := &Blueprint{}
+	bp.SetExecutionDispatcher(dispatcher)
+	bp.AddCompiledGraph("variables", compiled)
+	execution, err := bp.Start(context.Background(), bp.Create("variables"), 1, 77)
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	dispatcher.runNext(t)
+	if execution.State() != ExecutionSuspended {
+		t.Fatalf("state = %v, want suspended", execution.State())
+	}
+	if value, ok := execution.graph.variables[0].GetInt(); !ok || value != 77 {
+		t.Fatalf("suspended variable = %d,%v, want 77", value, ok)
+	}
+	if err := handle.Resume(); err != nil {
+		t.Fatalf("Resume failed: %v", err)
+	}
+	dispatcher.runNext(t)
+	returns, err := execution.Result()
+	if err != nil {
+		t.Fatalf("Result failed: %v", err)
+	}
+	assertVMIntReturns(t, returns, 1, 77)
+}

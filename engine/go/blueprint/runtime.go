@@ -367,6 +367,7 @@ type ExecNode struct {
 	DefaultInputSet []bool
 	InputBindings   []InputBinding
 	VariableName    string
+	VariableIndex   int
 	FunctionID      string
 	FunctionName    string
 	FunctionGraph   *CompiledGraph
@@ -377,11 +378,12 @@ type ExecNode struct {
 // NewExecNode 创建编译期节点对象。
 func NewExecNode(id string, definition *NodeDefinition) *ExecNode {
 	return &ExecNode{
-		ID:         id,
-		Index:      -1,
-		Definition: definition,
-		PreInPort:  make([]*PrePortNode, len(definition.InPorts)),
-		DefaultIn:  map[int]any{},
+		ID:            id,
+		Index:         -1,
+		VariableIndex: -1,
+		Definition:    definition,
+		PreInPort:     make([]*PrePortNode, len(definition.InPorts)),
+		DefaultIn:     map[int]any{},
 	}
 }
 
@@ -644,7 +646,13 @@ func (g *Graph) evaluateDataNode(target *ExecNode) error {
 		}); ok {
 			binder.bind(g, frame.node, frame.ctx)
 		}
+		if g.vm != nil {
+			g.vm.activeDataNode = frame.node
+		}
 		nextIndex, err := exec.Exec()
+		if g.vm != nil {
+			g.vm.activeDataNode = nil
+		}
 		g.logLegacyNode(frame.node, frame.ctx, nextIndex, err)
 		g.traceNode(frame.node, frame.ctx, nextIndex, err)
 		if err != nil {
@@ -662,17 +670,30 @@ func (g *Graph) evaluateDataNode(target *ExecNode) error {
 
 // CompiledGraph 是编译后的蓝图图结构，可被多个实例共享。
 type CompiledGraph struct {
-	Entrances map[int64]*ExecNode
-	Variables map[string]VariableConfig
-	Functions map[string]*CompiledGraph
-	NodeCount int
-	Nodes     []*ExecNode
-	Program   *Program
+	Entrances           map[int64]*ExecNode
+	Variables           map[string]VariableConfig
+	variablePlans       []variablePlan
+	variableIndexes     map[string]int
+	Functions           map[string]*CompiledGraph
+	NodeCount           int
+	Nodes               []*ExecNode
+	Program             *Program
+	functionInputKinds  []portKind
+	functionOutputKinds []portKind
+	hasFunctionEntry    bool
+	hasFunctionReturn   bool
+}
+
+// variablePlan 是编译期生成的变量初始化计划。
+// Default 只读；每次新执行通过 Clone 创建独立槽位。
+type variablePlan struct {
+	Name    string
+	Default IPort
 }
 
 // Graph 是单次执行过程中的轻量运行对象。
 //
-// 它引用共享的 CompiledGraph，并挂接实例变量、VM 状态和函数调用上下文。
+// 它引用共享的 CompiledGraph，并保存本次执行的局部变量、VM 状态和函数调用上下文。
 type Graph struct {
 	compiled          *CompiledGraph
 	contextMu         sync.Mutex
@@ -685,8 +706,7 @@ type Graph struct {
 	instance          *GraphInstance
 	returns           PortArray
 	returnPort        IPort
-	variables         map[string]IPort
-	variableMu        *sync.RWMutex
+	variables         []IPort
 	logger            IBlueprintLogger
 	trace             *blueprintTraceRuntime
 	execution         *Execution
@@ -771,27 +791,22 @@ func (g *Graph) resultSnapshot() PortArray {
 	return nil
 }
 
-func (g *Graph) initialVariables() map[string]IPort {
+func (g *Graph) initialVariables() []IPort {
 	if g == nil {
-		return map[string]IPort{}
+		return nil
 	}
 	return initialVariables(g.compiled)
 }
 
-func initialVariables(compiled *CompiledGraph) map[string]IPort {
-	variables := map[string]IPort{}
+func initialVariables(compiled *CompiledGraph) []IPort {
 	if compiled == nil {
-		return variables
+		return nil
 	}
-	for name, config := range compiled.Variables {
-		port, err := newPortFromDataType(config.Type)
-		if err != nil {
-			continue
+	variables := make([]IPort, len(compiled.variablePlans))
+	for index, plan := range compiled.variablePlans {
+		if plan.Default != nil {
+			variables[index] = plan.Default.Clone()
 		}
-		if config.Value != nil {
-			_ = port.setAnyValue(config.Value)
-		}
-		variables[name] = port
 	}
 	return variables
 }

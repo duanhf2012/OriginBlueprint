@@ -1,5 +1,7 @@
 package blueprint
 
+import "fmt"
+
 // FunctionEntranceID 是函数图固定使用的入口 ID。
 const FunctionEntranceID int64 = 1
 
@@ -148,19 +150,19 @@ func portAnyValue(port IPort) any {
 	}
 }
 
-func arrayDataFromAny(value any) ArrayData {
+func arrayDataFromAny(value any) (ArrayData, error) {
 	switch v := value.(type) {
 	case int:
-		return ArrayData{IntVal: PortInt(v)}
+		return ArrayData{IntVal: PortInt(v)}, nil
 	case int64:
-		return ArrayData{IntVal: PortInt(v)}
+		return ArrayData{IntVal: PortInt(v)}, nil
 	case string:
-		return ArrayData{StrVal: PortString(v)}
+		return ArrayData{StrVal: PortString(v)}, nil
 	case bool:
-		return ArrayData{BoolVal: PortBool(v)}
+		return ArrayData{BoolVal: PortBool(v)}, nil
 	case float64:
-		return ArrayData{FloatVal: PortFloat(v)}
+		return ArrayData{FloatVal: PortFloat(v)}, nil
 	default:
-		return ArrayData{}
+		return ArrayData{}, fmt.Errorf("top-level function return type %T cannot be represented by PortArray", value)
 	}
 }

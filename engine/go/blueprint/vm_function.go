@@ -99,8 +99,12 @@ func (m *vmMachine) returnFunction(nodeIndex int) error {
 	m.graph.releaseContext(plan.Node, ctx)
 	if len(m.callStack) == 0 {
 		m.graph.returns = m.graph.returns[:0]
-		for _, value := range values {
-			m.graph.appendReturn(arrayDataFromAny(value))
+		for index, value := range values {
+			converted, err := arrayDataFromAny(value)
+			if err != nil {
+				return fmt.Errorf("function return %d: %w", index, err)
+			}
+			m.graph.appendReturn(converted)
 		}
 		m.pc = InvalidPC
 		return nil
@@ -121,9 +125,12 @@ func (m *vmMachine) returnFunction(nodeIndex int) error {
 	m.program = frame.CallerProgram
 	m.graph = frame.CallerGraph
 	m.graph.vm = m
+	if len(values) != len(frame.OutputMap) {
+		return fmt.Errorf("function %s return count %d does not match caller output count %d", frame.FunctionName, len(values), len(frame.OutputMap))
+	}
 	for _, binding := range frame.OutputMap {
 		if binding.Source >= len(values) || binding.Target >= len(frame.CallerContext.OutputPorts) {
-			continue
+			return fmt.Errorf("function %s output binding source %d target %d is out of range", frame.FunctionName, binding.Source, binding.Target)
 		}
 		if err := frame.CallerContext.OutputPorts[binding.Target].setAnyValue(values[binding.Source]); err != nil {
 			return fmt.Errorf("function %s output %d: %w", frame.FunctionName, binding.Source, err)

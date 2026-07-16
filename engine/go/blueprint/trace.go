@@ -21,6 +21,10 @@ type BlueprintTraceEvent struct {
 	Step            uint64
 	GraphName       string
 	GraphID         int64
+	ExecutionID     uint64
+	EntranceID      int64
+	PC              PC
+	Stage           string
 	NodeID          string
 	NodeName        string
 	ExecInputPortID int
@@ -64,6 +68,14 @@ func (b *Blueprint) SetTraceLogger(logger BlueprintTraceLogger) {
 }
 
 func (g *Graph) traceNode(node *ExecNode, ctx *ExecContext, nextIndex int, execErr error) {
+	g.traceNodeStage(node, ctx, nextIndex, execErr, "native")
+}
+
+func (g *Graph) traceControlNode(node *ExecNode, ctx *ExecContext) {
+	g.traceNodeStage(node, ctx, -1, nil, "control")
+}
+
+func (g *Graph) traceNodeStage(node *ExecNode, ctx *ExecContext, nextIndex int, execErr error, stage string) {
 	if g == nil || g.trace == nil || g.trace.logger == nil || node == nil || ctx == nil || node.Definition == nil {
 		return
 	}
@@ -76,12 +88,21 @@ func (g *Graph) traceNode(node *ExecNode, ctx *ExecContext, nextIndex int, execE
 		Step:            atomic.AddUint64(&state.nextStep, 1),
 		GraphName:       g.name,
 		GraphID:         g.graphID,
+		PC:              InvalidPC,
+		Stage:           stage,
 		NodeID:          node.ID,
 		NodeName:        node.Definition.Name,
 		ExecInputPortID: ctx.ExecInputPortID,
 		NextIndex:       nextIndex,
 		Inputs:          tracePortValues(ctx.InputPorts),
 		Outputs:         tracePortValues(ctx.OutputPorts),
+	}
+	if g.execution != nil {
+		event.ExecutionID = g.execution.id
+		event.EntranceID = g.execution.entranceID
+	}
+	if g.vm != nil {
+		event.PC = g.vm.pc
 	}
 	if execErr != nil && !isTraceControlError(execErr) {
 		event.Error = execErr.Error()

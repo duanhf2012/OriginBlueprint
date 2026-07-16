@@ -80,10 +80,22 @@ func (h *YieldHandle) ResumeTo(nextPort int, outputs ...any) error {
 		if !h.execution.beginRun() {
 			return
 		}
-		err := h.machine.resumeYield(h.token, nextPort, values...)
-		if err == nil {
-			err = h.machine.run()
-		}
+		var err error
+		func() {
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					if h.machine.activeDataNode != nil {
+						err = h.machine.recoveredPanicError(BlueprintStageResume, recovered)
+					} else {
+						err = newBlueprintNodeError(BlueprintStageResume, h.machine.graph, h.node, h.machine.pc, fmt.Errorf("resume panic: %v", recovered))
+					}
+				}
+			}()
+			err = h.machine.resumeYield(h.token, nextPort, values...)
+			if err == nil {
+				err = h.machine.run()
+			}
+		}()
 		h.execution.finishRun(h.execution.graph.resultSnapshot(), err)
 	}); err != nil {
 		h.used.CompareAndSwap(true, false)

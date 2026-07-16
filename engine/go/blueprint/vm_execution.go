@@ -3,25 +3,25 @@ package blueprint
 import (
 	"errors"
 	"fmt"
-	"sync"
 )
 
 var ErrControlNodeRequiresVM = errors.New("blueprint control node requires VM execution")
 
 // vmMachine 保存一次执行的全部可恢复状态。Program 是不可变共享对象，其他字段只属于当前执行。
 type vmMachine struct {
-	program      *Program
-	graph        *Graph
-	pc           PC
-	inputPortID  int
-	outputArgs   []any
-	flowStack    []vmFlowFrame
-	loopStack    []vmLoopFrame
-	callStack    []CallFrame
-	pendingYield *vmYieldState
-	yieldSeq     uint64
-	loopSeq      uint64
-	err          error
+	program        *Program
+	graph          *Graph
+	pc             PC
+	inputPortID    int
+	outputArgs     []any
+	flowStack      []vmFlowFrame
+	loopStack      []vmLoopFrame
+	callStack      []CallFrame
+	pendingYield   *vmYieldState
+	yieldSeq       uint64
+	loopSeq        uint64
+	err            error
+	activeDataNode *ExecNode
 }
 
 func newVMMachine(graph *Graph, program *Program) *vmMachine {
@@ -37,11 +37,22 @@ func newVMMachine(graph *Graph, program *Program) *vmMachine {
 	return machine
 }
 
-func (g *Graph) runVMEntrance(entranceID int64, args ...any) (PortArray, error) {
+func (g *Graph) runVMEntrance(entranceID int64, args ...any) (result PortArray, runErr error) {
 	machine, found, err := g.newVMMachineForEntrance(entranceID, args...)
-	if err != nil || !found {
+	if err != nil {
 		return nil, err
 	}
+	if !found {
+		return nil, ErrEntranceNotFound
+	}
+	// Graph.Do 是不经过 Execution 的底层入口，需要在边界兜住用户结点 panic。
+	// Blueprint/Execution 路径在更外层已有同等保护，VM 热循环本身不承担 defer 成本。
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			result = g.resultSnapshot()
+			runErr = machine.recoveredPanicError(BlueprintStageExecute, recovered)
+		}
+	}()
 	if err := machine.run(); err != nil {
 		return g.resultSnapshot(), err
 	}
@@ -75,12 +86,7 @@ func (g *Graph) initializeVMRun() {
 	clear(g.returns)
 	g.returns = g.returns[:0]
 	g.returnPort = nil
-	if g.variableMu == nil {
-		g.variableMu = &sync.RWMutex{}
-	}
-	if g.variables == nil {
-		g.variables = g.initialVariables()
-	}
+	g.variables = g.initialVariables()
 }
 
 func (m *vmMachine) run() error {
@@ -93,40 +99,87 @@ func (m *vmMachine) run() error {
 		if m.pc < 0 || int(m.pc) >= len(m.program.Instructions) {
 			return fmt.Errorf("blueprint VM pc %d out of range", m.pc)
 		}
-		instruction := m.program.Instructions[m.pc]
+		instructionPC := m.pc
+		instructionGraph := m.graph
+		instruction := m.program.Instructions[instructionPC]
+		var instructionNode *ExecNode
+		if instruction.A >= 0 && int(instruction.A) < len(m.program.Nodes) {
+			instructionNode = m.program.Nodes[instruction.A].Node
+		}
 		switch instruction.Op {
 		case OpCallNative:
 			nextPort, err := m.callNative(int(instruction.A))
 			if err != nil {
-				return err
+				return wrapVMInstructionError(instructionGraph, instructionNode, instructionPC, err)
 			}
 			m.advanceFromPort(nextPort)
 		case OpSequence:
 			if err := m.runSequence(int(instruction.A)); err != nil {
-				return err
+				return wrapVMInstructionError(instructionGraph, instructionNode, instructionPC, err)
 			}
 		case OpRangeLoop, OpArrayLoop, OpWhileLoop, OpBreakableLoop:
 			if err := m.runLoop(instruction.Op, int(instruction.A)); err != nil {
-				return err
+				return wrapVMInstructionError(instructionGraph, instructionNode, instructionPC, err)
 			}
 		case OpCallFunction:
 			if err := m.callFunction(int(instruction.A)); err != nil {
-				return err
+				return wrapVMInstructionError(instructionGraph, instructionNode, instructionPC, err)
 			}
 		case OpReturnFunction:
 			if err := m.returnFunction(int(instruction.A)); err != nil {
-				return err
+				return wrapVMInstructionError(instructionGraph, instructionNode, instructionPC, err)
 			}
 		case OpHalt:
 			m.pc = InvalidPC
 		default:
-			return fmt.Errorf("blueprint VM unsupported opcode %d at pc %d", instruction.Op, m.pc)
+			return wrapVMInstructionError(instructionGraph, instructionNode, instructionPC, fmt.Errorf("blueprint VM unsupported opcode %d", instruction.Op))
 		}
 		if m.err != nil {
-			return m.err
+			return wrapVMInstructionError(instructionGraph, instructionNode, instructionPC, m.err)
 		}
 	}
 	return m.err
+}
+
+func wrapVMInstructionError(graph *Graph, node *ExecNode, pc PC, err error) error {
+	if err == nil {
+		return nil
+	}
+	var structured *BlueprintError
+	if errors.As(err, &structured) && structured != nil {
+		result := *structured
+		if result.GraphName == "" && graph != nil {
+			result.GraphName = graph.name
+		}
+		if result.GraphID == 0 && graph != nil {
+			result.GraphID = graph.graphID
+		}
+		if result.NodeID == "" && node != nil {
+			result.NodeID = node.ID
+			if node.Definition != nil {
+				result.NodeName = node.Definition.Name
+			}
+		}
+		if result.PC == InvalidPC {
+			result.PC = pc
+		}
+		return &result
+	}
+	return newBlueprintNodeError(BlueprintStageExecute, graph, node, pc, err)
+}
+
+func (m *vmMachine) recoveredPanicError(stage BlueprintStage, recovered any) error {
+	node := m.activeDataNode
+	pc := m.pc
+	message := "VM panic"
+	if node != nil {
+		pc = PC(node.Index)
+		message = "data producer panic"
+	} else if m != nil && m.program != nil && pc >= 0 && int(pc) < len(m.program.Nodes) {
+		node = m.program.Nodes[pc].Node
+	}
+	m.activeDataNode = nil
+	return newBlueprintNodeError(stage, m.graph, node, pc, fmt.Errorf("%s: %v", message, recovered))
 }
 
 func (m *vmMachine) advanceFromPort(portIndex int) {
@@ -202,7 +255,16 @@ func (m *vmMachine) callNative(nodeIndex int) (nextPort int, err error) {
 	node := plan.Node
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			err = fmt.Errorf("blueprint native node %s panic at pc %d: %v", node.ID, m.pc, recovered)
+			panicNode := node
+			panicPC := m.pc
+			message := "native panic"
+			if m.activeDataNode != nil {
+				panicNode = m.activeDataNode
+				panicPC = PC(panicNode.Index)
+				message = "data producer panic"
+				m.activeDataNode = nil
+			}
+			err = newBlueprintNodeError(BlueprintStageExecute, m.graph, panicNode, panicPC, fmt.Errorf("%s: %v", message, recovered))
 			nextPort = -1
 		}
 	}()
@@ -222,7 +284,16 @@ func (m *vmMachine) callNative(nodeIndex int) (nextPort int, err error) {
 		return -1, fmt.Errorf("blueprint native node %s failed at pc %d: %w: Yield returned without suspension", node.ID, m.pc, ErrYieldInvalid)
 	}
 	if err != nil {
-		return -1, fmt.Errorf("blueprint native node %s failed at pc %d: %w", node.ID, m.pc, err)
+		var structured *BlueprintError
+		if errors.As(err, &structured) {
+			return -1, structured
+		}
+		return -1, newBlueprintNodeError(BlueprintStageExecute, m.graph, node, m.pc, err)
+	}
+	legacyTerminal := nextPort == 0 && len(plan.ExecOutputs) == 0
+	validExecOutput := nextPort >= 0 && nextPort < len(plan.ExecOutputs) && plan.ExecOutputs[nextPort]
+	if nextPort < -1 || (nextPort >= 0 && !legacyTerminal && !validExecOutput) {
+		return -1, newBlueprintNodeError(BlueprintStageExecute, m.graph, node, m.pc, fmt.Errorf("selected invalid exec output %d", nextPort))
 	}
 	return nextPort, nil
 }

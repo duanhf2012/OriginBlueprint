@@ -47,16 +47,7 @@ func (m *vmMachine) runSequence(nodeIndex int) error {
 		return err
 	}
 	m.graph.releaseContext(plan.Node, ctx)
-	targets := make([]VMTarget, 0, len(plan.Successors))
-	for portIndex, port := range plan.Node.Definition.OutPorts {
-		if port == nil || !port.IsPortExec() {
-			break
-		}
-		if portIndex < len(plan.Successors) {
-			targets = append(targets, plan.Successors[portIndex]...)
-		}
-	}
-	m.scheduleTargets(targets)
+	m.scheduleTargets(plan.SequenceTargets)
 	return nil
 }
 
@@ -123,6 +114,9 @@ func (m *vmMachine) prepareControlNode(nodeIndex int) (*NodePlan, *ExecContext, 
 			return nil, nil, err
 		}
 	}
+	if m.graph.trace != nil {
+		m.graph.traceControlNode(node, ctx)
+	}
 	return plan, ctx, nil
 }
 
@@ -135,10 +129,6 @@ func (m *vmMachine) continueLoop(loopID uint64) error {
 	if frame.err != nil {
 		return frame.err
 	}
-	if frame.iterations >= vmMaximumLoopIterations {
-		return fmt.Errorf("node %s exceeded max iterations", frame.node.ID)
-	}
-
 	var hasNext bool
 	switch frame.kind {
 	case vmLoopRange, vmLoopBreakable:
@@ -182,6 +172,9 @@ func (m *vmMachine) continueLoop(loopID uint64) error {
 
 	if !hasNext {
 		return m.completeLoop(frame.id)
+	}
+	if frame.iterations >= vmMaximumLoopIterations {
+		return fmt.Errorf("node %s exceeded max iterations", frame.node.ID)
 	}
 	frame.iterations++
 	frame.flowBase = len(m.flowStack)

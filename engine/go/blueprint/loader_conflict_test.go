@@ -58,8 +58,11 @@ func writeFunctionDocument(t *testing.T, path string, graphName string, function
 		"schemaVersion":1,
 		"graphName":`+strconvQuote(graphName)+`,
 		"functionId":`+strconvQuote(functionID)+`,
-		"nodes":[],
-		"connections":[],
+		"nodes":[
+			{"id":"entry","typeId":"origin.function.entry","values":{},"properties":{"functionSignature":{"inputs":[],"outputs":[]}}},
+			{"id":"return","typeId":"origin.function.return","values":{},"properties":{"functionSignature":{"inputs":[],"outputs":[]}}}
+		],
+		"connections":[{"source":"entry","sourceOutput":"exec","target":"return","targetInput":"exec"}],
 		"variables":[],
 		"functionSignature":{"inputs":[],"outputs":[]}
 	}`)

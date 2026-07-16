@@ -2,6 +2,7 @@ package blueprint
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -48,6 +49,17 @@ func (n *vmWhileCondition) Exec() (int, error) {
 type vmWhileBody struct {
 	BaseExecNode
 	state *vmWhileState
+}
+
+type vmLoopCounter struct {
+	BaseExecNode
+	count *uint64
+}
+
+func (n *vmLoopCounter) GetName() string { return "VMLoopCounter" }
+func (n *vmLoopCounter) Exec() (int, error) {
+	(*n.count)++
+	return -1, nil
 }
 
 func (n *vmWhileBody) GetName() string { return "VMWhileBody" }
@@ -307,6 +319,49 @@ func TestVMLoopZeroAndSingleIterationBoundaries(t *testing.T) {
 			}, makeRange(1, limit+1)...)
 			if state.bodyRuns != limit || state.conditionReads != limit+1 {
 				t.Fatalf("body/condition = %d/%d, want %d/%d", state.bodyRuns, state.conditionReads, limit, limit+1)
+			}
+		})
+	}
+}
+
+func TestVMRangeLoopMaximumIterationBoundary(t *testing.T) {
+	for _, iterations := range []uint64{vmMaximumLoopIterations - 1, vmMaximumLoopIterations, vmMaximumLoopIterations + 1} {
+		t.Run(fmt.Sprintf("iterations-%d", iterations), func(t *testing.T) {
+			var count uint64
+			registry := vmLoopRegistry(nil)
+			registry.Register(NewNodeDefinition("VMLoopCounter", func() IExecNode {
+				return &vmLoopCounter{count: &count}
+			}, []IPort{NewPortExec()}, nil))
+			compiled, err := CompileGraph(registry, GraphConfig{
+				Nodes: []NodeConfig{
+					{ID: "entry", Class: "VMEntry_1"},
+					{ID: "loop", Class: "Foreach", PortDefault: map[int]any{1: 0, 2: int64(iterations)}},
+					{ID: "body", Class: "VMLoopCounter"},
+				},
+				Edges: []EdgeConfig{
+					{SourceNodeID: "entry", SourcePortID: 0, DesNodeID: "loop", DesPortID: 0},
+					{SourceNodeID: "loop", SourcePortID: 0, DesNodeID: "body", DesPortID: 0},
+				},
+			})
+			if err != nil {
+				t.Fatalf("CompileGraph failed: %v", err)
+			}
+
+			_, err = NewGraph(compiled).runVMEntrance(1)
+			if iterations <= vmMaximumLoopIterations {
+				if err != nil {
+					t.Fatalf("runVMEntrance failed at supported boundary: %v", err)
+				}
+				if count != iterations {
+					t.Fatalf("body count = %d, want %d", count, iterations)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), "max iterations") {
+				t.Fatalf("runVMEntrance error = %v, want max iterations", err)
+			}
+			if count != vmMaximumLoopIterations {
+				t.Fatalf("body count before limit = %d, want %d", count, vmMaximumLoopIterations)
 			}
 		})
 	}

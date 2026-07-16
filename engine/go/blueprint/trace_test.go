@@ -37,6 +37,9 @@ func TestBlueprintTraceLogsNodeStepsInputsAndOutputsWhenEnabled(t *testing.T) {
 	if logger.events[0].NodeID != "entry" || logger.events[0].NodeName != "TestEntrance" {
 		t.Fatalf("entry event = %#v", logger.events[0])
 	}
+	if logger.events[0].ExecutionID == 0 || logger.events[0].EntranceID != 1 || logger.events[0].PC < 0 || logger.events[0].Stage == "" {
+		t.Fatalf("entry correlation fields = %#v", logger.events[0])
+	}
 	if logger.events[1].NodeID != "add" || logger.events[1].NodeName != "AddInt" {
 		t.Fatalf("add event = %#v", logger.events[1])
 	}
@@ -62,6 +65,38 @@ func TestBlueprintTraceLogsNodeStepsInputsAndOutputsWhenEnabled(t *testing.T) {
 	if len(recordInputs) != 1 || recordInputs[0].Value != PortInt(7) {
 		t.Fatalf("record inputs = %#v, want 7", recordInputs)
 	}
+}
+
+func TestBlueprintTraceIncludesVMControlNodes(t *testing.T) {
+	logger := &testTraceLogger{}
+	registry := vmFlowRegistry()
+	compiled, err := CompileGraph(registry, GraphConfig{
+		Nodes: []NodeConfig{
+			{ID: "entry", Class: "VMEntry_1"},
+			{ID: "sequence", Class: "Sequence"},
+			{ID: "result", Class: "VMReturnPort", PortDefault: map[int]any{1: 1}},
+		},
+		Edges: []EdgeConfig{
+			{SourceNodeID: "entry", SourcePortID: 0, DesNodeID: "sequence", DesPortID: 0},
+			{SourceNodeID: "sequence", SourcePortID: 0, DesNodeID: "result", DesPortID: 0},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CompileGraph failed: %v", err)
+	}
+	blueprint := &Blueprint{}
+	blueprint.AddCompiledGraph("control-trace", compiled)
+	blueprint.SetTraceLogger(logger)
+	blueprint.SetTraceEnabled(true)
+	if _, err := blueprint.Do(blueprint.Create("control-trace"), 1); err != nil {
+		t.Fatalf("Do failed: %v", err)
+	}
+	for _, event := range logger.events {
+		if event.NodeID == "sequence" && event.Stage == "control" {
+			return
+		}
+	}
+	t.Fatalf("trace events = %#v, want sequence control event", logger.events)
 }
 
 func newTraceTestBlueprint(t *testing.T, logger *testTraceLogger) (*Blueprint, int64) {

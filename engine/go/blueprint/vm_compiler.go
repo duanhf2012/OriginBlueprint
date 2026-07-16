@@ -1,6 +1,7 @@
 package blueprint
 
 import (
+	"sort"
 	"sync"
 	"sync/atomic"
 )
@@ -31,7 +32,7 @@ func compileVMProgram(compiled *CompiledGraph) *Program {
 			kind = node.Definition.ControlKind
 		}
 		program.Instructions[index] = Instruction{Op: opcodeForControl(kind), A: int32(index)}
-		program.Nodes[index] = NodePlan{Node: node, Control: kind, Successors: compileVMSuccessors(node)}
+		program.Nodes[index] = compileVMNodePlan(node, kind)
 	}
 	program.FlowStackHint, program.LoopStackHint = compileVMStackHints(program.Nodes)
 	for entranceID, node := range compiled.Entrances {
@@ -45,6 +46,26 @@ func compileVMProgram(compiled *CompiledGraph) *Program {
 		}
 	}
 	return program
+}
+
+func compileVMNodePlan(node *ExecNode, kind ControlKind) NodePlan {
+	plan := NodePlan{Node: node, Control: kind, Successors: compileVMSuccessors(node)}
+	if node == nil || node.Definition == nil {
+		return plan
+	}
+	plan.ExecOutputs = make([]bool, len(node.Definition.OutPorts))
+	for index, port := range node.Definition.OutPorts {
+		plan.ExecOutputs[index] = port != nil && port.IsPortExec()
+	}
+	if kind == ControlSequence {
+		for index, isExec := range plan.ExecOutputs {
+			if !isExec {
+				break
+			}
+			plan.SequenceTargets = append(plan.SequenceTargets, plan.Successors[index]...)
+		}
+	}
+	return plan
 }
 
 func compileVMStackHints(nodes []NodePlan) (flowHint, loopHint int) {
@@ -111,7 +132,11 @@ func ensureVMProgram(compiled *CompiledGraph) {
 }
 
 func ensureVMProgramRecursive(compiled *CompiledGraph, visiting map[*CompiledGraph]bool) {
-	if compiled == nil || compiled.Program != nil || visiting[compiled] {
+	if compiled == nil || visiting[compiled] {
+		return
+	}
+	ensureCompiledVariablePlans(compiled)
+	if compiled.Program != nil {
 		return
 	}
 	visiting[compiled] = true
@@ -147,6 +172,46 @@ func ensureVMProgramRecursive(compiled *CompiledGraph, visiting map[*CompiledGra
 	}
 	compiled.Nodes = nodes
 	compiled.NodeCount = len(nodes)
+	ensureCompiledVariablePlans(compiled)
 	compiled.Program = compileVMProgram(compiled)
 	delete(visiting, compiled)
+}
+
+func ensureCompiledVariablePlans(compiled *CompiledGraph) {
+	if compiled == nil {
+		return
+	}
+	if compiled.variableIndexes == nil {
+		compiled.variableIndexes = make(map[string]int, len(compiled.Variables))
+	}
+	if len(compiled.variablePlans) == 0 && len(compiled.Variables) != 0 {
+		names := make([]string, 0, len(compiled.Variables))
+		for name := range compiled.Variables {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			config := compiled.Variables[name]
+			port, err := newPortFromDataType(config.Type)
+			if err != nil {
+				continue
+			}
+			if config.Value != nil {
+				_ = port.setAnyValue(config.Value)
+			}
+			compiled.variableIndexes[name] = len(compiled.variablePlans)
+			compiled.variablePlans = append(compiled.variablePlans, variablePlan{Name: name, Default: port})
+		}
+	} else {
+		for index, plan := range compiled.variablePlans {
+			compiled.variableIndexes[plan.Name] = index
+		}
+	}
+	for _, node := range compiled.Nodes {
+		if node != nil && node.VariableName != "" {
+			if index, ok := compiled.variableIndexes[node.VariableName]; ok {
+				node.VariableIndex = index
+			}
+		}
+	}
 }

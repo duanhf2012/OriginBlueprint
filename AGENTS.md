@@ -20,7 +20,7 @@
 
 做非 trivial 修改前，先阅读唯一权威说明：
 
-- `docs/ORIGIN_BLUEPRINT_USER_GUIDE_ZH.md`：编辑器、节点 JSON、Go API、VM 异步、兼容性、使用禁区和验证要求。
+- `README.md`：编辑器、节点 JSON、Go API、VM 异步、兼容性、使用禁区和验证要求，也是项目唯一权威使用说明。
 - `docs/BLUEPRINT_VERIFICATION_MATRIX_ZH.md`：当前验证蓝图与独立 Go 实现的自动对比结果。
 
 如果修改 `engine/go/blueprint/`，还必须阅读 `engine/go/blueprint/AGENTS.md`。
@@ -95,4 +95,4 @@ wails build
 
 - 某些旧 JSON 或旧文档里的中文在不同终端编码下可能显示为乱码。除非用户要求，不要只为了显示正常而重写大型 JSON。
 - 不要引用或依赖仓库外的旧项目目录；clone 本仓库后应能独立阅读、构建和维护。
-- `.vgf` 和 `.obp` 的保存、导出语义对兼容性敏感。修改前先看 `app.go`、`legacy.go` 和唯一权威使用手册中的兼容性与禁止用法。
+- `.vgf` 和 `.obp` 的保存、导出语义对兼容性敏感。修改前先看 `app.go`、`legacy.go` 和根目录 `README.md` 中的兼容性与禁止用法。

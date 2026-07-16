@@ -14,6 +14,7 @@ var (
 	ErrExecutionCompleted      = errors.New("golang blueprint execution completed")
 	ErrExecutionBudgetExceeded = errors.New("golang blueprint execution budget exceeded")
 	ErrBlueprintClosed         = errors.New("golang blueprint closed")
+	ErrBlueprintInUse          = errors.New("golang blueprint is in use")
 	ErrGraphNotFound           = errors.New("golang blueprint graph not found")
 	ErrEntranceNotFound        = errors.New("golang blueprint entrance not found")
 	ErrGraphReleased           = errors.New("golang blueprint graph released")
@@ -206,7 +207,11 @@ func (e *Execution) runInitial() {
 		defer e.instance.releaseLease()
 		defer func() {
 			if recovered := recover(); recovered != nil {
-				err = fmt.Errorf("blueprint execution panic: %v", recovered)
+				if e.vm != nil {
+					err = e.vm.recoveredPanicError(BlueprintStageExecute, recovered)
+				} else {
+					err = fmt.Errorf("blueprint execution panic: %v", recovered)
+				}
 			}
 		}()
 		var found bool
@@ -273,6 +278,9 @@ func (e *Execution) finishWhen(state ExecutionState, result PortArray, err error
 		result = nil
 		err = e.cancelErr
 	}
+	if err != nil && state == ExecutionFailed {
+		err = enrichExecutionError(e, err)
+	}
 	terminalErr := err
 	if terminalErr == nil {
 		terminalErr = ErrExecutionCompleted
@@ -290,6 +298,13 @@ func (e *Execution) finishWhen(state ExecutionState, result PortArray, err error
 	}
 	e.cancelHooks = nil
 	completionHooks := append([]func(*Execution){}, e.completionHooks...)
+	var diagnostic *BlueprintError
+	if state == ExecutionFailed {
+		if structured, ok := err.(*BlueprintError); ok && structured != nil {
+			copy := *structured
+			diagnostic = &copy
+		}
+	}
 	e.completionHooks = nil
 	e.mu.Unlock()
 	if stopContext != nil {
@@ -305,6 +320,10 @@ func (e *Execution) finishWhen(state ExecutionState, result PortArray, err error
 	}
 	if e.blueprint != nil {
 		e.blueprint.removeExecution(e.id)
+	}
+	if diagnostic != nil {
+		// 诊断回调只在失败路径读取，避免为每次 Execution 增加接口字段和内存开销。
+		reportBlueprintDiagnostic(e.blueprint.getDiagnosticSink(), *diagnostic)
 	}
 	close(e.done)
 	for _, completionHook := range completionHooks {
@@ -547,12 +566,16 @@ func (b *Blueprint) Start(ctx context.Context, graphID int64, entranceID int64, 
 		return nil, ErrBlueprintClosed
 	}
 	instance := b.instances[graphID]
-	if instance == nil || instance.state == nil || instance.state.compiled == nil {
+	if instance == nil {
 		b.mu.Unlock()
 		return nil, ErrGraphNotFound
 	}
-	state := instance.state
-	if state.compiled.Entrances[entranceID] == nil {
+	compiled := b.graphs[instance.name]
+	if compiled == nil {
+		b.mu.Unlock()
+		return nil, ErrGraphNotFound
+	}
+	if compiled.Entrances[entranceID] == nil {
 		b.mu.Unlock()
 		return nil, ErrEntranceNotFound
 	}
@@ -573,13 +596,11 @@ func (b *Blueprint) Start(ctx context.Context, graphID int64, entranceID int64, 
 		state:      ExecutionPending,
 	}
 	execution.scope = &executionScope{execution: execution, dispatcher: dispatcher, budget: newExecutionBudget(defaultExecutionStepLimit)}
-	graph := NewGraph(state.compiled)
+	graph := NewGraph(compiled)
 	graph.name = instance.name
 	graph.graphID = graphID
-	graph.module = instance.module
+	graph.module = b.module
 	graph.instance = instance
-	graph.variables = state.variables
-	graph.variableMu = &state.variableMu
 	graph.logger = b.logger
 	graph.execution = execution
 	graph.budget = execution.scope.budget
@@ -599,6 +620,9 @@ func (b *Blueprint) Start(ctx context.Context, graphID int64, entranceID int64, 
 }
 
 func (b *Blueprint) DoContext(ctx context.Context, graphID int64, entranceID int64, args ...any) (PortArray, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	execution, err := b.Start(ctx, graphID, entranceID, args...)
 	if err != nil {
 		return nil, err
@@ -611,6 +635,12 @@ func (b *Blueprint) DoContext(ctx context.Context, graphID int64, entranceID int
 		<-execution.Done()
 		return execution.Result()
 	}
+}
+
+func (b *Blueprint) SetDiagnosticSink(sink BlueprintDiagnosticSink) {
+	b.mu.Lock()
+	b.diagnosticSink = sink
+	b.mu.Unlock()
 }
 
 func (b *Blueprint) SetExecutionDispatcher(dispatcher ExecutionDispatcher) {

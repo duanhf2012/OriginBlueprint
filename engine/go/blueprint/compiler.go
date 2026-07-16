@@ -81,7 +81,7 @@ type compiledExecEdge struct {
 	destPortID   int
 }
 
-// VariableConfig 描述蓝图实例变量的初始值。
+// VariableConfig 描述蓝图局部变量的初始值。
 type VariableConfig struct {
 	Name  string `json:"name"`
 	Type  string `json:"type"`
@@ -92,13 +92,21 @@ type VariableConfig struct {
 //
 // 新版文档格式会先转换为 GraphConfig，旧格式则直接反序列化。
 func ParseGraphConfigJSON(data []byte) (GraphConfig, error) {
+	config, err := parseGraphConfigJSON(data)
+	if err != nil {
+		return GraphConfig{}, wrapBlueprintStageError(BlueprintStageParse, "", err)
+	}
+	return config, nil
+}
+
+func parseGraphConfigJSON(data []byte) (GraphConfig, error) {
 	present, _, err := probeGraphSchemaVersion(data)
 	if err != nil {
 		return GraphConfig{}, err
 	}
 	if present {
 		var document graphDocument
-		if err := json.Unmarshal(data, &document); err != nil {
+		if err := decodeGraphDocument(data, &document); err != nil {
 			return GraphConfig{}, err
 		}
 		config, _, err := graphDocumentToConfig(document)
@@ -138,12 +146,26 @@ func probeGraphSchemaVersion(data []byte) (bool, int, error) {
 //
 // 编译阶段会预处理节点、连接、变量和函数，以减少运行期查找开销。
 func CompileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error) {
+	compiled, err := compileGraph(registry, config)
+	if err != nil {
+		return nil, wrapBlueprintStageError(BlueprintStageCompile, "", err)
+	}
+	return compiled, nil
+}
+
+func compileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error) {
 	nodes := make(map[string]*ExecNode, len(config.Nodes))
 	nodeDefaults := make(map[string]map[int]any, len(config.Nodes))
 	nodeOrder := make([]*ExecNode, 0, len(config.Nodes))
 	entrances := map[int64]*ExecNode{}
 	variables := make(map[string]VariableConfig, len(config.Variables))
+	variablePlans := make([]variablePlan, 0, len(config.Variables))
+	variableIndexes := make(map[string]int, len(config.Variables))
 	execEdges := make([]compiledExecEdge, 0, len(config.Edges))
+	var functionInputKinds []portKind
+	var functionOutputKinds []portKind
+	var hasFunctionEntry bool
+	var hasFunctionReturn bool
 	for _, variable := range config.Variables {
 		if strings.TrimSpace(variable.Name) == "" {
 			return nil, fmt.Errorf("variable name is empty")
@@ -161,6 +183,8 @@ func CompileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error
 			}
 		}
 		variables[variable.Name] = variable
+		variableIndexes[variable.Name] = len(variablePlans)
+		variablePlans = append(variablePlans, variablePlan{Name: variable.Name, Default: port})
 	}
 
 	for _, nodeConfig := range config.Nodes {
@@ -190,10 +214,25 @@ func CompileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error
 			}
 			nodeName = definition.Name
 		}
+		if nodeConfig.Class == "FunctionEntry" {
+			functionInputKinds = compiledPortKinds(definition.OutPorts[1:])
+			hasFunctionEntry = true
+		}
+		if nodeConfig.Class == "FunctionReturn" {
+			kinds := compiledPortKinds(definition.InPorts[1:])
+			if hasFunctionReturn && !equalPortKinds(functionOutputKinds, kinds) {
+				return nil, fmt.Errorf("node %s FunctionReturn signature does not match previous return", nodeConfig.ID)
+			}
+			functionOutputKinds = kinds
+			hasFunctionReturn = true
+		}
 
 		node := NewExecNode(nodeConfig.ID, definition)
 		node.Index = len(nodeOrder)
 		node.VariableName = variableNameFromClass(nodeConfig.Class)
+		if node.VariableName != "" {
+			node.VariableIndex = variableIndexes[node.VariableName]
+		}
 		node.FunctionID = nodeConfig.FunctionID
 		node.FunctionName = nodeConfig.FunctionName
 		node.FunctionGraph = resolveFunctionGraph(config.Functions, nodeConfig.FunctionID, nodeConfig.FunctionName)
@@ -289,14 +328,92 @@ func CompileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error
 	}
 
 	compiled := &CompiledGraph{
-		Entrances: entrances,
-		Variables: variables,
-		Functions: config.Functions,
-		NodeCount: len(nodeOrder),
-		Nodes:     nodeOrder,
+		Entrances:           entrances,
+		Variables:           variables,
+		variablePlans:       variablePlans,
+		variableIndexes:     variableIndexes,
+		Functions:           config.Functions,
+		NodeCount:           len(nodeOrder),
+		Nodes:               nodeOrder,
+		functionInputKinds:  functionInputKinds,
+		functionOutputKinds: functionOutputKinds,
+		hasFunctionEntry:    hasFunctionEntry,
+		hasFunctionReturn:   hasFunctionReturn,
+	}
+	if err := bindAndValidateFunctionCalls(compiled, config.Functions != nil); err != nil {
+		return nil, err
 	}
 	compiled.Program = compileVMProgram(compiled)
+	if err := validateFunctionReturnPaths(compiled); err != nil {
+		return nil, err
+	}
 	return compiled, nil
+}
+
+func compiledPortKinds(ports []IPort) []portKind {
+	kinds := make([]portKind, len(ports))
+	for index, port := range ports {
+		if concrete, ok := port.(*Port); ok && concrete != nil {
+			kinds[index] = concrete.kind
+		}
+	}
+	return kinds
+}
+
+func equalPortKinds(left []portKind, right []portKind) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func bindAndValidateFunctionCalls(graph *CompiledGraph, requireTargets bool) error {
+	if graph == nil {
+		return nil
+	}
+	for _, node := range graph.Nodes {
+		if node == nil || node.Definition == nil || node.Definition.ControlKind != ControlFunctionCall {
+			continue
+		}
+		target := resolveFunctionGraph(graph.Functions, node.FunctionID, node.FunctionName)
+		if target == nil {
+			if requireTargets {
+				return fmt.Errorf("node %s function %s not found", node.ID, vmFunctionLabel(node))
+			}
+			continue
+		}
+		if !target.hasFunctionEntry {
+			return fmt.Errorf("node %s function %s has no FunctionEntry", node.ID, vmFunctionLabel(node))
+		}
+		if !target.hasFunctionReturn {
+			return fmt.Errorf("node %s function %s has no FunctionReturn", node.ID, vmFunctionLabel(node))
+		}
+		inputs := compiledPortKinds(node.Definition.InPorts[1:])
+		outputs := compiledPortKinds(node.Definition.OutPorts[1:])
+		if len(inputs) != len(target.functionInputKinds) {
+			return fmt.Errorf("node %s function %s input count %d does not match %d", node.ID, vmFunctionLabel(node), len(inputs), len(target.functionInputKinds))
+		}
+		for index := range inputs {
+			if inputs[index] != target.functionInputKinds[index] {
+				return fmt.Errorf("node %s function %s input %d type does not match", node.ID, vmFunctionLabel(node), index)
+			}
+		}
+		if len(outputs) != len(target.functionOutputKinds) {
+			return fmt.Errorf("node %s function %s output count %d does not match %d", node.ID, vmFunctionLabel(node), len(outputs), len(target.functionOutputKinds))
+		}
+		for index := range outputs {
+			if outputs[index] != target.functionOutputKinds[index] {
+				return fmt.Errorf("node %s function %s output %d type does not match", node.ID, vmFunctionLabel(node), index)
+			}
+		}
+		node.FunctionGraph = target
+	}
+	return nil
 }
 
 func validateDataDependencyCycles(nodes []*ExecNode) error {

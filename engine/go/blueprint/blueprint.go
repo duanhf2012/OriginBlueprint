@@ -3,7 +3,6 @@ package blueprint
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync"
 	"sync/atomic"
 )
@@ -12,46 +11,37 @@ import (
 //
 // 编译后的执行树由多个实例共享，实例自身只保存运行期上下文。
 type Blueprint struct {
-	mu            sync.RWMutex
-	graphs        map[string]*CompiledGraph
-	instances     map[int64]*GraphInstance
-	execFactories []func() IExecNode
-	module        IBlueprintModule
-	logger        IBlueprintLogger
-	traceEnabled  bool
-	traceLogger   BlueprintTraceLogger
-	execDefPath   string
-	graphPath     string
-	seedID        int64
-	dispatcher    ExecutionDispatcher
-	executions    map[uint64]*Execution
-	executionSeed uint64
-	closed        bool
+	mu             sync.RWMutex
+	graphs         map[string]*CompiledGraph
+	instances      map[int64]*GraphInstance
+	execFactories  []func() IExecNode
+	module         IBlueprintModule
+	logger         IBlueprintLogger
+	traceEnabled   bool
+	traceLogger    BlueprintTraceLogger
+	diagnosticSink BlueprintDiagnosticSink
+	execDefPath    string
+	graphPath      string
+	seedID         int64
+	dispatcher     ExecutionDispatcher
+	executions     map[uint64]*Execution
+	executionSeed  uint64
+	closed         bool
 }
 
 // GraphInstance 保存单个 Create 实例的运行期状态。
 type GraphInstance struct {
 	name        string
 	graphID     int64
-	module      IBlueprintModule
-	state       *instanceRuntimeState
 	lifecycleMu sync.Mutex
 	released    bool
 	releasedCh  chan struct{}
 	leases      int
 }
 
-type instanceRuntimeState struct {
-	compiled   *CompiledGraph
-	variables  map[string]IPort
-	variableMu sync.RWMutex
-}
-
 // HotReloadResult 描述一次热加载应用到运行时后的结果。
 type HotReloadResult struct {
-	GraphCount         int
-	UpdatedInstances   int
-	UnchangedInstances int
+	GraphCount int
 }
 
 // hotReloadPlan 保存已经在后台完成解析和编译的新蓝图集合。
@@ -77,14 +67,6 @@ func (p *hotReloadPlan) apply() HotReloadResult {
 		return result
 	}
 	b.graphs = p.graphs
-	for _, instance := range b.instances {
-		if compiled := p.graphs[instance.name]; compiled != nil {
-			instance.state = migrateInstanceRuntimeState(instance.state, compiled)
-			result.UpdatedInstances++
-			continue
-		}
-		result.UnchangedInstances++
-	}
 	return result
 }
 
@@ -118,8 +100,6 @@ func (b *Blueprint) Create(graphName string) int64 {
 	b.instances[graphID] = &GraphInstance{
 		name:       graphName,
 		graphID:    graphID,
-		module:     b.module,
-		state:      newInstanceRuntimeState(compiled),
 		releasedCh: make(chan struct{}),
 	}
 	return graphID
@@ -157,45 +137,9 @@ func (b *Blueprint) Close() error {
 
 // Do 从指定入口执行蓝图实例。
 //
-// 每次调用都会创建轻量 Graph 运行对象，复用实例上的共享变量上下文。
+// 每次调用都会创建轻量 Graph 运行对象和独立的局部变量上下文。
 func (b *Blueprint) Do(graphID int64, entranceID int64, args ...any) (PortArray, error) {
 	return b.DoContext(context.Background(), graphID, entranceID, args...)
-}
-
-func newInstanceRuntimeState(compiled *CompiledGraph) *instanceRuntimeState {
-	return &instanceRuntimeState{compiled: compiled, variables: initialVariables(compiled)}
-}
-
-func migrateInstanceRuntimeState(old *instanceRuntimeState, compiled *CompiledGraph) *instanceRuntimeState {
-	next := newInstanceRuntimeState(compiled)
-	if old == nil || old.compiled == nil || compiled == nil {
-		return next
-	}
-	old.variableMu.RLock()
-	defer old.variableMu.RUnlock()
-	for name, config := range compiled.Variables {
-		oldConfig, exists := old.compiled.Variables[name]
-		if !exists || normalizeVariableType(oldConfig.Type) != normalizeVariableType(config.Type) {
-			continue
-		}
-		if value := old.variables[name]; value != nil {
-			next.variables[name] = value.Clone()
-		}
-	}
-	return next
-}
-
-func normalizeVariableType(value string) string {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "int", "integer":
-		return "integer"
-	case "str", "string":
-		return "string"
-	case "bool", "boolean":
-		return "boolean"
-	default:
-		return strings.ToLower(strings.TrimSpace(value))
-	}
 }
 
 // TriggerEvent 兼容旧接口，用入口 ID 触发一次蓝图事件。

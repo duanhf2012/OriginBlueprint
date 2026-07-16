@@ -32,6 +32,14 @@ type vmPassNode struct{ BaseExecNode }
 func (n *vmPassNode) GetName() string    { return "VMPass" }
 func (n *vmPassNode) Exec() (int, error) { return 0, nil }
 
+type vmSelectedPortNode struct {
+	BaseExecNode
+	next int
+}
+
+func (n *vmSelectedPortNode) GetName() string    { return "VMSelectedPort" }
+func (n *vmSelectedPortNode) Exec() (int, error) { return n.next, nil }
+
 func vmNativeRegistry() *Registry {
 	registry := NewRegistry()
 	registry.Register(NewNodeDefinition("VMEntry", func() IExecNode { return &EntranceIntParam{} }, nil, []IPort{NewPortExec(), NewPortInt()}))
@@ -86,8 +94,39 @@ func TestVMNativePanicIncludesNodeAndPC(t *testing.T) {
 		t.Fatalf("CompileGraph failed: %v", err)
 	}
 	_, err = NewGraph(compiled).runVMEntrance(1)
-	if err == nil || !strings.Contains(err.Error(), "panic-node") || !strings.Contains(err.Error(), "pc 1") {
+	var structured *BlueprintError
+	if err == nil || !errors.As(err, &structured) || structured.NodeID != "panic-node" || structured.PC != 1 {
 		t.Fatalf("panic error = %v, want node and pc context", err)
+	}
+}
+
+func TestVMNativeRejectsInvalidSelectedOutput(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		next int
+	}{
+		{name: "negative", next: -2},
+		{name: "data", next: 1},
+		{name: "out-of-range", next: 2},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			registry := vmNativeRegistry()
+			registry.Register(NewNodeDefinition("VMSelectedPort", func() IExecNode {
+				return &vmSelectedPortNode{next: test.next}
+			}, []IPort{NewPortExec()}, []IPort{NewPortExec(), NewPortInt()}))
+			compiled, err := CompileGraph(registry, GraphConfig{
+				Nodes: []NodeConfig{{ID: "entry", Class: "VMEntry_1"}, {ID: "selected", Class: "VMSelectedPort"}},
+				Edges: []EdgeConfig{{SourceNodeID: "entry", SourcePortID: 0, DesNodeID: "selected", DesPortID: 0}},
+			})
+			if err != nil {
+				t.Fatalf("CompileGraph failed: %v", err)
+			}
+
+			_, err = NewGraph(compiled).runVMEntrance(1)
+			if err == nil || !strings.Contains(err.Error(), "selected") || !strings.Contains(err.Error(), fmt.Sprintf("%d", test.next)) {
+				t.Fatalf("runVMEntrance error = %v, want node and invalid output %d", err, test.next)
+			}
+		})
 	}
 }
 
