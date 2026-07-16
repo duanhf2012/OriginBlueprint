@@ -258,4 +258,3 @@ Expected: every command exits 0 and production audit reports 0 vulnerabilities.
 - [ ] **Step 5: Commit only task files**
 
 Exclude `frontend/package.json.md5` and `originblueprint.project`. Commit the verified implementation in coherent task commits or one final P2/P3 commit if intermediate commits would capture a temporarily incomplete cross-layer API.
-

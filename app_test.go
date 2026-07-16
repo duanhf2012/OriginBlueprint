@@ -923,6 +923,22 @@ func TestValidateGraphForWorkspaceUsesProductionCompilerRules(t *testing.T) {
 	}
 }
 
+func TestValidationAbsolutePathKeepsEmptyInputEmpty(t *testing.T) {
+	if got := validationAbsolutePath("  "); got != "" {
+		t.Fatalf("validationAbsolutePath(empty) = %q, want empty", got)
+	}
+}
+
+func TestValidateGraphForWorkspaceReturnsDecodeIssueForRecoverableSource(t *testing.T) {
+	issues, err := NewApp().ValidateGraphForWorkspace(`{"schemaVersion":1,"nodes":"invalid"}`, "", "broken.obp")
+	if err != nil {
+		t.Fatalf("ValidateGraphForWorkspace returned transport error: %v", err)
+	}
+	if !hasIssue(issues, "document.decode", "") {
+		t.Fatalf("issues = %#v, want document.decode", issues)
+	}
+}
+
 func TestValidateGraphForWorkspaceUsesWorkspaceFunctionSignatures(t *testing.T) {
 	workspace := t.TempDir()
 	functionDir := filepath.Join(workspace, "functions")

@@ -24,7 +24,7 @@ var validationNodeIDPattern = regexp.MustCompile(`\bnode\s+([^\s:]+)`)
 func (a *App) ValidateGraphForWorkspace(content, workspaceRoot, sourcePath string) ([]ValidationIssue, error) {
 	var document GraphDocument
 	if err := json.Unmarshal([]byte(content), &document); err != nil {
-		return nil, fmt.Errorf("decode graph document: %w", err)
+		return []ValidationIssue{{Severity: "error", Code: "document.decode", Message: fmt.Sprintf("decode graph document: %v", err)}}, nil
 	}
 	issues := validateGraph(document)
 	if issue := validateGraphWithEngine(content, workspaceRoot, sourcePath); issue != nil {
@@ -110,8 +110,8 @@ func validationFactoryName(name string) string {
 }
 
 func prepareValidationGraphDocuments(graphsDir, workspaceRoot, sourcePath, content string) (string, error) {
-	root, _ := filepath.Abs(strings.TrimSpace(workspaceRoot))
-	source, _ := filepath.Abs(strings.TrimSpace(sourcePath))
+	root := validationAbsolutePath(workspaceRoot)
+	source := validationAbsolutePath(sourcePath)
 	if root != "" {
 		info, err := os.Stat(root)
 		if err == nil && info.IsDir() {
@@ -174,6 +174,18 @@ func prepareValidationGraphDocuments(graphsDir, workspaceRoot, sourcePath, conte
 		return "", err
 	}
 	return target, nil
+}
+
+func validationAbsolutePath(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	absolute, err := filepath.Abs(value)
+	if err != nil {
+		return ""
+	}
+	return absolute
 }
 
 func sameValidationPath(left, right string) bool {
