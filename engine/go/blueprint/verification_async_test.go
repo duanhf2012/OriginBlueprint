@@ -109,7 +109,7 @@ func TestVerificationAsyncAssetsRandomDifferential(t *testing.T) {
 }
 
 func testVerificationDelayLoopRandom(t *testing.T) {
-	const seed int64 = 2026071406
+	seed := verificationRandomSeed(t, 2026071406)
 	random := rand.New(rand.NewSource(seed))
 	clock := &verificationFakeClock{}
 	graphs := loadVerificationFixtureSetWithRegistry(t, verificationFixtureRegistryWithClock(t, clock))
@@ -132,7 +132,7 @@ func testVerificationDelayLoopRandom(t *testing.T) {
 }
 
 func testVerificationRPCRandom(t *testing.T) {
-	const seed int64 = 2026071407
+	seed := verificationRandomSeed(t, 2026071407)
 	random := rand.New(rand.NewSource(seed))
 	graph := loadVerificationGraphWithRegistry(t, "07_async_rpc_resume_to.obp", verificationFixtureRegistry(t))
 	want := PortArray{{IntVal: 314}, {IntVal: 503}, {StrVal: "mock rpc unavailable"}}
@@ -148,7 +148,7 @@ func testVerificationRPCRandom(t *testing.T) {
 }
 
 func testVerificationDelayFunctionRandom(t *testing.T) {
-	const seed int64 = 2026071414
+	seed := verificationRandomSeed(t, 2026071414)
 	random := rand.New(rand.NewSource(seed))
 	clock := &verificationFakeClock{}
 	graphs := loadVerificationFixtureSetWithRegistry(t, verificationFixtureRegistryWithClock(t, clock))

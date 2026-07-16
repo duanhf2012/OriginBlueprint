@@ -3,13 +3,29 @@ package blueprint
 import (
 	"fmt"
 	"math/rand"
+	"os"
+	"strconv"
 	"testing"
 )
 
 const (
 	verificationRandomCaseCount = 64
 	verificationRepeatCount     = 3
+	verificationSeedOffsetEnv   = "ORIGIN_BLUEPRINT_VERIFICATION_SEED_OFFSET"
 )
+
+func verificationRandomSeed(t *testing.T, base int64) int64 {
+	t.Helper()
+	rawOffset := os.Getenv(verificationSeedOffsetEnv)
+	if rawOffset == "" {
+		return base
+	}
+	offset, err := strconv.ParseInt(rawOffset, 10, 64)
+	if err != nil {
+		t.Fatalf("%s must be a signed 64-bit integer: %v", verificationSeedOffsetEnv, err)
+	}
+	return base + offset
+}
 
 func TestVerificationSynchronousAssetsRandomDifferential(t *testing.T) {
 	t.Run("01_legacy_all_nodes_showcase.vgf", testVerificationLegacyRandom)
@@ -24,7 +40,7 @@ func TestVerificationSynchronousAssetsRandomDifferential(t *testing.T) {
 }
 
 func testVerificationLegacyRandom(t *testing.T) {
-	const seed int64 = 2026071401
+	seed := verificationRandomSeed(t, 2026071401)
 	random := rand.New(rand.NewSource(seed))
 	graph := loadVerificationGraph(t, "01_legacy_all_nodes_showcase.vgf")
 	seen := make(map[string]struct{}, verificationRandomCaseCount)
@@ -44,7 +60,7 @@ func testVerificationLegacyRandom(t *testing.T) {
 }
 
 func testVerificationControlFlowRandom(t *testing.T) {
-	const seed int64 = 2026071402
+	seed := verificationRandomSeed(t, 2026071402)
 	random := rand.New(rand.NewSource(seed))
 	graph := loadVerificationGraph(t, "02_control_flow_maze.obp")
 	seen := make(map[string]struct{}, verificationRandomCaseCount)
@@ -59,7 +75,7 @@ func testVerificationControlFlowRandom(t *testing.T) {
 }
 
 func testVerificationArrayLabRandom(t *testing.T) {
-	const seed int64 = 2026071403
+	seed := verificationRandomSeed(t, 2026071403)
 	random := rand.New(rand.NewSource(seed))
 	graph := loadVerificationGraph(t, "03_array_data_lab.obp")
 	seen := make(map[string]struct{}, verificationRandomCaseCount)
@@ -75,7 +91,7 @@ func testVerificationArrayLabRandom(t *testing.T) {
 }
 
 func testVerificationAlgorithmRandom(t *testing.T) {
-	const seed int64 = 2026071404
+	seed := verificationRandomSeed(t, 2026071404)
 	random := rand.New(rand.NewSource(seed))
 	graph := loadVerificationGraph(t, "04_deterministic_algorithm.obp")
 	seen := make(map[string]struct{}, verificationRandomCaseCount)
@@ -91,7 +107,7 @@ func testVerificationAlgorithmRandom(t *testing.T) {
 }
 
 func testVerificationOrchestratorRandom(t *testing.T) {
-	const seed int64 = 2026071405
+	seed := verificationRandomSeed(t, 2026071405)
 	random := rand.New(rand.NewSource(seed))
 	main := loadVerificationFixtureSet(t)["函数编排主图"]
 	if main == nil {
@@ -109,7 +125,7 @@ func testVerificationOrchestratorRandom(t *testing.T) {
 }
 
 func testVerificationScoreRandom(t *testing.T) {
-	const seed int64 = 2026071410
+	seed := verificationRandomSeed(t, 2026071410)
 	random := rand.New(rand.NewSource(seed))
 	function := verificationFixtureFunction(t, loadVerificationFixtureSet(t), "functions/10_score_kernel.obpf")
 	seen := make(map[string]struct{}, verificationRandomCaseCount)
@@ -127,7 +143,7 @@ func testVerificationScoreRandom(t *testing.T) {
 }
 
 func testVerificationFoldRandom(t *testing.T) {
-	const seed int64 = 2026071411
+	seed := verificationRandomSeed(t, 2026071411)
 	random := rand.New(rand.NewSource(seed))
 	function := verificationFixtureFunction(t, loadVerificationFixtureSet(t), "functions/11_array_fold_and_format.obpf")
 	seen := make(map[string]struct{}, verificationRandomCaseCount)
@@ -148,7 +164,7 @@ func testVerificationFoldRandom(t *testing.T) {
 }
 
 func testVerificationNestedFunctionRandom(t *testing.T) {
-	const seed int64 = 2026071412
+	seed := verificationRandomSeed(t, 2026071412)
 	random := rand.New(rand.NewSource(seed))
 	function := verificationFixtureFunction(t, loadVerificationFixtureSet(t), "functions/12_nested_control_function.obpf")
 	count, trace := referenceNestedControlFlow()
@@ -166,7 +182,7 @@ func testVerificationNestedFunctionRandom(t *testing.T) {
 }
 
 func testVerificationLocalFunctionRandom(t *testing.T) {
-	const seed int64 = 2026071413
+	seed := verificationRandomSeed(t, 2026071413)
 	random := rand.New(rand.NewSource(seed))
 	function := verificationFixtureFunction(t, loadVerificationFixtureSet(t), "functions/13_local_state_isolation.obpf")
 	seen := make(map[string]struct{}, verificationRandomCaseCount)
