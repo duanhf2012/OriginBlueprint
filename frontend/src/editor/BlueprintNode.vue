@@ -152,12 +152,20 @@ function dynamicControl() {
   return key ? props.data.inputs[key]?.control as { value?: Array<string | number>; itemType?: 'string' | 'number'; setValue?: (value: unknown) => void } | undefined : undefined
 }
 
-function setBranchValues(values: Array<string | number>, countChanged: boolean) {
+function beginControlEdit() {
+  document.dispatchEvent(new CustomEvent('origin-control-edit-start'))
+}
+
+function commitControlEdit() {
+  document.dispatchEvent(new CustomEvent('origin-control-edit-commit'))
+}
+
+function setBranchValues(values: Array<string | number>, countChanged: boolean, commit = false) {
   const control = dynamicControl()
   control?.setValue?.(values)
   branchRevision.value++
   document.dispatchEvent(new CustomEvent('origin-control-change'))
-  document.dispatchEvent(new CustomEvent('origin-dynamic-branch-change', { detail: { nodeId: props.data.id, count: values.length, countChanged } }))
+  document.dispatchEvent(new CustomEvent('origin-dynamic-branch-change', { detail: { nodeId: props.data.id, count: values.length, countChanged, commit } }))
 }
 
 function updateBranchValue(index: number, event: Event) {
@@ -172,13 +180,15 @@ function addBranch() {
   const config = props.data.dynamicBranch
   if (!config || branchValues.value.length >= config.maxBranches) return
   const control = dynamicControl()
-  setBranchValues([...(branchValues.value as Array<string | number>), control?.itemType === 'number' ? 0 : ''], true)
+  beginControlEdit()
+  setBranchValues([...(branchValues.value as Array<string | number>), control?.itemType === 'number' ? 0 : ''], true, true)
 }
 
 function removeBranch(index: number) {
+  beginControlEdit()
   const values = [...branchValues.value] as Array<string | number>
   values.splice(index, 1)
-  setBranchValues(values, true)
+  setBranchValues(values, true, true)
 }
 
 const selectedTimerFunction = computed(() => props.data.functionOptions?.find(option => option.id === props.data.functionId))
@@ -278,7 +288,7 @@ function handleTimerFunctionKeydown(event: KeyboardEvent) {
           <span v-else class="socket-ref branch-socket-spacer"></span>
           <span v-if="row.index === 0 && data.inputs[data.dynamicBranch.controlInput]" class="port-label">{{ data.inputs[data.dynamicBranch.controlInput]!.label }}</span>
           <span v-else class="port-label branch-label-spacer"></span>
-          <input class="branch-value" :value="row.value" :type="dynamicControl()?.itemType === 'number' ? 'number' : 'text'" @pointerdown.stop @dblclick.stop @input="updateBranchValue(row.index, $event)" />
+          <input class="branch-value" :value="row.value" :type="dynamicControl()?.itemType === 'number' ? 'number' : 'text'" @pointerdown.stop @dblclick.stop @focus="beginControlEdit" @blur="commitControlEdit" @input="updateBranchValue(row.index, $event)" />
           <button class="branch-remove" title="Remove branch" @pointerdown.stop.prevent="removeBranch(row.index)">-</button>
         </div>
         <div class="port-spacer middle-spacer"></div>

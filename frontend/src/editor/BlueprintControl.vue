@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 
 const props = defineProps<{ data: { value?: unknown; type?: 'text' | 'number'; itemType?: 'string' | 'number'; setValue: (value: unknown) => void } }>()
 const value = ref<unknown>(Array.isArray(props.data.value) ? [...props.data.value] : props.data.value ?? '')
@@ -7,15 +7,28 @@ const isArray = computed(() => Array.isArray(value.value))
 const isBoolean = computed(() => typeof value.value === 'boolean')
 const scalarInputType = computed(() => props.data.type === 'number' ? 'number' : 'text')
 
+function beginEdit() {
+  document.dispatchEvent(new CustomEvent('origin-control-edit-start'))
+}
+
+function commitEdit() {
+  void nextTick(() => document.dispatchEvent(new CustomEvent('origin-control-edit-commit')))
+}
+
 watch(value, next => { props.data.setValue(next); document.dispatchEvent(new CustomEvent('origin-control-change')) }, { deep: true })
 
 function addItem() {
   if (!Array.isArray(value.value)) return
+  beginEdit()
   value.value.push(props.data.itemType === 'number' ? 0 : '')
+  commitEdit()
 }
 
 function removeItem(index: number) {
-  if (Array.isArray(value.value)) value.value.splice(index, 1)
+  if (!Array.isArray(value.value)) return
+  beginEdit()
+  value.value.splice(index, 1)
+  commitEdit()
 }
 
 function updateItem(index: number, event: Event) {
@@ -32,12 +45,12 @@ function updateScalar(event: Event) {
 </script>
 
 <template>
-  <label v-if="isBoolean" class="boolean-control" @pointerdown.stop @dblclick.stop><input v-model="value" type="checkbox" /><span>{{ value ? 'True' : 'False' }}</span></label>
+  <label v-if="isBoolean" class="boolean-control" @pointerdown.stop="beginEdit" @dblclick.stop><input v-model="value" type="checkbox" @change="commitEdit" /><span>{{ value ? 'True' : 'False' }}</span></label>
   <div v-else-if="isArray" class="array-control" @pointerdown.stop @dblclick.stop>
-    <div v-for="(item, index) in (value as Array<unknown>)" :key="index" class="array-item"><input :value="item" :type="data.itemType === 'number' ? 'number' : 'text'" @input="updateItem(index, $event)" /><button @click="removeItem(index)">×</button></div>
+    <div v-for="(item, index) in (value as Array<unknown>)" :key="index" class="array-item"><input :value="item" :type="data.itemType === 'number' ? 'number' : 'text'" @focus="beginEdit" @blur="commitEdit" @input="updateItem(index, $event)" /><button @click="removeItem(index)">×</button></div>
     <button class="array-add" @click="addItem">＋ Item</button>
   </div>
-  <input v-else :value="value" :type="scalarInputType" class="node-input" @pointerdown.stop @dblclick.stop @input="updateScalar" />
+  <input v-else :value="value" :type="scalarInputType" class="node-input" @pointerdown.stop @dblclick.stop @focus="beginEdit" @blur="commitEdit" @input="updateScalar" />
 </template>
 
 <style scoped>

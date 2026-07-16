@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { sourceRequiresProtection } from '../src/documentSafety'
 import { autoSaveIntervalMs, isAutoSaveEligible } from '../src/autoSavePolicy'
+import { pushBoundedHistory } from '../src/editor/history'
 
 describe('raw source validation protection', () => {
   it('protects a source when validation found an error', () => {
@@ -32,5 +33,23 @@ describe('autosave policy', () => {
     expect(isAutoSaveEligible({ ...safe, hasRestoreLoss: true })).toBe(false)
     expect(isAutoSaveEligible({ ...safe, legacyRequiresNative: true })).toBe(false)
     expect(isAutoSaveEligible({ ...safe, saving: true })).toBe(false)
+  })
+})
+
+describe('editor history policy', () => {
+  it('keeps only the newest 100 snapshots', () => {
+    const history: number[] = []
+    for (let index = 0; index < 125; index++) pushBoundedHistory(history, index)
+    expect(history).toHaveLength(100)
+    expect(history[0]).toBe(25)
+    expect(history[99]).toBe(124)
+  })
+
+  it('supports a smaller explicit cap for focused tests', () => {
+    const history: string[] = []
+    pushBoundedHistory(history, 'a', 2)
+    pushBoundedHistory(history, 'b', 2)
+    pushBoundedHistory(history, 'c', 2)
+    expect(history).toEqual(['b', 'c'])
   })
 })

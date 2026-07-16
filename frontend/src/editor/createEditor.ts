@@ -15,6 +15,7 @@ import { refreshNodePortStates } from './portVisualState'
 import { pathIntersectsRect, rectsIntersect, type Rect } from './selectionGeometry'
 import type { ConnectionSnapshot, FunctionNodeMetadata, FunctionSignature, GraphDocument, GraphSnapshot, GraphVariable, GraphVariableGroup, GroupSnapshot, LegacyGraphState, NodeProperties, NodeSnapshot, RestoreLossReport } from './document'
 import { buildRestorePlan, normalizeDynamicOutputCount } from './restorePlan'
+import { pushBoundedHistory } from './history'
 
 export type { FunctionSignature, FunctionSignaturePort, GraphDocument, GraphVariable, GraphVariableGroup, ValidationIssue, VariableType } from './document'
 
@@ -221,6 +222,8 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   let transactionActive = false
   let initializing = true
   let pendingConnectionSnapshot: EditorHistorySnapshot | null = null
+  let controlEditSnapshot: EditorHistorySnapshot | null = null
+  let controlEditChanged = false
   let currentVariables: GraphVariable[] = []
   let currentVariableGroups: GraphVariableGroup[] = []
   let currentLegacy: LegacyGraphState | undefined
@@ -396,6 +399,14 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
 
   function historySnapshot(): EditorHistorySnapshot {
     return { graph: snapshot(), legacy: cloneLegacyState(currentLegacy) }
+  }
+
+  function pushUndoHistory(value: EditorHistorySnapshot) {
+    pushBoundedHistory(undoStack, value)
+  }
+
+  function pushRedoHistory(value: EditorHistorySnapshot) {
+    pushBoundedHistory(redoStack, value)
   }
 
   async function restoreHistory(value: EditorHistorySnapshot) {
@@ -692,7 +703,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     }
     const up = () => {
       window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up)
-      undoStack.push(before); redoStack.length = 0; callbacks.onDirty(); callbacks.onStatus(resize ? 'Group resized' : 'Group moved')
+      pushUndoHistory(before); redoStack.length = 0; callbacks.onDirty(); callbacks.onStatus(resize ? 'Group resized' : 'Group moved')
     }
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up)
   }
@@ -765,7 +776,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   }
 
   async function mutate(label: string, operation: () => Promise<void>) {
-    if (!restoring) undoStack.push(historySnapshot())
+    if (!restoring) pushUndoHistory(historySnapshot())
     redoStack.length = 0
     transactionActive = true
     try { await operation() } finally { transactionActive = false }
@@ -1173,7 +1184,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   async function undo() {
     const previous = undoStack.pop()
     if (!previous) return
-    redoStack.push(historySnapshot())
+    pushRedoHistory(historySnapshot())
     await restoreHistory(previous)
     callbacks.onStatus('Undo')
     callbacks.onDirty()
@@ -1182,7 +1193,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   async function redo() {
     const next = redoStack.pop()
     if (!next) return
-    undoStack.push(historySnapshot())
+    pushUndoHistory(historySnapshot())
     await restoreHistory(next)
     callbacks.onStatus('Redo')
     callbacks.onDirty()
@@ -1203,6 +1214,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
 
   async function loadDocument(document: GraphDocument) {
     undoStack.length = 0; redoStack.length = 0
+    controlEditSnapshot = null; controlEditChanged = false
     visibleEntryConnectionIds.clear()
     currentVariables = (document.variables ?? []).map(item => ({ ...item }))
     currentVariableGroups = (document.variableGroups ?? []).map(item => ({ ...item }))
@@ -1226,7 +1238,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   }
 
   async function newDocument() {
-    undoStack.length = 0; redoStack.length = 0; groups.length = 0; selectedGroupId = null
+    undoStack.length = 0; redoStack.length = 0; controlEditSnapshot = null; controlEditChanged = false; groups.length = 0; selectedGroupId = null
     visibleEntryConnectionIds.clear()
     currentVariables = []; currentVariableGroups = [{ id: 'default', name: 'Default' }]; currentLegacy = undefined; insertionOffset = 0; callbacks.onVariables([]); callbacks.onVariableGroups(currentVariableGroups.map(item => ({ ...item }))); callbacks.onSelection(null)
     restoring = true; await selector.unselectAll(); await editor.clear(); restoring = false; renderGroups(); updateMetrics()
@@ -1505,24 +1517,43 @@ function nodeSize(node: BlueprintNode) {
     if (detail) showEntryBindingMenu(detail)
   }
   const dynamicBranchListener = (event: Event) => {
-    const detail = (event as CustomEvent<{ nodeId: string; count: number; countChanged?: boolean }>).detail
+    const detail = (event as CustomEvent<{ nodeId: string; count: number; countChanged?: boolean; commit?: boolean }>).detail
     if (!detail) return
     void (async () => {
-      if (detail.countChanged) await pruneDynamicBranchConnections(detail.nodeId, detail.count)
-      const node = editor.getNode(detail.nodeId)
-      if (node) syncDynamicBranchOutputs(node, detail.count)
-      await refreshPortStates(Boolean(node))
-      if (node) {
-        await area.update('node', node.id)
-        if (node.selected) callbacks.onSelection(selectedNodeInfo(node))
+      try {
+        if (detail.countChanged) await pruneDynamicBranchConnections(detail.nodeId, detail.count)
+        const node = editor.getNode(detail.nodeId)
+        if (node) syncDynamicBranchOutputs(node, detail.count)
+        await refreshPortStates(Boolean(node))
+        if (node) {
+          await area.update('node', node.id)
+          if (node.selected) callbacks.onSelection(selectedNodeInfo(node))
+        }
+        callbacks.onDirty()
+      } finally {
+        if (detail.commit) document.dispatchEvent(new CustomEvent('origin-control-edit-commit'))
       }
-      callbacks.onDirty()
     })()
   }
   const controlChangeListener = () => {
     if (restoring) return
+    if (controlEditSnapshot) controlEditChanged = true
     callbacks.onDirty()
     void refreshPortStates(true)
+  }
+  const controlEditStartListener = () => {
+    if (restoring || controlEditSnapshot) return
+    controlEditSnapshot = historySnapshot()
+    controlEditChanged = false
+  }
+  const controlEditCommitListener = () => {
+    if (!controlEditSnapshot) return
+    if (controlEditChanged) {
+      pushUndoHistory(controlEditSnapshot)
+      redoStack.length = 0
+    }
+    controlEditSnapshot = null
+    controlEditChanged = false
   }
   const connectionSelectListener = (event: Event) => {
     const detail = (event as CustomEvent<{ id: string; additive: boolean }>).detail
@@ -1545,6 +1576,8 @@ function nodeSize(node: BlueprintNode) {
   container.addEventListener('origin-connection-select', connectionSelectListener)
   container.addEventListener('origin-connection-delete', connectionDeleteListener)
   document.addEventListener('origin-control-change', controlChangeListener)
+  document.addEventListener('origin-control-edit-start', controlEditStartListener)
+  document.addEventListener('origin-control-edit-commit', controlEditCommitListener)
   window.addEventListener('pointerdown', hideEntryBindingMenu)
   const destroyPanFeedback = setupCanvasPanFeedback()
   const destroyMultiSelectionDragPreserver = setupMultiSelectionDragPreserver()
@@ -1803,7 +1836,9 @@ function nodeSize(node: BlueprintNode) {
 
   area.addPipe(async context => {
     if (context.type === 'zoomed') callbacks.onZoom(context.data.zoom)
-    if ((context.type === 'connectioncreate' || context.type === 'connectionremove') && !restoring && !transactionActive && !initializing) pendingConnectionSnapshot = historySnapshot()
+    if (context.type === 'connectioncreate' || context.type === 'connectionremove') {
+      pendingConnectionSnapshot = !restoring && !transactionActive && !controlEditSnapshot && !initializing ? historySnapshot() : null
+    }
     if (context.type === 'connectioncreated' || context.type === 'connectionremoved') {
       if (context.type === 'connectioncreated') {
         decorateConnection(context.data)
@@ -1815,8 +1850,8 @@ function nodeSize(node: BlueprintNode) {
       }
       queueMicrotask(() => void refreshPortStates(true, [context.data.source, context.data.target]))
       updateMetrics()
-      if (!restoring && !transactionActive && !initializing && pendingConnectionSnapshot) {
-        undoStack.push(pendingConnectionSnapshot); redoStack.length = 0; pendingConnectionSnapshot = null
+      if (!restoring && !transactionActive && !controlEditSnapshot && !initializing && pendingConnectionSnapshot) {
+        pushUndoHistory(pendingConnectionSnapshot); redoStack.length = 0; pendingConnectionSnapshot = null
         callbacks.onDirty(); callbacks.onStatus(context.type === 'connectioncreated' ? 'Connection created' : 'Connection removed')
       }
     }
@@ -1833,7 +1868,7 @@ function nodeSize(node: BlueprintNode) {
     }
     if (context.type === 'nodedragged' && dragSnapshot) {
       stopNodeDragFeedback()
-      undoStack.push(dragSnapshot); redoStack.length = 0; dragSnapshot = null; callbacks.onDirty(); callbacks.onStatus('Node moved')
+      pushUndoHistory(dragSnapshot); redoStack.length = 0; dragSnapshot = null; callbacks.onDirty(); callbacks.onStatus('Node moved')
     }
     return context
   })
@@ -1858,6 +1893,8 @@ function nodeSize(node: BlueprintNode) {
       container.removeEventListener('origin-connection-select', connectionSelectListener)
       container.removeEventListener('origin-connection-delete', connectionDeleteListener)
       document.removeEventListener('origin-control-change', controlChangeListener)
+      document.removeEventListener('origin-control-edit-start', controlEditStartListener)
+      document.removeEventListener('origin-control-edit-commit', controlEditCommitListener)
       window.removeEventListener('pointerdown', hideEntryBindingMenu)
       window.removeEventListener('pointerup', stopNodeDragFeedback)
       window.removeEventListener('pointercancel', stopNodeDragFeedback)
