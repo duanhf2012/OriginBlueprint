@@ -49,3 +49,5 @@ export function SavePNG(arg1:string,arg2:string):Promise<string>;
 export function SaveProjectSettings(arg1:string,arg2:string):Promise<string>;
 
 export function ValidateGraph(arg1:string):Promise<Array<main.ValidationIssue>>;
+
+export function ValidateGraphForWorkspace(arg1:string,arg2:string,arg3:string):Promise<Array<main.ValidationIssue>>;

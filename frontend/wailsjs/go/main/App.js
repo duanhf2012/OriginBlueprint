@@ -97,3 +97,7 @@ export function SaveProjectSettings(arg1, arg2) {
 export function ValidateGraph(arg1) {
   return window['go']['main']['App']['ValidateGraph'](arg1);
 }
+
+export function ValidateGraphForWorkspace(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ValidateGraphForWorkspace'](arg1, arg2, arg3);
+}

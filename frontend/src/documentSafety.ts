@@ -23,6 +23,10 @@ export function hasRestoreLoss(report?: RestoreLossReport | null) {
   return Boolean(report && (report.droppedNodes.length > 0 || report.droppedConnections.length > 0 || report.alteredNodes.length > 0))
 }
 
+export function sourceRequiresProtection(issues: readonly { severity: string }[]) {
+  return issues.some(issue => issue.severity === 'error')
+}
+
 export function compatibilitySaveOptions(input: CompatibilitySavePolicyInput): readonly CompatibilitySaveAction[] {
   if (!input.fatal && !input.hasLoss) return []
   return !input.fatal && input.hasLoss && input.formatAllowsForce

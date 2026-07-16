@@ -6,7 +6,7 @@ import type { FunctionNodeMetadata, NodeSnapshot, RestoreLossReport } from './ed
 import { getNodeDefinitions, registerNodeSchemas, type NodeDefinition } from './editor/nodeRegistry'
 import { menuLocales, normalizeLocale, type LocaleId } from './i18n'
 import { platform, type NodeReferenceResult, type WorkspaceEntry } from './platform'
-import { compatibilitySaveOptions, findOpenTab, hasRestoreLoss, resolveCompatibilitySaveAction as resolveCompatibilityPersistenceAction, type CompatibilitySaveAction } from './documentSafety'
+import { compatibilitySaveOptions, findOpenTab, hasRestoreLoss, resolveCompatibilitySaveAction as resolveCompatibilityPersistenceAction, sourceRequiresProtection, type CompatibilitySaveAction } from './documentSafety'
 
 interface GraphTab { id: string; title: string; path: string; dirty: boolean; document: GraphDocument | null; restoreLoss?: RestoreLossReport | null; restoreFatal?: boolean }
 interface WorkspaceTreeNode extends WorkspaceEntry { children: WorkspaceTreeNode[]; loaded: boolean; loading: boolean }
@@ -1412,9 +1412,7 @@ function normalizeDocument(value: any): GraphDocument {
 }
 
 function isNativeGraphDocument(value: any) {
-  if (value?.schemaVersion !== 1) return false
-  if (!Array.isArray(value.nodes)) return true
-  return value.nodes.every((node: any) => typeof node?.typeId === 'string')
+  return value?.schemaVersion === 1
 }
 
 function isLegacyGraphPath(path: string) {
@@ -1429,7 +1427,7 @@ async function testGraph() {
   if (!editor) return
   await editor.highlightIssueNodes([])
   const document = editor.getDocument(activeTab.value.title, variables.value, variableGroups.value)
-  validationIssues.value = await platform.validateGraph(JSON.stringify(document))
+  validationIssues.value = await platform.validateGraph(JSON.stringify(document), workspaceRoot.value, activeTab.value.path)
   selectedValidationIssueKey.value = ''
   showLogger.value = true
   const errors = validationIssues.value.filter(issue => issue.severity === 'error').length
@@ -1499,7 +1497,11 @@ async function openGraph(path = '', highlightTypeId = '') {
   let parsed: any
   try { parsed = JSON.parse(file.content) } catch { status.value = 'Invalid graph file'; return }
   let document: GraphDocument
-  if (isNativeGraphDocument(parsed)) document = normalizeDocument(parsed)
+  let sourceIssues: ValidationIssue[] = []
+  if (isNativeGraphDocument(parsed)) {
+    sourceIssues = await platform.validateGraph(file.content, workspaceRoot.value, file.path)
+    document = normalizeDocument(parsed)
+  }
   else if (platform.isDesktop()) {
     try { document = normalizeDocument(JSON.parse(await platform.migrateLegacyGraph(file.content))) }
     catch (error) { status.value = error instanceof Error ? error.message : 'Legacy graph migration failed'; return }
@@ -1524,7 +1526,7 @@ async function openGraph(path = '', highlightTypeId = '') {
   try {
     const report = await editor?.loadDocument(document)
     tab.restoreLoss = hasRestoreLoss(report) ? report : null
-    tab.restoreFatal = false
+    tab.restoreFatal = sourceRequiresProtection(sourceIssues)
   } catch (error) {
     tab.restoreFatal = true
     status.value = `Graph restore failed; source overwrite is disabled: ${error instanceof Error ? error.message : String(error)}`
@@ -1535,6 +1537,16 @@ async function openGraph(path = '', highlightTypeId = '') {
   }
   if (tab.restoreLoss) {
     status.value = `Compatibility limited: ${tab.restoreLoss.droppedNodes.length} node(s), ${tab.restoreLoss.droppedConnections.length} connection(s), and ${tab.restoreLoss.alteredNodes.length} normalized node(s); source overwrite is disabled by default`
+  }
+  if (sourceIssues.length) {
+    validationIssues.value = sourceIssues
+    selectedValidationIssueKey.value = ''
+    showLogger.value = true
+    const errors = sourceIssues.filter(issue => issue.severity === 'error').length
+    const warnings = sourceIssues.filter(issue => issue.severity === 'warning').length
+    status.value = errors
+      ? `Source validation found ${errors} error(s) and ${warnings} warning(s); source overwrite is disabled`
+      : `Source validation found ${warnings} warning(s)`
   }
   await highlightReferenceSearchTarget(highlightTypeId)
   recentFiles.value = await platform.recentFiles()
@@ -1575,7 +1587,7 @@ async function saveGraphUnchecked(saveAs: boolean) {
   const tab = activeTab.value
   const document = documentWithFunctionSignature(editor.getDocument(tab.title, variables.value, variableGroups.value), tab)
   if (projectSettingsContent.value.editor.validateBeforeSave) {
-    const issues = await platform.validateGraph(JSON.stringify(document))
+    const issues = await platform.validateGraph(JSON.stringify(document), workspaceRoot.value, tab.path)
     validationIssues.value = issues
     if (issues.some(issue => issue.severity === 'error')) {
       showLogger.value = true

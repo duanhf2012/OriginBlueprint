@@ -34,6 +34,7 @@ type DesktopApp = {
   OpenExternalURL(url: string): Promise<void>
   GetRecentFiles(): Promise<string[]>
   ValidateGraph(content: string): Promise<ValidationIssue[]>
+  ValidateGraphForWorkspace(content: string, workspaceRoot: string, sourcePath: string): Promise<ValidationIssue[]>
   MigrateLegacyGraph(content: string): Promise<string>
   ExportLegacyGraph(content: string): Promise<string>
   LoadNodeSchemaDocuments(): Promise<RawNodeSchemaDocumentLoadResult>
@@ -188,9 +189,14 @@ export const platform = {
     window.open(url, '_blank', 'noopener')
   },
   async recentFiles() { return desktop() ? withDesktopLogging('GetRecentFiles', () => desktop()!.GetRecentFiles()) : [] },
-  async validateGraph(content: string): Promise<ValidationIssue[]> {
-    if (desktop()) return withDesktopLogging('ValidateGraph', () => desktop()!.ValidateGraph(content))
-    try { JSON.parse(content); return [] } catch { return [{ severity: 'error', code: 'document.invalid-json', message: 'Invalid graph document' }] }
+  async validateGraph(content: string, workspaceRoot = '', sourcePath = ''): Promise<ValidationIssue[]> {
+    if (desktop()) return withDesktopLogging('ValidateGraphForWorkspace', () => desktop()!.ValidateGraphForWorkspace(content, workspaceRoot, sourcePath))
+    try {
+      JSON.parse(content)
+      return [{ severity: 'warning', code: 'engine.unavailable', message: 'Go engine compilation validation is unavailable in browser mode' }]
+    } catch {
+      return [{ severity: 'error', code: 'document.invalid-json', message: 'Invalid graph document' }]
+    }
   },
   async migrateLegacyGraph(content: string) { return desktop() ? withDesktopLogging('MigrateLegacyGraph', () => desktop()!.MigrateLegacyGraph(content)) : '' },
   async exportLegacyGraph(content: string) { return desktop() ? withDesktopLogging('ExportLegacyGraph', () => desktop()!.ExportLegacyGraph(content)) : content },

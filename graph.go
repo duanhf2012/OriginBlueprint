@@ -453,7 +453,6 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 
 	nodes := make(map[string]GraphNode, len(document.Nodes))
 	ports := make(map[string]portDefinition, len(document.Nodes))
-	hasLegacyPlaceholder := false
 	for _, node := range document.Nodes {
 		if node.ID == "" {
 			issues = append(issues, ValidationIssue{Severity: "error", Code: "node.missing-id", Message: "存在缺少 ID 的结点"})
@@ -519,7 +518,6 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 			known = true
 		}
 		if node.TypeID == "origin.legacy.placeholder" {
-			hasLegacyPlaceholder = true
 			if len(node.Properties.LegacyInputs)+len(node.Properties.LegacyOutputs) > maxLegacyPortsPerNode {
 				issues = append(issues, ValidationIssue{Severity: "error", Code: "node.port-limit", Message: "Legacy node port count exceeds the safe limit", NodeID: node.ID})
 				continue
@@ -582,9 +580,7 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 			issues = append(issues, ValidationIssue{Severity: "error", Code: "connection.type-mismatch", Message: fmt.Sprintf("端口类型不匹配：%s 不能连接到 %s", sourceType, targetType), NodeID: target.ID})
 		}
 	}
-	if !hasLegacyPlaceholder {
-		issues = append(issues, validateExecutionFlow(nodes, ports, document.Connections)...)
-	}
+	issues = append(issues, validateExecutionFlow(nodes, ports, document.Connections)...)
 
 	return issues
 }

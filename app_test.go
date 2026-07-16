@@ -602,7 +602,7 @@ func TestValidateGraphReportsUnreachableFlowNodesFromEntries(t *testing.T) {
 	document := GraphDocument{
 		SchemaVersion: GraphSchemaVersion,
 		Nodes: []GraphNode{
-			{ID: "entry", TypeID: "origin.event.begin"},
+			{ID: "entry", TypeID: "origin.event.entry-two-integers"},
 			{ID: "reachable", TypeID: "origin.debug.output"},
 			{ID: "wild", TypeID: "origin.debug.output"},
 		},
@@ -719,6 +719,21 @@ func TestValidateGraphDoesNotReportUnknownNodeType(t *testing.T) {
 	}
 }
 
+func TestValidateGraphLegacyPlaceholderDoesNotSuppressKnownFlowIssues(t *testing.T) {
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		Nodes: []GraphNode{
+			{ID: "entry", TypeID: "origin.event.begin"},
+			{ID: "legacy", TypeID: "origin.legacy.placeholder", Properties: GraphNodeProperties{LegacyClass: "FutureNode"}},
+			{ID: "unreachable", TypeID: "origin.action.print"},
+		},
+	}
+	issues := validateGraph(document)
+	if !hasIssue(issues, "flow.unreachable-node", "unreachable") {
+		t.Fatalf("issues = %#v, want known unreachable node even with a legacy placeholder", issues)
+	}
+}
+
 func TestValidateGraphUsesChineseMessagesForExecutionIssues(t *testing.T) {
 	document := GraphDocument{
 		SchemaVersion: GraphSchemaVersion,
@@ -785,6 +800,133 @@ func TestValidateGraphServiceRejectsInvalidJSON(t *testing.T) {
 	document, _ := json.Marshal(GraphDocument{SchemaVersion: GraphSchemaVersion})
 	if _, err := app.ValidateGraph(string(document)); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestValidateGraphForWorkspaceUsesProductionCompilerRules(t *testing.T) {
+	tests := []struct {
+		name        string
+		nodes       []GraphNode
+		connections []GraphConnection
+	}{
+		{
+			name: "duplicate data producer",
+			nodes: []GraphNode{
+				{ID: "left", TypeID: "origin.literal.string"},
+				{ID: "right", TypeID: "origin.literal.string"},
+				{ID: "target", TypeID: "origin.action.print"},
+			},
+			connections: []GraphConnection{
+				{Source: "left", SourceOutput: "value", Target: "target", TargetInput: "value"},
+				{Source: "right", SourceOutput: "value", Target: "target", TargetInput: "value"},
+			},
+		},
+		{
+			name: "native exec fanout",
+			nodes: []GraphNode{
+				{ID: "entry", TypeID: "origin.event.begin"},
+				{ID: "left", TypeID: "origin.action.print"},
+				{ID: "right", TypeID: "origin.action.print"},
+			},
+			connections: []GraphConnection{
+				{Source: "entry", SourceOutput: "exec", Target: "left", TargetInput: "exec"},
+				{Source: "entry", SourceOutput: "exec", Target: "right", TargetInput: "exec"},
+			},
+		},
+		{
+			name: "data dependency cycle",
+			nodes: []GraphNode{
+				{ID: "left", TypeID: "origin.math.add-integer"},
+				{ID: "right", TypeID: "origin.math.add-integer"},
+			},
+			connections: []GraphConnection{
+				{Source: "left", SourceOutput: "result", Target: "right", TargetInput: "a"},
+				{Source: "right", SourceOutput: "result", Target: "left", TargetInput: "a"},
+			},
+		},
+		{
+			name: "duplicate entrance id",
+			nodes: []GraphNode{
+				{ID: "first", TypeID: "origin.event.entry-two-integers"},
+				{ID: "second", TypeID: "origin.event.entry-two-integers"},
+			},
+		},
+		{
+			name:  "unknown executable node",
+			nodes: []GraphNode{{ID: "future", TypeID: "origin.future.node"}},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			document := GraphDocument{
+				SchemaVersion:  GraphSchemaVersion,
+				GraphName:      "validation-test",
+				Nodes:          test.nodes,
+				Connections:    test.connections,
+				Groups:         []GraphGroup{},
+				Variables:      []GraphVariable{},
+				VariableGroups: []GraphVariableGroup{{ID: "default", Name: "Default"}},
+				View:           GraphView{Zoom: 1},
+			}
+			data, err := json.Marshal(document)
+			if err != nil {
+				t.Fatal(err)
+			}
+			issues, err := NewApp().ValidateGraphForWorkspace(string(data), "", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !hasIssue(issues, "engine.compile", "") && !hasIssue(issues, "engine.parse", "") && !hasIssue(issues, "engine.definition", "") {
+				t.Fatalf("issues = %#v, want a production engine error", issues)
+			}
+		})
+	}
+}
+
+func TestValidateGraphForWorkspaceUsesWorkspaceFunctionSignatures(t *testing.T) {
+	workspace := t.TempDir()
+	functionDir := filepath.Join(workspace, "functions")
+	if err := os.MkdirAll(functionDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	fixture, err := os.ReadFile(filepath.Join("examples", "sample-project", "functions", "calculate-damage.obpf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(functionDir, "calculate-damage.obpf"), fixture, 0644); err != nil {
+		t.Fatal(err)
+	}
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		GraphName:     "function-caller",
+		Nodes: []GraphNode{
+			{ID: "entry", TypeID: "origin.event.entry-two-integers"},
+			{ID: "call", TypeID: "origin.function.call", Properties: GraphNodeProperties{
+				FunctionID:   "fn_calculate_damage",
+				FunctionName: "CalculateDamage",
+				FunctionSignature: GraphFunctionSignature{
+					Inputs:  []GraphFunctionSignaturePort{{ID: "base", Name: "BaseDamage", Type: "string"}},
+					Outputs: []GraphFunctionSignaturePort{{ID: "damage", Name: "Damage", Type: "integer"}},
+				},
+			}},
+		},
+		Connections:    []GraphConnection{{Source: "entry", SourceOutput: "exec", Target: "call", TargetInput: "exec"}},
+		Groups:         []GraphGroup{},
+		Variables:      []GraphVariable{},
+		VariableGroups: []GraphVariableGroup{{ID: "default", Name: "Default"}},
+		View:           GraphView{Zoom: 1},
+	}
+	data, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	issues, err := NewApp().ValidateGraphForWorkspace(string(data), workspace, filepath.Join(workspace, "main.obp"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasIssue(issues, "engine.compile", "call") {
+		t.Fatalf("issues = %#v, want function signature compiler error on call", issues)
 	}
 }
 
