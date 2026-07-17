@@ -37,6 +37,7 @@ func TestVerificationSynchronousAssetsRandomDifferential(t *testing.T) {
 	t.Run("functions/11_array_fold_and_format.obpf", testVerificationFoldRandom)
 	t.Run("functions/12_nested_control_function.obpf", testVerificationNestedFunctionRandom)
 	t.Run("functions/13_local_state_isolation.obpf", testVerificationLocalFunctionRandom)
+	t.Run("functions/15_variable_types_lifecycle.obpf", testVerificationVariableTypesRandom)
 }
 
 func testVerificationLegacyRandom(t *testing.T) {
@@ -194,6 +195,35 @@ func testVerificationLocalFunctionRandom(t *testing.T) {
 		assertVerificationRepeated(t, "13", seed, caseIndex, inputText, func() (PortArray, error) {
 			return NewGraph(function).Do(FunctionEntranceID, seedValue)
 		}, PortArray{{IntVal: referenceLocalStateIsolation(seedValue)}})
+	}
+}
+
+func testVerificationVariableTypesRandom(t *testing.T) {
+	seed := verificationRandomSeed(t, 2026071415)
+	random := rand.New(rand.NewSource(seed))
+	function := verificationFixtureFunction(t, loadVerificationFixtureSet(t), "functions/15_variable_types_lifecycle.obpf")
+	seen := make(map[string]struct{}, verificationRandomCaseCount)
+	for caseIndex := 0; caseIndex < verificationRandomCaseCount; caseIndex++ {
+		integerValue := PortInt(random.Intn(2001) - 1000)
+		floatValue := PortFloat(random.Intn(200001)-100000) / 100
+		stringValue := PortString(fmt.Sprintf("typed-variable-%d-%d", caseIndex, random.Intn(1_000_000)))
+		boolValue := PortBool(random.Intn(2) == 0)
+		arrayValue := randomVerificationPortArray(random, random.Intn(9))
+		input := fmt.Sprintf("integer=%d,float=%g,string=%q,bool=%t,array=%s", integerValue, floatValue, stringValue, boolValue, formatPortArray(arrayValue))
+		assertVerificationRandomInputUnique(t, seen, "15", seed, caseIndex, input)
+		assertVerificationRepeated(t, "15", seed, caseIndex, input, func() (PortArray, error) {
+			return NewGraph(function).Do(FunctionEntranceID, integerValue, floatValue, stringValue, boolValue, arrayValue)
+		}, referenceVariableTypes(integerValue, floatValue, stringValue, boolValue, arrayValue))
+	}
+}
+
+func referenceVariableTypes(integerValue PortInt, floatValue PortFloat, stringValue PortString, boolValue PortBool, arrayValue PortArray) PortArray {
+	return PortArray{
+		{IntVal: integerValue},
+		{FloatVal: floatValue},
+		{StrVal: stringValue},
+		{BoolVal: boolValue},
+		{IntVal: PortInt(len(arrayValue))},
 	}
 }
 

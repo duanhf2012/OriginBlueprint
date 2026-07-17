@@ -23,6 +23,7 @@ func verificationAssetPaths() []string {
 		"functions/12_nested_control_function.obpf",
 		"functions/13_local_state_isolation.obpf",
 		"functions/14_async_delay_function.obpf",
+		"functions/15_variable_types_lifecycle.obpf",
 	}
 }
 

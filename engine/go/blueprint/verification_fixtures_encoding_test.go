@@ -91,6 +91,7 @@ func TestVerificationBlueprintFixturesLoadThroughEngine(t *testing.T) {
 		"嵌套控制流",
 		"局部状态隔离",
 		"函数内异步 Delay",
+		"变量类型生命周期",
 	} {
 		if graphs[name] == nil {
 			t.Errorf("loaded fixtures do not contain graph %q", name)

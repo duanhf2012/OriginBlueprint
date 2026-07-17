@@ -2,11 +2,11 @@
 
 本报告由 `TestWriteVerificationMatrixReport` 实际执行后生成，不是手工填写。每个蓝图使用独立 seed 产生 64 组不同随机输入，每组重复执行 3 次；测试会拒绝同一蓝图内的重复输入。蓝图返回值逐端口与独立 Go 参考实现比较。可通过 `ORIGIN_BLUEPRINT_VERIFICATION_SEED_OFFSET` 切换到一轮全新的输入，表中记录的是本轮实际 seed，可用于稳定复现。
 
-- 蓝图文件：12
-- 已有对应 Go 参考实现：12/12
-- 随机参数组：768
-- 实际重复对比执行：2496
-- 通过蓝图：12/12
+- 蓝图文件：13
+- 已有对应 Go 参考实现：13/13
+- 随机参数组：832
+- 实际重复对比执行：2688
+- 通过蓝图：13/13
 - 不一致蓝图：0
 
 ## 文件级结果
@@ -25,6 +25,7 @@
 | `functions/12_nested_control_function.obpf` | 有 | 2046332128 | 64 | 3 | 192 | 一致 |
 | `functions/13_local_state_isolation.obpf` | 有 | 2046332129 | 64 | 3 | 192 | 一致 |
 | `functions/14_async_delay_function.obpf` | 有 | 2046332130 | 64 | 3 | 192 | 一致 |
+| `functions/15_variable_types_lifecycle.obpf` | 有 | 2046332131 | 64 | 3 | 192 | 一致 |
 
 说明：`01_legacy_all_nodes_showcase.vgf` 每组随机参数同时检查整数入口和数组入口，因此对比执行数是其他文件的两倍。异步 Delay 使用虚拟时钟，不依赖真实等待；异步 RPC 使用测试节点的 `Yield -> ResumeTo` 回包，均检查恢复后的最终返回值。
 

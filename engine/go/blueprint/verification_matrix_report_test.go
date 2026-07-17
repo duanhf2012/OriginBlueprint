@@ -59,6 +59,7 @@ func verificationReportAssets(t *testing.T) []verificationReportAsset {
 		{path: "functions/12_nested_control_function.obpf", seed: verificationRandomSeed(t, 2026071412), randomCases: verificationRandomCaseCount, checksPerCase: 1, runRandomCompare: testVerificationNestedFunctionRandom},
 		{path: "functions/13_local_state_isolation.obpf", seed: verificationRandomSeed(t, 2026071413), randomCases: verificationRandomCaseCount, checksPerCase: 1, runRandomCompare: testVerificationLocalFunctionRandom},
 		{path: "functions/14_async_delay_function.obpf", seed: verificationRandomSeed(t, 2026071414), randomCases: verificationRandomCaseCount, checksPerCase: 1, runRandomCompare: testVerificationDelayFunctionRandom},
+		{path: "functions/15_variable_types_lifecycle.obpf", seed: verificationRandomSeed(t, 2026071415), randomCases: verificationRandomCaseCount, checksPerCase: 1, runRandomCompare: testVerificationVariableTypesRandom},
 	}
 }
 
