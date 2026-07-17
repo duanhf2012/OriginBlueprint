@@ -221,6 +221,16 @@ const applicationClasses = computed(() => ({
 }))
 const activeWorkspacePath = computed(() => activeTab.value?.path || '')
 const validationIssueCountLabel = computed(() => validationIssues.value.length ? menuText.value.validation.issueCount.replace('{count}', String(validationIssues.value.length)) : menuText.value.validation.noIssues)
+const groupedValidationIssues = computed(() => {
+  const groups = new Map<string, { key: string; label: string; items: Array<{ issue: ValidationIssue; index: number }> }>()
+  validationIssues.value.forEach((issue, index) => {
+    const descriptor = validationIssueGroup(issue)
+    const group = groups.get(descriptor.key) ?? { ...descriptor, items: [] }
+    group.items.push({ issue, index })
+    groups.set(descriptor.key, group)
+  })
+  return Array.from(groups.values())
+})
 const referencePanelStyle = computed(() => ({ height: `${referencePanelCollapsed.value ? 34 : referencePanelHeight.value}px` }))
 const testPanelStyle = computed(() => ({ height: `${testPanelCollapsed.value ? 34 : testPanelHeight.value}px` }))
 const variablePanelStyle = computed(() => ({ flex: `0 0 ${variablePanelHeight.value}px` }))
@@ -1491,6 +1501,20 @@ async function highlightIssue(issue: ValidationIssue, index: number) {
   }
   const count = await editor?.highlightIssueNodes(ids) ?? 0
   status.value = count ? `已用红色警示框标出 ${count} 个问题结点` : '未找到对应结点'
+}
+
+function validationIssueGroup(issue: ValidationIssue) {
+  if (issue.target) return { key: `target:${issue.target}`, label: `运行目标：${issue.target}` }
+  const sourcePath = issue.sourcePath?.trim() ?? ''
+  const currentPath = activeTab.value?.path?.trim() ?? ''
+  const normalize = (value: string) => {
+    const normalized = value.replace(/\\/g, '/')
+    return platform.isDesktop() ? normalized.toLowerCase() : normalized
+  }
+  if (sourcePath && (!currentPath || normalize(sourcePath) !== normalize(currentPath))) {
+    return { key: `workspace:${normalize(sourcePath)}`, label: `Workspace 依赖：${sourcePath}` }
+  }
+  return { key: 'current', label: '当前蓝图' }
 }
 
 async function loadRecoverySnapshotPrompts() {
@@ -2928,13 +2952,16 @@ function toggleModuleCategory(category: string) {
           </div>
           <div v-show="!testPanelCollapsed" class="logger-results">
             <div v-if="!validationIssues.length" class="logger-line">没有发现蓝图问题。</div>
-            <button v-for="(issue, index) in validationIssues" :key="validationIssueKey(issue, index)" class="logger-issue" :class="[issue.severity, { selected: selectedValidationIssueKey === validationIssueKey(issue, index) }]" @click="queueSelectIssue(issue, index)" @dblclick.stop.prevent="highlightIssue(issue, index)">
-              <strong>{{ issueSeverityLabel(issue) }}</strong>
-              <span class="logger-issue-message">{{ issue.message }}</span>
-              <span v-if="issue.blocksSave" class="logger-issue-blocks-save">禁止保存</span>
-              <span class="logger-issue-meta"><b>{{ menuText.validation.nodes }}</b>{{ issueNodeLabel(issue) }}</span>
-              <small><b>{{ menuText.validation.code }}</b>{{ issue.code }}</small>
-            </button>
+            <section v-for="group in groupedValidationIssues" :key="group.key" class="logger-issue-group">
+              <header>{{ group.label }}</header>
+              <button v-for="item in group.items" :key="validationIssueKey(item.issue, item.index)" class="logger-issue" :class="[item.issue.severity, { selected: selectedValidationIssueKey === validationIssueKey(item.issue, item.index) }]" @click="queueSelectIssue(item.issue, item.index)" @dblclick.stop.prevent="highlightIssue(item.issue, item.index)">
+                <strong>{{ issueSeverityLabel(item.issue) }}</strong>
+                <span class="logger-issue-message">{{ item.issue.message }}</span>
+                <span v-if="item.issue.blocksSave" class="logger-issue-blocks-save">禁止保存</span>
+                <span class="logger-issue-meta"><b>{{ menuText.validation.nodes }}</b>{{ issueNodeLabel(item.issue) }}</span>
+                <small><b>{{ menuText.validation.code }}</b>{{ item.issue.code }}</small>
+              </button>
+            </section>
           </div>
         </div>
         <div v-if="nodeReferenceSearch.visible" class="reference-panel bottom-panel" :class="{ collapsed: referencePanelCollapsed }" :style="referencePanelStyle">

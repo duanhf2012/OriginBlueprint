@@ -70,6 +70,7 @@ button { font: inherit; color: inherit; }
 .graph-tab.save-blocked { border-top-color: #d14d4d; }
 .save-blocked-mark { color: #ff6b6b; font-size: 12px; }
 .logger-issue-blocks-save { color: #ff8a8a; font-weight: 700; }
+.logger-issue-group > header { position: sticky; top: 0; z-index: 1; padding: 4px 8px; background: #252525; color: #aaa; font-size: 11px; }
 .tab-mark { width: 7px; height: 7px; border-radius: 50%; background: #3c82aa; }
 .dirty-mark { margin-left: auto; color: #d7a443; font-size: 8px; }.tab-close { margin-left: auto; padding: 0; border: 0; background: transparent; color: #888; font-size: 18px; }.tab-close:hover { color: white; }
 .new-tab { flex-shrink: 0; height: 34px; width: 34px; border: 0; background: transparent; color: #bbb; font-size: 18px; }
