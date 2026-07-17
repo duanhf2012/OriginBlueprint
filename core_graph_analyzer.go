@@ -179,6 +179,7 @@ func markAndSortCoreIssues(issues []ValidationIssue) []ValidationIssue {
 	for index := range issues {
 		if issues[index].Severity == "error" && issues[index].Target == "" && coreIssueBlocksSave(issues[index].Code) {
 			issues[index].BlocksSave = true
+			issues[index].BlocksRun = true
 		}
 	}
 	sort.SliceStable(issues, func(left, right int) bool {
@@ -238,8 +239,8 @@ func normalizedExecAdjacency(connections []coreExecConnection) map[string][]stri
 	sort.Strings(roots)
 
 	type loopReachability struct {
-		bodyStarts  []string
-		withoutBody map[string][]string
+		bodyReachable    map[string]bool
+		outsideReachable map[string]bool
 	}
 	loopCache := make(map[string]loopReachability)
 	result := cloneCoreAdjacency(base)
@@ -250,23 +251,25 @@ func normalizedExecAdjacency(connections []coreExecConnection) map[string][]stri
 		loopID := connection.Target
 		analysis, cached := loopCache[loopID]
 		if !cached {
-			analysis.withoutBody = make(map[string][]string)
+			bodyStarts := make([]string, 0)
+			withoutBody := make(map[string][]string)
 			for _, edge := range connections {
 				if edge.breakCandidate {
 					continue
 				}
 				if edge.Source == loopID && edge.SourceOutput == "body" {
-					analysis.bodyStarts = append(analysis.bodyStarts, edge.Target)
+					bodyStarts = append(bodyStarts, edge.Target)
 					continue
 				}
-				analysis.withoutBody[edge.Source] = append(analysis.withoutBody[edge.Source], edge.Target)
+				withoutBody[edge.Source] = append(withoutBody[edge.Source], edge.Target)
 			}
+			analysis.bodyReachable = coreReachableSet(bodyStarts, base)
+			analysis.outsideReachable = coreReachableSet(roots, withoutBody)
 			loopCache[loopID] = analysis
 		}
 		valid := connection.Source == loopID && connection.SourceOutput == "body"
 		if !valid {
-			valid = coreReachable(analysis.bodyStarts, connection.Source, base) &&
-				!coreReachable(roots, connection.Source, analysis.withoutBody)
+			valid = analysis.bodyReachable[connection.Source] && !analysis.outsideReachable[connection.Source]
 		}
 		if !valid {
 			result[connection.Source] = append(result[connection.Source], connection.Target)
@@ -275,10 +278,7 @@ func normalizedExecAdjacency(connections []coreExecConnection) map[string][]stri
 	return result
 }
 
-func coreReachable(starts []string, target string, adjacency map[string][]string) bool {
-	if target == "" {
-		return false
-	}
+func coreReachableSet(starts []string, adjacency map[string][]string) map[string]bool {
 	visited := make(map[string]bool)
 	stack := append([]string(nil), starts...)
 	for len(stack) > 0 {
@@ -288,12 +288,9 @@ func coreReachable(starts []string, target string, adjacency map[string][]string
 			continue
 		}
 		visited[nodeID] = true
-		if nodeID == target {
-			return true
-		}
 		stack = append(stack, adjacency[nodeID]...)
 	}
-	return false
+	return visited
 }
 
 func cloneCoreAdjacency(source map[string][]string) map[string][]string {

@@ -125,6 +125,40 @@ func TestCoreAnalyzerReturnsEveryConfirmedCycle(t *testing.T) {
 	}
 }
 
+func TestCoreAnalyzerReportsExecAndDataSelfLoops(t *testing.T) {
+	document := analyzerDocument([]GraphNode{
+		{ID: "entry", TypeID: "origin.event.begin"},
+		{ID: "exec-self", TypeID: "origin.action.print"},
+		{ID: "data-self", TypeID: "origin.math.add-integer"},
+	}, []GraphConnection{
+		{Source: "entry", SourceOutput: "exec", Target: "exec-self", TargetInput: "exec"},
+		{Source: "exec-self", SourceOutput: "exec", Target: "exec-self", TargetInput: "exec"},
+		{Source: "data-self", SourceOutput: "result", Target: "data-self", TargetInput: "a"},
+	})
+	for _, code := range []string{"flow.exec-cycle", "flow.data-cycle"} {
+		issue := requireValidationIssue(t, validateGraph(document), code)
+		if !issue.BlocksSave || !issue.BlocksRun || len(issue.NodeIDs) != 1 {
+			t.Fatalf("self-loop issue = %#v", issue)
+		}
+	}
+}
+
+func TestCoreAnalyzerAllowsBuiltInStructuredLoops(t *testing.T) {
+	for _, loopType := range []string{"origin.flow.for-loop", "origin.flow.while"} {
+		document := analyzerDocument([]GraphNode{
+			{ID: "entry", TypeID: "origin.event.begin"},
+			{ID: "loop", TypeID: loopType},
+			{ID: "body", TypeID: "origin.action.print"},
+		}, []GraphConnection{
+			{Source: "entry", SourceOutput: "exec", Target: "loop", TargetInput: "exec"},
+			{Source: "loop", SourceOutput: "body", Target: "body", TargetInput: "exec"},
+		})
+		if issues := issuesWithCode(validateGraph(document), "flow.exec-cycle"); len(issues) != 0 {
+			t.Fatalf("%s reported as graph cycle: %#v", loopType, issues)
+		}
+	}
+}
+
 func TestCoreAnalyzerAllowsStructuredLoopBreak(t *testing.T) {
 	document := analyzerDocument([]GraphNode{
 		{ID: "entry", TypeID: "origin.event.begin"},

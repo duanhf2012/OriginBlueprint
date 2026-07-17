@@ -856,6 +856,7 @@ func TestValidateGraphServiceRejectsInvalidJSON(t *testing.T) {
 
 func TestCoreIssueBlocksSaveUsesExplicitLanguageNeutralCodes(t *testing.T) {
 	blocking := []string{
+		"document.decode",
 		"schema.unsupported",
 		"node.missing-id",
 		"node.duplicate-id",
@@ -895,8 +896,8 @@ func TestValidateGraphMarksStructuralCoreErrorsAsSaveBlocking(t *testing.T) {
 		},
 	}
 	issue := requireValidationIssue(t, validateGraph(document), "node.duplicate-id")
-	if !issue.BlocksSave {
-		t.Fatalf("issue = %#v, want BlocksSave", issue)
+	if !issue.BlocksSave || !issue.BlocksRun {
+		t.Fatalf("issue = %#v, want BlocksSave and BlocksRun", issue)
 	}
 }
 
@@ -1043,6 +1044,10 @@ func TestValidateGraphForWorkspaceReturnsDecodeIssueForRecoverableSource(t *test
 	}
 	if !hasIssue(issues, "document.decode", "") {
 		t.Fatalf("issues = %#v, want document.decode", issues)
+	}
+	issue := requireValidationIssue(t, issues, "document.decode")
+	if !issue.BlocksSave || !issue.BlocksRun || issue.Target != "" {
+		t.Fatalf("decode issue = %#v, want core save/run blocker", issue)
 	}
 }
 

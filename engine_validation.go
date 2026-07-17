@@ -31,7 +31,7 @@ var validationNodeIDPattern = regexp.MustCompile(`\bnode\s+([^\s:]+)`)
 func (a *App) ValidateGraphForWorkspace(content, workspaceRoot, sourcePath string) ([]ValidationIssue, error) {
 	var document GraphDocument
 	if err := json.Unmarshal([]byte(content), &document); err != nil {
-		return []ValidationIssue{{Severity: "error", Code: "document.decode", Message: fmt.Sprintf("decode graph document: %v", err)}}, nil
+		return []ValidationIssue{{Severity: "error", Code: "document.decode", Message: fmt.Sprintf("decode graph document: %v", err), BlocksSave: true, BlocksRun: true}}, nil
 	}
 	issues := validateGraph(document)
 	if issue := validateGraphWithEngine(content, workspaceRoot, sourcePath); issue != nil {
