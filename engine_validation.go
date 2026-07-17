@@ -23,6 +23,19 @@ type validationSourceMap struct {
 	currentPath   string
 }
 
+type validationFunctionReference struct {
+	functionID   string
+	functionName string
+}
+
+type validationWorkspaceFunction struct {
+	path       string
+	relative   string
+	data       []byte
+	readErr    error
+	references []validationFunctionReference
+}
+
 func (n *validationExecNode) GetName() string    { return n.name }
 func (n *validationExecNode) Exec() (int, error) { return 0, nil }
 
@@ -125,34 +138,24 @@ func prepareValidationGraphDocuments(graphsDir, workspaceRoot, sourcePath, conte
 	root := validationAbsolutePath(workspaceRoot)
 	source := validationAbsolutePath(sourcePath)
 	if root != "" {
-		info, err := os.Stat(root)
-		if err == nil && info.IsDir() {
-			err = filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
-				if walkErr != nil {
-					return walkErr
-				}
-				if entry.IsDir() || !strings.EqualFold(filepath.Ext(path), ".obpf") {
-					return nil
-				}
-				absolute, _ := filepath.Abs(path)
-				if source != "" && sameValidationPath(absolute, source) {
-					return nil
-				}
-				relative, relErr := filepath.Rel(root, path)
-				if relErr != nil || strings.HasPrefix(relative, "..") {
-					return nil
-				}
-				data, readErr := os.ReadFile(path)
-				if readErr != nil {
-					return readErr
-				}
-				target := filepath.Join(graphsDir, relative)
-				if mkdirErr := os.MkdirAll(filepath.Dir(target), 0755); mkdirErr != nil {
-					return mkdirErr
-				}
-				return os.WriteFile(target, data, 0644)
-			})
-			if err != nil {
+		index, err := indexValidationWorkspaceFunctions(root, source)
+		if err != nil {
+			return "", err
+		}
+		var document GraphDocument
+		if json.Unmarshal([]byte(content), &document) == nil {
+			references := validationFunctionReferences(document)
+			if functionID := strings.TrimSpace(document.FunctionID); functionID != "" {
+				references = append(references, validationFunctionReference{functionID: functionID})
+			}
+			graphName := strings.TrimSpace(document.GraphName)
+			if graphName == "" && source != "" {
+				graphName = strings.TrimSuffix(filepath.Base(source), filepath.Ext(source))
+			}
+			if graphName != "" {
+				references = append(references, validationFunctionReference{functionName: graphName})
+			}
+			if err := copyValidationFunctionClosure(graphsDir, index, references); err != nil {
 				return "", err
 			}
 		}
@@ -188,6 +191,113 @@ func prepareValidationGraphDocuments(graphsDir, workspaceRoot, sourcePath, conte
 	return target, nil
 }
 
+func indexValidationWorkspaceFunctions(root, source string) (map[string][]*validationWorkspaceFunction, error) {
+	index := map[string][]*validationWorkspaceFunction{}
+	info, err := os.Stat(root)
+	if err != nil || !info.IsDir() {
+		return index, nil
+	}
+	err = filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || !strings.EqualFold(filepath.Ext(path), ".obpf") {
+			return nil
+		}
+		absolute, err := filepath.Abs(path)
+		if err != nil || (source != "" && sameValidationPath(absolute, source)) {
+			return nil
+		}
+		relative, err := filepath.Rel(root, absolute)
+		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
+			return nil
+		}
+		record := &validationWorkspaceFunction{path: absolute, relative: relative}
+		record.data, record.readErr = os.ReadFile(absolute)
+
+		aliases := []string{filepath.ToSlash(relative)}
+		if record.readErr == nil {
+			var identity struct {
+				FunctionID string `json:"functionId"`
+				GraphName  string `json:"graphName"`
+			}
+			if json.Unmarshal(record.data, &identity) == nil {
+				if functionID := normalizeValidationFunctionID(identity.FunctionID); functionID != "" {
+					aliases = append(aliases, functionID)
+				}
+				if graphName := strings.TrimSpace(identity.GraphName); graphName != "" {
+					aliases = append(aliases, graphName)
+				}
+			}
+			var document GraphDocument
+			if json.Unmarshal(record.data, &document) == nil {
+				record.references = validationFunctionReferences(document)
+			}
+		}
+		seenAliases := map[string]bool{}
+		for _, alias := range aliases {
+			if alias == "" || seenAliases[alias] {
+				continue
+			}
+			seenAliases[alias] = true
+			index[alias] = append(index[alias], record)
+		}
+		return nil
+	})
+	return index, err
+}
+
+func copyValidationFunctionClosure(graphsDir string, index map[string][]*validationWorkspaceFunction, queue []validationFunctionReference) error {
+	selected := map[string]bool{}
+	for len(queue) != 0 {
+		reference := queue[0]
+		queue = queue[1:]
+		owners := index[normalizeValidationFunctionID(reference.functionID)]
+		if len(owners) == 0 {
+			owners = index[strings.TrimSpace(reference.functionName)]
+		}
+		for _, function := range owners {
+			pathKey := strings.ToLower(filepath.Clean(function.path))
+			if selected[pathKey] {
+				continue
+			}
+			selected[pathKey] = true
+			if function.readErr != nil {
+				return function.readErr
+			}
+			target := filepath.Join(graphsDir, function.relative)
+			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+				return err
+			}
+			if err := os.WriteFile(target, function.data, 0644); err != nil {
+				return err
+			}
+			queue = append(queue, function.references...)
+		}
+	}
+	return nil
+}
+
+func validationFunctionReferences(document GraphDocument) []validationFunctionReference {
+	references := make([]validationFunctionReference, 0)
+	for _, node := range document.Nodes {
+		if node.TypeID != "origin.function.call" && node.TypeID != "origin.timer.set-by-function" {
+			continue
+		}
+		functionID := strings.TrimSpace(node.Properties.FunctionID)
+		functionName := strings.TrimSpace(node.Properties.FunctionName)
+		if functionID == "" && functionName == "" {
+			continue
+		}
+		references = append(references, validationFunctionReference{functionID: functionID, functionName: functionName})
+	}
+	return references
+}
+
+func normalizeValidationFunctionID(value string) string {
+	return filepath.ToSlash(strings.TrimSpace(value))
+}
+
 func validationAbsolutePath(value string) string {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -213,7 +323,16 @@ func engineIssueFromError(err error, sources validationSourceMap) *ValidationIss
 	if strings.Contains(strings.ToLower(err.Error()), "definition") || strings.Contains(strings.ToLower(err.Error()), "has not been registered") {
 		code = "engine.definition"
 	}
-	issue := engineValidationIssue(code, err)
+	issueError := err
+	isWorkspaceFunction := false
+	if structured != nil && structured.SourcePath != "" {
+		isWorkspaceFunction = sources.currentPath != "" && !sameValidationPath(structured.SourcePath, sources.currentPath)
+		mapped := *structured
+		mapped.SourcePath = sources.originalPath(structured.SourcePath)
+		structured = &mapped
+		issueError = structured
+	}
+	issue := engineValidationIssue(code, issueError)
 	if structured != nil && structured.NodeID != "" {
 		issue.NodeID = structured.NodeID
 	} else if match := validationNodeIDPattern.FindStringSubmatch(err.Error()); len(match) == 2 {
@@ -223,8 +342,8 @@ func engineIssueFromError(err error, sources validationSourceMap) *ValidationIss
 		}
 	}
 	if structured != nil && structured.SourcePath != "" {
-		issue.SourcePath = sources.originalPath(structured.SourcePath)
-		if sources.currentPath != "" && !sameValidationPath(structured.SourcePath, sources.currentPath) {
+		issue.SourcePath = structured.SourcePath
+		if isWorkspaceFunction {
 			issue.Message = "Workspace function: " + issue.Message
 		}
 	}

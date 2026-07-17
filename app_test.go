@@ -1029,6 +1029,12 @@ func TestWorkspaceCompilerIssueCarriesOriginalSourcePath(t *testing.T) {
 	if !sameValidationPath(issue.SourcePath, functionPath) || issue.Target != "target.go" || !issue.BlocksRun || issue.BlocksSave {
 		t.Fatalf("workspace issue = %#v, want original source %q and run-only target metadata", issue, functionPath)
 	}
+	if !strings.Contains(issue.Message, functionPath) {
+		t.Fatalf("workspace issue message = %q, want original source %q", issue.Message, functionPath)
+	}
+	if strings.Contains(issue.Message, graphsDir) {
+		t.Fatalf("workspace issue message = %q, must not expose temporary path %q", issue.Message, graphsDir)
+	}
 }
 
 func TestValidationAbsolutePathKeepsEmptyInputEmpty(t *testing.T) {
@@ -1094,6 +1100,220 @@ func TestValidateGraphForWorkspaceUsesWorkspaceFunctionSignatures(t *testing.T) 
 	}
 	if !hasIssue(issues, "engine.compile", "call") {
 		t.Fatalf("issues = %#v, want function signature compiler error on call", issues)
+	}
+}
+
+func TestValidateGraphForWorkspaceIgnoresUnreferencedWorkspaceFunction(t *testing.T) {
+	workspace := t.TempDir()
+	brokenPath := filepath.Join(workspace, "examples", "unrelated.obpf")
+	if err := os.MkdirAll(filepath.Dir(brokenPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(brokenPath, []byte(`{"schemaVersion":1`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	document := validationCallerDocument("", "")
+	data, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	issues, err := NewApp().ValidateGraphForWorkspace(string(data), workspace, filepath.Join(workspace, "main.obp"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, issue := range issues {
+		if strings.HasPrefix(issue.Code, "engine.") && issue.Severity == "error" {
+			t.Fatalf("issues = %#v, unrelated workspace function must not affect current graph", issues)
+		}
+	}
+}
+
+func TestValidateGraphForWorkspaceIncludesReferencedWorkspaceFunction(t *testing.T) {
+	workspace := t.TempDir()
+	brokenPath := filepath.Join(workspace, "functions", "broken.obpf")
+	if err := os.MkdirAll(filepath.Dir(brokenPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(brokenPath, []byte(`{"schemaVersion":1`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	document := validationCallerDocument("functions/broken.obpf", "Broken")
+	data, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	issues, err := NewApp().ValidateGraphForWorkspace(string(data), workspace, filepath.Join(workspace, "main.obp"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	issue := requireValidationIssue(t, issues, "engine.parse")
+	if !sameValidationPath(issue.SourcePath, brokenPath) {
+		t.Fatalf("issue = %#v, want referenced source %q", issue, brokenPath)
+	}
+}
+
+func TestValidateGraphForWorkspaceIndexesMalformedReferencedFunctionIdentity(t *testing.T) {
+	workspace := t.TempDir()
+	brokenPath := filepath.Join(workspace, "functions", "broken.obpf")
+	if err := os.MkdirAll(filepath.Dir(brokenPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	content := `{"schemaVersion":1,"graphName":"Broken","functionId":"fn_broken","nodes":"invalid"}`
+	if err := os.WriteFile(brokenPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	document := validationCallerDocument("fn_broken", "Broken")
+	data, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	issues, err := NewApp().ValidateGraphForWorkspace(string(data), workspace, filepath.Join(workspace, "main.obp"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	issue := requireValidationIssue(t, issues, "engine.parse")
+	if !sameValidationPath(issue.SourcePath, brokenPath) {
+		t.Fatalf("issue = %#v, want malformed referenced source %q", issue, brokenPath)
+	}
+}
+
+func TestValidateGraphForWorkspaceIncludesTransitiveWorkspaceFunction(t *testing.T) {
+	workspace := t.TempDir()
+	functionDir := filepath.Join(workspace, "functions")
+	if err := os.MkdirAll(functionDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	brokenPath := filepath.Join(functionDir, "broken.obpf")
+	if err := os.WriteFile(brokenPath, []byte(`{"schemaVersion":1`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	writeValidationGraphDocument(t, filepath.Join(functionDir, "wrapper.obpf"), validationFunctionDocument(
+		"fn_wrapper",
+		"Wrapper",
+		&GraphNodeProperties{FunctionID: "functions/broken.obpf", FunctionName: "Broken"},
+	))
+
+	document := validationCallerDocument("fn_wrapper", "Wrapper")
+	data, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	issues, err := NewApp().ValidateGraphForWorkspace(string(data), workspace, filepath.Join(workspace, "main.obp"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	issue := requireValidationIssue(t, issues, "engine.parse")
+	if !sameValidationPath(issue.SourcePath, brokenPath) {
+		t.Fatalf("issue = %#v, want transitive source %q", issue, brokenPath)
+	}
+}
+
+func TestValidateGraphForWorkspacePreservesReferencedFunctionAliasConflict(t *testing.T) {
+	workspace := t.TempDir()
+	functionDir := filepath.Join(workspace, "functions")
+	if err := os.MkdirAll(functionDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	writeValidationGraphDocument(t, filepath.Join(functionDir, "first.obpf"), validationFunctionDocument("fn_duplicate", "First", nil))
+	writeValidationGraphDocument(t, filepath.Join(functionDir, "second.obpf"), validationFunctionDocument("fn_duplicate", "Second", nil))
+
+	document := validationCallerDocument("fn_duplicate", "First")
+	data, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	issues, err := NewApp().ValidateGraphForWorkspace(string(data), workspace, filepath.Join(workspace, "main.obp"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	issue := requireValidationIssue(t, issues, "engine.compile")
+	if !strings.Contains(issue.Message, "conflicts with") {
+		t.Fatalf("issue = %#v, want duplicate function alias conflict", issue)
+	}
+}
+
+func TestValidateGraphForWorkspacePreservesCurrentFunctionAliasConflict(t *testing.T) {
+	workspace := t.TempDir()
+	functionDir := filepath.Join(workspace, "functions")
+	if err := os.MkdirAll(functionDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	writeValidationGraphDocument(t, filepath.Join(functionDir, "other.obpf"), validationFunctionDocument("fn_current", "Other", nil))
+
+	document := validationFunctionDocument("fn_current", "Current", nil)
+	data, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	issues, err := NewApp().ValidateGraphForWorkspace(string(data), workspace, filepath.Join(functionDir, "current.obpf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	issue := requireValidationIssue(t, issues, "engine.compile")
+	if !strings.Contains(issue.Message, "conflicts with") {
+		t.Fatalf("issue = %#v, want current function alias conflict", issue)
+	}
+}
+
+func validationCallerDocument(functionID, functionName string) GraphDocument {
+	nodes := []GraphNode{{ID: "entry", TypeID: "origin.event.entry-two-integers"}}
+	connections := []GraphConnection{}
+	if functionID != "" || functionName != "" {
+		nodes = append(nodes, GraphNode{ID: "call", TypeID: "origin.function.call", Properties: GraphNodeProperties{
+			FunctionID:   functionID,
+			FunctionName: functionName,
+		}})
+		connections = append(connections, GraphConnection{Source: "entry", SourceOutput: "exec", Target: "call", TargetInput: "exec"})
+	}
+	return GraphDocument{
+		SchemaVersion:  GraphSchemaVersion,
+		GraphName:      "validation-caller",
+		Nodes:          nodes,
+		Connections:    connections,
+		Groups:         []GraphGroup{},
+		Variables:      []GraphVariable{},
+		VariableGroups: []GraphVariableGroup{{ID: "default", Name: "Default"}},
+		View:           GraphView{Zoom: 1},
+	}
+}
+
+func validationFunctionDocument(functionID, graphName string, call *GraphNodeProperties) GraphDocument {
+	nodes := []GraphNode{
+		{ID: "entry", TypeID: "origin.function.entry"},
+		{ID: "return", TypeID: "origin.function.return"},
+	}
+	connections := []GraphConnection{{Source: "entry", SourceOutput: "exec", Target: "return", TargetInput: "exec"}}
+	if call != nil {
+		nodes = append(nodes, GraphNode{ID: "call", TypeID: "origin.function.call", Properties: *call})
+		connections = []GraphConnection{
+			{Source: "entry", SourceOutput: "exec", Target: "call", TargetInput: "exec"},
+			{Source: "call", SourceOutput: "exec", Target: "return", TargetInput: "exec"},
+		}
+	}
+	return GraphDocument{
+		SchemaVersion:  GraphSchemaVersion,
+		GraphName:      graphName,
+		FunctionID:     functionID,
+		Nodes:          nodes,
+		Connections:    connections,
+		Groups:         []GraphGroup{},
+		Variables:      []GraphVariable{},
+		VariableGroups: []GraphVariableGroup{{ID: "default", Name: "Default"}},
+		View:           GraphView{Zoom: 1},
+	}
+}
+
+func writeValidationGraphDocument(t *testing.T, path string, document GraphDocument) {
+	t.Helper()
+	data, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		t.Fatal(err)
 	}
 }
 
