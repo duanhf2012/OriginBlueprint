@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	blueprint "github.com/duanhf2012/OriginBlueprint/engine/go/blueprint"
 )
 
 func TestGraphFileRoundTrip(t *testing.T) {
@@ -976,6 +978,55 @@ func TestValidateGraphForWorkspaceUsesProductionCompilerRules(t *testing.T) {
 				t.Fatalf("issues = %#v, want a production engine error", issues)
 			}
 		})
+	}
+}
+
+func TestGoCompilerIssueNeverBlocksCoreSave(t *testing.T) {
+	document := analyzerDocument([]GraphNode{{ID: "future", TypeID: "origin.future.node"}}, nil)
+	data, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	issues, err := NewApp().ValidateGraphForWorkspace(string(data), "", "graph.obp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var issue ValidationIssue
+	for _, candidate := range issues {
+		if strings.HasPrefix(candidate.Code, "engine.") {
+			issue = candidate
+			break
+		}
+	}
+	if issue.Code == "" {
+		t.Fatalf("issues = %#v, want engine issue", issues)
+	}
+	if issue.Target != "target.go" || !issue.BlocksRun || issue.BlocksSave {
+		t.Fatalf("engine issue = %#v, want run-only Go target diagnostic", issue)
+	}
+	if !sameValidationPath(issue.SourcePath, validationAbsolutePath("graph.obp")) {
+		t.Fatalf("engine issue source = %q, want current source path", issue.SourcePath)
+	}
+}
+
+func TestWorkspaceCompilerIssueCarriesOriginalSourcePath(t *testing.T) {
+	workspace := t.TempDir()
+	functionPath := filepath.Join(workspace, "functions", "missing-return.obpf")
+	graphsDir := filepath.Join(t.TempDir(), "graphs")
+	temporaryFunctionPath := filepath.Join(graphsDir, "functions", "missing-return.obpf")
+	currentPath := filepath.Join(workspace, "main.obp")
+	issue := engineIssueFromError(&blueprint.BlueprintError{
+		Stage:      blueprint.BlueprintStageCompile,
+		SourcePath: temporaryFunctionPath,
+		Cause:      errors.New("function requires FunctionReturn"),
+	}, validationSourceMap{
+		graphsDir:     graphsDir,
+		workspaceRoot: workspace,
+		sourcePath:    currentPath,
+		currentPath:   filepath.Join(graphsDir, "main.obp"),
+	})
+	if !sameValidationPath(issue.SourcePath, functionPath) || issue.Target != "target.go" || !issue.BlocksRun || issue.BlocksSave {
+		t.Fatalf("workspace issue = %#v, want original source %q and run-only target metadata", issue, functionPath)
 	}
 }
 

@@ -16,6 +16,13 @@ type validationExecNode struct {
 	name string
 }
 
+type validationSourceMap struct {
+	graphsDir     string
+	workspaceRoot string
+	sourcePath    string
+	currentPath   string
+}
+
 func (n *validationExecNode) GetName() string    { return n.name }
 func (n *validationExecNode) Exec() (int, error) { return 0, nil }
 
@@ -72,7 +79,12 @@ func validateGraphWithEngine(content, workspaceRoot, sourcePath string) *Validat
 		engine.RegisterExecNode(func() blueprint.IExecNode { return &validationExecNode{name: factoryName} })
 	}
 	if err := engine.Init(nodesDir, graphsDir, nil); err != nil {
-		return engineIssueFromError(err, currentPath)
+		return engineIssueFromError(err, validationSourceMap{
+			graphsDir:     graphsDir,
+			workspaceRoot: workspaceRoot,
+			sourcePath:    sourcePath,
+			currentPath:   currentPath,
+		})
 	}
 	if err := engine.Close(); err != nil {
 		return engineValidationIssue("engine.compile", err)
@@ -192,7 +204,7 @@ func sameValidationPath(left, right string) bool {
 	return strings.EqualFold(filepath.Clean(left), filepath.Clean(right))
 }
 
-func engineIssueFromError(err error, currentPath string) *ValidationIssue {
+func engineIssueFromError(err error, sources validationSourceMap) *ValidationIssue {
 	code := "engine.compile"
 	var structured *blueprint.BlueprintError
 	if errors.As(err, &structured) && structured != nil && structured.Stage == blueprint.BlueprintStageParse {
@@ -210,12 +222,36 @@ func engineIssueFromError(err error, currentPath string) *ValidationIssue {
 			issue.NodeID = candidate
 		}
 	}
-	if structured != nil && structured.SourcePath != "" && currentPath != "" && !sameValidationPath(structured.SourcePath, currentPath) {
-		issue.Message = "Workspace function: " + issue.Message
+	if structured != nil && structured.SourcePath != "" {
+		issue.SourcePath = sources.originalPath(structured.SourcePath)
+		if sources.currentPath != "" && !sameValidationPath(structured.SourcePath, sources.currentPath) {
+			issue.Message = "Workspace function: " + issue.Message
+		}
 	}
 	return issue
 }
 
 func engineValidationIssue(code string, err error) *ValidationIssue {
-	return &ValidationIssue{Severity: "error", Code: code, Message: err.Error()}
+	return &ValidationIssue{Severity: "error", Code: code, Message: err.Error(), BlocksRun: true, Target: "target.go"}
+}
+
+func (sources validationSourceMap) originalPath(temporaryPath string) string {
+	if temporaryPath == "" {
+		return ""
+	}
+	if sources.currentPath != "" && sameValidationPath(temporaryPath, sources.currentPath) {
+		if source := validationAbsolutePath(sources.sourcePath); source != "" {
+			return source
+		}
+	}
+	graphsDir := validationAbsolutePath(sources.graphsDir)
+	temporary := validationAbsolutePath(temporaryPath)
+	if graphsDir != "" && temporary != "" {
+		if relative, err := filepath.Rel(graphsDir, temporary); err == nil && relative != "" && relative != "." && !strings.HasPrefix(relative, "..") {
+			if root := validationAbsolutePath(sources.workspaceRoot); root != "" {
+				return filepath.Join(root, relative)
+			}
+		}
+	}
+	return temporaryPath
 }
