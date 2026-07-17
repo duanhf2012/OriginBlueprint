@@ -22,6 +22,14 @@ export function CurrentWorkingDirectory() {
   return window['go']['main']['App']['CurrentWorkingDirectory']();
 }
 
+export function DeleteRecoverySnapshot(arg1) {
+  return window['go']['main']['App']['DeleteRecoverySnapshot'](arg1);
+}
+
+export function DeleteRecoverySnapshots(arg1, arg2) {
+  return window['go']['main']['App']['DeleteRecoverySnapshots'](arg1, arg2);
+}
+
 export function ExportLegacyGraph(arg1) {
   return window['go']['main']['App']['ExportLegacyGraph'](arg1);
 }
@@ -40,6 +48,10 @@ export function ForceSaveGraph(arg1, arg2) {
 
 export function GetRecentFiles() {
   return window['go']['main']['App']['GetRecentFiles']();
+}
+
+export function ListRecoverySnapshots() {
+  return window['go']['main']['App']['ListRecoverySnapshots']();
 }
 
 export function ListWorkspace(arg1) {
@@ -78,6 +90,10 @@ export function Quit() {
   return window['go']['main']['App']['Quit']();
 }
 
+export function ReadRecoverySnapshot(arg1) {
+  return window['go']['main']['App']['ReadRecoverySnapshot'](arg1);
+}
+
 export function RevealInFolder(arg1) {
   return window['go']['main']['App']['RevealInFolder'](arg1);
 }
@@ -92,6 +108,10 @@ export function SavePNG(arg1, arg2) {
 
 export function SaveProjectSettings(arg1, arg2) {
   return window['go']['main']['App']['SaveProjectSettings'](arg1, arg2);
+}
+
+export function SaveRecoverySnapshot(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['SaveRecoverySnapshot'](arg1, arg2, arg3, arg4);
 }
 
 export function ValidateGraph(arg1) {

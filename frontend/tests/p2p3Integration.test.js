@@ -15,7 +15,7 @@ const editor = source('editor/createEditor.ts')
 const history = source('editor/history.ts')
 
 assert(app.includes('autoSaveIntervalMs') && app.includes('window.setInterval') && app.includes('autoSaveDirtyTabs'), 'project autosave setting must schedule the autosave worker')
-assert(app.includes('sourceRequiresProtection(issues)') && app.includes('isAutoSaveEligible'), 'autosave must validate and apply the compatibility-safe eligibility policy')
+assert(app.includes('await validateForPersistence(tab, document)') && app.includes('isAutoSaveEligible'), 'autosave must validate through the shared core save gate and apply compatibility-safe eligibility')
 assert(control.includes('origin-control-edit-start') && control.includes('origin-control-edit-commit'), 'inline scalar and array controls must expose edit transaction boundaries')
 assert(node.includes('beginControlEdit') && node.includes('origin-dynamic-branch-change'), 'dynamic branch values must join control edit transactions')
 assert(editor.includes("addEventListener('origin-control-edit-start'") && editor.includes("addEventListener('origin-control-edit-commit'"), 'the editor must record control edit transaction boundaries')

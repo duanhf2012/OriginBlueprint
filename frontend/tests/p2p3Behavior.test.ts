@@ -2,17 +2,23 @@ import { describe, expect, it } from 'vitest'
 import { sourceRequiresProtection } from '../src/documentSafety'
 import { autoSaveIntervalMs, isAutoSaveEligible } from '../src/autoSavePolicy'
 import { pushBoundedHistory } from '../src/editor/history'
+import { saveGateDecision } from '../src/saveGate'
 
 describe('raw source validation protection', () => {
   it('protects a source when validation found an error', () => {
     expect(sourceRequiresProtection([
       { severity: 'warning' },
-      { severity: 'error' },
+      { severity: 'error', blocksSave: true },
     ])).toBe(true)
   })
 
   it('does not protect a source for warnings alone', () => {
     expect(sourceRequiresProtection([{ severity: 'warning' }])).toBe(false)
+  })
+
+  it('does not protect a source from runtime-target or nonblocking core errors', () => {
+    expect(sourceRequiresProtection([{ severity: 'error', target: 'target.go', blocksRun: true }])).toBe(false)
+    expect(sourceRequiresProtection([{ severity: 'error', code: 'flow.unreachable-node' }])).toBe(false)
   })
 })
 
@@ -51,5 +57,15 @@ describe('editor history policy', () => {
     pushBoundedHistory(history, 'b', 2)
     pushBoundedHistory(history, 'c', 2)
     expect(history).toEqual(['b', 'c'])
+  })
+})
+
+describe('core graph save gate', () => {
+  it('blocks core blockers but never target-only errors', () => {
+    expect(saveGateDecision([{ severity: 'error', code: 'flow.exec-cycle', message: 'cycle', blocksSave: true }], false).blocked).toBe(true)
+    expect(saveGateDecision([{ severity: 'error', code: 'engine.compile', message: 'unsupported', target: 'target.go', blocksRun: true }], false).blocked).toBe(false)
+    expect(saveGateDecision([{ severity: 'error', code: 'flow.unreachable-node', message: 'unreachable' }], false).blocked).toBe(false)
+    expect(saveGateDecision([{ severity: 'error', code: 'flow.unreachable-node', message: 'unreachable' }], true).blocked).toBe(true)
+    expect(saveGateDecision([{ severity: 'warning', code: 'flow.possible-cycle', message: 'possible' }], true).blocked).toBe(false)
   })
 })

@@ -5,11 +5,12 @@ import { createBlueprintEditor, type BlueprintEditorHandle, type EditorMetrics, 
 import type { FunctionNodeMetadata, NodeSnapshot, RestoreLossReport } from './editor/document'
 import { getNodeDefinitions, registerNodeSchemas, type NodeDefinition } from './editor/nodeRegistry'
 import { menuLocales, normalizeLocale, type LocaleId } from './i18n'
-import { platform, type NodeReferenceResult, type WorkspaceEntry } from './platform'
+import { platform, type NodeReferenceResult, type RecoverySnapshotResult, type WorkspaceEntry } from './platform'
 import { compatibilitySaveOptions, findOpenTab, hasRestoreLoss, resolveCompatibilitySaveAction as resolveCompatibilityPersistenceAction, sourceRequiresProtection, type CompatibilitySaveAction } from './documentSafety'
 import { autoSaveIntervalMs, isAutoSaveEligible, type AutoSaveMode } from './autoSavePolicy'
+import { saveGateDecision } from './saveGate'
 
-interface GraphTab { id: string; title: string; path: string; dirty: boolean; document: GraphDocument | null; restoreLoss?: RestoreLossReport | null; restoreFatal?: boolean }
+interface GraphTab { id: string; title: string; path: string; dirty: boolean; document: GraphDocument | null; restoreLoss?: RestoreLossReport | null; restoreFatal?: boolean; saveBlocked?: boolean }
 interface WorkspaceTreeNode extends WorkspaceEntry { children: WorkspaceTreeNode[]; loaded: boolean; loading: boolean }
 interface VisibleWorkspaceNode { node: WorkspaceTreeNode; depth: number }
 type UnsavedCloseAction = 'save' | 'discard' | 'cancel'
@@ -124,6 +125,8 @@ const validationIssues = ref<ValidationIssue[]>([])
 const selectedValidationIssueKey = ref('')
 const unsavedCloseDialog = ref<{ visible: boolean; names: string[]; resolve?: (action: UnsavedCloseAction) => void }>({ visible: false, names: [] })
 const compatibilitySaveDialog = ref<{ visible: boolean; droppedNodes: number; droppedConnections: number; alteredNodes: number; fatal: boolean; forceAllowed: boolean; resolve?: (action: CompatibilitySaveAction) => void }>({ visible: false, droppedNodes: 0, droppedConnections: 0, alteredNodes: 0, fatal: false, forceAllowed: false })
+const recoveryDialog = ref<{ visible: boolean; snapshot: RecoverySnapshotResult | null }>({ visible: false, snapshot: null })
+let recoveryQueue: RecoverySnapshotResult[] = []
 let untitledCount = 1
 const tabDragIndex = ref(-1)
 const tabDragOverIndex = ref(-1)
@@ -233,7 +236,7 @@ onMounted(async () => {
     onZoom(value) { zoomLabel.value = `${Math.round(value * 100)}%` },
     onStatus(value) { status.value = value },
     onMetrics(value) { metrics.value = value },
-    onDirty() { if (activeTab.value) activeTab.value.dirty = true },
+    onDirty() { if (activeTab.value) { activeTab.value.dirty = true; activeTab.value.saveBlocked = false } },
     onFunctionSignature(value) {
       if (isFunctionBlueprintTab.value) functionSignature.value = normalizeFunctionSignature(value)
     },
@@ -251,6 +254,7 @@ onMounted(async () => {
   recentFiles.value = await platform.recentFiles()
   const initialWorkspace = await platform.currentWorkingDirectory()
   if (initialWorkspace) await loadWorkspace(initialWorkspace)
+  await loadRecoverySnapshotPrompts()
   unsubscribeCloseRequest = platform.onCloseRequest(() => { void handleCloseRequest() })
   workspaceRefreshTimer = window.setInterval(() => { void refreshWorkspaceVisibleDirectories() }, workspaceRefreshIntervalMs)
   window.addEventListener('focus', refreshWorkspaceOnFocus)
@@ -1432,6 +1436,7 @@ async function testGraph() {
   await editor.highlightIssueNodes([])
   const document = editor.getDocument(activeTab.value.title, variables.value, variableGroups.value)
   validationIssues.value = await platform.validateGraph(JSON.stringify(document), workspaceRoot.value, activeTab.value.path)
+  activeTab.value.saveBlocked = validationIssues.value.some(issue => issue.blocksSave && !issue.target)
   selectedValidationIssueKey.value = ''
   showLogger.value = true
   const errors = validationIssues.value.filter(issue => issue.severity === 'error').length
@@ -1486,6 +1491,73 @@ async function highlightIssue(issue: ValidationIssue, index: number) {
   }
   const count = await editor?.highlightIssueNodes(ids) ?? 0
   status.value = count ? `已用红色警示框标出 ${count} 个问题结点` : '未找到对应结点'
+}
+
+async function loadRecoverySnapshotPrompts() {
+  try {
+    recoveryQueue = await platform.listRecoverySnapshots()
+    showNextRecoverySnapshotPrompt()
+  } catch (error) {
+    status.value = `Recovery scan failed: ${error instanceof Error ? error.message : String(error)}`
+  }
+}
+
+function showNextRecoverySnapshotPrompt() {
+  recoveryDialog.value = { visible: recoveryQueue.length > 0, snapshot: recoveryQueue[0] ?? null }
+}
+
+function keepRecoverySnapshot() {
+  recoveryQueue.shift()
+  showNextRecoverySnapshotPrompt()
+}
+
+async function deleteRecoverySnapshot() {
+  const snapshot = recoveryDialog.value.snapshot
+  if (!snapshot) return
+  try {
+    await platform.deleteRecoverySnapshot(snapshot.path)
+    recoveryQueue.shift()
+    showNextRecoverySnapshotPrompt()
+  } catch (error) {
+    status.value = `Recovery delete failed: ${error instanceof Error ? error.message : String(error)}`
+  }
+}
+
+async function restoreRecoverySnapshot() {
+  const snapshot = recoveryDialog.value.snapshot
+  if (!snapshot) return
+  try {
+    const raw = await platform.readRecoverySnapshot(snapshot.path)
+    const envelope = JSON.parse(raw) as { document?: unknown; blockingIssues?: ValidationIssue[] }
+    if (!envelope.document || typeof envelope.document !== 'object') throw new Error('Recovery snapshot has no graph document')
+    const document = normalizeDocument(envelope.document)
+    const sourcePath = snapshot.sourcePath ?? ''
+    const sourceTitle = sourcePath.split(/[\\/]/).pop() || 'Untitled'
+    const tab: GraphTab = {
+      id: crypto.randomUUID(),
+      title: `${sourceTitle} (Recovered)`,
+      path: sourcePath,
+      dirty: true,
+      document,
+      restoreFatal: true,
+      saveBlocked: Boolean(envelope.blockingIssues?.some(issue => issue.blocksSave)),
+    }
+    tabs.value.push(tab)
+    await switchTab(tab.id)
+    validationIssues.value = envelope.blockingIssues ?? []
+    selectedValidationIssueKey.value = ''
+    showLogger.value = validationIssues.value.length > 0
+    try {
+      await platform.deleteRecoverySnapshot(snapshot.path)
+    } catch (error) {
+      await platform.logClientError('warning', error instanceof Error ? error.message : String(error), '', 'DeleteRecoverySnapshotAfterRestore')
+    }
+    recoveryQueue.shift()
+    showNextRecoverySnapshotPrompt()
+    status.value = `Recovered ${sourceTitle} into a protected dirty tab; save it as a new file after fixing fatal issues`
+  } catch (error) {
+    status.value = `Recovery failed: ${error instanceof Error ? error.message : String(error)}`
+  }
 }
 
 async function openGraph(path = '', highlightTypeId = '') {
@@ -1577,6 +1649,38 @@ function resolveCompatibilitySaveAction(action: CompatibilitySaveAction) {
   resolve?.(action)
 }
 
+async function validateForPersistence(tab: GraphTab, document: GraphDocument) {
+  const documentJSON = JSON.stringify(document)
+  const issues = await platform.validateGraph(documentJSON, workspaceRoot.value, tab.path)
+  const decision = saveGateDecision(issues, projectSettingsContent.value.editor.validateBeforeSave)
+  tab.saveBlocked = decision.blocked
+  if (tab.id === activeTabId.value) {
+    validationIssues.value = issues
+    selectedValidationIssueKey.value = ''
+  }
+  if (!decision.blocked) return true
+
+  tab.dirty = true
+  const snapshot = await platform.saveRecoverySnapshot(tab.path, tab.id, documentJSON, JSON.stringify(decision.blockingIssues))
+  if (tab.id === activeTabId.value) {
+    showLogger.value = true
+    const nodeIDs = decision.blockingIssues.flatMap(issueNodeIds)
+    await editor?.highlightIssueNodes([...new Set(nodeIDs)])
+  }
+  const location = snapshot?.path ? ` Recovery snapshot: ${snapshot.path}` : ''
+  status.value = `Save blocked by ${decision.blockingIssues.length} fatal core graph issue(s).${location}`
+  return false
+}
+
+async function clearRecoverySnapshotsAfterSave(tab: GraphTab, previousPath: string, savedPath: string) {
+  try {
+    await platform.deleteRecoverySnapshots(previousPath, tab.id)
+    if (savedPath && savedPath !== previousPath) await platform.deleteRecoverySnapshots(savedPath, tab.id)
+  } catch (error) {
+    await platform.logClientError('warning', error instanceof Error ? error.message : String(error), '', 'DeleteRecoverySnapshots')
+  }
+}
+
 async function saveGraph(saveAs: boolean) {
   if (persistenceInFlight) {
     status.value = 'A save operation is already in progress'
@@ -1627,11 +1731,11 @@ async function autoSaveDirtyTabs() {
         saving: false,
       })) continue
       try {
-        const issues = await platform.validateGraph(JSON.stringify(document), workspaceRoot.value, tab.path)
-        if (sourceRequiresProtection(issues)) {
-          failures.push(`${tab.title}: validation failed`)
+        if (!await validateForPersistence(tab, document)) {
+          failures.push(`${tab.title}: blocked by fatal graph validation`)
           continue
         }
+        const previousPath = tab.path
         const content = isLegacyGraphPath(tab.path)
           ? await platform.exportLegacyGraph(JSON.stringify(document))
           : JSON.stringify(document, null, 2)
@@ -1641,6 +1745,8 @@ async function autoSaveDirtyTabs() {
         tab.title = path.split(/[\\/]/).pop() ?? tab.title
         tab.document = document
         tab.dirty = false
+        tab.saveBlocked = false
+        await clearRecoverySnapshotsAfterSave(tab, previousPath, path)
         saved++
       } catch (error) {
         failures.push(`${tab.title}: ${error instanceof Error ? error.message : String(error)}`)
@@ -1657,15 +1763,7 @@ async function saveGraphUnchecked(saveAs: boolean) {
   if (!editor) return
   const tab = activeTab.value
   const document = documentWithFunctionSignature(editor.getDocument(tab.title, variables.value, variableGroups.value), tab)
-  if (projectSettingsContent.value.editor.validateBeforeSave) {
-    const issues = await platform.validateGraph(JSON.stringify(document), workspaceRoot.value, tab.path)
-    validationIssues.value = issues
-    if (issues.some(issue => issue.severity === 'error')) {
-      showLogger.value = true
-      status.value = 'Save blocked by validation errors'
-      return
-    }
-  }
+  if (!await validateForPersistence(tab, document)) return
   const requiresNativePersistence = documentRequiresNativePersistence(document)
   let effectiveSaveAs = saveAs
   let forceOriginal = false
@@ -1687,11 +1785,13 @@ async function saveGraphUnchecked(saveAs: boolean) {
   const forceNativeSaveAs = !effectiveSaveAs && !forceOriginal && isLegacyGraphPath(tab.path) && requiresNativePersistence
   const shouldSaveLegacy = !effectiveSaveAs && !forceNativeSaveAs && isLegacyGraphPath(tab.path)
   const content = shouldSaveLegacy ? await platform.exportLegacyGraph(JSON.stringify(document)) : JSON.stringify(document, null, 2)
+  const previousPath = tab.path
   const path = forceOriginal
     ? await platform.forceSaveGraph(tab.path, content)
     : await platform.saveGraph(effectiveSaveAs || forceNativeSaveAs ? '' : tab.path, content)
   if (!path) return
-  tab.path = path; tab.title = path.split(/[\\/]/).pop() ?? tab.title; tab.document = document; tab.dirty = false; tab.restoreLoss = null; tab.restoreFatal = false
+  tab.path = path; tab.title = path.split(/[\\/]/).pop() ?? tab.title; tab.document = document; tab.dirty = false; tab.restoreLoss = null; tab.restoreFatal = false; tab.saveBlocked = false
+  await clearRecoverySnapshotsAfterSave(tab, previousPath, path)
   if (isFunctionBlueprintPath(path)) {
     functionTitle.value = activeFunctionTitle()
     functionTitleByPath.value = { ...functionTitleByPath.value, [path]: functionTitle.value }
@@ -2811,7 +2911,7 @@ function toggleModuleCategory(category: string) {
          <div class="tab-strip-wrap">
            <button class="tab-scroll-arrow left" @click="scrollTabStrip(-1)">◀</button>
            <div ref="tabStrip" class="tab-strip" @wheel.prevent="(e: WheelEvent) => { const s = e.currentTarget as HTMLElement; s.scrollLeft += e.deltaY; }">
-             <div v-for="(tab, idx) in tabs" :key="tab.id" class="graph-tab" :class="{ active: tab.id === activeTabId, 'drag-over': tabDragOverIndex === idx }" draggable="true" @click="switchTab(tab.id)" @dragstart="onTabDragStart($event, idx)" @dragover="onTabDragOver($event, idx)" @dragleave="onTabDragLeave" @drop="onTabDrop($event, idx)" @dragend="onTabDragEnd"><span class="tab-mark"></span>{{ tab.title }}<span v-if="tab.dirty" class="dirty-mark">●</span><button class="tab-close" @click="closeTab(tab.id, $event)">×</button></div>
+             <div v-for="(tab, idx) in tabs" :key="tab.id" class="graph-tab" :class="{ active: tab.id === activeTabId, 'drag-over': tabDragOverIndex === idx, 'save-blocked': tab.saveBlocked }" draggable="true" @click="switchTab(tab.id)" @dragstart="onTabDragStart($event, idx)" @dragover="onTabDragOver($event, idx)" @dragleave="onTabDragLeave" @drop="onTabDrop($event, idx)" @dragend="onTabDragEnd"><span class="tab-mark"></span>{{ tab.title }}<span v-if="tab.saveBlocked" class="save-blocked-mark" title="Fatal graph issue blocks saving">⛔</span><span v-if="tab.dirty" class="dirty-mark">●</span><button class="tab-close" @click="closeTab(tab.id, $event)">×</button></div>
              <button class="new-tab" @click="newGraph">＋</button>
            </div>
            <button class="tab-scroll-arrow right" @click="scrollTabStrip(1)">▶</button>
@@ -2831,6 +2931,7 @@ function toggleModuleCategory(category: string) {
             <button v-for="(issue, index) in validationIssues" :key="validationIssueKey(issue, index)" class="logger-issue" :class="[issue.severity, { selected: selectedValidationIssueKey === validationIssueKey(issue, index) }]" @click="queueSelectIssue(issue, index)" @dblclick.stop.prevent="highlightIssue(issue, index)">
               <strong>{{ issueSeverityLabel(issue) }}</strong>
               <span class="logger-issue-message">{{ issue.message }}</span>
+              <span v-if="issue.blocksSave" class="logger-issue-blocks-save">禁止保存</span>
               <span class="logger-issue-meta"><b>{{ menuText.validation.nodes }}</b>{{ issueNodeLabel(issue) }}</span>
               <small><b>{{ menuText.validation.code }}</b>{{ issue.code }}</small>
             </button>
@@ -2920,6 +3021,19 @@ function toggleModuleCategory(category: string) {
         <dl><dt>{{ menuText.update.currentVersion }}</dt><dd>{{ updateState.currentVersion }}</dd><dt>{{ menuText.update.latestVersion }}</dt><dd>{{ updateState.latestVersion }}</dd></dl>
         <pre v-if="updateState.notes">{{ updateState.notes }}</pre>
         <footer><button @click="closeUpdateDialog">{{ menuText.update.remindLater }}</button><button class="primary" @click="openUpdateRelease">{{ menuText.update.openRelease }}</button></footer>
+      </section>
+    </div>
+    <div v-if="recoveryDialog.visible && recoveryDialog.snapshot" class="unsaved-close-backdrop">
+      <section class="unsaved-close-dialog">
+        <header>发现蓝图恢复快照</header>
+        <p>{{ recoveryDialog.snapshot.sourcePath || '未命名蓝图' }}</p>
+        <p>创建时间：{{ recoveryDialog.snapshot.createdAt }}</p>
+        <p>恢复会打开一个受保护的未保存标签，不会覆盖原文件。</p>
+        <footer>
+          <button class="primary" @click="restoreRecoverySnapshot">恢复</button>
+          <button @click="keepRecoverySnapshot">保留</button>
+          <button @click="deleteRecoverySnapshot">删除</button>
+        </footer>
       </section>
     </div>
     <div v-if="compatibilitySaveDialog.visible" class="unsaved-close-backdrop">
