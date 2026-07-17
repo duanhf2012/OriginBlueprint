@@ -822,6 +822,17 @@ func hasIssue(issues []ValidationIssue, code string, nodeID string) bool {
 	return false
 }
 
+func requireValidationIssue(t *testing.T, issues []ValidationIssue, code string) ValidationIssue {
+	t.Helper()
+	for _, issue := range issues {
+		if issue.Code == code {
+			return issue
+		}
+	}
+	t.Fatalf("issues = %#v, want code %q", issues, code)
+	return ValidationIssue{}
+}
+
 func hasValidationErrors(issues []ValidationIssue) bool {
 	for _, issue := range issues {
 		if issue.Severity == "error" {
@@ -839,6 +850,52 @@ func TestValidateGraphServiceRejectsInvalidJSON(t *testing.T) {
 	document, _ := json.Marshal(GraphDocument{SchemaVersion: GraphSchemaVersion})
 	if _, err := app.ValidateGraph(string(document)); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCoreIssueBlocksSaveUsesExplicitLanguageNeutralCodes(t *testing.T) {
+	blocking := []string{
+		"schema.unsupported",
+		"node.missing-id",
+		"node.duplicate-id",
+		"connection.dangling",
+		"connection.missing-port",
+		"connection.type-mismatch",
+		"connection.multiple-producers",
+		"flow.exec-fanout",
+		"flow.data-cycle",
+		"flow.exec-cycle",
+	}
+	for _, code := range blocking {
+		if !coreIssueBlocksSave(code) {
+			t.Errorf("%s should block save", code)
+		}
+	}
+	nonBlocking := []string{
+		"flow.unreachable-node",
+		"flow.missing-entry",
+		"flow.possible-cycle",
+		"node.legacy-placeholder",
+		"engine.compile",
+	}
+	for _, code := range nonBlocking {
+		if coreIssueBlocksSave(code) {
+			t.Errorf("%s should not block save", code)
+		}
+	}
+}
+
+func TestValidateGraphMarksStructuralCoreErrorsAsSaveBlocking(t *testing.T) {
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		Nodes: []GraphNode{
+			{ID: "duplicate", TypeID: "origin.literal.string"},
+			{ID: "duplicate", TypeID: "origin.literal.string"},
+		},
+	}
+	issue := requireValidationIssue(t, validateGraph(document), "node.duplicate-id")
+	if !issue.BlocksSave {
+		t.Fatalf("issue = %#v, want BlocksSave", issue)
 	}
 }
 

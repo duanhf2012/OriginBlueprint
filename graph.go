@@ -141,11 +141,49 @@ type GraphView struct {
 }
 
 type ValidationIssue struct {
-	Severity string   `json:"severity"`
-	Code     string   `json:"code"`
-	Message  string   `json:"message"`
-	NodeID   string   `json:"nodeId,omitempty"`
-	NodeIDs  []string `json:"nodeIds,omitempty"`
+	Severity   string   `json:"severity"`
+	Code       string   `json:"code"`
+	Message    string   `json:"message"`
+	NodeID     string   `json:"nodeId,omitempty"`
+	NodeIDs    []string `json:"nodeIds,omitempty"`
+	SourcePath string   `json:"sourcePath,omitempty"`
+	BlocksSave bool     `json:"blocksSave,omitempty"`
+	BlocksRun  bool     `json:"blocksRun,omitempty"`
+	Target     string   `json:"target,omitempty"`
+}
+
+func coreIssueBlocksSave(code string) bool {
+	switch code {
+	case "schema.unsupported",
+		"function.signature-limit",
+		"variable-group.invalid",
+		"variable-group.duplicate-id",
+		"variable-group.duplicate-name",
+		"variable.invalid",
+		"variable.duplicate-id",
+		"variable.duplicate-name",
+		"variable.unknown-type",
+		"variable.missing-group",
+		"variable.missing",
+		"node.missing-id",
+		"node.duplicate-id",
+		"node.dynamic-output-count",
+		"node.port-limit",
+		"connection.dangling",
+		"connection.missing-port",
+		"connection.type-mismatch",
+		"connection.multiple-producers",
+		"flow.exec-fanout",
+		"flow.data-cycle",
+		"flow.exec-cycle",
+		"function.missing-id",
+		"function.multiple-entry",
+		"function.signature-duplicate-id",
+		"function.signature-mismatch":
+		return true
+	default:
+		return false
+	}
 }
 
 type portDefinition struct {
@@ -590,6 +628,11 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 	}
 	issues = append(issues, validateExecutionFlow(nodes, ports, document.Connections)...)
 
+	for index := range issues {
+		if issues[index].Target == "" && issues[index].Severity == "error" && coreIssueBlocksSave(issues[index].Code) {
+			issues[index].BlocksSave = true
+		}
+	}
 	return issues
 }
 

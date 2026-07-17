@@ -5,7 +5,7 @@ export interface FileResult { path: string; content: string }
 export interface ProjectSettingsResult { path: string; content: string }
 export interface WorkspaceEntry { name: string; path: string; isDir: boolean }
 export interface NodeReferenceResult { name: string; path: string; count: number }
-export interface ValidationIssue { severity: 'error' | 'warning'; code: string; message: string; nodeId?: string; nodeIds?: string[] }
+export interface ValidationIssue { severity: 'error' | 'warning'; code: string; message: string; nodeId?: string; nodeIds?: string[]; sourcePath?: string; blocksSave?: boolean; blocksRun?: boolean; target?: string }
 export interface NodeSchemaLoadResult { nodes: NodeSchema[]; errors: Array<{ path: string; message: string }>; documentCount: number }
 interface NodeSchemaDocument { path: string; content: string }
 interface NodeSchemaDocumentLoadResult { documents: NodeSchemaDocument[]; errors: Array<{ path: string; message: string }> }

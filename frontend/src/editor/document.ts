@@ -171,4 +171,8 @@ export interface ValidationIssue {
   message: string
   nodeId?: string
   nodeIds?: string[]
+  sourcePath?: string
+  blocksSave?: boolean
+  blocksRun?: boolean
+  target?: string
 }
