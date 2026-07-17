@@ -600,8 +600,10 @@ func TestValidateGraphAcceptsValidVariableGraph(t *testing.T) {
 		Connections: []GraphConnection{{Source: "get", SourceOutput: "value", Target: "cast", TargetInput: "value"}},
 	}
 	issues := validateGraph(document)
-	if len(issues) != 0 {
-		t.Fatalf("issues = %#v", issues)
+	for _, issue := range issues {
+		if issue.Severity == "error" {
+			t.Fatalf("valid variable graph has error: %#v", issues)
+		}
 	}
 }
 
@@ -616,12 +618,8 @@ func TestValidateGraphReportsMissingVariableAndTypeMismatch(t *testing.T) {
 		Connections: []GraphConnection{{Source: "begin", SourceOutput: "exec", Target: "cast", TargetInput: "value"}},
 	}
 	issues := validateGraph(document)
-	if len(issues) != 2 {
-		t.Fatalf("len(issues) = %d, want 2: %#v", len(issues), issues)
-	}
-	if issues[0].Code != "variable.missing" || issues[1].Code != "connection.type-mismatch" {
-		t.Fatalf("unexpected issues: %#v", issues)
-	}
+	requireValidationIssue(t, issues, "variable.missing")
+	requireValidationIssue(t, issues, "connection.type-mismatch")
 }
 
 func TestValidateGraphReportsTimerWithoutFunction(t *testing.T) {
@@ -675,7 +673,7 @@ func TestValidateGraphTreatsDataDependenciesAsEntryReachable(t *testing.T) {
 	}
 }
 
-func TestValidateGraphReportsPossibleExecCycles(t *testing.T) {
+func TestValidateGraphReportsConfirmedExecCycles(t *testing.T) {
 	document := GraphDocument{
 		SchemaVersion: GraphSchemaVersion,
 		Nodes: []GraphNode{
@@ -690,8 +688,9 @@ func TestValidateGraphReportsPossibleExecCycles(t *testing.T) {
 		},
 	}
 	issues := validateGraph(document)
-	if !hasIssue(issues, "flow.possible-cycle", "a") && !hasIssue(issues, "flow.possible-cycle", "b") {
-		t.Fatalf("issues = %#v, want possible exec cycle", issues)
+	issue := requireValidationIssue(t, issues, "flow.exec-cycle")
+	if !issue.BlocksSave || !issue.BlocksRun {
+		t.Fatalf("issue = %#v, want confirmed blocking exec cycle", issue)
 	}
 }
 

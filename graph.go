@@ -626,7 +626,7 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 			issues = append(issues, ValidationIssue{Severity: "error", Code: "connection.type-mismatch", Message: fmt.Sprintf("端口类型不匹配：%s 不能连接到 %s", sourceType, targetType), NodeID: target.ID})
 		}
 	}
-	issues = append(issues, validateExecutionFlow(nodes, ports, document.Connections)...)
+	issues = append(issues, analyzeCoreGraph(document, nodes, ports)...)
 
 	for index := range issues {
 		if issues[index].Target == "" && issues[index].Severity == "error" && coreIssueBlocksSave(issues[index].Code) {
