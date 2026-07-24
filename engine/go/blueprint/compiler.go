@@ -657,6 +657,16 @@ func compileDefaultInputs(inPorts []IPort, preInPorts []*PrePortNode, defaults m
 		if port == nil || port.IsPortExec() {
 			continue
 		}
+		if value == "" {
+			if builtin, ok := port.(*Port); ok && builtin != nil {
+				switch builtin.kind {
+				case portKindInt:
+					value = PortInt(0)
+				case portKindFloat:
+					value = PortFloat(0)
+				}
+			}
+		}
 		clone := port.Clone()
 		if err := clone.setAnyValue(value); err != nil {
 			return nil, nil, fmt.Errorf("input port %d: %w", index, err)

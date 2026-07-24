@@ -155,17 +155,32 @@ func (a *App) ExportLegacyGraph(content string) (string, error) {
 }
 
 func migrateLegacyGraph(data []byte) (GraphDocument, error) {
+	return migrateLegacyGraphWithRuntimeSpecs(data, runtimeLegacyNodeSpecs())
+}
+
+func migrateLegacyGraphWithRuntimeSpecs(data []byte, runtimeSpecs map[string]runtimeLegacySpec) (GraphDocument, error) {
 	var legacy legacyGraph
 	if err := json.Unmarshal(data, &legacy); err != nil {
 		return GraphDocument{}, fmt.Errorf("decode legacy graph: %w", err)
 	}
-	runtimeSpecs := runtimeLegacyNodeSpecs()
+	extraRootFields, extraNodeFields, extraEdgeFields, err := extractLegacyExtraFields(data, legacy)
+	if err != nil {
+		return GraphDocument{}, err
+	}
 	document := GraphDocument{
 		SchemaVersion:  GraphSchemaVersion,
 		GraphName:      legacy.GraphName,
 		View:           GraphView{Zoom: 1},
 		VariableGroups: []GraphVariableGroup{{ID: "default", Name: "Default"}},
-		Legacy:         &GraphLegacyState{Format: "vgf", Time: legacy.Time, Groups: cloneLegacyGroups(legacy.Groups), Variables: cloneLegacyVariables(legacy.Variables)},
+		Legacy: &GraphLegacyState{
+			Format:          "vgf",
+			Time:            legacy.Time,
+			Groups:          cloneLegacyGroups(legacy.Groups),
+			Variables:       cloneLegacyVariables(legacy.Variables),
+			ExtraRootFields: extraRootFields,
+			ExtraNodeFields: extraNodeFields,
+			ExtraEdgeFields: extraEdgeFields,
+		},
 	}
 	variableIDs := map[string]string{}
 	groupIDs := map[string]string{"Default": "default"}
@@ -548,7 +563,168 @@ func exportLegacyGraph(document GraphDocument) ([]byte, error) {
 		legacy.Edges = append(legacy.Edges, item.edge)
 	}
 
-	return json.MarshalIndent(legacy, "", "  ")
+	return marshalLegacyGraphWithExtras(legacy, exportEdges, document.Legacy)
+}
+
+var legacyRootFieldNames = map[string]bool{
+	"graph_name": true, "time": true, "nodes": true, "edges": true, "groups": true, "variables": true,
+}
+
+var legacyNodeFieldNames = map[string]bool{
+	"id": true, "class": true, "module": true, "pos": true, "port_defaultv": true,
+}
+
+var legacyEdgeFieldNames = map[string]bool{
+	"edge_id": true, "source_node_id": true, "source_port_index": true, "source_port_id": true,
+	"des_node_id": true, "des_port_index": true, "des_port_id": true, "entryConnectionVisible": true,
+}
+
+func extractLegacyExtraFields(data []byte, legacy legacyGraph) (map[string]json.RawMessage, map[string]GraphLegacyNodeExtraFields, map[string]map[string]json.RawMessage, error) {
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(data, &root); err != nil {
+		return nil, nil, nil, fmt.Errorf("decode legacy graph fields: %w", err)
+	}
+	rootExtras := unknownJSONFields(root, legacyRootFieldNames)
+
+	nodeExtras := map[string]GraphLegacyNodeExtraFields{}
+	var rawNodes []map[string]json.RawMessage
+	if raw, exists := root["nodes"]; exists {
+		if err := json.Unmarshal(raw, &rawNodes); err != nil {
+			return nil, nil, nil, fmt.Errorf("decode legacy node fields: %w", err)
+		}
+	}
+	for index, raw := range rawNodes {
+		if index >= len(legacy.Nodes) || legacy.Nodes[index].ID == "" {
+			continue
+		}
+		fields := unknownJSONFields(raw, legacyNodeFieldNames)
+		if len(fields) > 0 {
+			node := legacy.Nodes[index]
+			nodeExtras[node.ID] = GraphLegacyNodeExtraFields{Class: node.Class, Fields: fields}
+		}
+	}
+
+	edgeExtras := map[string]map[string]json.RawMessage{}
+	var rawEdges []map[string]json.RawMessage
+	if raw, exists := root["edges"]; exists {
+		if err := json.Unmarshal(raw, &rawEdges); err != nil {
+			return nil, nil, nil, fmt.Errorf("decode legacy edge fields: %w", err)
+		}
+	}
+	for ordinal, raw := range rawEdges {
+		fields := unknownJSONFields(raw, legacyEdgeFieldNames)
+		if len(fields) > 0 {
+			edgeExtras[strconv.Itoa(ordinal)] = fields
+		}
+	}
+	return nilIfEmptyRawMap(rootExtras), nilIfEmptyNodeExtras(nodeExtras), nilIfEmptyEdgeExtras(edgeExtras), nil
+}
+
+func unknownJSONFields(source map[string]json.RawMessage, known map[string]bool) map[string]json.RawMessage {
+	result := map[string]json.RawMessage{}
+	for key, value := range source {
+		if !known[key] {
+			result[key] = append(json.RawMessage(nil), value...)
+		}
+	}
+	return result
+}
+
+func nilIfEmptyRawMap(value map[string]json.RawMessage) map[string]json.RawMessage {
+	if len(value) == 0 {
+		return nil
+	}
+	return value
+}
+
+func nilIfEmptyNodeExtras(value map[string]GraphLegacyNodeExtraFields) map[string]GraphLegacyNodeExtraFields {
+	if len(value) == 0 {
+		return nil
+	}
+	return value
+}
+
+func nilIfEmptyEdgeExtras(value map[string]map[string]json.RawMessage) map[string]map[string]json.RawMessage {
+	if len(value) == 0 {
+		return nil
+	}
+	return value
+}
+
+func marshalLegacyGraphWithExtras(legacy legacyGraph, exportEdges []legacyExportEdge, state *GraphLegacyState) ([]byte, error) {
+	root := map[string]json.RawMessage{}
+	if state != nil {
+		for key, value := range unknownJSONFields(state.ExtraRootFields, legacyRootFieldNames) {
+			root[key] = append(json.RawMessage(nil), value...)
+		}
+	}
+	typed, err := json.Marshal(legacy)
+	if err != nil {
+		return nil, err
+	}
+	var typedRoot map[string]json.RawMessage
+	if err := json.Unmarshal(typed, &typedRoot); err != nil {
+		return nil, err
+	}
+	for key, value := range typedRoot {
+		root[key] = value
+	}
+
+	nodes := make([]map[string]json.RawMessage, 0, len(legacy.Nodes))
+	for _, node := range legacy.Nodes {
+		fields := map[string]json.RawMessage{}
+		if state != nil {
+			if extra, exists := state.ExtraNodeFields[node.ID]; exists && extra.Class == node.Class {
+				for key, value := range unknownJSONFields(extra.Fields, legacyNodeFieldNames) {
+					fields[key] = append(json.RawMessage(nil), value...)
+				}
+			}
+		}
+		if err := mergeTypedJSONFields(fields, node); err != nil {
+			return nil, err
+		}
+		nodes = append(nodes, fields)
+	}
+	nodeData, err := json.Marshal(nodes)
+	if err != nil {
+		return nil, err
+	}
+	root["nodes"] = nodeData
+
+	edges := make([]map[string]json.RawMessage, 0, len(exportEdges))
+	for _, item := range exportEdges {
+		fields := map[string]json.RawMessage{}
+		if state != nil && item.ordinal != nil {
+			for key, value := range unknownJSONFields(state.ExtraEdgeFields[strconv.Itoa(*item.ordinal)], legacyEdgeFieldNames) {
+				fields[key] = append(json.RawMessage(nil), value...)
+			}
+		}
+		if err := mergeTypedJSONFields(fields, item.edge); err != nil {
+			return nil, err
+		}
+		edges = append(edges, fields)
+	}
+	edgeData, err := json.Marshal(edges)
+	if err != nil {
+		return nil, err
+	}
+	root["edges"] = edgeData
+	return json.MarshalIndent(root, "", "  ")
+}
+
+func mergeTypedJSONFields(target map[string]json.RawMessage, value interface{}) error {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	for key, raw := range fields {
+		target[key] = raw
+	}
+	return nil
 }
 
 func registerLegacyExportOrdinal(used map[int]string, ordinal *int, owner string) error {
@@ -819,12 +995,16 @@ func legacyPortTypesCompatible(source, target string) bool {
 }
 
 func runtimeLegacyNodeSpecs() map[string]runtimeLegacySpec {
+	loadResult := loadRuntimeNodeSchemaDocumentsWithEmbedded(runtimeNodeDirectories())
+	return runtimeLegacyNodeSpecsFromDocuments(loadResult.Documents)
+}
+
+func runtimeLegacyNodeSpecsFromDocuments(documents []RuntimeNodeSchemaDocument) map[string]runtimeLegacySpec {
 	result := map[string]runtimeLegacySpec{}
 	for name, spec := range legacyNodeSpecs {
 		result[name] = runtimeLegacySpec{legacyNodeSpec: spec}
 	}
-	loadResult := loadRuntimeNodeSchemaDocumentsWithEmbedded(runtimeNodeDirectories())
-	for _, document := range loadResult.Documents {
+	for _, document := range documents {
 		// 这里服务于 legacy .vgf 的 class/port_id 映射，只从旧 name/port_id 定义推导。
 		// 新 id/key schema 若需要 .vgf round-trip，应在静态映射或显式导出逻辑中维护。
 		for _, definition := range parseLegacyRuntimeNodeDefinitions([]byte(document.Content)) {

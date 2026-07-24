@@ -7,7 +7,13 @@ import (
 	"strings"
 )
 
-const GraphSchemaVersion = 1
+const (
+	GraphSchemaVersion          = 1
+	maxDynamicSequenceOutputs   = 256
+	maxFunctionSignatureInputs  = 128
+	maxFunctionSignatureOutputs = 128
+	maxLegacyPortsPerNode       = 4096
+)
 
 type GraphDocument struct {
 	SchemaVersion     int                    `json:"schemaVersion"`
@@ -67,6 +73,14 @@ type GraphLegacyState struct {
 	Groups               []legacyGroup                          `json:"groups,omitempty"`
 	Variables            []map[string]interface{}               `json:"variables,omitempty"`
 	ResidualNodeDefaults map[string]GraphLegacyResidualDefaults `json:"residualNodeDefaults,omitempty"`
+	ExtraRootFields      map[string]json.RawMessage             `json:"extraRootFields,omitempty"`
+	ExtraNodeFields      map[string]GraphLegacyNodeExtraFields  `json:"extraNodeFields,omitempty"`
+	ExtraEdgeFields      map[string]map[string]json.RawMessage  `json:"extraEdgeFields,omitempty"`
+}
+
+type GraphLegacyNodeExtraFields struct {
+	Class  string                     `json:"class"`
+	Fields map[string]json.RawMessage `json:"fields"`
 }
 
 type GraphLegacyResidualDefaults struct {
@@ -127,11 +141,50 @@ type GraphView struct {
 }
 
 type ValidationIssue struct {
-	Severity string   `json:"severity"`
-	Code     string   `json:"code"`
-	Message  string   `json:"message"`
-	NodeID   string   `json:"nodeId,omitempty"`
-	NodeIDs  []string `json:"nodeIds,omitempty"`
+	Severity   string   `json:"severity"`
+	Code       string   `json:"code"`
+	Message    string   `json:"message"`
+	NodeID     string   `json:"nodeId,omitempty"`
+	NodeIDs    []string `json:"nodeIds,omitempty"`
+	SourcePath string   `json:"sourcePath,omitempty"`
+	BlocksSave bool     `json:"blocksSave,omitempty"`
+	BlocksRun  bool     `json:"blocksRun,omitempty"`
+	Target     string   `json:"target,omitempty"`
+}
+
+func coreIssueBlocksSave(code string) bool {
+	switch code {
+	case "document.decode",
+		"schema.unsupported",
+		"function.signature-limit",
+		"variable-group.invalid",
+		"variable-group.duplicate-id",
+		"variable-group.duplicate-name",
+		"variable.invalid",
+		"variable.duplicate-id",
+		"variable.duplicate-name",
+		"variable.unknown-type",
+		"variable.missing-group",
+		"variable.missing",
+		"node.missing-id",
+		"node.duplicate-id",
+		"node.dynamic-output-count",
+		"node.port-limit",
+		"connection.dangling",
+		"connection.missing-port",
+		"connection.type-mismatch",
+		"connection.multiple-producers",
+		"flow.exec-fanout",
+		"flow.data-cycle",
+		"flow.exec-cycle",
+		"function.missing-id",
+		"function.multiple-entry",
+		"function.signature-duplicate-id",
+		"function.signature-mismatch":
+		return true
+	default:
+		return false
+	}
 }
 
 type portDefinition struct {
@@ -397,6 +450,10 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 		issues = append(issues, ValidationIssue{Severity: "error", Code: "schema.unsupported", Message: fmt.Sprintf("不支持的蓝图版本：%d", document.SchemaVersion)})
 	}
 
+	if len(document.FunctionSignature.Inputs) > maxFunctionSignatureInputs || len(document.FunctionSignature.Outputs) > maxFunctionSignatureOutputs {
+		issues = append(issues, ValidationIssue{Severity: "error", Code: "function.signature-limit", Message: "Function signature exceeds the safe port limit"})
+	}
+
 	variables := make(map[string]GraphVariable, len(document.Variables))
 	variableNames := make(map[string]bool, len(document.Variables))
 	variableTypes := map[string]bool{"boolean": true, "integer": true, "float": true, "string": true, "array": true, "timerhandle": true}
@@ -443,7 +500,6 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 
 	nodes := make(map[string]GraphNode, len(document.Nodes))
 	ports := make(map[string]portDefinition, len(document.Nodes))
-	hasLegacyPlaceholder := false
 	for _, node := range document.Nodes {
 		if node.ID == "" {
 			issues = append(issues, ValidationIssue{Severity: "error", Code: "node.missing-id", Message: "存在缺少 ID 的结点"})
@@ -460,6 +516,10 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 			if count == 0 {
 				count = 3
 			}
+			if count < 1 || count > maxDynamicSequenceOutputs {
+				issues = append(issues, ValidationIssue{Severity: "error", Code: "node.dynamic-output-count", Message: fmt.Sprintf("Sequence output count must be between 1 and %d", maxDynamicSequenceOutputs), NodeID: node.ID})
+				continue
+			}
 			outputs := make(map[string]string, count)
 			for index := 0; index < count; index++ {
 				outputs[fmt.Sprintf("then%d", index)] = "exec"
@@ -468,10 +528,18 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 			known = true
 		}
 		if strings.HasPrefix(node.TypeID, "origin.function.") {
+			if len(node.Properties.FunctionSignature.Inputs) > maxFunctionSignatureInputs || len(node.Properties.FunctionSignature.Outputs) > maxFunctionSignatureOutputs {
+				issues = append(issues, ValidationIssue{Severity: "error", Code: "function.signature-limit", Message: "Function signature exceeds the safe port limit", NodeID: node.ID})
+				continue
+			}
 			definition = functionNodePortDefinition(node)
 			known = true
 		}
 		if node.TypeID == "origin.timer.set-by-function" {
+			if len(node.Properties.FunctionSignature.Inputs) > maxFunctionSignatureInputs || len(node.Properties.FunctionSignature.Outputs) > maxFunctionSignatureOutputs {
+				issues = append(issues, ValidationIssue{Severity: "error", Code: "function.signature-limit", Message: "Function signature exceeds the safe port limit", NodeID: node.ID})
+				continue
+			}
 			definition = timerFunctionNodePortDefinition(node)
 			known = true
 			if strings.TrimSpace(node.Properties.FunctionID) == "" {
@@ -497,7 +565,10 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 			known = true
 		}
 		if node.TypeID == "origin.legacy.placeholder" {
-			hasLegacyPlaceholder = true
+			if len(node.Properties.LegacyInputs)+len(node.Properties.LegacyOutputs) > maxLegacyPortsPerNode {
+				issues = append(issues, ValidationIssue{Severity: "error", Code: "node.port-limit", Message: "Legacy node port count exceeds the safe limit", NodeID: node.ID})
+				continue
+			}
 			inputs := make(map[string]string, len(node.Properties.LegacyInputs))
 			outputs := make(map[string]string, len(node.Properties.LegacyOutputs))
 			for _, port := range node.Properties.LegacyInputs {
@@ -511,6 +582,10 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 			issues = append(issues, ValidationIssue{Severity: "warning", Code: "node.legacy-placeholder", Message: "老版本结点已保留，但当前不可执行：" + node.Properties.LegacyClass, NodeID: node.ID})
 		}
 		if !known && (len(node.Properties.LegacyInputs) > 0 || len(node.Properties.LegacyOutputs) > 0) {
+			if len(node.Properties.LegacyInputs)+len(node.Properties.LegacyOutputs) > maxLegacyPortsPerNode {
+				issues = append(issues, ValidationIssue{Severity: "error", Code: "node.port-limit", Message: "Legacy node port count exceeds the safe limit", NodeID: node.ID})
+				continue
+			}
 			inputs := make(map[string]string, len(node.Properties.LegacyInputs))
 			outputs := make(map[string]string, len(node.Properties.LegacyOutputs))
 			for _, port := range node.Properties.LegacyInputs {
@@ -552,159 +627,13 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 			issues = append(issues, ValidationIssue{Severity: "error", Code: "connection.type-mismatch", Message: fmt.Sprintf("端口类型不匹配：%s 不能连接到 %s", sourceType, targetType), NodeID: target.ID})
 		}
 	}
-	if !hasLegacyPlaceholder {
-		issues = append(issues, validateExecutionFlow(nodes, ports, document.Connections)...)
-	}
+	issues = append(issues, analyzeCoreGraph(document, nodes, ports)...)
 
-	return issues
-}
-
-func validateExecutionFlow(nodes map[string]GraphNode, ports map[string]portDefinition, connections []GraphConnection) []ValidationIssue {
-	issues := make([]ValidationIssue, 0)
-	executable := make(map[string]bool)
-	entries := make(map[string]bool)
-	execEdges := make(map[string][]string)
-	for nodeID, definition := range ports {
-		hasExecInput := hasPortType(definition.Inputs, "exec")
-		hasExecOutput := hasPortType(definition.Outputs, "exec")
-		if hasExecInput || hasExecOutput {
-			executable[nodeID] = true
+	for index := range issues {
+		if issues[index].Target == "" && issues[index].Severity == "error" && coreIssueBlocksSave(issues[index].Code) {
+			issues[index].BlocksSave = true
+			issues[index].BlocksRun = true
 		}
-		if !hasExecInput && hasExecOutput {
-			entries[nodeID] = true
-		}
-	}
-	if len(executable) == 0 {
-		return issues
-	}
-	for _, connection := range connections {
-		sourceDefinition, sourceKnown := ports[connection.Source]
-		targetDefinition, targetKnown := ports[connection.Target]
-		if !sourceKnown || !targetKnown {
-			continue
-		}
-		if sourceDefinition.Outputs[connection.SourceOutput] == "exec" && targetDefinition.Inputs[connection.TargetInput] == "exec" {
-			execEdges[connection.Source] = append(execEdges[connection.Source], connection.Target)
-		}
-	}
-	if len(entries) == 0 {
-		issues = append(issues, ValidationIssue{Severity: "warning", Code: "flow.missing-entry", Message: "蓝图存在可执行结点，但没有入口结点", NodeIDs: sortedMapKeys(executable)})
-		return issues
-	}
-
-	reachable := make(map[string]bool)
-	entryReachable := make(map[string]map[string]bool)
-	dataInputs := make(map[string][]GraphConnection)
-	for _, connection := range connections {
-		sourceDefinition, sourceKnown := ports[connection.Source]
-		targetDefinition, targetKnown := ports[connection.Target]
-		if !sourceKnown || !targetKnown {
-			continue
-		}
-		sourceType := sourceDefinition.Outputs[connection.SourceOutput]
-		targetType := targetDefinition.Inputs[connection.TargetInput]
-		if sourceType == "" || targetType == "" || sourceType == "exec" || targetType == "exec" {
-			continue
-		}
-		dataInputs[connection.Target] = append(dataInputs[connection.Target], connection)
-	}
-	markReachable := func(nodeID, entryID string) bool {
-		reachable[nodeID] = true
-		if entryReachable[nodeID] == nil {
-			entryReachable[nodeID] = make(map[string]bool)
-		}
-		if entryReachable[nodeID][entryID] {
-			return false
-		}
-		entryReachable[nodeID][entryID] = true
-		return true
-	}
-	execVisited := make(map[string]bool)
-	dataVisited := make(map[string]bool)
-	var visitDataInputs func(string, string)
-	var visitDataNode func(string, string)
-	var visitExecNode func(string, string)
-	visitDataNode = func(nodeID, entryID string) {
-		if entries[nodeID] && nodeID != entryID {
-			return
-		}
-		key := entryID + "\x00" + nodeID
-		if dataVisited[key] {
-			return
-		}
-		dataVisited[key] = true
-		markReachable(nodeID, entryID)
-		visitDataInputs(nodeID, entryID)
-	}
-	visitDataInputs = func(nodeID, entryID string) {
-		for _, connection := range dataInputs[nodeID] {
-			visitDataNode(connection.Source, entryID)
-		}
-	}
-	visitExecNode = func(nodeID, entryID string) {
-		markReachable(nodeID, entryID)
-		key := entryID + "\x00" + nodeID
-		if execVisited[key] {
-			return
-		}
-		execVisited[key] = true
-		visitDataInputs(nodeID, entryID)
-		for _, next := range execEdges[nodeID] {
-			visitExecNode(next, entryID)
-		}
-	}
-	for entryID := range entries {
-		visitExecNode(entryID, entryID)
-	}
-	for nodeID := range executable {
-		if !reachable[nodeID] {
-			label := nodes[nodeID].Properties.Label
-			if label == "" {
-				label = nodeID
-			}
-			issues = append(issues, ValidationIssue{Severity: "error", Code: "flow.unreachable-node", Message: "结点不可达，不可能从任何入口执行到：" + label, NodeID: nodeID})
-		}
-	}
-	for _, connection := range connections {
-		sourceDefinition, sourceKnown := ports[connection.Source]
-		targetDefinition, targetKnown := ports[connection.Target]
-		if !sourceKnown || !targetKnown {
-			continue
-		}
-		sourceType := sourceDefinition.Outputs[connection.SourceOutput]
-		targetType := targetDefinition.Inputs[connection.TargetInput]
-		if sourceType == "" || targetType == "" || sourceType == "exec" || targetType == "exec" {
-			continue
-		}
-		if !entrySetsOverlap(entryReachable[connection.Source], entryReachable[connection.Target]) {
-			issues = append(issues, ValidationIssue{Severity: "error", Code: "flow.cross-entry-data", Message: "不同入口分支之间存在参数交叉连接", NodeID: connection.Target})
-		}
-	}
-
-	visiting := make(map[string]bool)
-	visited := make(map[string]bool)
-	cycleReported := make(map[string]bool)
-	var detectCycle func(string)
-	detectCycle = func(nodeID string) {
-		if visiting[nodeID] {
-			if !cycleReported[nodeID] {
-				issues = append(issues, ValidationIssue{Severity: "error", Code: "flow.possible-cycle", Message: "从入口开始可能产生直接或间接死循环", NodeID: nodeID})
-				cycleReported[nodeID] = true
-			}
-			return
-		}
-		if visited[nodeID] || !reachable[nodeID] {
-			return
-		}
-		visiting[nodeID] = true
-		for _, next := range execEdges[nodeID] {
-			detectCycle(next)
-		}
-		visiting[nodeID] = false
-		visited[nodeID] = true
-	}
-	for nodeID := range entries {
-		detectCycle(nodeID)
 	}
 	return issues
 }

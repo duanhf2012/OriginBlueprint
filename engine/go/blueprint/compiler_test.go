@@ -276,6 +276,38 @@ func TestCompilerBuildsGraphFromNodeAndEdgeConfig(t *testing.T) {
 	}
 }
 
+func TestCompilerTreatsBlankNumericDefaultsAsZeroValues(t *testing.T) {
+	registry := NewRegistry()
+	registry.Register(NewNodeDefinition("BlankDefaults", func() IExecNode {
+		return &testRecorder{}
+	}, []IPort{NewPortInt(), NewPortFloat(), NewPortStr()}, nil))
+
+	compiled, err := CompileGraph(registry, GraphConfig{
+		Nodes: []NodeConfig{{
+			ID:          "blank",
+			Class:       "BlankDefaults",
+			PortDefault: map[int]any{0: "", 1: "", 2: ""},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("CompileGraph failed for blank numeric defaults: %v", err)
+	}
+
+	node := compiled.Nodes[0]
+	if len(node.DefaultInputSet) != 3 || !node.DefaultInputSet[0] || !node.DefaultInputSet[1] || !node.DefaultInputSet[2] {
+		t.Fatalf("default input set = %#v, want all defaults set", node.DefaultInputSet)
+	}
+	if value, ok := node.DefaultInputs[0].GetInt(); !ok || value != 0 {
+		t.Fatalf("integer default = %d,%v, want 0,true", value, ok)
+	}
+	if value, ok := node.DefaultInputs[1].GetFloat(); !ok || value != 0 {
+		t.Fatalf("float default = %v,%v, want 0,true", value, ok)
+	}
+	if value, ok := node.DefaultInputs[2].GetStr(); !ok || value != "" {
+		t.Fatalf("string default = %q,%v, want empty,true", value, ok)
+	}
+}
+
 func TestCompilerReportsUnknownNodeClass(t *testing.T) {
 	registry := NewRegistry()
 	_, err := CompileGraph(registry, GraphConfig{

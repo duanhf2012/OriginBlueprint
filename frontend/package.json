@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "test:layout": "node tests/nodePortSpacing.test.js && node tests/socketVisuals.test.js && node tests/entryBindingMenuEvents.test.js && node tests/entrySourceVisuals.test.js && node tests/dynamicBranchOutputs.test.js && node tests/referenceSearchPanel.test.js && node tests/functionNodes.test.js && node tests/timerNodes.test.js && node tests/removedDataTypes.test.js && node tests/legacyPersistence.test.js && node tests/verificationFixtures.test.js",
+    "test:layout": "vitest run tests/p1Behavior.test.ts tests/p2p3Behavior.test.ts tests/implicitEntryLinks.test.ts tests/selectionGeometry.test.ts && node tests/nodePortSpacing.test.js && node tests/socketVisuals.test.js && node tests/entryBindingMenuEvents.test.js && node tests/entrySourceVisuals.test.js && node tests/dynamicBranchOutputs.test.js && node tests/p1Safety.test.js && node tests/p2p3Integration.test.js && node tests/coreGraphSaveGate.test.js && node tests/referenceSearchPanel.test.js && node tests/functionNodes.test.js && node tests/timerNodes.test.js && node tests/removedDataTypes.test.js && node tests/legacyPersistence.test.js && node tests/legacyPropertyPreservation.test.js && node tests/verificationFixtures.test.js",
     "build": "vue-tsc --noEmit && npm exec vite -- build",
     "preview": "vite preview"
   },
@@ -20,9 +20,11 @@
   },
   "devDependencies": {
     "@babel/types": "^7.18.10",
+    "@types/node": "18.11.18",
     "@vitejs/plugin-vue": "^3.0.3",
     "typescript": "^4.6.4",
     "vite": "^3.0.7",
+    "vitest": "0.34.6",
     "vue-tsc": "^1.8.27"
   }
 }

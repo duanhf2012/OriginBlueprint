@@ -1,9 +1,9 @@
 export namespace main {
-	
+
 	export class FileResult {
 	    path: string;
 	    content: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new FileResult(source);
 	    }
@@ -42,6 +42,24 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.path = source["path"];
 	        this.content = source["content"];
+	    }
+	}
+	export class RecoverySnapshotResult {
+	    path: string;
+	    sourcePath?: string;
+	    tabId?: string;
+	    createdAt: string;
+
+	    static createFrom(source: any = {}) {
+	        return new RecoverySnapshotResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.sourcePath = source["sourcePath"];
+	        this.tabId = source["tabId"];
+	        this.createdAt = source["createdAt"];
 	    }
 	}
 	export class RuntimeNodeLoadError {
@@ -110,6 +128,10 @@ export namespace main {
 	    message: string;
 	    nodeId?: string;
 	    nodeIds?: string[];
+	    sourcePath?: string;
+	    blocksSave?: boolean;
+	    blocksRun?: boolean;
+	    target?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ValidationIssue(source);
@@ -122,6 +144,10 @@ export namespace main {
 	        this.message = source["message"];
 	        this.nodeId = source["nodeId"];
 	        this.nodeIds = source["nodeIds"];
+	        this.sourcePath = source["sourcePath"];
+	        this.blocksSave = source["blocksSave"];
+	        this.blocksRun = source["blocksRun"];
+	        this.target = source["target"];
 	    }
 	}
 	export class WorkspaceEntry {
@@ -142,4 +168,3 @@ export namespace main {
 	}
 
 }
-

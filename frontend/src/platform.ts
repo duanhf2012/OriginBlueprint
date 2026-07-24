@@ -5,7 +5,8 @@ export interface FileResult { path: string; content: string }
 export interface ProjectSettingsResult { path: string; content: string }
 export interface WorkspaceEntry { name: string; path: string; isDir: boolean }
 export interface NodeReferenceResult { name: string; path: string; count: number }
-export interface ValidationIssue { severity: 'error' | 'warning'; code: string; message: string; nodeId?: string; nodeIds?: string[] }
+export interface ValidationIssue { severity: 'error' | 'warning'; code: string; message: string; nodeId?: string; nodeIds?: string[]; sourcePath?: string; blocksSave?: boolean; blocksRun?: boolean; target?: string }
+export interface RecoverySnapshotResult { path: string; sourcePath?: string; tabId?: string; createdAt: string }
 export interface NodeSchemaLoadResult { nodes: NodeSchema[]; errors: Array<{ path: string; message: string }>; documentCount: number }
 interface NodeSchemaDocument { path: string; content: string }
 interface NodeSchemaDocumentLoadResult { documents: NodeSchemaDocument[]; errors: Array<{ path: string; message: string }> }
@@ -16,6 +17,7 @@ type RawNodeSchemaDocumentLoadResult = NodeSchemaDocumentLoadResult & {
 type DesktopApp = {
   OpenGraph(path: string): Promise<FileResult>
   SaveGraph(path: string, content: string): Promise<string>
+  ForceSaveGraph(path: string, content: string): Promise<string>
   CurrentWorkingDirectory(): Promise<string>
   ChooseWorkspace(): Promise<string>
   LoadProjectSettings(root: string): Promise<ProjectSettingsResult>
@@ -33,6 +35,12 @@ type DesktopApp = {
   OpenExternalURL(url: string): Promise<void>
   GetRecentFiles(): Promise<string[]>
   ValidateGraph(content: string): Promise<ValidationIssue[]>
+  ValidateGraphForWorkspace(content: string, workspaceRoot: string, sourcePath: string): Promise<ValidationIssue[]>
+  SaveRecoverySnapshot(sourcePath: string, tabID: string, documentJSON: string, issuesJSON: string): Promise<RecoverySnapshotResult>
+  ListRecoverySnapshots(): Promise<RecoverySnapshotResult[]>
+  ReadRecoverySnapshot(path: string): Promise<string>
+  DeleteRecoverySnapshot(path: string): Promise<void>
+  DeleteRecoverySnapshots(sourcePath: string, tabID: string): Promise<void>
   MigrateLegacyGraph(content: string): Promise<string>
   ExportLegacyGraph(content: string): Promise<string>
   LoadNodeSchemaDocuments(): Promise<RawNodeSchemaDocumentLoadResult>
@@ -144,6 +152,10 @@ export const platform = {
     download(path || 'Untitled.obp', content, 'application/json')
     return path || 'Untitled.obp'
   },
+  async forceSaveGraph(path: string, content: string) {
+    if (!desktop()) throw new Error('Force overwrite is only available in the desktop application')
+    return withDesktopLogging('ForceSaveGraph', () => desktop()!.ForceSaveGraph(path, content))
+  },
   async currentWorkingDirectory() { return desktop() ? withDesktopLogging('CurrentWorkingDirectory', () => desktop()!.CurrentWorkingDirectory()) : '' },
   async chooseWorkspace() { return desktop() ? withDesktopLogging('ChooseWorkspace', () => desktop()!.ChooseWorkspace()) : '' },
   async loadProjectSettings(root: string): Promise<ProjectSettingsResult | null> {
@@ -183,9 +195,14 @@ export const platform = {
     window.open(url, '_blank', 'noopener')
   },
   async recentFiles() { return desktop() ? withDesktopLogging('GetRecentFiles', () => desktop()!.GetRecentFiles()) : [] },
-  async validateGraph(content: string): Promise<ValidationIssue[]> {
-    if (desktop()) return withDesktopLogging('ValidateGraph', () => desktop()!.ValidateGraph(content))
-    try { JSON.parse(content); return [] } catch { return [{ severity: 'error', code: 'document.invalid-json', message: 'Invalid graph document' }] }
+  async validateGraph(content: string, workspaceRoot = '', sourcePath = ''): Promise<ValidationIssue[]> {
+    if (desktop()) return withDesktopLogging('ValidateGraphForWorkspace', () => desktop()!.ValidateGraphForWorkspace(content, workspaceRoot, sourcePath))
+    try {
+      JSON.parse(content)
+      return [{ severity: 'warning', code: 'engine.unavailable', message: 'Go engine compilation validation is unavailable in browser mode' }]
+    } catch {
+      return [{ severity: 'error', code: 'document.invalid-json', message: 'Invalid graph document' }]
+    }
   },
   async migrateLegacyGraph(content: string) { return desktop() ? withDesktopLogging('MigrateLegacyGraph', () => desktop()!.MigrateLegacyGraph(content)) : '' },
   async exportLegacyGraph(content: string) { return desktop() ? withDesktopLogging('ExportLegacyGraph', () => desktop()!.ExportLegacyGraph(content)) : content },
@@ -201,6 +218,21 @@ export const platform = {
     if (desktop()) return withDesktopLogging('ExportPNG', () => desktop()!.ExportPNG(dataURL))
     const anchor = document.createElement('a'); anchor.href = dataURL; anchor.download = 'OriginBlueprint.png'; anchor.click()
     return anchor.download
+  },
+  async saveRecoverySnapshot(sourcePath: string, tabID: string, documentJSON: string, issuesJSON: string): Promise<RecoverySnapshotResult | null> {
+    return desktop() ? withDesktopLogging('SaveRecoverySnapshot', () => desktop()!.SaveRecoverySnapshot(sourcePath, tabID, documentJSON, issuesJSON)) : null
+  },
+  async listRecoverySnapshots(): Promise<RecoverySnapshotResult[]> {
+    return desktop() ? withDesktopLogging('ListRecoverySnapshots', () => desktop()!.ListRecoverySnapshots()) : []
+  },
+  async readRecoverySnapshot(path: string): Promise<string> {
+    return desktop() ? withDesktopLogging('ReadRecoverySnapshot', () => desktop()!.ReadRecoverySnapshot(path)) : ''
+  },
+  async deleteRecoverySnapshot(path: string): Promise<void> {
+    if (desktop()) await withDesktopLogging('DeleteRecoverySnapshot', () => desktop()!.DeleteRecoverySnapshot(path))
+  },
+  async deleteRecoverySnapshots(sourcePath: string, tabID: string): Promise<void> {
+    if (desktop()) await withDesktopLogging('DeleteRecoverySnapshots', () => desktop()!.DeleteRecoverySnapshots(sourcePath, tabID))
   },
   async chooseExportPNGPath(defaultDirectory = '') {
     if (desktop()) return withDesktopLogging('ChooseExportPNGPath', () => desktop()!.ChooseExportPNGPath(defaultDirectory))

@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -18,9 +19,10 @@ import (
 )
 
 type App struct {
-	ctx        context.Context
-	closeMu    sync.Mutex
-	allowClose bool
+	ctx         context.Context
+	closeMu     sync.Mutex
+	allowClose  bool
+	atomicWrite func(path string, data []byte, mode os.FileMode) error
 }
 
 type FileResult struct {
@@ -128,7 +130,9 @@ func (a *App) OpenGraph(path string) (FileResult, error) {
 	if err != nil {
 		return FileResult{}, err
 	}
-	a.recordRecent(path)
+	if err := a.recordRecent(path); err != nil {
+		a.reportNonFatalError("record recent graph", err)
+	}
 	return FileResult{Path: path, Content: string(data)}, nil
 }
 
@@ -167,11 +171,93 @@ func (a *App) SaveGraph(path, content string) (string, error) {
 			return "", err
 		}
 	}
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	if err := a.writeAtomically(path, data, 0644); err != nil {
 		return "", err
 	}
-	a.recordRecent(path)
+	if err := a.recordRecent(path); err != nil {
+		a.reportNonFatalError("record recent graph", err)
+	}
 	return path, nil
+}
+
+// ForceSaveGraph intentionally replaces an existing graph after first preserving
+// its exact bytes in a sibling .bak file. The frontend only exposes this through
+// the compatibility-loss flow with a second destructive confirmation.
+func (a *App) ForceSaveGraph(path, content string) (string, error) {
+	if strings.TrimSpace(path) == "" {
+		return "", errors.New("force save requires an existing graph path")
+	}
+	data, err := graphContentForPath(path, content)
+	if err != nil {
+		return "", err
+	}
+	original, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read graph before force save: %w", err)
+	}
+	mode := os.FileMode(0644)
+	if info, statErr := os.Stat(path); statErr == nil {
+		mode = info.Mode().Perm()
+	}
+	if err := a.writeAtomically(path+".bak", original, mode); err != nil {
+		return "", fmt.Errorf("create graph backup: %w", err)
+	}
+	if err := a.writeAtomically(path, data, mode); err != nil {
+		return "", fmt.Errorf("replace graph after backup: %w", err)
+	}
+	if err := a.recordRecent(path); err != nil {
+		a.reportNonFatalError("record recent graph", err)
+	}
+	return path, nil
+}
+
+func (a *App) writeAtomically(path string, data []byte, mode os.FileMode) error {
+	if a != nil && a.atomicWrite != nil {
+		return a.atomicWrite(path, data, mode)
+	}
+	return writeFileAtomically(path, data, mode)
+}
+
+func (a *App) reportNonFatalError(operation string, err error) {
+	if err == nil {
+		return
+	}
+	if a != nil && a.ctx != nil {
+		runtime.LogErrorf(a.ctx, "%s: %v", operation, err)
+		return
+	}
+	fmt.Fprintf(os.Stderr, "OriginBlueprint %s: %v\n", operation, err)
+}
+
+func writeFileAtomically(path string, data []byte, mode os.FileMode) (err error) {
+	dir := filepath.Dir(path)
+	if dir != "." && dir != "" {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return err
+		}
+	}
+	temporary, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	temporaryPath := temporary.Name()
+	defer func() {
+		_ = temporary.Close()
+		_ = os.Remove(temporaryPath)
+	}()
+	if err := temporary.Chmod(mode); err != nil {
+		return err
+	}
+	if _, err := temporary.Write(data); err != nil {
+		return err
+	}
+	if err := temporary.Sync(); err != nil {
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	return atomicReplaceFile(temporaryPath, path)
 }
 
 func graphContentForPath(path, content string) ([]byte, error) {
@@ -243,7 +329,7 @@ func (a *App) LoadProjectSettings(root string) (ProjectSettingsResult, error) {
 	}
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		if err := os.WriteFile(path, []byte(defaultProjectSettingsContent), 0644); err != nil {
+		if err := a.writeAtomically(path, []byte(defaultProjectSettingsContent), 0644); err != nil {
 			return ProjectSettingsResult{}, err
 		}
 		return ProjectSettingsResult{Path: path, Content: defaultProjectSettingsContent}, nil
@@ -259,7 +345,7 @@ func (a *App) SaveProjectSettings(root, content string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+	if err := a.writeAtomically(path, []byte(content), 0644); err != nil {
 		return "", err
 	}
 	return path, nil
@@ -475,7 +561,9 @@ func (a *App) SavePNG(path string, dataURL string) (string, error) {
 	if err := os.WriteFile(path, data, 0644); err != nil {
 		return "", err
 	}
-	a.recordExportDirectory(path)
+	if err := a.recordExportDirectory(path); err != nil {
+		a.reportNonFatalError("record export directory", err)
+	}
 	return path, nil
 }
 
@@ -522,11 +610,13 @@ func readAppConfig() appConfig {
 	return appConfig{}
 }
 
-func writeAppConfig(config appConfig) {
+func writeAppConfig(config appConfig) error {
 	path := configPath()
-	_ = os.MkdirAll(filepath.Dir(path), 0755)
-	data, _ := json.MarshalIndent(config, "", "  ")
-	_ = os.WriteFile(path, data, 0644)
+	data, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return err
+	}
+	return writeFileAtomically(path, data, 0644)
 }
 
 func (a *App) GetRecentFiles() []string {
@@ -566,7 +656,7 @@ func (a *App) exportDefaultDirectory(fallback string) string {
 	return validDirectory(fallback)
 }
 
-func (a *App) recordRecent(path string) {
+func (a *App) recordRecent(path string) error {
 	config := readAppConfig()
 	items := a.GetRecentFiles()
 	result := []string{path}
@@ -579,15 +669,15 @@ func (a *App) recordRecent(path string) {
 	if dir := filepath.Dir(path); dir != "." {
 		config.LastGraphDirectory = dir
 	}
-	writeAppConfig(config)
+	return writeAppConfig(config)
 }
 
-func (a *App) recordExportDirectory(path string) {
+func (a *App) recordExportDirectory(path string) error {
 	dir := filepath.Dir(path)
 	if dir == "." {
-		return
+		return nil
 	}
 	config := readAppConfig()
 	config.LastExportDirectory = dir
-	writeAppConfig(config)
+	return writeAppConfig(config)
 }

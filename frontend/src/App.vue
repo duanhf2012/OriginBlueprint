@@ -2,12 +2,15 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { toPng } from 'html-to-image'
 import { createBlueprintEditor, type BlueprintEditorHandle, type EditorMetrics, type FunctionSignature, type FunctionSignaturePort, type GraphDocument, type GraphVariable, type GraphVariableGroup, type SelectedNodeInfo, type ValidationIssue, type VariableType } from './editor/createEditor'
-import type { FunctionNodeMetadata, NodeSnapshot } from './editor/document'
+import type { FunctionNodeMetadata, NodeSnapshot, RestoreLossReport } from './editor/document'
 import { getNodeDefinitions, registerNodeSchemas, type NodeDefinition } from './editor/nodeRegistry'
 import { menuLocales, normalizeLocale, type LocaleId } from './i18n'
-import { platform, type NodeReferenceResult, type WorkspaceEntry } from './platform'
+import { platform, type NodeReferenceResult, type RecoverySnapshotResult, type WorkspaceEntry } from './platform'
+import { compatibilitySaveOptions, findOpenTab, hasRestoreLoss, resolveCompatibilitySaveAction as resolveCompatibilityPersistenceAction, sourceRequiresProtection, type CompatibilitySaveAction } from './documentSafety'
+import { autoSaveIntervalMs, isAutoSaveEligible, type AutoSaveMode } from './autoSavePolicy'
+import { saveGateDecision } from './saveGate'
 
-interface GraphTab { id: string; title: string; path: string; dirty: boolean; document: GraphDocument | null }
+interface GraphTab { id: string; title: string; path: string; dirty: boolean; document: GraphDocument | null; restoreLoss?: RestoreLossReport | null; restoreFatal?: boolean; saveBlocked?: boolean }
 interface WorkspaceTreeNode extends WorkspaceEntry { children: WorkspaceTreeNode[]; loaded: boolean; loading: boolean }
 interface VisibleWorkspaceNode { node: WorkspaceTreeNode; depth: number }
 type UnsavedCloseAction = 'save' | 'discard' | 'cancel'
@@ -20,7 +23,6 @@ interface FunctionLibraryItem { id: string; functionId: string; name: string; ca
 interface ModuleLibraryItem extends NodeDefinition { functionPlaceholder?: boolean; functionSource?: FunctionLibraryItem['source']; functionItem?: FunctionLibraryItem; path?: string }
 type UiScale = 'small' | 'normal' | 'large'
 type NodeScale = 'normal' | 'large'
-type AutoSaveMode = 'off' | '1m' | '3m' | '5m'
 type ImageExportScale = 1 | 2 | 4
 interface ProjectSettings {
   version: number
@@ -122,6 +124,9 @@ const selectedNode = ref<SelectedNodeInfo | null>(null)
 const validationIssues = ref<ValidationIssue[]>([])
 const selectedValidationIssueKey = ref('')
 const unsavedCloseDialog = ref<{ visible: boolean; names: string[]; resolve?: (action: UnsavedCloseAction) => void }>({ visible: false, names: [] })
+const compatibilitySaveDialog = ref<{ visible: boolean; droppedNodes: number; droppedConnections: number; alteredNodes: number; fatal: boolean; forceAllowed: boolean; resolve?: (action: CompatibilitySaveAction) => void }>({ visible: false, droppedNodes: 0, droppedConnections: 0, alteredNodes: 0, fatal: false, forceAllowed: false })
+const recoveryDialog = ref<{ visible: boolean; snapshot: RecoverySnapshotResult | null }>({ visible: false, snapshot: null })
+let recoveryQueue: RecoverySnapshotResult[] = []
 let untitledCount = 1
 const tabDragIndex = ref(-1)
 const tabDragOverIndex = ref(-1)
@@ -136,6 +141,8 @@ let workspaceRefreshTimer: ReturnType<typeof window.setInterval> | undefined
 let validationIssueClickTimer: ReturnType<typeof window.setTimeout> | undefined
 let canvasToastTimer: ReturnType<typeof window.setTimeout> | undefined
 let updateCheckTimer: ReturnType<typeof window.setTimeout> | undefined
+let autoSaveTimer: ReturnType<typeof window.setInterval> | undefined
+let persistenceInFlight = false
 let applyingProjectSettings = false
 const loadingFunctionTitles = new Set<string>()
 const workspaceRefreshIntervalKey = 'origin-blueprint-workspace-refresh-interval'
@@ -214,6 +221,16 @@ const applicationClasses = computed(() => ({
 }))
 const activeWorkspacePath = computed(() => activeTab.value?.path || '')
 const validationIssueCountLabel = computed(() => validationIssues.value.length ? menuText.value.validation.issueCount.replace('{count}', String(validationIssues.value.length)) : menuText.value.validation.noIssues)
+const groupedValidationIssues = computed(() => {
+  const groups = new Map<string, { key: string; label: string; items: Array<{ issue: ValidationIssue; index: number }> }>()
+  validationIssues.value.forEach((issue, index) => {
+    const descriptor = validationIssueGroup(issue)
+    const group = groups.get(descriptor.key) ?? { ...descriptor, items: [] }
+    group.items.push({ issue, index })
+    groups.set(descriptor.key, group)
+  })
+  return Array.from(groups.values())
+})
 const referencePanelStyle = computed(() => ({ height: `${referencePanelCollapsed.value ? 34 : referencePanelHeight.value}px` }))
 const testPanelStyle = computed(() => ({ height: `${testPanelCollapsed.value ? 34 : testPanelHeight.value}px` }))
 const variablePanelStyle = computed(() => ({ flex: `0 0 ${variablePanelHeight.value}px` }))
@@ -229,7 +246,7 @@ onMounted(async () => {
     onZoom(value) { zoomLabel.value = `${Math.round(value * 100)}%` },
     onStatus(value) { status.value = value },
     onMetrics(value) { metrics.value = value },
-    onDirty() { if (activeTab.value) activeTab.value.dirty = true },
+    onDirty() { if (activeTab.value) { activeTab.value.dirty = true; activeTab.value.saveBlocked = false } },
     onFunctionSignature(value) {
       if (isFunctionBlueprintTab.value) functionSignature.value = normalizeFunctionSignature(value)
     },
@@ -247,6 +264,7 @@ onMounted(async () => {
   recentFiles.value = await platform.recentFiles()
   const initialWorkspace = await platform.currentWorkingDirectory()
   if (initialWorkspace) await loadWorkspace(initialWorkspace)
+  await loadRecoverySnapshotPrompts()
   unsubscribeCloseRequest = platform.onCloseRequest(() => { void handleCloseRequest() })
   workspaceRefreshTimer = window.setInterval(() => { void refreshWorkspaceVisibleDirectories() }, workspaceRefreshIntervalMs)
   window.addEventListener('focus', refreshWorkspaceOnFocus)
@@ -256,6 +274,7 @@ onMounted(async () => {
   if (updateState.value.autoCheck) {
     updateCheckTimer = window.setTimeout(() => { void checkForUpdates(false) }, 12000)
   }
+  resetAutoSaveTimer()
 })
 
 function savedPanelWidth(key: string, fallback: number, min = 140, max = 360) {
@@ -519,6 +538,7 @@ onBeforeUnmount(() => {
   clearValidationIssueClickTimer()
   if (canvasToastTimer) window.clearTimeout(canvasToastTimer)
   if (workspaceRefreshTimer) window.clearInterval(workspaceRefreshTimer)
+  if (autoSaveTimer) window.clearInterval(autoSaveTimer)
   if (updateCheckTimer) window.clearTimeout(updateCheckTimer)
   removeNodePointerListeners()
   unsubscribeCloseRequest()
@@ -595,7 +615,14 @@ async function switchTab(id: string) {
   if (id === activeTabId.value) return
   persistActive(); activeTabId.value = id; selectedVariableId.value = null
   const tab = activeTab.value
-  if (tab.document) { await syncCallableFunctionsToEditor(); await editor?.loadDocument(tab.document) } else await editor?.newDocument()
+  if (tab.document) {
+    await syncCallableFunctionsToEditor()
+    try { await editor?.loadDocument(tab.document) }
+    catch (error) {
+      tab.restoreFatal = true
+      status.value = `Graph restore failed: ${error instanceof Error ? error.message : String(error)}`
+    }
+  } else await editor?.newDocument()
   functionSignature.value = normalizeFunctionSignature(tab.document?.functionSignature)
   functionTitle.value = isFunctionBlueprintPath(tab.path || tab.title) ? functionTitleFromDocument(tab.document, tab.path || tab.title, tab.title) : ''
   functionId.value = isFunctionBlueprintPath(tab.path || tab.title) ? functionIdFromDocument(tab.document) : ''
@@ -1403,9 +1430,7 @@ function normalizeDocument(value: any): GraphDocument {
 }
 
 function isNativeGraphDocument(value: any) {
-  if (value?.schemaVersion !== 1) return false
-  if (!Array.isArray(value.nodes)) return true
-  return value.nodes.every((node: any) => typeof node?.typeId === 'string')
+  return value?.schemaVersion === 1
 }
 
 function isLegacyGraphPath(path: string) {
@@ -1420,7 +1445,8 @@ async function testGraph() {
   if (!editor) return
   await editor.highlightIssueNodes([])
   const document = editor.getDocument(activeTab.value.title, variables.value, variableGroups.value)
-  validationIssues.value = await platform.validateGraph(JSON.stringify(document))
+  validationIssues.value = await platform.validateGraph(JSON.stringify(document), workspaceRoot.value, activeTab.value.path)
+  activeTab.value.saveBlocked = validationIssues.value.some(issue => issue.blocksSave && !issue.target)
   selectedValidationIssueKey.value = ''
   showLogger.value = true
   const errors = validationIssues.value.filter(issue => issue.severity === 'error').length
@@ -1477,13 +1503,105 @@ async function highlightIssue(issue: ValidationIssue, index: number) {
   status.value = count ? `已用红色警示框标出 ${count} 个问题结点` : '未找到对应结点'
 }
 
+function validationIssueGroup(issue: ValidationIssue) {
+  if (issue.target) return { key: `target:${issue.target}`, label: `运行目标：${issue.target}` }
+  const sourcePath = issue.sourcePath?.trim() ?? ''
+  const currentPath = activeTab.value?.path?.trim() ?? ''
+  const normalize = (value: string) => {
+    const normalized = value.replace(/\\/g, '/')
+    return platform.isDesktop() ? normalized.toLowerCase() : normalized
+  }
+  if (sourcePath && (!currentPath || normalize(sourcePath) !== normalize(currentPath))) {
+    return { key: `workspace:${normalize(sourcePath)}`, label: `Workspace 依赖：${sourcePath}` }
+  }
+  return { key: 'current', label: '当前蓝图' }
+}
+
+async function loadRecoverySnapshotPrompts() {
+  try {
+    recoveryQueue = await platform.listRecoverySnapshots()
+    showNextRecoverySnapshotPrompt()
+  } catch (error) {
+    status.value = `Recovery scan failed: ${error instanceof Error ? error.message : String(error)}`
+  }
+}
+
+function showNextRecoverySnapshotPrompt() {
+  recoveryDialog.value = { visible: recoveryQueue.length > 0, snapshot: recoveryQueue[0] ?? null }
+}
+
+function keepRecoverySnapshot() {
+  recoveryQueue.shift()
+  showNextRecoverySnapshotPrompt()
+}
+
+async function deleteRecoverySnapshot() {
+  const snapshot = recoveryDialog.value.snapshot
+  if (!snapshot) return
+  try {
+    await platform.deleteRecoverySnapshot(snapshot.path)
+    recoveryQueue.shift()
+    showNextRecoverySnapshotPrompt()
+  } catch (error) {
+    status.value = `Recovery delete failed: ${error instanceof Error ? error.message : String(error)}`
+  }
+}
+
+async function restoreRecoverySnapshot() {
+  const snapshot = recoveryDialog.value.snapshot
+  if (!snapshot) return
+  try {
+    const raw = await platform.readRecoverySnapshot(snapshot.path)
+    const envelope = JSON.parse(raw) as { document?: unknown; blockingIssues?: ValidationIssue[] }
+    if (!envelope.document || typeof envelope.document !== 'object') throw new Error('Recovery snapshot has no graph document')
+    const document = normalizeDocument(envelope.document)
+    const sourcePath = snapshot.sourcePath ?? ''
+    const sourceTitle = sourcePath.split(/[\\/]/).pop() || 'Untitled'
+    const tab: GraphTab = {
+      id: crypto.randomUUID(),
+      title: `${sourceTitle} (Recovered)`,
+      path: sourcePath,
+      dirty: true,
+      document,
+      restoreFatal: true,
+      saveBlocked: Boolean(envelope.blockingIssues?.some(issue => issue.blocksSave)),
+    }
+    tabs.value.push(tab)
+    await switchTab(tab.id)
+    validationIssues.value = envelope.blockingIssues ?? []
+    selectedValidationIssueKey.value = ''
+    showLogger.value = validationIssues.value.length > 0
+    try {
+      await platform.deleteRecoverySnapshot(snapshot.path)
+    } catch (error) {
+      await platform.logClientError('warning', error instanceof Error ? error.message : String(error), '', 'DeleteRecoverySnapshotAfterRestore')
+    }
+    recoveryQueue.shift()
+    showNextRecoverySnapshotPrompt()
+    status.value = `Recovered ${sourceTitle} into a protected dirty tab; save it as a new file after fixing fatal issues`
+  } catch (error) {
+    status.value = `Recovery failed: ${error instanceof Error ? error.message : String(error)}`
+  }
+}
+
 async function openGraph(path = '', highlightTypeId = '') {
   const file = await platform.openGraph(path)
   if (!file) return
+  const existing = findOpenTab(tabs.value, file.path, platform.isDesktop())
+  if (existing) {
+    await switchTab(existing.id)
+    status.value = `${existing.title} is already open`
+    await highlightReferenceSearchTarget(highlightTypeId)
+    return
+  }
   let parsed: any
   try { parsed = JSON.parse(file.content) } catch { status.value = 'Invalid graph file'; return }
   let document: GraphDocument
-  if (isNativeGraphDocument(parsed)) document = normalizeDocument(parsed)
+  let sourceIssues: ValidationIssue[] = []
+  if (isNativeGraphDocument(parsed)) {
+    sourceIssues = await platform.validateGraph(file.content, workspaceRoot.value, file.path)
+    document = normalizeDocument(parsed)
+  }
   else if (platform.isDesktop()) {
     try { document = normalizeDocument(JSON.parse(await platform.migrateLegacyGraph(file.content))) }
     catch (error) { status.value = error instanceof Error ? error.message : 'Legacy graph migration failed'; return }
@@ -1492,24 +1610,6 @@ async function openGraph(path = '', highlightTypeId = '') {
   await loadFunctionLibraryTitles(functionLibraryItems.value)
   await refreshDocumentFunctionReferencesOnOpen(document, file.path)
   persistActive()
-  const existing = tabs.value.find(tab => tab.path === file.path)
-  if (existing) {
-    persistActive()
-    existing.document = document
-    existing.dirty = false
-    activeTabId.value = existing.id
-    selectedVariableId.value = null
-    functionSignature.value = normalizeFunctionSignature(document.functionSignature)
-    functionTitle.value = isFunctionBlueprintPath(file.path) ? functionTitleFromDocument(document, file.path, existing.title) : ''
-    functionId.value = isFunctionBlueprintPath(file.path) ? functionIdFromDocument(document) : ''
-    functionCategory.value = isFunctionBlueprintPath(file.path) ? functionCategoryFromDocument(document, file.path) : ''
-    if (isFunctionBlueprintPath(file.path)) functionTitleByPath.value = { ...functionTitleByPath.value, [file.path]: functionTitle.value }
-    if (isFunctionBlueprintPath(file.path) && functionId.value) functionIdByPath.value = { ...functionIdByPath.value, [file.path]: functionId.value }
-    if (isFunctionBlueprintPath(file.path)) functionCategoryByPath.value = { ...functionCategoryByPath.value, [file.path]: functionCategory.value }
-    await syncCallableFunctionsToEditor(); await editor?.loadDocument(document)
-    await highlightReferenceSearchTarget(highlightTypeId)
-    return
-  }
   const title = file.path.split(/[\\/]/).pop() ?? document.graphName
   const tab: GraphTab = { id: crypto.randomUUID(), title, path: file.path, dirty: false, document }
   tabs.value.push(tab)
@@ -1522,44 +1622,200 @@ async function openGraph(path = '', highlightTypeId = '') {
   if (isFunctionBlueprintPath(file.path)) functionTitleByPath.value = { ...functionTitleByPath.value, [file.path]: functionTitle.value }
   if (isFunctionBlueprintPath(file.path) && functionId.value) functionIdByPath.value = { ...functionIdByPath.value, [file.path]: functionId.value }
   if (isFunctionBlueprintPath(file.path)) functionCategoryByPath.value = { ...functionCategoryByPath.value, [file.path]: functionCategory.value }
-  await syncCallableFunctionsToEditor(); await editor?.loadDocument(document)
-  if (document.legacy?.format === 'vgf') {
+  await syncCallableFunctionsToEditor()
+  try {
+    const report = await editor?.loadDocument(document)
+    tab.restoreLoss = hasRestoreLoss(report) ? report : null
+    tab.restoreFatal = sourceRequiresProtection(sourceIssues)
+  } catch (error) {
+    tab.restoreFatal = true
+    status.value = `Graph restore failed; source overwrite is disabled: ${error instanceof Error ? error.message : String(error)}`
+  }
+  if (!tab.restoreFatal && document.legacy?.format === 'vgf') {
     const hiddenCount = document.legacy.hiddenNodes?.length ?? 0
     status.value = `Loaded ${document.nodes.length} visible node(s), ${hiddenCount} hidden undefined node(s)`
+  }
+  if (tab.restoreLoss) {
+    status.value = `Compatibility limited: ${tab.restoreLoss.droppedNodes.length} node(s), ${tab.restoreLoss.droppedConnections.length} connection(s), and ${tab.restoreLoss.alteredNodes.length} normalized node(s); source overwrite is disabled by default`
+  }
+  if (sourceIssues.length) {
+    validationIssues.value = sourceIssues
+    selectedValidationIssueKey.value = ''
+    showLogger.value = true
+    const errors = sourceIssues.filter(issue => issue.severity === 'error').length
+    const warnings = sourceIssues.filter(issue => issue.severity === 'warning').length
+    status.value = errors
+      ? `Source validation found ${errors} error(s) and ${warnings} warning(s); source overwrite is disabled`
+      : `Source validation found ${warnings} warning(s)`
   }
   await highlightReferenceSearchTarget(highlightTypeId)
   recentFiles.value = await platform.recentFiles()
 }
 
+function requestCompatibilitySaveAction(tab: GraphTab, forceAllowed: boolean) {
+  const options = compatibilitySaveOptions({ fatal: Boolean(tab.restoreFatal), hasLoss: hasRestoreLoss(tab.restoreLoss), formatAllowsForce: forceAllowed })
+  return new Promise<CompatibilitySaveAction>(resolve => {
+    compatibilitySaveDialog.value = {
+      visible: true,
+      droppedNodes: tab.restoreLoss?.droppedNodes.length ?? 0,
+      droppedConnections: tab.restoreLoss?.droppedConnections.length ?? 0,
+      alteredNodes: tab.restoreLoss?.alteredNodes.length ?? 0,
+      fatal: Boolean(tab.restoreFatal),
+      forceAllowed: options.includes('force'),
+      resolve
+    }
+  })
+}
+
+function resolveCompatibilitySaveAction(action: CompatibilitySaveAction) {
+  const resolve = compatibilitySaveDialog.value.resolve
+  compatibilitySaveDialog.value = { visible: false, droppedNodes: 0, droppedConnections: 0, alteredNodes: 0, fatal: false, forceAllowed: false }
+  resolve?.(action)
+}
+
+async function validateForPersistence(tab: GraphTab, document: GraphDocument) {
+  const documentJSON = JSON.stringify(document)
+  const issues = await platform.validateGraph(documentJSON, workspaceRoot.value, tab.path)
+  const decision = saveGateDecision(issues, projectSettingsContent.value.editor.validateBeforeSave)
+  tab.saveBlocked = decision.blocked
+  if (tab.id === activeTabId.value) {
+    validationIssues.value = issues
+    selectedValidationIssueKey.value = ''
+  }
+  if (!decision.blocked) return true
+
+  tab.dirty = true
+  const snapshot = await platform.saveRecoverySnapshot(tab.path, tab.id, documentJSON, JSON.stringify(decision.blockingIssues))
+  if (tab.id === activeTabId.value) {
+    showLogger.value = true
+    const nodeIDs = decision.blockingIssues.flatMap(issueNodeIds)
+    await editor?.highlightIssueNodes([...new Set(nodeIDs)])
+  }
+  const location = snapshot?.path ? ` Recovery snapshot: ${snapshot.path}` : ''
+  status.value = `Save blocked by ${decision.blockingIssues.length} fatal core graph issue(s).${location}`
+  return false
+}
+
+async function clearRecoverySnapshotsAfterSave(tab: GraphTab, previousPath: string, savedPath: string) {
+  try {
+    await platform.deleteRecoverySnapshots(previousPath, tab.id)
+    if (savedPath && savedPath !== previousPath) await platform.deleteRecoverySnapshots(savedPath, tab.id)
+  } catch (error) {
+    await platform.logClientError('warning', error instanceof Error ? error.message : String(error), '', 'DeleteRecoverySnapshots')
+  }
+}
+
 async function saveGraph(saveAs: boolean) {
+  if (persistenceInFlight) {
+    status.value = 'A save operation is already in progress'
+    return
+  }
+  persistenceInFlight = true
   try {
     await saveGraphUnchecked(saveAs)
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error)
     status.value = `${menuText.value.status.saveFailed}: ${detail}`
+  } finally {
+    persistenceInFlight = false
   }
+}
+
+function resetAutoSaveTimer() {
+  if (autoSaveTimer) window.clearInterval(autoSaveTimer)
+  autoSaveTimer = undefined
+  const interval = autoSaveIntervalMs(projectSettingsContent.value.editor.autoSave)
+  if (!interval || !platform.isDesktop()) return
+  autoSaveTimer = window.setInterval(() => { void autoSaveDirtyTabs() }, interval)
+}
+
+function documentForAutoSave(tab: GraphTab) {
+  if (tab.id === activeTabId.value && editor) {
+    return documentWithFunctionSignature(editor.getDocument(tab.title, variables.value, variableGroups.value), tab)
+  }
+  return tab.document
+}
+
+async function autoSaveDirtyTabs() {
+  if (persistenceInFlight || !platform.isDesktop()) return
+  persistenceInFlight = true
+  let saved = 0
+  const failures: string[] = []
+  try {
+    for (const tab of tabs.value) {
+      const document = documentForAutoSave(tab)
+      if (!document) continue
+      const requiresNativePersistence = documentRequiresNativePersistence(document)
+      if (!isAutoSaveEligible({
+        dirty: tab.dirty,
+        path: tab.path,
+        restoreFatal: Boolean(tab.restoreFatal),
+        hasRestoreLoss: hasRestoreLoss(tab.restoreLoss),
+        legacyRequiresNative: isLegacyGraphPath(tab.path) && requiresNativePersistence,
+        saving: false,
+      })) continue
+      try {
+        if (!await validateForPersistence(tab, document)) {
+          failures.push(`${tab.title}: blocked by fatal graph validation`)
+          continue
+        }
+        const previousPath = tab.path
+        const content = isLegacyGraphPath(tab.path)
+          ? await platform.exportLegacyGraph(JSON.stringify(document))
+          : JSON.stringify(document, null, 2)
+        const path = await platform.saveGraph(tab.path, content)
+        if (!path) continue
+        tab.path = path
+        tab.title = path.split(/[\\/]/).pop() ?? tab.title
+        tab.document = document
+        tab.dirty = false
+        tab.saveBlocked = false
+        await clearRecoverySnapshotsAfterSave(tab, previousPath, path)
+        saved++
+      } catch (error) {
+        failures.push(`${tab.title}: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+  } finally {
+    persistenceInFlight = false
+  }
+  if (failures.length) status.value = `Auto-save saved ${saved} graph(s); ${failures.length} failed: ${failures.join('; ')}`
+  else if (saved) status.value = `Auto-saved ${saved} graph(s)`
 }
 
 async function saveGraphUnchecked(saveAs: boolean) {
   if (!editor) return
   const tab = activeTab.value
   const document = documentWithFunctionSignature(editor.getDocument(tab.title, variables.value, variableGroups.value), tab)
-  if (projectSettingsContent.value.editor.validateBeforeSave) {
-    const issues = await platform.validateGraph(JSON.stringify(document))
-    validationIssues.value = issues
-    if (issues.some(issue => issue.severity === 'error')) {
-      showLogger.value = true
-      status.value = 'Save blocked by validation errors'
-      return
+  if (!await validateForPersistence(tab, document)) return
+  const requiresNativePersistence = documentRequiresNativePersistence(document)
+  let effectiveSaveAs = saveAs
+  let forceOriginal = false
+  if (!saveAs && tab.path && (tab.restoreFatal || hasRestoreLoss(tab.restoreLoss))) {
+    const forceAllowed = !tab.restoreFatal && !(isLegacyGraphPath(tab.path) && requiresNativePersistence)
+    const action = await requestCompatibilitySaveAction(tab, forceAllowed)
+    const persistenceAction = resolveCompatibilityPersistenceAction(action, { fatal: Boolean(tab.restoreFatal), hasLoss: hasRestoreLoss(tab.restoreLoss), formatAllowsForce: forceAllowed })
+    if (persistenceAction === 'cancel') return
+    if (persistenceAction === 'recovery-copy') effectiveSaveAs = true
+    if (persistenceAction === 'force-source-with-backup') {
+      const droppedNodes = tab.restoreLoss?.droppedNodes.length ?? 0
+      const droppedConnections = tab.restoreLoss?.droppedConnections.length ?? 0
+      const alteredNodes = tab.restoreLoss?.alteredNodes.length ?? 0
+      const confirmed = window.confirm(`强制覆盖会永久移除或调整编辑器无法完整恢复的 ${droppedNodes} 个结点、${droppedConnections} 条连线和 ${alteredNodes} 个结点属性。将先创建 ${tab.path}.bak。确认继续？`)
+      if (!confirmed) return
+      forceOriginal = true
     }
   }
-  const requiresNativePersistence = documentRequiresNativePersistence(document)
-  const forceNativeSaveAs = !saveAs && isLegacyGraphPath(tab.path) && requiresNativePersistence
-  const shouldSaveLegacy = !saveAs && !forceNativeSaveAs && isLegacyGraphPath(tab.path)
+  const forceNativeSaveAs = !effectiveSaveAs && !forceOriginal && isLegacyGraphPath(tab.path) && requiresNativePersistence
+  const shouldSaveLegacy = !effectiveSaveAs && !forceNativeSaveAs && isLegacyGraphPath(tab.path)
   const content = shouldSaveLegacy ? await platform.exportLegacyGraph(JSON.stringify(document)) : JSON.stringify(document, null, 2)
-  const path = await platform.saveGraph(saveAs || forceNativeSaveAs ? '' : tab.path, content)
+  const previousPath = tab.path
+  const path = forceOriginal
+    ? await platform.forceSaveGraph(tab.path, content)
+    : await platform.saveGraph(effectiveSaveAs || forceNativeSaveAs ? '' : tab.path, content)
   if (!path) return
-  tab.path = path; tab.title = path.split(/[\\/]/).pop() ?? tab.title; tab.document = document; tab.dirty = false
+  tab.path = path; tab.title = path.split(/[\\/]/).pop() ?? tab.title; tab.document = document; tab.dirty = false; tab.restoreLoss = null; tab.restoreFatal = false; tab.saveBlocked = false
+  await clearRecoverySnapshotsAfterSave(tab, previousPath, path)
   if (isFunctionBlueprintPath(path)) {
     functionTitle.value = activeFunctionTitle()
     functionTitleByPath.value = { ...functionTitleByPath.value, [path]: functionTitle.value }
@@ -1569,7 +1825,7 @@ async function saveGraphUnchecked(saveAs: boolean) {
     functionCategoryByPath.value = { ...functionCategoryByPath.value, [path]: functionCategory.value }
     await syncOpenFunctionReferences(activeFunctionMetadata('call'))
   }
-  recentFiles.value = await platform.recentFiles(); status.value = `Saved ${tab.title}`
+  recentFiles.value = await platform.recentFiles(); status.value = forceOriginal ? `Saved ${tab.title}; backup created at ${path}.bak` : `Saved ${tab.title}`
 }
 
 async function saveAll() {
@@ -1692,6 +1948,10 @@ async function hydrateWorkspaceTree(nodes: WorkspaceTreeNode[], depth: number, t
 
 watch(workspaceSearch, value => {
   if (value.trim()) void hydrateWorkspaceTree(workspaceTree.value, 1, workspaceLoadToken)
+})
+
+watch([() => projectSettingsContent.value.editor.autoSave, workspaceRoot], () => {
+  resetAutoSaveTimer()
 })
 
 watch(activeWorkspacePath, path => {
@@ -2675,7 +2935,7 @@ function toggleModuleCategory(category: string) {
          <div class="tab-strip-wrap">
            <button class="tab-scroll-arrow left" @click="scrollTabStrip(-1)">◀</button>
            <div ref="tabStrip" class="tab-strip" @wheel.prevent="(e: WheelEvent) => { const s = e.currentTarget as HTMLElement; s.scrollLeft += e.deltaY; }">
-             <div v-for="(tab, idx) in tabs" :key="tab.id" class="graph-tab" :class="{ active: tab.id === activeTabId, 'drag-over': tabDragOverIndex === idx }" draggable="true" @click="switchTab(tab.id)" @dragstart="onTabDragStart($event, idx)" @dragover="onTabDragOver($event, idx)" @dragleave="onTabDragLeave" @drop="onTabDrop($event, idx)" @dragend="onTabDragEnd"><span class="tab-mark"></span>{{ tab.title }}<span v-if="tab.dirty" class="dirty-mark">●</span><button class="tab-close" @click="closeTab(tab.id, $event)">×</button></div>
+             <div v-for="(tab, idx) in tabs" :key="tab.id" class="graph-tab" :class="{ active: tab.id === activeTabId, 'drag-over': tabDragOverIndex === idx, 'save-blocked': tab.saveBlocked }" draggable="true" @click="switchTab(tab.id)" @dragstart="onTabDragStart($event, idx)" @dragover="onTabDragOver($event, idx)" @dragleave="onTabDragLeave" @drop="onTabDrop($event, idx)" @dragend="onTabDragEnd"><span class="tab-mark"></span>{{ tab.title }}<span v-if="tab.saveBlocked" class="save-blocked-mark" title="Fatal graph issue blocks saving">⛔</span><span v-if="tab.dirty" class="dirty-mark">●</span><button class="tab-close" @click="closeTab(tab.id, $event)">×</button></div>
              <button class="new-tab" @click="newGraph">＋</button>
            </div>
            <button class="tab-scroll-arrow right" @click="scrollTabStrip(1)">▶</button>
@@ -2692,12 +2952,16 @@ function toggleModuleCategory(category: string) {
           </div>
           <div v-show="!testPanelCollapsed" class="logger-results">
             <div v-if="!validationIssues.length" class="logger-line">没有发现蓝图问题。</div>
-            <button v-for="(issue, index) in validationIssues" :key="validationIssueKey(issue, index)" class="logger-issue" :class="[issue.severity, { selected: selectedValidationIssueKey === validationIssueKey(issue, index) }]" @click="queueSelectIssue(issue, index)" @dblclick.stop.prevent="highlightIssue(issue, index)">
-              <strong>{{ issueSeverityLabel(issue) }}</strong>
-              <span class="logger-issue-message">{{ issue.message }}</span>
-              <span class="logger-issue-meta"><b>{{ menuText.validation.nodes }}</b>{{ issueNodeLabel(issue) }}</span>
-              <small><b>{{ menuText.validation.code }}</b>{{ issue.code }}</small>
-            </button>
+            <section v-for="group in groupedValidationIssues" :key="group.key" class="logger-issue-group">
+              <header>{{ group.label }}</header>
+              <button v-for="item in group.items" :key="validationIssueKey(item.issue, item.index)" class="logger-issue" :class="[item.issue.severity, { selected: selectedValidationIssueKey === validationIssueKey(item.issue, item.index) }]" @click="queueSelectIssue(item.issue, item.index)" @dblclick.stop.prevent="highlightIssue(item.issue, item.index)">
+                <strong>{{ issueSeverityLabel(item.issue) }}</strong>
+                <span class="logger-issue-message">{{ item.issue.message }}</span>
+                <span v-if="item.issue.blocksSave" class="logger-issue-blocks-save">禁止保存</span>
+                <span class="logger-issue-meta"><b>{{ menuText.validation.nodes }}</b>{{ issueNodeLabel(item.issue) }}</span>
+                <small><b>{{ menuText.validation.code }}</b>{{ item.issue.code }}</small>
+              </button>
+            </section>
           </div>
         </div>
         <div v-if="nodeReferenceSearch.visible" class="reference-panel bottom-panel" :class="{ collapsed: referencePanelCollapsed }" :style="referencePanelStyle">
@@ -2784,6 +3048,31 @@ function toggleModuleCategory(category: string) {
         <dl><dt>{{ menuText.update.currentVersion }}</dt><dd>{{ updateState.currentVersion }}</dd><dt>{{ menuText.update.latestVersion }}</dt><dd>{{ updateState.latestVersion }}</dd></dl>
         <pre v-if="updateState.notes">{{ updateState.notes }}</pre>
         <footer><button @click="closeUpdateDialog">{{ menuText.update.remindLater }}</button><button class="primary" @click="openUpdateRelease">{{ menuText.update.openRelease }}</button></footer>
+      </section>
+    </div>
+    <div v-if="recoveryDialog.visible && recoveryDialog.snapshot" class="unsaved-close-backdrop">
+      <section class="unsaved-close-dialog">
+        <header>发现蓝图恢复快照</header>
+        <p>{{ recoveryDialog.snapshot.sourcePath || '未命名蓝图' }}</p>
+        <p>创建时间：{{ recoveryDialog.snapshot.createdAt }}</p>
+        <p>恢复会打开一个受保护的未保存标签，不会覆盖原文件。</p>
+        <footer>
+          <button class="primary" @click="restoreRecoverySnapshot">恢复</button>
+          <button @click="keepRecoverySnapshot">保留</button>
+          <button @click="deleteRecoverySnapshot">删除</button>
+        </footer>
+      </section>
+    </div>
+    <div v-if="compatibilitySaveDialog.visible" class="unsaved-close-backdrop">
+      <section class="unsaved-close-dialog">
+        <header>蓝图存在兼容性丢失风险</header>
+        <p v-if="compatibilitySaveDialog.fatal">蓝图恢复未完整完成。为保护原文件，只能另存为恢复副本。</p>
+        <p v-else>编辑器无法完整恢复 {{ compatibilitySaveDialog.droppedNodes }} 个结点、{{ compatibilitySaveDialog.droppedConnections }} 条连线和 {{ compatibilitySaveDialog.alteredNodes }} 个结点属性。默认另存为恢复副本，不会改动原文件。</p>
+        <footer>
+          <button class="primary" @click="resolveCompatibilitySaveAction('copy')">另存恢复副本</button>
+          <button v-if="compatibilitySaveDialog.forceAllowed" @click="resolveCompatibilitySaveAction('force')">强制覆盖原文件</button>
+          <button @click="resolveCompatibilitySaveAction('cancel')">取消</button>
+        </footer>
       </section>
     </div>
     <div v-if="unsavedCloseDialog.visible" class="unsaved-close-backdrop">

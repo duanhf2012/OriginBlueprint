@@ -1,5 +1,11 @@
 export type VariableType = 'boolean' | 'integer' | 'float' | 'string' | 'array' | 'timerhandle'
 
+export function normalizeNodeInputDefault(socketName: string, value: unknown) {
+  const type = String(socketName ?? '').trim().toLowerCase()
+  if (value === '' && (type === 'integer' || type === 'number' || type === 'float')) return 0
+  return value
+}
+
 export interface GraphVariable {
   id: string
   name: string
@@ -86,6 +92,9 @@ export interface LegacyGraphState {
   groups?: Array<{ title: string; nodes: string[] }>
   variables?: Array<Record<string, unknown>>
   residualNodeDefaults?: Record<string, LegacyResidualNodeDefaults>
+  extraRootFields?: Record<string, unknown>
+  extraNodeFields?: Record<string, { class: string; fields: Record<string, unknown> }>
+  extraEdgeFields?: Record<string, Record<string, unknown>>
 }
 
 export interface NodeSnapshot {
@@ -122,6 +131,34 @@ export interface GraphSnapshot {
   groups: GroupSnapshot[]
 }
 
+export interface RestoreDroppedNode {
+  id: string
+  typeId: string
+  reason: 'missing-type-id' | 'unknown-node-type'
+}
+
+export interface RestoreDroppedConnection {
+  source: string
+  sourceOutput: string
+  target: string
+  targetInput: string
+  reason: 'missing-endpoint' | 'missing-source-port' | 'missing-target-port'
+}
+
+export interface RestoreAlteredNode {
+  id: string
+  typeId: string
+  reason: 'invalid-dynamic-output-count'
+  originalValue: unknown
+  restoredValue: number
+}
+
+export interface RestoreLossReport {
+  droppedNodes: RestoreDroppedNode[]
+  droppedConnections: RestoreDroppedConnection[]
+  alteredNodes: RestoreAlteredNode[]
+}
+
 export interface GraphDocument extends GraphSnapshot {
   schemaVersion: 1
   graphName: string
@@ -140,4 +177,8 @@ export interface ValidationIssue {
   message: string
   nodeId?: string
   nodeIds?: string[]
+  sourcePath?: string
+  blocksSave?: boolean
+  blocksRun?: boolean
+  target?: string
 }

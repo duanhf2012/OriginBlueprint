@@ -12,13 +12,21 @@ export function ClearRecentFiles():Promise<void>;
 
 export function CurrentWorkingDirectory():Promise<string>;
 
+export function DeleteRecoverySnapshot(arg1:string):Promise<void>;
+
+export function DeleteRecoverySnapshots(arg1:string,arg2:string):Promise<void>;
+
 export function ExportLegacyGraph(arg1:string):Promise<string>;
 
 export function ExportPNG(arg1:string):Promise<string>;
 
 export function FindNodeReferences(arg1:string,arg2:string):Promise<Array<main.NodeReferenceResult>>;
 
+export function ForceSaveGraph(arg1:string,arg2:string):Promise<string>;
+
 export function GetRecentFiles():Promise<Array<string>>;
+
+export function ListRecoverySnapshots():Promise<Array<main.RecoverySnapshotResult>>;
 
 export function ListWorkspace(arg1:string):Promise<Array<main.WorkspaceEntry>>;
 
@@ -38,6 +46,8 @@ export function OpenGraph(arg1:string):Promise<main.FileResult>;
 
 export function Quit():Promise<void>;
 
+export function ReadRecoverySnapshot(arg1:string):Promise<string>;
+
 export function RevealInFolder(arg1:string):Promise<void>;
 
 export function SaveGraph(arg1:string,arg2:string):Promise<string>;
@@ -46,4 +56,8 @@ export function SavePNG(arg1:string,arg2:string):Promise<string>;
 
 export function SaveProjectSettings(arg1:string,arg2:string):Promise<string>;
 
+export function SaveRecoverySnapshot(arg1:string,arg2:string,arg3:string,arg4:string):Promise<main.RecoverySnapshotResult>;
+
 export function ValidateGraph(arg1:string):Promise<Array<main.ValidationIssue>>;
+
+export function ValidateGraphForWorkspace(arg1:string,arg2:string,arg3:string):Promise<Array<main.ValidationIssue>>;

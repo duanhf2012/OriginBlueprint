@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	blueprint "github.com/duanhf2012/OriginBlueprint/engine/go/blueprint"
 )
 
 func TestGraphFileRoundTrip(t *testing.T) {
@@ -36,6 +38,79 @@ func TestGraphFileRoundTrip(t *testing.T) {
 	}
 	if got := app.lastGraphDirectory(); got != dir {
 		t.Fatalf("last graph directory = %q, want %q", got, dir)
+	}
+}
+
+func TestProjectSettingsWritesUseAtomicBoundary(t *testing.T) {
+	root := t.TempDir()
+	var writes []string
+	app := NewApp()
+	app.atomicWrite = func(path string, data []byte, mode fs.FileMode) error {
+		writes = append(writes, fmt.Sprintf("%s:%s:%o", path, data, mode))
+		return nil
+	}
+	loaded, err := app.LoadProjectSettings(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Content != defaultProjectSettingsContent || len(writes) != 1 {
+		t.Fatalf("loaded = %#v, writes = %#v", loaded, writes)
+	}
+	if _, err := app.SaveProjectSettings(root, `{"version":1}`); err != nil {
+		t.Fatal(err)
+	}
+	if len(writes) != 2 || !strings.Contains(writes[1], `{"version":1}`) {
+		t.Fatalf("writes = %#v", writes)
+	}
+}
+
+func TestWriteAppConfigReturnsAtomicWriteFailure(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "config.json")
+	if err := os.Mkdir(path, 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ORIGIN_BLUEPRINT_CONFIG_PATH", path)
+	if err := writeAppConfig(appConfig{RecentFiles: []string{"graph.obp"}}); err == nil {
+		t.Fatal("writeAppConfig should return the atomic replacement failure")
+	}
+	info, err := os.Stat(path)
+	if err != nil || !info.IsDir() {
+		t.Fatalf("failed config write replaced the existing target: info=%#v err=%v", info, err)
+	}
+}
+
+func TestForceSaveGraphCreatesBackupBeforeReplacingSource(t *testing.T) {
+	t.Setenv("ORIGIN_BLUEPRINT_CONFIG_PATH", filepath.Join(t.TempDir(), "config.json"))
+	app := NewApp()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "recover.obpf")
+	original := []byte(`{"schemaVersion":1,"graphName":"Original","nodes":[],"connections":[],"groups":[],"variables":[],"variableGroups":[],"view":{"x":0,"y":0,"zoom":1}}`)
+	updated := `{"schemaVersion":1,"graphName":"Updated","nodes":[],"connections":[],"groups":[],"variables":[],"variableGroups":[],"view":{"x":0,"y":0,"zoom":1}}`
+	if err := os.WriteFile(path, original, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	saved, err := app.ForceSaveGraph(path, updated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved != path {
+		t.Fatalf("saved path = %q, want %q", saved, path)
+	}
+	backup, err := os.ReadFile(path + ".bak")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(backup) != string(original) {
+		t.Fatalf("backup = %q, want original %q", backup, original)
+	}
+	current, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(current) != updated {
+		t.Fatalf("current = %q, want updated %q", current, updated)
 	}
 }
 
@@ -527,8 +602,10 @@ func TestValidateGraphAcceptsValidVariableGraph(t *testing.T) {
 		Connections: []GraphConnection{{Source: "get", SourceOutput: "value", Target: "cast", TargetInput: "value"}},
 	}
 	issues := validateGraph(document)
-	if len(issues) != 0 {
-		t.Fatalf("issues = %#v", issues)
+	for _, issue := range issues {
+		if issue.Severity == "error" {
+			t.Fatalf("valid variable graph has error: %#v", issues)
+		}
 	}
 }
 
@@ -543,12 +620,8 @@ func TestValidateGraphReportsMissingVariableAndTypeMismatch(t *testing.T) {
 		Connections: []GraphConnection{{Source: "begin", SourceOutput: "exec", Target: "cast", TargetInput: "value"}},
 	}
 	issues := validateGraph(document)
-	if len(issues) != 2 {
-		t.Fatalf("len(issues) = %d, want 2: %#v", len(issues), issues)
-	}
-	if issues[0].Code != "variable.missing" || issues[1].Code != "connection.type-mismatch" {
-		t.Fatalf("unexpected issues: %#v", issues)
-	}
+	requireValidationIssue(t, issues, "variable.missing")
+	requireValidationIssue(t, issues, "connection.type-mismatch")
 }
 
 func TestValidateGraphReportsTimerWithoutFunction(t *testing.T) {
@@ -568,7 +641,7 @@ func TestValidateGraphReportsUnreachableFlowNodesFromEntries(t *testing.T) {
 	document := GraphDocument{
 		SchemaVersion: GraphSchemaVersion,
 		Nodes: []GraphNode{
-			{ID: "entry", TypeID: "origin.event.begin"},
+			{ID: "entry", TypeID: "origin.event.entry-two-integers"},
 			{ID: "reachable", TypeID: "origin.debug.output"},
 			{ID: "wild", TypeID: "origin.debug.output"},
 		},
@@ -602,7 +675,7 @@ func TestValidateGraphTreatsDataDependenciesAsEntryReachable(t *testing.T) {
 	}
 }
 
-func TestValidateGraphReportsPossibleExecCycles(t *testing.T) {
+func TestValidateGraphReportsConfirmedExecCycles(t *testing.T) {
 	document := GraphDocument{
 		SchemaVersion: GraphSchemaVersion,
 		Nodes: []GraphNode{
@@ -617,8 +690,9 @@ func TestValidateGraphReportsPossibleExecCycles(t *testing.T) {
 		},
 	}
 	issues := validateGraph(document)
-	if !hasIssue(issues, "flow.possible-cycle", "a") && !hasIssue(issues, "flow.possible-cycle", "b") {
-		t.Fatalf("issues = %#v, want possible exec cycle", issues)
+	issue := requireValidationIssue(t, issues, "flow.exec-cycle")
+	if !issue.BlocksSave || !issue.BlocksRun {
+		t.Fatalf("issue = %#v, want confirmed blocking exec cycle", issue)
 	}
 }
 
@@ -685,6 +759,21 @@ func TestValidateGraphDoesNotReportUnknownNodeType(t *testing.T) {
 	}
 }
 
+func TestValidateGraphLegacyPlaceholderDoesNotSuppressKnownFlowIssues(t *testing.T) {
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		Nodes: []GraphNode{
+			{ID: "entry", TypeID: "origin.event.begin"},
+			{ID: "legacy", TypeID: "origin.legacy.placeholder", Properties: GraphNodeProperties{LegacyClass: "FutureNode"}},
+			{ID: "unreachable", TypeID: "origin.action.print"},
+		},
+	}
+	issues := validateGraph(document)
+	if !hasIssue(issues, "flow.unreachable-node", "unreachable") {
+		t.Fatalf("issues = %#v, want known unreachable node even with a legacy placeholder", issues)
+	}
+}
+
 func TestValidateGraphUsesChineseMessagesForExecutionIssues(t *testing.T) {
 	document := GraphDocument{
 		SchemaVersion: GraphSchemaVersion,
@@ -734,6 +823,17 @@ func hasIssue(issues []ValidationIssue, code string, nodeID string) bool {
 	return false
 }
 
+func requireValidationIssue(t *testing.T, issues []ValidationIssue, code string) ValidationIssue {
+	t.Helper()
+	for _, issue := range issues {
+		if issue.Code == code {
+			return issue
+		}
+	}
+	t.Fatalf("issues = %#v, want code %q", issues, code)
+	return ValidationIssue{}
+}
+
 func hasValidationErrors(issues []ValidationIssue) bool {
 	for _, issue := range issues {
 		if issue.Severity == "error" {
@@ -750,6 +850,469 @@ func TestValidateGraphServiceRejectsInvalidJSON(t *testing.T) {
 	}
 	document, _ := json.Marshal(GraphDocument{SchemaVersion: GraphSchemaVersion})
 	if _, err := app.ValidateGraph(string(document)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCoreIssueBlocksSaveUsesExplicitLanguageNeutralCodes(t *testing.T) {
+	blocking := []string{
+		"document.decode",
+		"schema.unsupported",
+		"node.missing-id",
+		"node.duplicate-id",
+		"connection.dangling",
+		"connection.missing-port",
+		"connection.type-mismatch",
+		"connection.multiple-producers",
+		"flow.exec-fanout",
+		"flow.data-cycle",
+		"flow.exec-cycle",
+	}
+	for _, code := range blocking {
+		if !coreIssueBlocksSave(code) {
+			t.Errorf("%s should block save", code)
+		}
+	}
+	nonBlocking := []string{
+		"flow.unreachable-node",
+		"flow.missing-entry",
+		"flow.possible-cycle",
+		"node.legacy-placeholder",
+		"engine.compile",
+	}
+	for _, code := range nonBlocking {
+		if coreIssueBlocksSave(code) {
+			t.Errorf("%s should not block save", code)
+		}
+	}
+}
+
+func TestValidateGraphMarksStructuralCoreErrorsAsSaveBlocking(t *testing.T) {
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		Nodes: []GraphNode{
+			{ID: "duplicate", TypeID: "origin.literal.string"},
+			{ID: "duplicate", TypeID: "origin.literal.string"},
+		},
+	}
+	issue := requireValidationIssue(t, validateGraph(document), "node.duplicate-id")
+	if !issue.BlocksSave || !issue.BlocksRun {
+		t.Fatalf("issue = %#v, want BlocksSave and BlocksRun", issue)
+	}
+}
+
+func TestValidateGraphForWorkspaceUsesProductionCompilerRules(t *testing.T) {
+	tests := []struct {
+		name        string
+		nodes       []GraphNode
+		connections []GraphConnection
+	}{
+		{
+			name: "duplicate data producer",
+			nodes: []GraphNode{
+				{ID: "left", TypeID: "origin.literal.string"},
+				{ID: "right", TypeID: "origin.literal.string"},
+				{ID: "target", TypeID: "origin.action.print"},
+			},
+			connections: []GraphConnection{
+				{Source: "left", SourceOutput: "value", Target: "target", TargetInput: "value"},
+				{Source: "right", SourceOutput: "value", Target: "target", TargetInput: "value"},
+			},
+		},
+		{
+			name: "native exec fanout",
+			nodes: []GraphNode{
+				{ID: "entry", TypeID: "origin.event.begin"},
+				{ID: "left", TypeID: "origin.action.print"},
+				{ID: "right", TypeID: "origin.action.print"},
+			},
+			connections: []GraphConnection{
+				{Source: "entry", SourceOutput: "exec", Target: "left", TargetInput: "exec"},
+				{Source: "entry", SourceOutput: "exec", Target: "right", TargetInput: "exec"},
+			},
+		},
+		{
+			name: "data dependency cycle",
+			nodes: []GraphNode{
+				{ID: "left", TypeID: "origin.math.add-integer"},
+				{ID: "right", TypeID: "origin.math.add-integer"},
+			},
+			connections: []GraphConnection{
+				{Source: "left", SourceOutput: "result", Target: "right", TargetInput: "a"},
+				{Source: "right", SourceOutput: "result", Target: "left", TargetInput: "a"},
+			},
+		},
+		{
+			name: "duplicate entrance id",
+			nodes: []GraphNode{
+				{ID: "first", TypeID: "origin.event.entry-two-integers"},
+				{ID: "second", TypeID: "origin.event.entry-two-integers"},
+			},
+		},
+		{
+			name:  "unknown executable node",
+			nodes: []GraphNode{{ID: "future", TypeID: "origin.future.node"}},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			document := GraphDocument{
+				SchemaVersion:  GraphSchemaVersion,
+				GraphName:      "validation-test",
+				Nodes:          test.nodes,
+				Connections:    test.connections,
+				Groups:         []GraphGroup{},
+				Variables:      []GraphVariable{},
+				VariableGroups: []GraphVariableGroup{{ID: "default", Name: "Default"}},
+				View:           GraphView{Zoom: 1},
+			}
+			data, err := json.Marshal(document)
+			if err != nil {
+				t.Fatal(err)
+			}
+			issues, err := NewApp().ValidateGraphForWorkspace(string(data), "", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !hasIssue(issues, "engine.compile", "") && !hasIssue(issues, "engine.parse", "") && !hasIssue(issues, "engine.definition", "") {
+				t.Fatalf("issues = %#v, want a production engine error", issues)
+			}
+		})
+	}
+}
+
+func TestGoCompilerIssueNeverBlocksCoreSave(t *testing.T) {
+	document := analyzerDocument([]GraphNode{{ID: "future", TypeID: "origin.future.node"}}, nil)
+	data, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	issues, err := NewApp().ValidateGraphForWorkspace(string(data), "", "graph.obp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var issue ValidationIssue
+	for _, candidate := range issues {
+		if strings.HasPrefix(candidate.Code, "engine.") {
+			issue = candidate
+			break
+		}
+	}
+	if issue.Code == "" {
+		t.Fatalf("issues = %#v, want engine issue", issues)
+	}
+	if issue.Target != "target.go" || !issue.BlocksRun || issue.BlocksSave {
+		t.Fatalf("engine issue = %#v, want run-only Go target diagnostic", issue)
+	}
+	if !sameValidationPath(issue.SourcePath, validationAbsolutePath("graph.obp")) {
+		t.Fatalf("engine issue source = %q, want current source path", issue.SourcePath)
+	}
+}
+
+func TestWorkspaceCompilerIssueCarriesOriginalSourcePath(t *testing.T) {
+	workspace := t.TempDir()
+	functionPath := filepath.Join(workspace, "functions", "missing-return.obpf")
+	graphsDir := filepath.Join(t.TempDir(), "graphs")
+	temporaryFunctionPath := filepath.Join(graphsDir, "functions", "missing-return.obpf")
+	currentPath := filepath.Join(workspace, "main.obp")
+	issue := engineIssueFromError(&blueprint.BlueprintError{
+		Stage:      blueprint.BlueprintStageCompile,
+		SourcePath: temporaryFunctionPath,
+		Cause:      errors.New("function requires FunctionReturn"),
+	}, validationSourceMap{
+		graphsDir:     graphsDir,
+		workspaceRoot: workspace,
+		sourcePath:    currentPath,
+		currentPath:   filepath.Join(graphsDir, "main.obp"),
+	})
+	if !sameValidationPath(issue.SourcePath, functionPath) || issue.Target != "target.go" || !issue.BlocksRun || issue.BlocksSave {
+		t.Fatalf("workspace issue = %#v, want original source %q and run-only target metadata", issue, functionPath)
+	}
+	if !strings.Contains(issue.Message, functionPath) {
+		t.Fatalf("workspace issue message = %q, want original source %q", issue.Message, functionPath)
+	}
+	if strings.Contains(issue.Message, graphsDir) {
+		t.Fatalf("workspace issue message = %q, must not expose temporary path %q", issue.Message, graphsDir)
+	}
+}
+
+func TestValidationAbsolutePathKeepsEmptyInputEmpty(t *testing.T) {
+	if got := validationAbsolutePath("  "); got != "" {
+		t.Fatalf("validationAbsolutePath(empty) = %q, want empty", got)
+	}
+}
+
+func TestValidateGraphForWorkspaceReturnsDecodeIssueForRecoverableSource(t *testing.T) {
+	issues, err := NewApp().ValidateGraphForWorkspace(`{"schemaVersion":1,"nodes":"invalid"}`, "", "broken.obp")
+	if err != nil {
+		t.Fatalf("ValidateGraphForWorkspace returned transport error: %v", err)
+	}
+	if !hasIssue(issues, "document.decode", "") {
+		t.Fatalf("issues = %#v, want document.decode", issues)
+	}
+	issue := requireValidationIssue(t, issues, "document.decode")
+	if !issue.BlocksSave || !issue.BlocksRun || issue.Target != "" {
+		t.Fatalf("decode issue = %#v, want core save/run blocker", issue)
+	}
+}
+
+func TestValidateGraphForWorkspaceUsesWorkspaceFunctionSignatures(t *testing.T) {
+	workspace := t.TempDir()
+	functionDir := filepath.Join(workspace, "functions")
+	if err := os.MkdirAll(functionDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	fixture, err := os.ReadFile(filepath.Join("examples", "sample-project", "functions", "calculate-damage.obpf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(functionDir, "calculate-damage.obpf"), fixture, 0644); err != nil {
+		t.Fatal(err)
+	}
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		GraphName:     "function-caller",
+		Nodes: []GraphNode{
+			{ID: "entry", TypeID: "origin.event.entry-two-integers"},
+			{ID: "call", TypeID: "origin.function.call", Properties: GraphNodeProperties{
+				FunctionID:   "fn_calculate_damage",
+				FunctionName: "CalculateDamage",
+				FunctionSignature: GraphFunctionSignature{
+					Inputs:  []GraphFunctionSignaturePort{{ID: "base", Name: "BaseDamage", Type: "string"}},
+					Outputs: []GraphFunctionSignaturePort{{ID: "damage", Name: "Damage", Type: "integer"}},
+				},
+			}},
+		},
+		Connections:    []GraphConnection{{Source: "entry", SourceOutput: "exec", Target: "call", TargetInput: "exec"}},
+		Groups:         []GraphGroup{},
+		Variables:      []GraphVariable{},
+		VariableGroups: []GraphVariableGroup{{ID: "default", Name: "Default"}},
+		View:           GraphView{Zoom: 1},
+	}
+	data, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	issues, err := NewApp().ValidateGraphForWorkspace(string(data), workspace, filepath.Join(workspace, "main.obp"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasIssue(issues, "engine.compile", "call") {
+		t.Fatalf("issues = %#v, want function signature compiler error on call", issues)
+	}
+}
+
+func TestValidateGraphForWorkspaceIgnoresUnreferencedWorkspaceFunction(t *testing.T) {
+	workspace := t.TempDir()
+	brokenPath := filepath.Join(workspace, "examples", "unrelated.obpf")
+	if err := os.MkdirAll(filepath.Dir(brokenPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(brokenPath, []byte(`{"schemaVersion":1`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	document := validationCallerDocument("", "")
+	data, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	issues, err := NewApp().ValidateGraphForWorkspace(string(data), workspace, filepath.Join(workspace, "main.obp"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, issue := range issues {
+		if strings.HasPrefix(issue.Code, "engine.") && issue.Severity == "error" {
+			t.Fatalf("issues = %#v, unrelated workspace function must not affect current graph", issues)
+		}
+	}
+}
+
+func TestValidateGraphForWorkspaceIncludesReferencedWorkspaceFunction(t *testing.T) {
+	workspace := t.TempDir()
+	brokenPath := filepath.Join(workspace, "functions", "broken.obpf")
+	if err := os.MkdirAll(filepath.Dir(brokenPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(brokenPath, []byte(`{"schemaVersion":1`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	document := validationCallerDocument("functions/broken.obpf", "Broken")
+	data, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	issues, err := NewApp().ValidateGraphForWorkspace(string(data), workspace, filepath.Join(workspace, "main.obp"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	issue := requireValidationIssue(t, issues, "engine.parse")
+	if !sameValidationPath(issue.SourcePath, brokenPath) {
+		t.Fatalf("issue = %#v, want referenced source %q", issue, brokenPath)
+	}
+}
+
+func TestValidateGraphForWorkspaceIndexesMalformedReferencedFunctionIdentity(t *testing.T) {
+	workspace := t.TempDir()
+	brokenPath := filepath.Join(workspace, "functions", "broken.obpf")
+	if err := os.MkdirAll(filepath.Dir(brokenPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	content := `{"schemaVersion":1,"graphName":"Broken","functionId":"fn_broken","nodes":"invalid"}`
+	if err := os.WriteFile(brokenPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	document := validationCallerDocument("fn_broken", "Broken")
+	data, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	issues, err := NewApp().ValidateGraphForWorkspace(string(data), workspace, filepath.Join(workspace, "main.obp"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	issue := requireValidationIssue(t, issues, "engine.parse")
+	if !sameValidationPath(issue.SourcePath, brokenPath) {
+		t.Fatalf("issue = %#v, want malformed referenced source %q", issue, brokenPath)
+	}
+}
+
+func TestValidateGraphForWorkspaceIncludesTransitiveWorkspaceFunction(t *testing.T) {
+	workspace := t.TempDir()
+	functionDir := filepath.Join(workspace, "functions")
+	if err := os.MkdirAll(functionDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	brokenPath := filepath.Join(functionDir, "broken.obpf")
+	if err := os.WriteFile(brokenPath, []byte(`{"schemaVersion":1`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	writeValidationGraphDocument(t, filepath.Join(functionDir, "wrapper.obpf"), validationFunctionDocument(
+		"fn_wrapper",
+		"Wrapper",
+		&GraphNodeProperties{FunctionID: "functions/broken.obpf", FunctionName: "Broken"},
+	))
+
+	document := validationCallerDocument("fn_wrapper", "Wrapper")
+	data, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	issues, err := NewApp().ValidateGraphForWorkspace(string(data), workspace, filepath.Join(workspace, "main.obp"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	issue := requireValidationIssue(t, issues, "engine.parse")
+	if !sameValidationPath(issue.SourcePath, brokenPath) {
+		t.Fatalf("issue = %#v, want transitive source %q", issue, brokenPath)
+	}
+}
+
+func TestValidateGraphForWorkspacePreservesReferencedFunctionAliasConflict(t *testing.T) {
+	workspace := t.TempDir()
+	functionDir := filepath.Join(workspace, "functions")
+	if err := os.MkdirAll(functionDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	writeValidationGraphDocument(t, filepath.Join(functionDir, "first.obpf"), validationFunctionDocument("fn_duplicate", "First", nil))
+	writeValidationGraphDocument(t, filepath.Join(functionDir, "second.obpf"), validationFunctionDocument("fn_duplicate", "Second", nil))
+
+	document := validationCallerDocument("fn_duplicate", "First")
+	data, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	issues, err := NewApp().ValidateGraphForWorkspace(string(data), workspace, filepath.Join(workspace, "main.obp"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	issue := requireValidationIssue(t, issues, "engine.compile")
+	if !strings.Contains(issue.Message, "conflicts with") {
+		t.Fatalf("issue = %#v, want duplicate function alias conflict", issue)
+	}
+}
+
+func TestValidateGraphForWorkspacePreservesCurrentFunctionAliasConflict(t *testing.T) {
+	workspace := t.TempDir()
+	functionDir := filepath.Join(workspace, "functions")
+	if err := os.MkdirAll(functionDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	writeValidationGraphDocument(t, filepath.Join(functionDir, "other.obpf"), validationFunctionDocument("fn_current", "Other", nil))
+
+	document := validationFunctionDocument("fn_current", "Current", nil)
+	data, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	issues, err := NewApp().ValidateGraphForWorkspace(string(data), workspace, filepath.Join(functionDir, "current.obpf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	issue := requireValidationIssue(t, issues, "engine.compile")
+	if !strings.Contains(issue.Message, "conflicts with") {
+		t.Fatalf("issue = %#v, want current function alias conflict", issue)
+	}
+}
+
+func validationCallerDocument(functionID, functionName string) GraphDocument {
+	nodes := []GraphNode{{ID: "entry", TypeID: "origin.event.entry-two-integers"}}
+	connections := []GraphConnection{}
+	if functionID != "" || functionName != "" {
+		nodes = append(nodes, GraphNode{ID: "call", TypeID: "origin.function.call", Properties: GraphNodeProperties{
+			FunctionID:   functionID,
+			FunctionName: functionName,
+		}})
+		connections = append(connections, GraphConnection{Source: "entry", SourceOutput: "exec", Target: "call", TargetInput: "exec"})
+	}
+	return GraphDocument{
+		SchemaVersion:  GraphSchemaVersion,
+		GraphName:      "validation-caller",
+		Nodes:          nodes,
+		Connections:    connections,
+		Groups:         []GraphGroup{},
+		Variables:      []GraphVariable{},
+		VariableGroups: []GraphVariableGroup{{ID: "default", Name: "Default"}},
+		View:           GraphView{Zoom: 1},
+	}
+}
+
+func validationFunctionDocument(functionID, graphName string, call *GraphNodeProperties) GraphDocument {
+	nodes := []GraphNode{
+		{ID: "entry", TypeID: "origin.function.entry"},
+		{ID: "return", TypeID: "origin.function.return"},
+	}
+	connections := []GraphConnection{{Source: "entry", SourceOutput: "exec", Target: "return", TargetInput: "exec"}}
+	if call != nil {
+		nodes = append(nodes, GraphNode{ID: "call", TypeID: "origin.function.call", Properties: *call})
+		connections = []GraphConnection{
+			{Source: "entry", SourceOutput: "exec", Target: "call", TargetInput: "exec"},
+			{Source: "call", SourceOutput: "exec", Target: "return", TargetInput: "exec"},
+		}
+	}
+	return GraphDocument{
+		SchemaVersion:  GraphSchemaVersion,
+		GraphName:      graphName,
+		FunctionID:     functionID,
+		Nodes:          nodes,
+		Connections:    connections,
+		Groups:         []GraphGroup{},
+		Variables:      []GraphVariable{},
+		VariableGroups: []GraphVariableGroup{{ID: "default", Name: "Default"}},
+		View:           GraphView{Zoom: 1},
+	}
+}
+
+func writeValidationGraphDocument(t *testing.T, path string, document GraphDocument) {
+	t.Helper()
+	data, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0644); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -790,6 +1353,94 @@ func TestValidateGraphAcceptsArrayAndDynamicSequence(t *testing.T) {
 	}
 	if issues := validateGraph(document); hasValidationErrors(issues) {
 		t.Fatalf("issues = %#v", issues)
+	}
+}
+
+func TestValidateGraphRejectsUnsafeDynamicSequenceCounts(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		count int
+	}{
+		{name: "negative", count: -1},
+		{name: "above engine limit", count: 257},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			document := GraphDocument{
+				SchemaVersion: GraphSchemaVersion,
+				Nodes: []GraphNode{{
+					ID:         "sequence",
+					TypeID:     "origin.flow.sequence",
+					Properties: GraphNodeProperties{DynamicOutputCount: test.count},
+				}},
+			}
+			issues := validateGraph(document)
+			if !hasIssue(issues, "node.dynamic-output-count", "sequence") {
+				t.Fatalf("issues = %#v, want dynamic output count error", issues)
+			}
+		})
+	}
+}
+
+func TestValidateGraphRejectsOversizedFunctionSignature(t *testing.T) {
+	inputs := make([]GraphFunctionSignaturePort, 129)
+	for index := range inputs {
+		inputs[index] = GraphFunctionSignaturePort{ID: fmt.Sprintf("input-%d", index), Name: fmt.Sprintf("Input %d", index), Type: "integer"}
+	}
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		Nodes: []GraphNode{{
+			ID:     "call",
+			TypeID: "origin.function.call",
+			Properties: GraphNodeProperties{FunctionSignature: GraphFunctionSignature{
+				Inputs: inputs,
+			}},
+		}},
+	}
+	issues := validateGraph(document)
+	if !hasIssue(issues, "function.signature-limit", "call") {
+		t.Fatalf("issues = %#v, want function signature limit error", issues)
+	}
+}
+
+func TestValidateGraphRejectsOversizedLegacyPortList(t *testing.T) {
+	inputs := make([]GraphLegacyPort, 4097)
+	for index := range inputs {
+		inputs[index] = GraphLegacyPort{Key: fmt.Sprintf("input-%d", index), Type: "any"}
+	}
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		Nodes: []GraphNode{{
+			ID:     "legacy",
+			TypeID: "origin.legacy.placeholder",
+			Properties: GraphNodeProperties{
+				LegacyClass:  "HugeLegacyNode",
+				LegacyInputs: inputs,
+			},
+		}},
+	}
+	issues := validateGraph(document)
+	if !hasIssue(issues, "node.port-limit", "legacy") {
+		t.Fatalf("issues = %#v, want legacy port limit error", issues)
+	}
+}
+
+func TestValidateGraphHandlesDeepExecutionFlowIteratively(t *testing.T) {
+	const depth = 20000
+	nodes := make([]GraphNode, 0, depth+1)
+	connections := make([]GraphConnection, 0, depth)
+	nodes = append(nodes, GraphNode{ID: "entry", TypeID: "origin.event.begin"})
+	previous := "entry"
+	previousOutput := "exec"
+	for index := 0; index < depth; index++ {
+		id := fmt.Sprintf("sequence-%d", index)
+		nodes = append(nodes, GraphNode{ID: id, TypeID: "origin.flow.sequence", Properties: GraphNodeProperties{DynamicOutputCount: 1}})
+		connections = append(connections, GraphConnection{Source: previous, SourceOutput: previousOutput, Target: id, TargetInput: "exec"})
+		previous = id
+		previousOutput = "then0"
+	}
+	document := GraphDocument{SchemaVersion: GraphSchemaVersion, Nodes: nodes, Connections: connections}
+	if issues := validateGraph(document); hasValidationErrors(issues) {
+		t.Fatalf("deep acyclic flow should validate without errors, got first issues: %#v", issues[:min(5, len(issues))])
 	}
 }
 
@@ -1103,6 +1754,15 @@ func TestMigrateBuildBinVGFFilesShowsAllDefinedNodes(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		var native GraphDocument
+		if err := json.Unmarshal(data, &native); err == nil && native.SchemaVersion == GraphSchemaVersion {
+			for _, node := range native.Nodes {
+				if strings.TrimSpace(node.TypeID) == "" {
+					t.Fatalf("%s contains native node %q without a type id", path, node.ID)
+				}
+			}
+			continue
+		}
 		var source legacyGraph
 		if err := json.Unmarshal(data, &source); err != nil {
 			t.Fatalf("%s: %v", path, err)
@@ -1140,6 +1800,15 @@ func TestMigrateBuildBinVGFFilesShowsAllDefinedNodes(t *testing.T) {
 			t.Fatalf("%s exported new-format fields in legacy output", path)
 		}
 	}
+}
+
+func monsterChoiceRuntimeSpecs(t *testing.T) map[string]runtimeLegacySpec {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("testdata", "runtime_nodes", "monster_choices.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return runtimeLegacyNodeSpecsFromDocuments([]RuntimeNodeSchemaDocument{{Path: "testdata/runtime_nodes/monster_choices.json", Content: string(data)}})
 }
 
 func TestMigrateLegacyRepositorySamples(t *testing.T) {
@@ -1221,7 +1890,7 @@ func TestChoiceskillEqualSwitchRoundTripKeepsLegacyBranchPorts(t *testing.T) {
 	if err != nil {
 		t.Skip("choiceskill_easy.vgf sample not available")
 	}
-	document, err := migrateLegacyGraph(data)
+	document, err := migrateLegacyGraphWithRuntimeSpecs(data, monsterChoiceRuntimeSpecs(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1281,7 +1950,7 @@ func TestValidateChoiceskillEasyRecognizesMonsterChoiceSkillEntry(t *testing.T) 
 	if err != nil {
 		t.Skip("choiceskill_easy.vgf sample not available")
 	}
-	document, err := migrateLegacyGraph(data)
+	document, err := migrateLegacyGraphWithRuntimeSpecs(data, monsterChoiceRuntimeSpecs(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1300,7 +1969,7 @@ func TestChoiceskillEasyUsesRuntimeJsonTitlesInsteadOfFallbackNames(t *testing.T
 	if err != nil {
 		t.Skip("choiceskill_easy.vgf sample not available")
 	}
-	document, err := migrateLegacyGraph(data)
+	document, err := migrateLegacyGraphWithRuntimeSpecs(data, monsterChoiceRuntimeSpecs(t))
 	if err != nil {
 		t.Fatal(err)
 	}
