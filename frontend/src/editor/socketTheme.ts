@@ -3,7 +3,7 @@ export const socketThemes = {
   integer: { color: '#21c46b' },
   number: { color: '#21c46b' },
   float: { color: '#8aff3d' },
-  boolean: { color: '#d00000', fill: '#180000', label: '#ff3333' },
+  boolean: { color: '#d00000', label: '#ff3333' },
   string: { color: '#d85cff' },
   array: { color: '#f0c230' },
   any: { color: '#00a8e8', label: '#55bfff' },
