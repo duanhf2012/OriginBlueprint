@@ -1,6 +1,9 @@
 package blueprint
 
-import "fmt"
+import (
+	"fmt"
+	"strconv"
+)
 
 // PortInt 是蓝图整数端口值。
 type PortInt = int64
@@ -492,6 +495,16 @@ func asPortBool(value any) (PortBool, bool) {
 	}
 }
 
+// arrayDataFromString 将字符串转换为数组元素。
+// 若字符串可解析为整数，同时填充 IntVal 与 StrVal（兼容数字与字符串两种读取方式）；
+// 否则仅填充 StrVal，IntVal 保持默认 0。
+func arrayDataFromString(s string) ArrayData {
+	if intv, err := strconv.ParseInt(s, 10, 64); err == nil {
+		return ArrayData{IntVal: PortInt(intv), StrVal: PortString(s)}
+	}
+	return ArrayData{StrVal: PortString(s)}
+}
+
 func asPortArray(value any) (PortArray, bool) {
 	switch v := value.(type) {
 	case PortArray:
@@ -513,7 +526,7 @@ func asPortArray(value any) (PortArray, bool) {
 	case []string:
 		array := make(PortArray, 0, len(v))
 		for _, item := range v {
-			array = append(array, ArrayData{StrVal: PortString(item)})
+			array = append(array, arrayDataFromString(item))
 		}
 		return array, true
 	case []any:
@@ -524,7 +537,7 @@ func asPortArray(value any) (PortArray, bool) {
 				continue
 			}
 			if strv, ok := asPortString(item); ok {
-				array = append(array, ArrayData{StrVal: strv})
+				array = append(array, arrayDataFromString(strv))
 				continue
 			}
 			if boolv, ok := asPortBool(item); ok {
