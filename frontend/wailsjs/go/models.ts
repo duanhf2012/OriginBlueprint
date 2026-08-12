@@ -1,9 +1,9 @@
 export namespace main {
-
+	
 	export class FileResult {
 	    path: string;
 	    content: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new FileResult(source);
 	    }
@@ -49,11 +49,11 @@ export namespace main {
 	    sourcePath?: string;
 	    tabId?: string;
 	    createdAt: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new RecoverySnapshotResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.path = source["path"];
@@ -168,3 +168,4 @@ export namespace main {
 	}
 
 }
+
