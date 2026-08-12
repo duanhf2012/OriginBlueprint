@@ -1,0 +1,127 @@
+{
+  "schemaVersion": 1,
+  "graphName": "变量类型生命周期",
+  "nodes": [
+    {
+      "id": "entry",
+      "typeId": "origin.function.entry",
+      "position": { "x": 80, "y": 160 },
+      "values": {},
+      "properties": {
+        "label": "变量类型生命周期 Entry",
+        "functionRole": "entry",
+        "functionSource": "workspace",
+        "functionId": "functions/15_variable_types_lifecycle.obpf",
+        "functionName": "变量类型生命周期",
+        "functionSignature": {
+          "inputs": [
+            { "id": "integer_value", "name": "整数", "type": "integer" },
+            { "id": "float_value", "name": "浮点", "type": "float" },
+            { "id": "string_value", "name": "字符串", "type": "string" },
+            { "id": "bool_value", "name": "布尔", "type": "boolean" },
+            { "id": "array_value", "name": "数组", "type": "array" }
+          ],
+          "outputs": [
+            { "id": "integer_value", "name": "整数", "type": "integer" },
+            { "id": "float_value", "name": "浮点", "type": "float" },
+            { "id": "string_value", "name": "字符串", "type": "string" },
+            { "id": "bool_value", "name": "布尔", "type": "boolean" },
+            { "id": "array_length", "name": "数组长度", "type": "integer" }
+          ]
+        }
+      }
+    },
+    { "id": "set_integer", "typeId": "origin.variable.set", "position": { "x": 300, "y": 80 }, "values": {}, "properties": { "label": "Set Integer", "variableAccess": "set", "variableId": "integer_value" } },
+    { "id": "set_float", "typeId": "origin.variable.set", "position": { "x": 520, "y": 80 }, "values": {}, "properties": { "label": "Set Float", "variableAccess": "set", "variableId": "float_value" } },
+    { "id": "set_string", "typeId": "origin.variable.set", "position": { "x": 740, "y": 80 }, "values": {}, "properties": { "label": "Set String", "variableAccess": "set", "variableId": "string_value" } },
+    { "id": "set_bool", "typeId": "origin.variable.set", "position": { "x": 960, "y": 80 }, "values": {}, "properties": { "label": "Set Boolean", "variableAccess": "set", "variableId": "bool_value" } },
+    { "id": "set_array", "typeId": "origin.variable.set", "position": { "x": 1180, "y": 80 }, "values": {}, "properties": { "label": "Set Array", "variableAccess": "set", "variableId": "array_value" } },
+    { "id": "get_integer", "typeId": "origin.variable.get", "position": { "x": 1240, "y": 250 }, "values": {}, "properties": { "label": "Get Integer", "variableAccess": "get", "variableId": "integer_value" } },
+    { "id": "get_float", "typeId": "origin.variable.get", "position": { "x": 1240, "y": 340 }, "values": {}, "properties": { "label": "Get Float", "variableAccess": "get", "variableId": "float_value" } },
+    { "id": "get_string", "typeId": "origin.variable.get", "position": { "x": 1240, "y": 430 }, "values": {}, "properties": { "label": "Get String", "variableAccess": "get", "variableId": "string_value" } },
+    { "id": "get_bool", "typeId": "origin.variable.get", "position": { "x": 1240, "y": 520 }, "values": {}, "properties": { "label": "Get Boolean", "variableAccess": "get", "variableId": "bool_value" } },
+    { "id": "get_array", "typeId": "origin.variable.get", "position": { "x": 1240, "y": 610 }, "values": {}, "properties": { "label": "Get Array", "variableAccess": "get", "variableId": "array_value" } },
+    { "id": "array_length", "typeId": "origin.array.length", "position": { "x": 1460, "y": 610 }, "values": {}, "properties": {} },
+    {
+      "id": "return",
+      "typeId": "origin.function.return",
+      "position": { "x": 1700, "y": 340 },
+      "values": {},
+      "properties": {
+        "label": "变量类型生命周期 Return",
+        "functionRole": "return",
+        "functionSource": "workspace",
+        "functionId": "functions/15_variable_types_lifecycle.obpf",
+        "functionName": "变量类型生命周期",
+        "functionSignature": {
+          "inputs": [
+            { "id": "integer_value", "name": "整数", "type": "integer" },
+            { "id": "float_value", "name": "浮点", "type": "float" },
+            { "id": "string_value", "name": "字符串", "type": "string" },
+            { "id": "bool_value", "name": "布尔", "type": "boolean" },
+            { "id": "array_value", "name": "数组", "type": "array" }
+          ],
+          "outputs": [
+            { "id": "integer_value", "name": "整数", "type": "integer" },
+            { "id": "float_value", "name": "浮点", "type": "float" },
+            { "id": "string_value", "name": "字符串", "type": "string" },
+            { "id": "bool_value", "name": "布尔", "type": "boolean" },
+            { "id": "array_length", "name": "数组长度", "type": "integer" }
+          ]
+        }
+      }
+    }
+  ],
+  "connections": [
+    { "source": "entry", "sourceOutput": "exec", "target": "set_integer", "targetInput": "exec" },
+    { "source": "set_integer", "sourceOutput": "exec", "target": "set_float", "targetInput": "exec" },
+    { "source": "set_float", "sourceOutput": "exec", "target": "set_string", "targetInput": "exec" },
+    { "source": "set_string", "sourceOutput": "exec", "target": "set_bool", "targetInput": "exec" },
+    { "source": "set_bool", "sourceOutput": "exec", "target": "set_array", "targetInput": "exec" },
+    { "source": "set_array", "sourceOutput": "exec", "target": "return", "targetInput": "exec" },
+    { "source": "entry", "sourceOutput": "input_integer_value", "target": "set_integer", "targetInput": "value" },
+    { "source": "entry", "sourceOutput": "input_float_value", "target": "set_float", "targetInput": "value" },
+    { "source": "entry", "sourceOutput": "input_string_value", "target": "set_string", "targetInput": "value" },
+    { "source": "entry", "sourceOutput": "input_bool_value", "target": "set_bool", "targetInput": "value" },
+    { "source": "entry", "sourceOutput": "input_array_value", "target": "set_array", "targetInput": "value" },
+    { "source": "get_integer", "sourceOutput": "value", "target": "return", "targetInput": "output_integer_value" },
+    { "source": "get_float", "sourceOutput": "value", "target": "return", "targetInput": "output_float_value" },
+    { "source": "get_string", "sourceOutput": "value", "target": "return", "targetInput": "output_string_value" },
+    { "source": "get_bool", "sourceOutput": "value", "target": "return", "targetInput": "output_bool_value" },
+    { "source": "get_array", "sourceOutput": "value", "target": "array_length", "targetInput": "array" },
+    { "source": "array_length", "sourceOutput": "length", "target": "return", "targetInput": "output_array_length" }
+  ],
+  "groups": [
+    { "id": "typed-variables", "title": "函数入口 → 五类变量 Set/Get → 返回", "x": 35, "y": 35, "width": 1960, "height": 700, "nodeIds": ["entry", "set_integer", "set_float", "set_string", "set_bool", "set_array", "get_integer", "get_float", "get_string", "get_bool", "get_array", "array_length", "return"] }
+  ],
+  "variables": [
+    { "id": "integer_value", "name": "IntegerValue", "type": "integer", "defaultValue": 101, "groupId": "typed", "description": "整数局部变量" },
+    { "id": "float_value", "name": "FloatValue", "type": "float", "defaultValue": 1.5, "groupId": "typed", "description": "浮点局部变量" },
+    { "id": "string_value", "name": "StringValue", "type": "string", "defaultValue": "default", "groupId": "typed", "description": "字符串局部变量" },
+    { "id": "bool_value", "name": "BoolValue", "type": "boolean", "defaultValue": false, "groupId": "typed", "description": "布尔局部变量" },
+    { "id": "array_value", "name": "ArrayValue", "type": "array", "defaultValue": [], "groupId": "typed", "description": "数组局部变量" }
+  ],
+  "variableGroups": [
+    { "id": "default", "name": "默认", "collapsed": false },
+    { "id": "typed", "name": "变量类型", "collapsed": false }
+  ],
+  "view": { "x": 0, "y": 0, "zoom": 0.58 },
+  "functionCategory": "验证函数",
+  "functionSignature": {
+    "inputs": [
+      { "id": "integer_value", "name": "整数", "type": "integer" },
+      { "id": "float_value", "name": "浮点", "type": "float" },
+      { "id": "string_value", "name": "字符串", "type": "string" },
+      { "id": "bool_value", "name": "布尔", "type": "boolean" },
+      { "id": "array_value", "name": "数组", "type": "array" }
+    ],
+    "outputs": [
+      { "id": "integer_value", "name": "整数", "type": "integer" },
+      { "id": "float_value", "name": "浮点", "type": "float" },
+      { "id": "string_value", "name": "字符串", "type": "string" },
+      { "id": "bool_value", "name": "布尔", "type": "boolean" },
+      { "id": "array_length", "name": "数组长度", "type": "integer" }
+    ]
+  },
+  "functionId": "functions/15_variable_types_lifecycle.obpf"
+}
