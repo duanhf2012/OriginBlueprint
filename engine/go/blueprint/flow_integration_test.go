@@ -123,7 +123,7 @@ func TestNativeBlueprintFileCallsFunctionAndContinuesFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadGraphDir failed: %v", err)
 	}
-	returns, err := NewGraph(graphs["Main"]).Do(1)
+	returns, err := NewGraph(graphs["main"]).Do(1)
 	if err != nil {
 		t.Fatalf("Do failed: %v", err)
 	}

@@ -198,7 +198,7 @@ func TestLoadGraphDirResolvesFunctionCallsByStableFunctionID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadGraphDir failed: %v", err)
 	}
-	graph := NewGraph(graphs["Main"])
+	graph := NewGraph(graphs["main"])
 	if _, err := graph.Do(1); err != nil {
 		t.Fatalf("Do failed: %v", err)
 	}

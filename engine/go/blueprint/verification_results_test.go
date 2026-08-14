@@ -107,7 +107,7 @@ func referenceDeterministicAlgorithm(first, second PortInt) PortArray {
 
 func TestVerificationFunctionOrchestratorMatchesReference(t *testing.T) {
 	graphs := loadVerificationFixtureSet(t)
-	returns, err := NewGraph(graphs["函数编排主图"]).Do(EntranceIDIntParam, PortInt(1), PortInt(2), PortInt(3))
+	returns, err := NewGraph(graphs["05_function_orchestrator"]).Do(EntranceIDIntParam, PortInt(1), PortInt(2), PortInt(3))
 	if err != nil {
 		t.Fatal(err)
 	}

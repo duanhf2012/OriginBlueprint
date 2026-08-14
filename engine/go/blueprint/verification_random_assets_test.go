@@ -110,7 +110,7 @@ func testVerificationAlgorithmRandom(t *testing.T) {
 func testVerificationOrchestratorRandom(t *testing.T) {
 	seed := verificationRandomSeed(t, 2026071405)
 	random := rand.New(rand.NewSource(seed))
-	main := loadVerificationFixtureSet(t)["函数编排主图"]
+	main := loadVerificationFixtureSet(t)["05_function_orchestrator"]
 	if main == nil {
 		t.Fatal("函数编排主图 fixture was not loaded")
 	}

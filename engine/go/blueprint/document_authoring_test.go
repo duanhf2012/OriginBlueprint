@@ -44,7 +44,7 @@ func TestAuthoredOBPFromNodeOperationsRunsInGoEngine(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadGraphDir failed: %v", err)
 	}
-	returns, err := NewGraph(graphs["GeneratedMain"]).Do(EntranceIDIntParam, PortInt(99), PortInt(5), PortInt(7))
+	returns, err := NewGraph(graphs["generated"]).Do(EntranceIDIntParam, PortInt(99), PortInt(5), PortInt(7))
 	if err != nil {
 		t.Fatalf("Do failed: %v", err)
 	}
@@ -117,7 +117,7 @@ func TestAuthoredFunctionCanCallAnotherAuthoredFunction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadGraphDir failed: %v", err)
 	}
-	returns, err := NewGraph(graphs["Main"]).Do(EntranceIDIntParam)
+	returns, err := NewGraph(graphs["main"]).Do(EntranceIDIntParam)
 	if err != nil {
 		t.Fatalf("Do failed: %v", err)
 	}

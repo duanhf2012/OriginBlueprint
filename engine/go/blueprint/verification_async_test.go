@@ -113,7 +113,7 @@ func testVerificationDelayLoopRandom(t *testing.T) {
 	random := rand.New(rand.NewSource(seed))
 	clock := &verificationFakeClock{}
 	graphs := loadVerificationFixtureSetWithRegistry(t, verificationFixtureRegistryWithClock(t, clock))
-	graph := graphs["异步 Delay 恢复验证"]
+	graph := graphs["06_async_delay_resume"]
 	if graph == nil {
 		t.Fatal("异步 Delay 恢复验证 fixture was not loaded")
 	}

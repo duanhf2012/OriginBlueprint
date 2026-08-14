@@ -80,12 +80,12 @@ func TestVerificationBlueprintFixturesLoadThroughEngine(t *testing.T) {
 	}
 	for _, name := range []string{
 		"01_legacy_all_nodes_showcase",
-		"控制流迷宫",
-		"数组数据实验室",
-		"确定性评分算法",
-		"函数编排主图",
-		"异步 Delay 恢复验证",
-		"定时器模拟 RPC 异步恢复",
+		"02_control_flow_maze",
+		"03_array_data_lab",
+		"04_deterministic_algorithm",
+		"05_function_orchestrator",
+		"06_async_delay_resume",
+		"07_async_rpc_resume_to",
 		"评分核心",
 		"数组折叠与格式化",
 		"嵌套控制流",
