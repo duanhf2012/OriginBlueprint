@@ -257,12 +257,12 @@ func parseGraphFile(data []byte, root string, path string) (GraphConfig, bool, s
 			return GraphConfig{}, false, "", nil, err
 		}
 		config, isFunction, err := graphDocumentToConfig(document)
-		name := strings.TrimSpace(document.GraphName)
-		if name == "" {
-			name = strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
-		}
+		name := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 		if strings.ToLower(filepath.Ext(path)) == ".obpf" {
 			isFunction = true
+			if graphName := strings.TrimSpace(document.GraphName); graphName != "" {
+				name = graphName
+			}
 		}
 		aliases := graphFunctionAliases(document, root, path)
 		return config, isFunction, name, aliases, err

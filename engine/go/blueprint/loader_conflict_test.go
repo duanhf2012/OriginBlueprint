@@ -7,6 +7,80 @@ import (
 	"testing"
 )
 
+func TestParseGraphFileUsesFilenameForOrdinaryDocuments(t *testing.T) {
+	tests := []struct {
+		name     string
+		filename string
+		data     string
+		wantName string
+	}{
+		{
+			name:     "persisted graph name differs from filename",
+			filename: "PetAuto_hama.obp",
+			data: `{
+				"schemaVersion":1,
+				"graphName":"PetCmd_hama.obp",
+				"nodes":[],
+				"connections":[],
+				"variables":[]
+			}`,
+			wantName: "PetAuto_hama",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			_, isFunction, graphName, _, err := parseGraphFile([]byte(test.data), root, filepath.Join(root, test.filename))
+			if err != nil {
+				t.Fatalf("parseGraphFile failed: %v", err)
+			}
+			if isFunction {
+				t.Fatal("ordinary graph was marked as a function")
+			}
+			if graphName != test.wantName {
+				t.Fatalf("graph name = %q, want %q", graphName, test.wantName)
+			}
+		})
+	}
+}
+
+func TestParseGraphFilePreservesFunctionGraphName(t *testing.T) {
+	tests := []struct {
+		name     string
+		filename string
+		data     string
+		wantName string
+	}{
+		{
+			name:     "function document name",
+			filename: "CommandAimChange.obpf",
+			data: `{
+				"schemaVersion":1,
+				"graphName":"CommandAimChange",
+				"nodes":[],
+				"connections":[],
+				"variables":[]
+			}`,
+			wantName: "CommandAimChange",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			_, isFunction, graphName, _, err := parseGraphFile([]byte(test.data), root, filepath.Join(root, test.filename))
+			if err != nil {
+				t.Fatalf("parseGraphFile failed: %v", err)
+			}
+			if !isFunction {
+				t.Fatal("function graph was not marked as a function")
+			}
+			if graphName != test.wantName {
+				t.Fatalf("graph name = %q, want %q", graphName, test.wantName)
+			}
+		})
+	}
+}
+
 func TestLoadGraphDirRejectsDuplicateGraphNamesWithBothSources(t *testing.T) {
 	root := t.TempDir()
 	writeFunctionDocument(t, filepath.Join(root, "a.obpf"), "Shared", "functions/a")
