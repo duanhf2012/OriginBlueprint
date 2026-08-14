@@ -20,6 +20,37 @@ function document(name: string): GraphDocument {
 }
 
 describe('graph persistence', () => {
+  it('shares one non-mutating serialization contract across ordinary persistence boundaries', () => {
+    const source = document('Stale Historical Name')
+    const compact = '{"schemaVersion":1,"nodes":[],"connections":[],"groups":[],"variables":[],"variableGroups":[],"view":{"x":0,"y":0,"zoom":1}}'
+    const indented = `{
+  "schemaVersion": 1,
+  "nodes": [],
+  "connections": [],
+  "groups": [],
+  "variables": [],
+  "variableGroups": [],
+  "view": {
+    "x": 0,
+    "y": 0,
+    "zoom": 1
+  }
+}`
+
+    const boundaryPayloads = {
+      validation: serializeGraphDocument('Blueprints/Combat.obp', source),
+      recoverySnapshot: serializeGraphDocument('Blueprints/Combat.obp', source),
+      nativeSave: serializeGraphDocument('Blueprints/Combat.obp', source, 2),
+      legacyExport: serializeGraphDocument('Blueprints/Legacy.vgf', source),
+    }
+
+    expect(boundaryPayloads.validation).toBe(compact)
+    expect(boundaryPayloads.recoverySnapshot).toBe(compact)
+    expect(boundaryPayloads.nativeSave).toBe(indented)
+    expect(boundaryPayloads.legacyExport).toBe(compact)
+    expect(source.graphName).toBe('Stale Historical Name')
+  })
+
   it('omits the transient graph name when serializing an ordinary .obp document', () => {
     const serialized = serializeGraphDocument('C:\\Blueprints\\Combat.obp', document('Combat'))
 

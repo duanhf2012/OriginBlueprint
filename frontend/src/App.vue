@@ -9,6 +9,7 @@ import { platform, type NodeReferenceResult, type RecoverySnapshotResult, type W
 import { compatibilitySaveOptions, findOpenTab, hasRestoreLoss, resolveCompatibilitySaveAction as resolveCompatibilityPersistenceAction, sourceRequiresProtection, type CompatibilitySaveAction } from './documentSafety'
 import { autoSaveIntervalMs, isAutoSaveEligible, type AutoSaveMode } from './autoSavePolicy'
 import { saveGateDecision } from './saveGate'
+import { filenameStem, isFunctionBlueprintPath, serializeGraphDocument } from './graphPersistence'
 
 interface GraphTab { id: string; title: string; path: string; dirty: boolean; document: GraphDocument | null; restoreLoss?: RestoreLossReport | null; restoreFatal?: boolean; saveBlocked?: boolean }
 interface WorkspaceTreeNode extends WorkspaceEntry { children: WorkspaceTreeNode[]; loaded: boolean; loading: boolean }
@@ -1199,7 +1200,7 @@ async function createBlueprintAtDirectory(directory: string) {
   if (!rawName) return
   const graphName = sanitizeFunctionFileName(rawName)
   const path = joinWorkspacePath(directory, `${graphName}.vgf`)
-  const saved = await platform.saveGraph(path, JSON.stringify(blankDocument(graphName), null, 2))
+  const saved = await platform.saveGraph(path, serializeGraphDocument(path, blankDocument(graphName), 2))
   if (!saved) return
   await refreshWorkspaceAfterFileCreate(saved)
   status.value = `Created blueprint ${graphName}`
@@ -1217,7 +1218,7 @@ async function createFunctionAtDirectory(directory: string) {
   const terminals = functionTerminalNodes(graphName, document.functionSignature, document.functionId)
   document.nodes = terminals.nodes
   document.connections = terminals.connections
-  const saved = await platform.saveGraph(path, JSON.stringify(document, null, 2))
+  const saved = await platform.saveGraph(path, serializeGraphDocument(path, document, 2))
   if (!saved) return
   await refreshWorkspaceAfterFileCreate(saved)
   status.value = `Created function ${graphName}`
@@ -1437,15 +1438,11 @@ function isLegacyGraphPath(path: string) {
   return /\.vgf$/i.test(path)
 }
 
-function isFunctionBlueprintPath(path: string) {
-  return /\.obpf$/i.test(path)
-}
-
 async function testGraph() {
   if (!editor) return
   await editor.highlightIssueNodes([])
   const document = editor.getDocument(activeTab.value.title, variables.value, variableGroups.value)
-  validationIssues.value = await platform.validateGraph(JSON.stringify(document), workspaceRoot.value, activeTab.value.path)
+  validationIssues.value = await platform.validateGraph(serializeGraphDocument(activeTab.value.path || activeTab.value.title, document), workspaceRoot.value, activeTab.value.path)
   activeTab.value.saveBlocked = validationIssues.value.some(issue => issue.blocksSave && !issue.target)
   selectedValidationIssueKey.value = ''
   showLogger.value = true
@@ -1606,6 +1603,7 @@ async function openGraph(path = '', highlightTypeId = '') {
     try { document = normalizeDocument(JSON.parse(await platform.migrateLegacyGraph(file.content))) }
     catch (error) { status.value = error instanceof Error ? error.message : 'Legacy graph migration failed'; return }
   } else { status.value = 'Legacy graph migration requires the desktop runtime'; return }
+  if (!isFunctionBlueprintPath(file.path)) document.graphName = filenameStem(file.path)
   if (isFunctionBlueprintPath(file.path) && !document.functionId) document.functionId = newFunctionId()
   await loadFunctionLibraryTitles(functionLibraryItems.value)
   await refreshDocumentFunctionReferencesOnOpen(document, file.path)
@@ -1674,7 +1672,7 @@ function resolveCompatibilitySaveAction(action: CompatibilitySaveAction) {
 }
 
 async function validateForPersistence(tab: GraphTab, document: GraphDocument) {
-  const documentJSON = JSON.stringify(document)
+  const documentJSON = serializeGraphDocument(tab.path || tab.title, document)
   const issues = await platform.validateGraph(documentJSON, workspaceRoot.value, tab.path)
   const decision = saveGateDecision(issues, projectSettingsContent.value.editor.validateBeforeSave)
   tab.saveBlocked = decision.blocked
@@ -1761,8 +1759,8 @@ async function autoSaveDirtyTabs() {
         }
         const previousPath = tab.path
         const content = isLegacyGraphPath(tab.path)
-          ? await platform.exportLegacyGraph(JSON.stringify(document))
-          : JSON.stringify(document, null, 2)
+          ? await platform.exportLegacyGraph(serializeGraphDocument(tab.path, document))
+          : serializeGraphDocument(tab.path, document, 2)
         const path = await platform.saveGraph(tab.path, content)
         if (!path) continue
         tab.path = path
@@ -1808,7 +1806,10 @@ async function saveGraphUnchecked(saveAs: boolean) {
   }
   const forceNativeSaveAs = !effectiveSaveAs && !forceOriginal && isLegacyGraphPath(tab.path) && requiresNativePersistence
   const shouldSaveLegacy = !effectiveSaveAs && !forceNativeSaveAs && isLegacyGraphPath(tab.path)
-  const content = shouldSaveLegacy ? await platform.exportLegacyGraph(JSON.stringify(document)) : JSON.stringify(document, null, 2)
+  const persistencePath = tab.path || tab.title
+  const content = shouldSaveLegacy
+    ? await platform.exportLegacyGraph(serializeGraphDocument(persistencePath, document))
+    : serializeGraphDocument(persistencePath, document, 2)
   const previousPath = tab.path
   const path = forceOriginal
     ? await platform.forceSaveGraph(tab.path, content)
