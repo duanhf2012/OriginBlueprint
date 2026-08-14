@@ -118,6 +118,19 @@ func graphFilters() []runtime.FileFilter {
 	}
 }
 
+func completeGraphSavePath(path string, functionBlueprint, requiresNative bool) string {
+	if filepath.Ext(path) != "" {
+		return path
+	}
+	if functionBlueprint {
+		return path + ".obpf"
+	}
+	if requiresNative {
+		return path + ".obp"
+	}
+	return path + ".vgf"
+}
+
 func (a *App) OpenGraph(path string) (FileResult, error) {
 	var err error
 	if path == "" {
@@ -136,32 +149,42 @@ func (a *App) OpenGraph(path string) (FileResult, error) {
 	return FileResult{Path: path, Content: string(data)}, nil
 }
 
+func (a *App) ChooseGraphSavePath(suggestedPath string, functionBlueprint, requiresNative bool) (string, error) {
+	defaultDirectory := a.lastGraphDirectory()
+	defaultFilename := filepath.Base(strings.TrimSpace(suggestedPath))
+	if defaultFilename == "." || defaultFilename == "" {
+		defaultFilename = "Untitled"
+	}
+	if requiresNative && !functionBlueprint && strings.EqualFold(filepath.Ext(defaultFilename), ".vgf") {
+		defaultFilename = strings.TrimSuffix(defaultFilename, filepath.Ext(defaultFilename)) + ".obp"
+	}
+	defaultFilename = completeGraphSavePath(defaultFilename, functionBlueprint, requiresNative)
+	if directory := filepath.Dir(strings.TrimSpace(suggestedPath)); directory != "." && directory != "" {
+		defaultDirectory = directory
+	}
+
+	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		Title: "Save Graph", DefaultDirectory: defaultDirectory, DefaultFilename: defaultFilename,
+		Filters: graphFilters(),
+	})
+	if err != nil || path == "" {
+		return "", err
+	}
+	return completeGraphSavePath(path, functionBlueprint, requiresNative), nil
+}
+
 func (a *App) SaveGraph(path, content string) (string, error) {
-	var err error
 	var contentDocument GraphDocument
-	requiresNative := json.Unmarshal([]byte(content), &contentDocument) == nil &&
-		contentDocument.SchemaVersion == GraphSchemaVersion &&
-		graphDocumentRequiresNativePersistence(contentDocument)
+	isGraphDocument := json.Unmarshal([]byte(content), &contentDocument) == nil && contentDocument.SchemaVersion == GraphSchemaVersion
+	requiresNative := isGraphDocument && graphDocumentRequiresNativePersistence(contentDocument)
 	if path == "" {
-		defaultFilename := "Untitled.vgf"
-		if requiresNative {
-			defaultFilename = "Untitled.obp"
-		}
-		path, err = runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
-			Title: "Save Graph", DefaultDirectory: a.lastGraphDirectory(), DefaultFilename: defaultFilename,
-			Filters: graphFilters(),
-		})
+		var err error
+		path, err = a.ChooseGraphSavePath("", isGraphDocument && contentDocument.FunctionID != "", requiresNative)
 		if err != nil || path == "" {
 			return "", err
 		}
 	}
-	if filepath.Ext(path) == "" {
-		if requiresNative {
-			path += ".obp"
-		} else {
-			path += ".vgf"
-		}
-	}
+	path = completeGraphSavePath(path, isGraphDocument && contentDocument.FunctionID != "", requiresNative)
 	data, err := graphContentForPath(path, content)
 	if err != nil {
 		return "", err

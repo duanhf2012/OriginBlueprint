@@ -9,7 +9,7 @@ import { platform, type NodeReferenceResult, type RecoverySnapshotResult, type W
 import { compatibilitySaveOptions, findOpenTab, hasRestoreLoss, resolveCompatibilitySaveAction as resolveCompatibilityPersistenceAction, sourceRequiresProtection, type CompatibilitySaveAction } from './documentSafety'
 import { autoSaveIntervalMs, isAutoSaveEligible, type AutoSaveMode } from './autoSavePolicy'
 import { saveGateDecision } from './saveGate'
-import { filenameStem, isFunctionBlueprintPath, serializeGraphDocument } from './graphPersistence'
+import { applyFunctionPersistenceMetadata, filenameStem, isFunctionBlueprintPath, prepareGraphSave, serializeGraphDocument } from './graphPersistence'
 
 interface GraphTab { id: string; title: string; path: string; dirty: boolean; document: GraphDocument | null; restoreLoss?: RestoreLossReport | null; restoreFatal?: boolean; saveBlocked?: boolean }
 interface WorkspaceTreeNode extends WorkspaceEntry { children: WorkspaceTreeNode[]; loaded: boolean; loading: boolean }
@@ -925,13 +925,14 @@ function selectFunctionCategory(category: string) {
 }
 
 function documentWithFunctionSignature(document: GraphDocument, tab = activeTab.value) {
-  if (isFunctionBlueprintPath(tab.path || tab.title)) {
-    document.graphName = activeFunctionTitle()
-    document.functionId = activeFunctionId()
-    document.functionCategory = activeFunctionCategory()
-    document.functionSignature = normalizeFunctionSignature(functionSignature.value)
-  }
-  return document
+  const path = tab.path || tab.title
+  if (!isFunctionBlueprintPath(path)) return document
+  return applyFunctionPersistenceMetadata(path, document, {
+    graphName: activeFunctionTitle(),
+    functionId: activeFunctionId(),
+    functionCategory: activeFunctionCategory(),
+    functionSignature: normalizeFunctionSignature(functionSignature.value),
+  })
 }
 
 function hasFunctionNodes(document: GraphDocument) {
@@ -1441,7 +1442,7 @@ function isLegacyGraphPath(path: string) {
 async function testGraph() {
   if (!editor) return
   await editor.highlightIssueNodes([])
-  const document = editor.getDocument(activeTab.value.title, variables.value, variableGroups.value)
+  const document = documentWithFunctionSignature(editor.getDocument(activeTab.value.title, variables.value, variableGroups.value), activeTab.value)
   validationIssues.value = await platform.validateGraph(serializeGraphDocument(activeTab.value.path || activeTab.value.title, document), workspaceRoot.value, activeTab.value.path)
   activeTab.value.saveBlocked = validationIssues.value.some(issue => issue.blocksSave && !issue.target)
   selectedValidationIssueKey.value = ''
@@ -1805,15 +1806,20 @@ async function saveGraphUnchecked(saveAs: boolean) {
     }
   }
   const forceNativeSaveAs = !effectiveSaveAs && !forceOriginal && isLegacyGraphPath(tab.path) && requiresNativePersistence
-  const shouldSaveLegacy = !effectiveSaveAs && !forceNativeSaveAs && isLegacyGraphPath(tab.path)
-  const persistencePath = tab.path || tab.title
-  const content = shouldSaveLegacy
-    ? await platform.exportLegacyGraph(serializeGraphDocument(persistencePath, document))
-    : serializeGraphDocument(persistencePath, document, 2)
+  const sourcePath = tab.path || tab.title
+  let targetPath = tab.path
+  if (!forceOriginal && (effectiveSaveAs || forceNativeSaveAs || !targetPath)) {
+    targetPath = await platform.chooseGraphSavePath(tab.path, isFunctionBlueprintPath(sourcePath), requiresNativePersistence)
+    if (!targetPath) return
+  }
+  const preparedSave = prepareGraphSave(sourcePath, targetPath, document)
+  const content = preparedSave.exportLegacy
+    ? await platform.exportLegacyGraph(preparedSave.documentJSON)
+    : preparedSave.documentJSON
   const previousPath = tab.path
   const path = forceOriginal
-    ? await platform.forceSaveGraph(tab.path, content)
-    : await platform.saveGraph(effectiveSaveAs || forceNativeSaveAs ? '' : tab.path, content)
+    ? await platform.forceSaveGraph(preparedSave.path, content)
+    : await platform.saveGraph(preparedSave.path, content)
   if (!path) return
   tab.path = path; tab.title = path.split(/[\\/]/).pop() ?? tab.title; tab.document = document; tab.dirty = false; tab.restoreLoss = null; tab.restoreFatal = false; tab.saveBlocked = false
   await clearRecoverySnapshotsAfterSave(tab, previousPath, path)

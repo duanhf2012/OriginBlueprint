@@ -1,5 +1,6 @@
 import type { NodeSchema } from './editor/nodeRegistry'
 import { parseNodeSchemaDocument } from './editor/runtimeNodeSchemas'
+import { completeGraphSavePath } from './graphPersistence'
 
 export interface FileResult { path: string; content: string }
 export interface ProjectSettingsResult { path: string; content: string }
@@ -16,6 +17,7 @@ type RawNodeSchemaDocumentLoadResult = NodeSchemaDocumentLoadResult & {
 }
 type DesktopApp = {
   OpenGraph(path: string): Promise<FileResult>
+  ChooseGraphSavePath(suggestedPath: string, functionBlueprint: boolean, requiresNative: boolean): Promise<string>
   SaveGraph(path: string, content: string): Promise<string>
   ForceSaveGraph(path: string, content: string): Promise<string>
   CurrentWorkingDirectory(): Promise<string>
@@ -151,6 +153,14 @@ export const platform = {
     if (desktop()) return withDesktopLogging('SaveGraph', () => desktop()!.SaveGraph(path, content))
     download(path || 'Untitled.obp', content, 'application/json')
     return path || 'Untitled.obp'
+  },
+  async chooseGraphSavePath(suggestedPath: string, functionBlueprint: boolean, requiresNative: boolean) {
+    if (desktop()) {
+      return withDesktopLogging('ChooseGraphSavePath', () => desktop()!.ChooseGraphSavePath(suggestedPath, functionBlueprint, requiresNative))
+    }
+    const defaultPath = completeGraphSavePath(suggestedPath || 'Untitled', functionBlueprint, requiresNative)
+    const selectedPath = window.prompt('Output file name', defaultPath) ?? ''
+    return selectedPath ? completeGraphSavePath(selectedPath, functionBlueprint, requiresNative) : ''
   },
   async forceSaveGraph(path: string, content: string) {
     if (!desktop()) throw new Error('Force overwrite is only available in the desktop application')

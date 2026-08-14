@@ -6,6 +6,8 @@ export function ChooseDataFile(arg1:string):Promise<string>;
 
 export function ChooseExportPNGPath(arg1:string):Promise<string>;
 
+export function ChooseGraphSavePath(arg1:string,arg2:boolean,arg3:boolean):Promise<string>;
+
 export function ChooseWorkspace():Promise<string>;
 
 export function ClearRecentFiles():Promise<void>;

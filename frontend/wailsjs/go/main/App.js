@@ -10,6 +10,10 @@ export function ChooseExportPNGPath(arg1) {
   return window['go']['main']['App']['ChooseExportPNGPath'](arg1);
 }
 
+export function ChooseGraphSavePath(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ChooseGraphSavePath'](arg1, arg2, arg3);
+}
+
 export function ChooseWorkspace() {
   return window['go']['main']['App']['ChooseWorkspace']();
 }

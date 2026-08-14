@@ -195,6 +195,29 @@ func TestSaveGraphAddsOBPExtensionForNativeTimerDocument(t *testing.T) {
 	}
 }
 
+func TestCompleteGraphSavePathUsesDocumentKindAndNativeRequirements(t *testing.T) {
+	tests := []struct {
+		name              string
+		path              string
+		functionBlueprint bool
+		requiresNative    bool
+		want              string
+	}{
+		{name: "function", path: "ApplyDamage", functionBlueprint: true, want: "ApplyDamage.obpf"},
+		{name: "native ordinary", path: "Timer", requiresNative: true, want: "Timer.obp"},
+		{name: "legacy ordinary", path: "Compatible", want: "Compatible.vgf"},
+		{name: "explicit extension", path: "Explicit.OBP", want: "Explicit.OBP"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := completeGraphSavePath(test.path, test.functionBlueprint, test.requiresNative); got != test.want {
+				t.Fatalf("completeGraphSavePath() = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
 func TestLegacyVGFMigrationPreservesKnownAndUnknownContent(t *testing.T) {
 	legacy := legacyGraph{
 		GraphName: "Compat Sample",

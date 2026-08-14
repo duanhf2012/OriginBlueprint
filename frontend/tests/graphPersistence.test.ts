@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
+  applyFunctionPersistenceMetadata,
+  completeGraphSavePath,
   filenameStem,
   isFunctionBlueprintPath,
+  prepareGraphSave,
   serializeGraphDocument,
 } from '../src/graphPersistence'
 import type { GraphDocument } from '../src/editor/document'
@@ -20,35 +23,78 @@ function document(name: string): GraphDocument {
 }
 
 describe('graph persistence', () => {
-  it('shares one non-mutating serialization contract across ordinary persistence boundaries', () => {
+  it('serializes ordinary save payloads from the selected final path without mutating editor state', () => {
     const source = document('Stale Historical Name')
     const compact = '{"schemaVersion":1,"nodes":[],"connections":[],"groups":[],"variables":[],"variableGroups":[],"view":{"x":0,"y":0,"zoom":1}}'
-    const indented = `{
-  "schemaVersion": 1,
-  "nodes": [],
-  "connections": [],
-  "groups": [],
-  "variables": [],
-  "variableGroups": [],
-  "view": {
-    "x": 0,
-    "y": 0,
-    "zoom": 1
-  }
-}`
 
-    const boundaryPayloads = {
-      validation: serializeGraphDocument('Blueprints/Combat.obp', source),
-      recoverySnapshot: serializeGraphDocument('Blueprints/Combat.obp', source),
-      nativeSave: serializeGraphDocument('Blueprints/Combat.obp', source, 2),
-      legacyExport: serializeGraphDocument('Blueprints/Legacy.vgf', source),
-    }
+    const save = prepareGraphSave('Blueprints/Combat.obp', 'Blueprints/Renamed.vgf', source)
 
-    expect(boundaryPayloads.validation).toBe(compact)
-    expect(boundaryPayloads.recoverySnapshot).toBe(compact)
-    expect(boundaryPayloads.nativeSave).toBe(indented)
-    expect(boundaryPayloads.legacyExport).toBe(compact)
+    expect(save).toEqual({ path: 'Blueprints/Renamed.vgf', documentJSON: compact, exportLegacy: true })
     expect(source.graphName).toBe('Stale Historical Name')
+  })
+
+  it('rejects save targets that change between ordinary and function blueprints', () => {
+    expect(() => prepareGraphSave('Functions/ApplyDamage.obpf', 'ApplyDamage.obp', document('Apply Damage')))
+      .toThrow('Function blueprints must be saved as .obpf files')
+    expect(() => prepareGraphSave('Combat.obp', 'Combat.obpf', document('Combat')))
+      .toThrow('Ordinary blueprints cannot be saved as .obpf files')
+    expect(() => prepareGraphSave('', 'Untitled.obpf', document('Untitled')))
+      .toThrow('Ordinary blueprints cannot be saved as .obpf files')
+  })
+
+  it('completes extensionless selected paths before persistence decisions', () => {
+    expect(completeGraphSavePath('Functions/ApplyDamage', true, false)).toBe('Functions/ApplyDamage.obpf')
+    expect(completeGraphSavePath('Blueprints/Timer', false, true)).toBe('Blueprints/Timer.obp')
+    expect(completeGraphSavePath('Blueprints/Compatible', false, false)).toBe('Blueprints/Compatible.vgf')
+    expect(completeGraphSavePath('Blueprints/Explicit.OBP', false, false)).toBe('Blueprints/Explicit.OBP')
+  })
+
+  it('preserves function metadata when the selected final target remains .obpf', () => {
+    const source = applyFunctionPersistenceMetadata('Functions/ApplyDamage.obpf', document('Stale'), {
+      graphName: 'Apply Damage',
+      functionId: 'function-42',
+      functionCategory: 'Combat',
+      functionSignature: {
+        inputs: [{ id: 'amount', name: 'Amount', type: 'integer' }],
+        outputs: [{ id: 'applied', name: 'Applied', type: 'boolean' }],
+      },
+    })
+
+    const save = prepareGraphSave('Functions/ApplyDamage.obpf', 'Functions/Renamed.obpf', source)
+
+    expect(save.exportLegacy).toBe(false)
+    expect(JSON.parse(save.documentJSON)).toMatchObject({
+      graphName: 'Apply Damage',
+      functionId: 'function-42',
+      functionCategory: 'Combat',
+      functionSignature: {
+        inputs: [{ id: 'amount', name: 'Amount', type: 'integer' }],
+        outputs: [{ id: 'applied', name: 'Applied', type: 'boolean' }],
+      },
+    })
+  })
+
+  it('hydrates function metadata before explicit validation serialization', () => {
+    const source = document('Editor Placeholder')
+    const hydrated = applyFunctionPersistenceMetadata('Functions/ApplyDamage.obpf', source, {
+      graphName: 'Apply Damage',
+      functionId: 'function-42',
+      functionCategory: 'Combat',
+      functionSignature: {
+        inputs: [{ id: 'amount', name: 'Amount', type: 'integer' }],
+        outputs: [],
+      },
+    })
+
+    expect(JSON.parse(serializeGraphDocument('Functions/ApplyDamage.obpf', hydrated))).toMatchObject({
+      graphName: 'Apply Damage',
+      functionId: 'function-42',
+      functionCategory: 'Combat',
+      functionSignature: {
+        inputs: [{ id: 'amount', name: 'Amount', type: 'integer' }],
+        outputs: [],
+      },
+    })
   })
 
   it('omits the transient graph name when serializing an ordinary .obp document', () => {
