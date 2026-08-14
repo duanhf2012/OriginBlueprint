@@ -32,7 +32,7 @@ const applyPropertiesBody = findFunctionBody(source, 'applyNodeProperties')
 assert(restoreBody.includes('applyNodeProperties(node, item.properties)'), 'restore must apply persisted node properties')
 assert(pasteBody.includes('applyNodeProperties(node, item.properties)'), 'paste must apply clipboard node properties')
 
-assert(applyPropertiesBody.includes('node.legacyClass = properties?.legacyClass'), 'node property restoration must preserve legacyClass')
+assert(applyPropertiesBody.includes('node.legacyClass = resolveNodeLegacyClass(node.typeId, properties?.legacyClass)'), 'node property restoration must preserve legacyClass with the registry fallback')
 assert(applyPropertiesBody.includes('node.legacyInputs = properties?.legacyInputs?.map'), 'node property restoration must clone legacyInputs')
 assert(applyPropertiesBody.includes('node.legacyOutputs = properties?.legacyOutputs?.map'), 'node property restoration must clone legacyOutputs')
 

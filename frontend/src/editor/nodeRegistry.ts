@@ -6,6 +6,7 @@ import { entrySourceColor } from './implicitEntryLinks'
 export interface NodeDefinition {
   id: string
   sourceName?: string
+  legacyClass?: string
   title: string
   category: string
   description?: string
@@ -145,6 +146,7 @@ function fromSchema(schema: NodeSchema, locale: string): NodeDefinition {
   const subtitle = english ? schema.subtitleEn || schema.subtitle : schema.subtitle
   const kind = inferKind(schema)
   const ordinaryEntry = isOrdinaryEntrySchema(schema, kind)
+  const legacyClass = schema.custom ? schema.sourceName : undefined
   const dynamicBranch = schema.dynamicBranch ? {
     ...schema.dynamicBranch,
     outputTemplate: schema.dynamicBranch.outputTemplate ? { ...schema.dynamicBranch.outputTemplate } : { type: 'exec', label: '' },
@@ -153,6 +155,7 @@ function fromSchema(schema: NodeSchema, locale: string): NodeDefinition {
   return {
     id: schema.id,
     sourceName: schema.sourceName,
+    legacyClass,
     title,
     category,
     description: subtitle,
@@ -160,6 +163,7 @@ function fromSchema(schema: NodeSchema, locale: string): NodeDefinition {
     ordinaryEntry,
     create() {
       const result = node(schema.id, title, kind, subtitle ?? category, schema.width ?? 230)
+      result.legacyClass = legacyClass
       if (ordinaryEntry) {
         result.entrySourceKey = schema.sourceName || schema.id
         result.entrySourceColor = entrySourceColor(schema.sourceName || schema.id)
@@ -208,6 +212,12 @@ export function createNode(typeId: string) {
   const definition = allNodeDefinitions.find(item => item.id === typeId)
   if (!definition) throw new Error(`Unknown node type: ${typeId}`)
   return definition.create()
+}
+
+export function resolveNodeLegacyClass(typeId?: string, persisted?: string) {
+  const explicit = String(persisted ?? '').trim()
+  if (explicit) return explicit
+  return allNodeDefinitions.find(item => item.id === typeId)?.legacyClass
 }
 
 function variableSocket(type: GraphVariable['type']) {

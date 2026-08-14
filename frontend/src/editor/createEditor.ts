@@ -7,7 +7,7 @@ import BlueprintControl from './BlueprintControl.vue'
 import BlueprintConnectionComponent from './BlueprintConnection.vue'
 import BlueprintNodeComponent from './BlueprintNode.vue'
 import BlueprintSocket from './BlueprintSocket.vue'
-import { applyTimerFunctionMetadata, createFunctionCallNode, createFunctionEntryNode as createFunctionEntryNodeFromSpec, createFunctionReturnNode as createFunctionReturnNodeFromSpec, createLegacyNode, createNode, createSetTimerByFunctionNode, createVariableNode, hasNodeDefinition, nodeTitleWidth } from './nodeRegistry'
+import { applyTimerFunctionMetadata, createFunctionCallNode, createFunctionEntryNode as createFunctionEntryNodeFromSpec, createFunctionReturnNode as createFunctionReturnNodeFromSpec, createLegacyNode, createNode, createSetTimerByFunctionNode, createVariableNode, hasNodeDefinition, nodeTitleWidth, resolveNodeLegacyClass } from './nodeRegistry'
 import { normalizeSocketName } from './socketTheme'
 import { BlueprintNode, type Schemes } from './types'
 import { describeEntryBinding, entryBindingCandidateGroups, isEntryOutputConnection, type EntryBindingNode } from './implicitEntryLinks'
@@ -441,7 +441,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     node.functionName = properties?.functionName
     node.functionSource = properties?.functionSource
     node.functionSignature = cloneFunctionSignatureFromProperties(properties?.functionSignature)
-    node.legacyClass = properties?.legacyClass
+    node.legacyClass = resolveNodeLegacyClass(node.typeId, properties?.legacyClass)
     node.legacyModule = properties?.legacyModule
     node.legacyInputs = properties?.legacyInputs?.map(port => ({ ...port }))
     node.legacyOutputs = properties?.legacyOutputs?.map(port => ({ ...port }))
