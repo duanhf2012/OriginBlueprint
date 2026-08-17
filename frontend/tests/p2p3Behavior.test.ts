@@ -5,7 +5,7 @@ import { pushBoundedHistory } from '../src/editor/history'
 import { saveGateDecision } from '../src/saveGate'
 import { variableScope } from '../src/editor/document'
 import { createVariableNode } from '../src/editor/nodeRegistry'
-import { moveVariablesToDefaultGroup, normalizeVariableGroups, variableGroupNameExists, variableGroupRemovalMessage, variableGroupUsage } from '../src/editor/variableGroups'
+import { matchingVariableGroupId, moveVariablesToDefaultGroup, normalizeVariableGroups, variableGroupNameExists, variableGroupRemovalMessage, variableGroupUsage, variableGroupsForScope } from '../src/editor/variableGroups'
 
 describe('variable scopes', () => {
   it('defaults omitted scope to execution for existing .obp files', () => {
@@ -18,26 +18,39 @@ describe('variable scopes', () => {
     expect(node.subtitle).toContain('全局')
   })
 
-  it('reports local and global group usage separately before deletion', () => {
+  it('reports usage separately and describes deletion within one scope', () => {
     const usage = variableGroupUsage([
       { id: 'local', name: 'Local', type: 'integer', defaultValue: 0, groupId: 'shared' },
       { id: 'global', name: 'Global', type: 'integer', defaultValue: 0, groupId: 'shared', scope: 'instance' },
       { id: 'other', name: 'Other', type: 'integer', defaultValue: 0, groupId: 'default' },
     ], 'shared')
     expect(usage).toEqual({ localCount: 1, globalCount: 1, totalCount: 2 })
-    expect(variableGroupRemovalMessage('Shared', usage)).toContain('局部变量 1 个、全局变量 1 个')
+    expect(variableGroupRemovalMessage('Shared', 'execution', usage.localCount)).toContain('1 个局部变量')
+    expect(variableGroupRemovalMessage('Shared', 'instance', usage.globalCount)).toContain('1 个全局变量')
   })
 
-  it('preserves case-conflicting native groups for validation instead of silently dropping one', () => {
-    const groups = normalizeVariableGroups([
+  it('keeps case-conflicting legacy groups for core validation instead of silently dropping one', () => {
+    const normalized = normalizeVariableGroups([
       { id: 'combat-a', name: 'Combat' },
       { id: 'combat-b', name: 'combat' },
     ], [], () => 'generated')
-    expect(groups.map(group => group.id)).toEqual(['default', 'combat-a', 'combat-b'])
+    expect(normalized.groups.map(group => group.id)).toEqual(['default', 'combat-a', 'combat-b'])
+    expect(normalized.groups.slice(1).map(group => group.scope)).toEqual(['execution', 'execution'])
   })
 
-  it('checks group names case-insensitively and moves both scopes on confirmed deletion', () => {
-    expect(variableGroupNameExists([{ id: 'combat', name: 'Combat' }], ' combat ')).toBe(true)
+  it('checks names case-insensitively only within the selected scope', () => {
+    const groups = [
+      { id: 'local-combat', name: 'Combat', scope: 'execution' as const },
+      { id: 'global-shared', name: 'Shared', scope: 'instance' as const },
+    ]
+    expect(variableGroupNameExists(groups, ' combat ', 'execution')).toBe(true)
+    expect(variableGroupNameExists(groups, ' combat ', 'instance')).toBe(false)
+    expect(variableGroupNameExists(groups, ' shared ', 'instance')).toBe(true)
+    expect(variableGroupNames(variableGroupsForScope(groups, 'execution'))).toEqual(['Combat'])
+    expect(variableGroupNames(variableGroupsForScope(groups, 'instance'))).toEqual(['Shared'])
+  })
+
+  it('moves variables to Default when their scoped group is deleted', () => {
     const variables = [
       { id: 'local', name: 'Local', type: 'integer' as const, defaultValue: 0, groupId: 'shared' },
       { id: 'global', name: 'Global', type: 'integer' as const, defaultValue: 0, groupId: 'shared', scope: 'instance' as const },
@@ -45,7 +58,61 @@ describe('variable scopes', () => {
     moveVariablesToDefaultGroup(variables, 'shared')
     expect(variables.map(variable => variable.groupId)).toEqual(['default', 'default'])
   })
+
+  it('infers one scope for old groups used by only local or only global variables', () => {
+    const local = normalizeVariableGroups([{ id: 'combat', name: 'Combat' }], [
+      { groupId: 'combat' },
+    ], () => 'generated-local')
+    const global = normalizeVariableGroups([{ id: 'shared', name: 'Shared' }], [
+      { groupId: 'shared', scope: 'instance' },
+    ], () => 'generated-global')
+    const empty = normalizeVariableGroups([{ id: 'empty', name: 'Empty' }], [], () => 'generated-empty')
+
+    expect(local.groups[1].scope).toBe('execution')
+    expect(global.groups[1].scope).toBe('instance')
+    expect(empty.groups[1].scope).toBe('execution')
+    expect(local.resolveGroupId('combat', '', 'execution')).toBe('combat')
+    expect(global.resolveGroupId('shared', '', 'instance')).toBe('shared')
+  })
+
+  it('splits a mixed old group into same-named local and global groups', () => {
+    const normalized = normalizeVariableGroups([{ id: 'shared', name: 'Shared' }], [
+      { groupId: 'shared' },
+      { groupId: 'shared', scope: 'instance' },
+    ], () => 'shared-global')
+
+    expect(normalized.groups).toEqual([
+      { id: 'default', name: 'Default' },
+      { id: 'shared', name: 'Shared', collapsed: false, scope: 'execution' },
+      { id: 'shared-global', name: 'Shared', collapsed: false, scope: 'instance' },
+    ])
+    expect(normalized.resolveGroupId('shared', '', 'execution')).toBe('shared')
+    expect(normalized.resolveGroupId('shared', '', 'instance')).toBe('shared-global')
+  })
+
+  it('migrates legacy named groups to local even when a global group has the same name', () => {
+    const normalized = normalizeVariableGroups([
+      { id: 'global-combat', name: 'Combat', scope: 'instance' },
+    ], [{ group: 'Combat' }], () => 'legacy-combat')
+
+    expect(normalized.resolveGroupId('', 'Combat', 'execution')).toBe('legacy-combat')
+    expect(normalized.resolveGroupId('', 'Combat', 'instance')).toBe('global-combat')
+  })
+
+  it('maps scope changes to a same-named target group or Default', () => {
+    const groups = [
+      { id: 'local-combat', name: 'Combat', scope: 'execution' as const },
+      { id: 'global-combat', name: 'combat', scope: 'instance' as const },
+      { id: 'local-only', name: 'Local Only', scope: 'execution' as const },
+    ]
+    expect(matchingVariableGroupId(groups, 'local-combat', 'instance')).toBe('global-combat')
+    expect(matchingVariableGroupId(groups, 'local-only', 'instance')).toBe('default')
+  })
 })
+
+function variableGroupNames(groups: Array<{ name: string }>) {
+  return groups.map(group => group.name)
+}
 
 describe('raw source validation protection', () => {
   it('protects a source when validation found an error', () => {

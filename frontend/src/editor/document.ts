@@ -25,6 +25,7 @@ export interface GraphVariableGroup {
   id: string
   name: string
   collapsed?: boolean
+  scope?: VariableScope
 }
 
 export interface FunctionSignaturePort {

@@ -574,7 +574,7 @@ func TestExportLegacyGraphWritesCurrentVariableGroup(t *testing.T) {
 	document := GraphDocument{
 		SchemaVersion:  GraphSchemaVersion,
 		GraphName:      "Grouped Variables",
-		VariableGroups: []GraphVariableGroup{{ID: "default", Name: "Default"}, {ID: "combat", Name: "Combat"}},
+		VariableGroups: []GraphVariableGroup{{ID: "default", Name: "Default"}, {ID: "combat", Name: "Combat", Scope: "execution"}},
 		Variables: []GraphVariable{{
 			ID:           "health",
 			Name:         "Health",
@@ -598,7 +598,7 @@ func TestExportLegacyGraphWritesCurrentVariableGroup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(roundTrip.Variables) != 1 || len(roundTrip.VariableGroups) != 2 || roundTrip.Variables[0].GroupID != roundTrip.VariableGroups[1].ID || roundTrip.VariableGroups[1].Name != "Combat" {
+	if len(roundTrip.Variables) != 1 || len(roundTrip.VariableGroups) != 2 || roundTrip.Variables[0].GroupID != roundTrip.VariableGroups[1].ID || roundTrip.VariableGroups[1].Name != "Combat" || roundTrip.VariableGroups[1].Scope != "execution" {
 		t.Fatalf("round-trip document = %#v", roundTrip)
 	}
 }
@@ -1564,7 +1564,7 @@ func TestValidateGraphRejectsUnknownVariableType(t *testing.T) {
 func TestValidateGraphAcceptsVariableGroups(t *testing.T) {
 	document := GraphDocument{
 		SchemaVersion:  GraphSchemaVersion,
-		VariableGroups: []GraphVariableGroup{{ID: "default", Name: "Default"}, {ID: "combat", Name: "Combat"}},
+		VariableGroups: []GraphVariableGroup{{ID: "default", Name: "Default"}, {ID: "combat", Name: "Combat", Scope: "execution"}},
 		Variables:      []GraphVariable{{ID: "health", Name: "Health", Type: "integer", GroupID: "combat", DefaultValue: 100}},
 	}
 	if issues := validateGraph(document); len(issues) != 0 {
@@ -1584,13 +1584,55 @@ func TestValidateGraphRejectsInvalidVariableGroups(t *testing.T) {
 	}
 }
 
+func TestValidateGraphAcceptsSameVariableGroupNameAcrossScopes(t *testing.T) {
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		VariableGroups: []GraphVariableGroup{
+			{ID: "default", Name: "Default"},
+			{ID: "local-combat", Name: "Combat", Scope: "execution"},
+			{ID: "global-combat", Name: "combat", Scope: "instance"},
+		},
+		Variables: []GraphVariable{
+			{ID: "local-health", Name: "LocalHealth", Type: "integer", GroupID: "local-combat"},
+			{ID: "global-health", Name: "GlobalHealth", Type: "integer", GroupID: "global-combat", Scope: "instance"},
+		},
+	}
+	if issues := validateGraph(document); len(issues) != 0 {
+		t.Fatalf("issues = %#v", issues)
+	}
+}
+
+func TestValidateGraphRejectsVariableGroupScopeMismatch(t *testing.T) {
+	document := GraphDocument{
+		SchemaVersion:  GraphSchemaVersion,
+		VariableGroups: []GraphVariableGroup{{ID: "global", Name: "Global", Scope: "instance"}},
+		Variables:      []GraphVariable{{ID: "local", Name: "Local", Type: "integer", GroupID: "global"}},
+	}
+	issues := validateGraph(document)
+	requireValidationIssue(t, issues, "variable.group-scope-mismatch")
+}
+
+func TestValidateGraphRejectsInvalidVariableGroupScopes(t *testing.T) {
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		VariableGroups: []GraphVariableGroup{
+			{ID: "default", Name: "Default", Scope: "execution"},
+			{ID: "unknown", Name: "Unknown", Scope: "workspace"},
+			{ID: "padded", Name: "Padded", Scope: " execution "},
+		},
+	}
+	issues := validateGraph(document)
+	requireValidationIssue(t, issues, "variable-group.invalid-default-scope")
+	requireValidationIssue(t, issues, "variable-group.unknown-scope")
+}
+
 func TestValidateGraphRejectsCaseInsensitiveAndDuplicateDefaultVariableGroups(t *testing.T) {
 	document := GraphDocument{
 		SchemaVersion: GraphSchemaVersion,
 		VariableGroups: []GraphVariableGroup{
 			{ID: "default", Name: "Default"},
-			{ID: "combat", Name: "Combat"},
-			{ID: "combat-copy", Name: "combat"},
+			{ID: "combat", Name: "Combat", Scope: "execution"},
+			{ID: "combat-copy", Name: "combat", Scope: "execution"},
 			{ID: "default", Name: "Default"},
 			{ID: "default", Name: "Renamed Default"},
 		},

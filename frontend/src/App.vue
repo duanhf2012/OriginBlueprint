@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { toPng } from 'html-to-image'
 import { createBlueprintEditor, type BlueprintEditorHandle, type EditorMetrics, type FunctionSignature, type FunctionSignaturePort, type GraphDocument, type GraphVariable, type GraphVariableGroup, type SelectedNodeInfo, type ValidationIssue, type VariableType } from './editor/createEditor'
 import { variableScope, type FunctionNodeMetadata, type NodeSnapshot, type RestoreLossReport, type VariableScope } from './editor/document'
-import { moveVariablesToDefaultGroup, normalizeVariableGroups, variableGroupNameExists, variableGroupRemovalMessage, variableGroupUsage } from './editor/variableGroups'
+import { matchingVariableGroupId, moveVariablesToDefaultGroup, normalizeVariableGroups, variableGroupNameExists, variableGroupRemovalMessage, variableGroupsForScope, variableGroupScope, variableGroupUsage } from './editor/variableGroups'
 import { getNodeDefinitions, registerNodeSchemas, type NodeDefinition } from './editor/nodeRegistry'
 import { menuLocales, normalizeLocale, type LocaleId } from './i18n'
 import { platform, type NodeReferenceResult, type RecoverySnapshotResult, type WorkspaceEntry } from './platform'
@@ -153,10 +153,6 @@ const workspaceRefreshIntervalMs = Math.max(1000, Number.parseInt(localStorage.g
 const activeTab = computed(() => tabs.value.find(tab => tab.id === activeTabId.value)!)
 const selectedVariable = computed(() => variables.value.find(variable => variable.id === selectedVariableId.value) ?? null)
 const isFunctionBlueprintTab = computed(() => isFunctionBlueprintPath(activeTab.value?.path || activeTab.value?.title || ''))
-const customVariableGroups = computed(() => variableGroups.value.filter(group => group.id !== 'default'))
-const variableGroupManagerEntries = computed(() => customVariableGroups.value.map(group => {
-  return { group, ...variableGroupUsage(variables.value, group.id) }
-}))
 const variableScopeSections = computed(() => ([
   {
     scope: 'execution' as const,
@@ -168,13 +164,17 @@ const variableScopeSections = computed(() => ([
     title: '全局变量',
     variables: variables.value.filter(variable => variableScope(variable) === 'instance')
   }
-].map(section => ({
-  ...section,
-  groups: variableGroups.value.map(group => ({
-    group,
-    variables: section.variables.filter(variable => variable.groupId === group.id)
-  }))
-}))))
+].map(section => {
+  const scopedGroups = variableGroupsForScope(variableGroups.value, section.scope)
+  return {
+    ...section,
+    groups: scopedGroups.map(group => ({
+      group,
+      variables: section.variables.filter(variable => variable.groupId === group.id)
+    })),
+    hasCustomGroups: scopedGroups.some(group => group.id !== 'default')
+  }
+})))
 const functionLibraryItems = computed(() => collectFunctionLibraryItems(workspaceTree.value))
 const callableFunctionItems = computed<FunctionLibraryItem[]>(() => [
   ...blueprintFunctions.value.map(item => ({ id: item.id, functionId: item.id, name: item.name, category: currentFunctionCategory(), path: activeTab.value?.path || activeTab.value?.title || '', source: 'current' as const })),
@@ -1196,6 +1196,7 @@ async function changeVariableScope(variable: GraphVariable, event: Event) {
     status.value = '函数蓝图中的变量只能使用局部作用域'
     return
   }
+  variable.groupId = matchingVariableGroupId(variableGroups.value, variable.groupId, scope)
   if (scope === 'instance') variable.scope = 'instance'
   else delete variable.scope
   await updateVariable(variable)
@@ -1305,15 +1306,19 @@ async function selectVariable(variable: GraphVariable) {
   selectedFunctionId.value = ''
 }
 
-async function addVariableGroup() {
+async function addVariableGroup(scope: VariableScope) {
+  if (scope === 'instance' && isFunctionBlueprintTab.value) {
+    status.value = '函数蓝图不支持全局变量分组'
+    return
+  }
   const rawName = window.prompt('变量分组名称', '新分组')
   const name = rawName?.trim()
   if (!name) return
-  if (variableGroupNameExists(variableGroups.value, name)) {
+  if (variableGroupNameExists(variableGroups.value, name, scope)) {
     status.value = `Variable group already exists: ${name}`
     return
   }
-  variableGroups.value.push({ id: crypto.randomUUID(), name })
+  variableGroups.value.push({ id: crypto.randomUUID(), name, scope })
   await syncVariables()
 }
 
@@ -1322,7 +1327,8 @@ async function renameVariableGroup(group: GraphVariableGroup) {
   const rawName = window.prompt('重命名变量分组', group.name)
   const name = rawName?.trim()
   if (!name || name === group.name) return
-  if (variableGroupNameExists(variableGroups.value, name, group.id)) {
+  const scope = variableGroupScope(group) ?? 'execution'
+  if (variableGroupNameExists(variableGroups.value, name, scope, group.id)) {
     status.value = `Variable group already exists: ${name}`
     return
   }
@@ -1333,7 +1339,9 @@ async function renameVariableGroup(group: GraphVariableGroup) {
 async function removeVariableGroup(group: GraphVariableGroup) {
   if (group.id === 'default') return
   const usage = variableGroupUsage(variables.value, group.id)
-  if (usage.totalCount && !window.confirm(variableGroupRemovalMessage(group.name, usage))) return
+  const scope = variableGroupScope(group) ?? 'execution'
+  const count = scope === 'instance' ? usage.globalCount : usage.localCount
+  if (count && !window.confirm(variableGroupRemovalMessage(group.name, scope, count))) return
   moveVariablesToDefaultGroup(variables.value, group.id)
   variableGroups.value = variableGroups.value.filter(item => item.id !== group.id)
   await syncVariables()
@@ -1416,22 +1424,19 @@ function normalizeVariableType(value: unknown): VariableType {
 
 function normalizeDocument(value: any): GraphDocument {
   const sourceVariables = Array.isArray(value.variables) ? value.variables : []
-  const groups = normalizeVariableGroups(value.variableGroups, sourceVariables)
-  const groupIds = new Set(groups.map(group => group.id))
-  const groupByName = new Map<string, string>()
-  for (const group of groups) if (!groupByName.has(group.name.toLowerCase())) groupByName.set(group.name.toLowerCase(), group.id)
+  const groupNormalization = normalizeVariableGroups(value.variableGroups, sourceVariables)
   const variables: GraphVariable[] = sourceVariables.map((variable: any, index: number) => {
     const type = normalizeVariableType(variable?.type)
+    const scope: VariableScope = variable?.scope === 'instance' ? 'instance' : 'execution'
     const requestedGroupId = String(variable?.groupId ?? '')
-    const legacyGroupId = groupByName.get(String(variable?.group ?? 'Default').toLowerCase())
     return {
       id: String(variable?.id || crypto.randomUUID()),
       name: String(variable?.name || `Variable${index + 1}`),
       type,
       defaultValue: variable?.defaultValue ?? variable?.value ?? defaultVariableValue(type),
-      groupId: groupIds.has(requestedGroupId) ? requestedGroupId : (legacyGroupId ?? 'default'),
+      groupId: groupNormalization.resolveGroupId(requestedGroupId, String(variable?.group ?? 'Default'), scope),
       description: String(variable?.description ?? ''),
-      scope: variable?.scope === 'instance' ? 'instance' : undefined
+      scope: scope === 'instance' ? 'instance' : undefined
     }
   })
   return {
@@ -1443,7 +1448,7 @@ function normalizeDocument(value: any): GraphDocument {
     connections: Array.isArray(value.connections) ? value.connections : [],
     groups: Array.isArray(value.groups) ? value.groups : [],
     variables,
-    variableGroups: groups,
+    variableGroups: groupNormalization.groups,
     functionSignature: normalizeFunctionSignature(value.functionSignature),
     view: value.view ?? { x: 0, y: 0, zoom: 1 },
     legacy: value.legacy
@@ -2898,35 +2903,31 @@ function toggleModuleCategory(category: string) {
       </aside>
       <div v-show="showTools" class="sidebar-splitter" @pointerdown="beginLeftSidebarResize"></div>
       <aside v-show="showTools" class="sidebar sidebar-left">
-        <div class="panel grow variable-panel" :style="variablePanelStyle"><div class="panel-title"><span class="chevron">⌄</span> 变量 <span class="panel-title-spacer"></span><button class="panel-action" title="添加变量组（局部与全局共用）" @click="addVariableGroup">▣＋</button></div>
-          <section v-if="variableGroupManagerEntries.length" class="variable-group-manager">
-            <header><strong>自定义分组</strong><small>局部与全局共用</small></header>
-            <div v-for="entry in variableGroupManagerEntries" :key="entry.group.id" class="variable-group-manager-row">
-              <span :title="entry.group.name">{{ entry.group.name }}</span>
-              <small :title="`局部 ${entry.localCount} 个，全局 ${entry.globalCount} 个`">局 {{ entry.localCount }} · 全 {{ entry.globalCount }}</small>
-              <button title="重命名分组" @click="renameVariableGroup(entry.group)">✎</button>
-              <button title="删除分组" @click="removeVariableGroup(entry.group)">×</button>
-            </div>
-          </section>
+        <div class="panel grow variable-panel" :style="variablePanelStyle"><div class="panel-title"><span class="chevron">⌄</span> 变量</div>
           <section v-for="scopeEntry in variableScopeSections" :key="scopeEntry.scope" class="variable-scope-section" :class="`scope-${scopeEntry.scope}`">
             <header class="variable-scope-header">
               <span class="variable-scope-icon">{{ scopeEntry.scope === 'instance' ? 'G' : 'L' }}</span>
               <strong class="variable-scope-title">{{ scopeEntry.title }}</strong>
               <span class="variable-scope-count">{{ scopeEntry.variables.length }}</span>
-              <button :title="`添加${scopeEntry.title}`" :disabled="scopeEntry.scope === 'instance' && isFunctionBlueprintTab" @click="addVariable('default', scopeEntry.scope)">＋</button>
             </header>
+            <div class="variable-scope-actions">
+              <button :disabled="scopeEntry.scope === 'instance' && isFunctionBlueprintTab" @click="addVariable('default', scopeEntry.scope)">＋ 变量</button>
+              <button :disabled="scopeEntry.scope === 'instance' && isFunctionBlueprintTab" @click="addVariableGroup(scopeEntry.scope)">▣＋ 分组</button>
+            </div>
             <div v-if="scopeEntry.scope === 'instance' && isFunctionBlueprintTab" class="variable-scope-notice">函数蓝图不支持全局变量</div>
             <template v-if="scopeEntry.scope !== 'instance' || !isFunctionBlueprintTab || scopeEntry.variables.length">
-              <section v-for="entry in scopeEntry.groups" :key="`${scopeEntry.scope}-${entry.group.id}`" class="variable-group" :class="{ 'variable-group-flat': !customVariableGroups.length }">
-                <div v-if="customVariableGroups.length" class="variable-group-header">
+              <section v-for="entry in scopeEntry.groups" :key="`${scopeEntry.scope}-${entry.group.id}`" class="variable-group" :class="{ 'variable-group-flat': !scopeEntry.hasCustomGroups }">
+                <div v-if="scopeEntry.hasCustomGroups" class="variable-group-header">
                   <span class="variable-group-name">{{ entry.group.name }}</span><small>{{ entry.variables.length }}</small>
                   <button :title="`在此组添加${scopeEntry.title}`" :disabled="scopeEntry.scope === 'instance' && isFunctionBlueprintTab" @click="addVariable(entry.group.id, scopeEntry.scope)">＋</button>
+                  <button v-if="entry.group.id !== 'default'" title="重命名分组" @click="renameVariableGroup(entry.group)">✎</button>
+                  <button v-if="entry.group.id !== 'default'" title="删除分组" @click="removeVariableGroup(entry.group)">×</button>
                 </div>
                 <div class="variable-group-list">
                   <div v-for="variable in entry.variables" :key="variable.id" class="variable-row" :class="{ selected: selectedVariableId === variable.id, 'variable-instance': scopeEntry.scope === 'instance' }" draggable="true" @click="selectVariable(variable)" @dragstart="startVariableDrag($event, variable)">
                     <div class="variable-heading"><span class="variable-type-dot" :class="`type-${variable.type}`"></span><span class="variable-name">{{ variable.name }}</span><span class="variable-scope">{{ scopeEntry.scope === 'instance' ? '全局' : '局部' }}</span><span class="variable-kind">{{ variable.type }}</span><button title="Get" @click.stop="createVariableNode(variable, 'get')">G</button><button title="Set" @click.stop="createVariableNode(variable, 'set')">S</button><button title="Delete" @click.stop="removeVariable(variable)">×</button></div>
                   </div>
-                  <button v-if="!entry.variables.length" class="empty-variable-group" :disabled="scopeEntry.scope === 'instance' && isFunctionBlueprintTab" @click="addVariable(entry.group.id, scopeEntry.scope)">＋ 添加{{ scopeEntry.title }}</button>
+                  <button v-if="!entry.variables.length && entry.group.id !== 'default'" class="empty-variable-group" :disabled="scopeEntry.scope === 'instance' && isFunctionBlueprintTab" @click="addVariable(entry.group.id, scopeEntry.scope)">＋ 添加{{ scopeEntry.title }}</button>
                 </div>
               </section>
             </template>
@@ -2970,7 +2971,7 @@ function toggleModuleCategory(category: string) {
               <button class="add-signature-port" @click="addFunctionSignaturePort('outputs')"><span aria-hidden="true">＋</span>{{ menuText.detail.addOutputParameter }}</button>
             </section>
           </div>
-          <div v-else-if="selectedVariable" class="node-detail variable-detail"><div class="detail-section-title">变量属性</div><label>Variable ID<input :value="selectedVariable.id" disabled /></label><label>名称<input v-model="selectedVariable.name" /></label><label>作用域<select :value="variableScope(selectedVariable)" @change="changeVariableScope(selectedVariable, $event)"><option value="execution">局部（每次执行重置）</option><option value="instance" :disabled="isFunctionBlueprintTab">全局（同一蓝图实例共享）</option></select></label><small v-if="variableScope(selectedVariable) === 'instance'" class="variable-scope-hint">并发执行会共享当前值；单次读取和写入线程安全。</small><label>类型<select v-model="selectedVariable.type" @change="changeVariableType(selectedVariable)"><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="float">Float</option><option value="string">String</option><option value="array">Array</option><option value="timerhandle">Timer Handle</option></select></label><label>分组<select v-model="selectedVariable.groupId"><option v-for="group in variableGroups" :key="group.id" :value="group.id">{{ group.name }}</option></select></label><label>说明<textarea v-model="selectedVariable.description" rows="4" placeholder="变量用途和约束"></textarea></label><label v-if="selectedVariable.type !== 'timerhandle'">默认值<input v-if="selectedVariable.type === 'boolean'" v-model="selectedVariable.defaultValue" type="checkbox" /><input v-else-if="selectedVariable.type === 'string'" v-model="selectedVariable.defaultValue" type="text" /><input v-else-if="selectedVariable.type === 'array'" :value="Array.isArray(selectedVariable.defaultValue) ? selectedVariable.defaultValue.join(', ') : ''" placeholder="1, 2, text" @change="setVariableArrayDefault(selectedVariable, $event)" /><input v-else v-model.number="selectedVariable.defaultValue" type="number" /></label><button class="apply-properties" @click="updateVariable(selectedVariable)">应用变量属性</button><button class="delete-properties" @click="removeVariable(selectedVariable)">删除变量</button></div>
+          <div v-else-if="selectedVariable" class="node-detail variable-detail"><div class="detail-section-title">变量属性</div><label>Variable ID<input :value="selectedVariable.id" disabled /></label><label>名称<input v-model="selectedVariable.name" /></label><label>作用域<select :value="variableScope(selectedVariable)" @change="changeVariableScope(selectedVariable, $event)"><option value="execution">局部（每次执行重置）</option><option value="instance" :disabled="isFunctionBlueprintTab">全局（同一蓝图实例共享）</option></select></label><small v-if="variableScope(selectedVariable) === 'instance'" class="variable-scope-hint">并发执行会共享当前值；单次读取和写入线程安全。</small><label>类型<select v-model="selectedVariable.type" @change="changeVariableType(selectedVariable)"><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="float">Float</option><option value="string">String</option><option value="array">Array</option><option value="timerhandle">Timer Handle</option></select></label><label>分组<select v-model="selectedVariable.groupId"><option v-for="group in variableGroupsForScope(variableGroups, variableScope(selectedVariable))" :key="group.id" :value="group.id">{{ group.name }}</option></select></label><label>说明<textarea v-model="selectedVariable.description" rows="4" placeholder="变量用途和约束"></textarea></label><label v-if="selectedVariable.type !== 'timerhandle'">默认值<input v-if="selectedVariable.type === 'boolean'" v-model="selectedVariable.defaultValue" type="checkbox" /><input v-else-if="selectedVariable.type === 'string'" v-model="selectedVariable.defaultValue" type="text" /><input v-else-if="selectedVariable.type === 'array'" :value="Array.isArray(selectedVariable.defaultValue) ? selectedVariable.defaultValue.join(', ') : ''" placeholder="1, 2, text" @change="setVariableArrayDefault(selectedVariable, $event)" /><input v-else v-model.number="selectedVariable.defaultValue" type="number" /></label><button class="apply-properties" @click="updateVariable(selectedVariable)">应用变量属性</button><button class="delete-properties" @click="removeVariable(selectedVariable)">删除变量</button></div>
           <div v-else-if="selectedNode" class="node-detail"><label>Node ID<input :value="selectedNode.id" disabled /></label><label>Type<input :value="selectedNode.typeId" disabled /></label><label>Title<input :value="selectedNode.label" readonly /></label><label v-if="selectedNode.description">说明<textarea :value="selectedNode.description" rows="4" readonly></textarea></label></div>
           <div v-else class="empty-detail">选择节点或变量以查看属性</div>
         </div>

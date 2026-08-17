@@ -194,7 +194,7 @@ func migrateLegacyGraphWithRuntimeSpecs(data []byte, runtimeSpecs map[string]run
 		if groupID == "" {
 			groupID = uuid.NewString()
 			groupIDs[groupName] = groupID
-			document.VariableGroups = append(document.VariableGroups, GraphVariableGroup{ID: groupID, Name: groupName})
+			document.VariableGroups = append(document.VariableGroups, GraphVariableGroup{ID: groupID, Name: groupName, Scope: "execution"})
 		}
 		id := uuid.NewString()
 		variableIDs[name] = id

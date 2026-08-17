@@ -134,6 +134,7 @@ type GraphVariableGroup struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
 	Collapsed bool   `json:"collapsed,omitempty"`
+	Scope     string `json:"scope,omitempty"`
 }
 
 type GraphView struct {
@@ -470,8 +471,8 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 	variables := make(map[string]GraphVariable, len(document.Variables))
 	variableNames := make(map[string]bool, len(document.Variables))
 	variableTypes := map[string]bool{"boolean": true, "integer": true, "float": true, "string": true, "array": true, "timerhandle": true}
-	variableGroups := map[string]bool{"default": true}
-	variableGroupNames := map[string]bool{"default": true}
+	variableGroups := map[string]string{"default": ""}
+	variableGroupNameScopes := map[string]map[string]bool{"default": {"": true}}
 	defaultGroupSeen := false
 	for _, group := range document.VariableGroups {
 		groupID := strings.TrimSpace(group.ID)
@@ -480,21 +481,37 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 			issues = append(issues, ValidationIssue{Severity: "error", Code: "variable-group.invalid", Message: "变量分组缺少 ID 或名称"})
 			continue
 		}
-		if (groupID == "default" && defaultGroupSeen) || (groupID != "default" && variableGroups[groupID]) {
+		_, duplicateID := variableGroups[groupID]
+		if (groupID == "default" && defaultGroupSeen) || (groupID != "default" && duplicateID) {
 			issues = append(issues, ValidationIssue{Severity: "error", Code: "variable-group.duplicate-id", Message: "变量分组 ID 重复：" + groupID})
+		}
+		groupScope := strings.TrimSpace(group.Scope)
+		if groupScope != group.Scope || groupScope != "" && groupScope != "execution" && groupScope != "instance" {
+			issues = append(issues, ValidationIssue{Severity: "error", Code: "variable-group.unknown-scope", Message: "未知变量分组作用域：" + group.Scope})
 		}
 		groupNameKey := strings.ToLower(groupName)
 		if groupID == "default" && groupNameKey != "default" {
 			issues = append(issues, ValidationIssue{Severity: "error", Code: "variable-group.invalid-default", Message: "Default 分组不能重命名"})
 		}
-		if variableGroupNames[groupNameKey] && !(groupID == "default" && groupNameKey == "default" && !defaultGroupSeen) {
+		if groupID == "default" && groupScope != "" {
+			issues = append(issues, ValidationIssue{Severity: "error", Code: "variable-group.invalid-default-scope", Message: "Default 分组不能声明作用域"})
+		}
+		nameScopes := variableGroupNameScopes[groupNameKey]
+		duplicateName := nameScopes != nil && (nameScopes[""] || groupScope == "" || nameScopes[groupScope])
+		if duplicateName && !(groupID == "default" && groupNameKey == "default" && !defaultGroupSeen) {
 			issues = append(issues, ValidationIssue{Severity: "error", Code: "variable-group.duplicate-name", Message: "变量分组名称重复：" + groupName})
 		}
 		if groupID == "default" {
 			defaultGroupSeen = true
 		}
-		variableGroups[groupID] = true
-		variableGroupNames[groupNameKey] = true
+		if groupID != "default" && !duplicateID {
+			variableGroups[groupID] = groupScope
+		}
+		if nameScopes == nil {
+			nameScopes = map[string]bool{}
+			variableGroupNameScopes[groupNameKey] = nameScopes
+		}
+		nameScopes[groupScope] = true
 	}
 	for _, variable := range document.Variables {
 		if variable.ID == "" || variable.Name == "" {
@@ -520,8 +537,17 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 		if groupID == "" {
 			groupID = "default"
 		}
-		if !variableGroups[groupID] {
+		groupScope, groupExists := variableGroups[groupID]
+		if !groupExists {
 			issues = append(issues, ValidationIssue{Severity: "error", Code: "variable.missing-group", Message: "变量引用了不存在的分组：" + groupID})
+		} else if groupID != "default" && groupScope != "" {
+			variableScope := variable.Scope
+			if variableScope == "" {
+				variableScope = "execution"
+			}
+			if groupScope != variableScope {
+				issues = append(issues, ValidationIssue{Severity: "error", Code: "variable.group-scope-mismatch", Message: "变量与分组作用域不一致：" + variable.Name})
+			}
 		}
 		variables[variable.ID] = variable
 		variableNames[variable.Name] = true

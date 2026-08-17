@@ -25,7 +25,9 @@ assert(app.includes("title: '局部变量'") && app.includes("title: '全局变�
 assert(!app.includes('scopeEntry.description'), 'variable scope headers must remain single-line at narrow panel widths')
 assert(app.includes("addVariable('default', scopeEntry.scope)") && app.includes("addVariable(entry.group.id, scopeEntry.scope)"), 'each variable scope section must have an explicit add path')
 assert(app.includes("scope === 'instance' && isFunctionBlueprintTab.value"), 'function blueprints must reject creating global variables')
-assert(app.includes('variable-group-manager') && app.includes('variableGroupManagerEntries'), 'custom variable groups must be managed once outside the scope sections')
+assert(!app.includes('variable-group-manager') && !app.includes('variableGroupManagerEntries'), 'the ambiguous shared group manager must not return')
+assert(app.includes('addVariableGroup(scopeEntry.scope)') && app.includes('variableGroupsForScope(variableGroups.value, section.scope)'), 'each scope section must create and render only its own groups')
+assert(app.includes('matchingVariableGroupId(variableGroups.value, variable.groupId, scope)'), 'changing variable scope must map to a same-named target group or Default')
 assert(!app.includes('toggleVariableGroup'), 'variable group collapse must not couple local and global scope presentation')
 
 console.log('p2p3Integration tests passed')
