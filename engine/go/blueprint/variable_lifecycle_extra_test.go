@@ -132,7 +132,7 @@ func TestVMHotReloadSeparatesOldAndNewVariableSchemas(t *testing.T) {
 	registry.Register(NewNodeDefinition("VMStringReturn", func() IExecNode { return &variableStringReturnNode{} }, []IPort{NewPortExec(), NewPortStr()}, nil))
 
 	oldGraph, err := CompileGraph(registry, GraphConfig{
-		Variables: []VariableConfig{{Name: "Count", Type: "Integer", Value: 5}},
+		Variables: []VariableConfig{{ID: "count", Name: "Count", Type: "Integer", Value: 5, Scope: VariableScopeInstance}},
 		Nodes: []NodeConfig{
 			{ID: "entry", Class: "VMEntry_1"},
 			{ID: "set", Class: "Set_Count", PortDefault: map[int]any{1: 41}},
@@ -151,7 +151,7 @@ func TestVMHotReloadSeparatesOldAndNewVariableSchemas(t *testing.T) {
 		t.Fatalf("compile old graph failed: %v", err)
 	}
 	newGraph, err := CompileGraph(registry, GraphConfig{
-		Variables: []VariableConfig{{Name: "Count", Type: "String", Value: "new-default"}},
+		Variables: []VariableConfig{{ID: "count", Name: "Count", Type: "String", Value: "new-default", Scope: VariableScopeInstance}},
 		Nodes: []NodeConfig{
 			{ID: "entry", Class: "VMEntry_1"},
 			{ID: "get", Class: "Get_Count"},

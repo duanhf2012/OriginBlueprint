@@ -13,8 +13,9 @@
 
 - `Program`、`CompiledGraph`、`ExecNode` 和 `NodeDefinition` 是共享只读结构，不得保存单次执行的可变状态。
 - `Graph`、PC、Flow/Loop/Call Stack、Native Context 和 Yield token 只能属于单次 Execution，不得并发复用。
-- 普通蓝图变量属于单次 Execution；每次 `Start/Do` 从编译期默认模板初始化，Yield/Resume 保留原槽位，不得把变量写回 `GraphInstance` 或 `CompiledGraph`。
-- `GraphInstance` 只保存图名身份和生命周期。热加载只原子替换图池：旧 Execution 固定旧快照，新 Execution 从图池获取新快照，禁止迁移普通变量。
+- 未声明 scope 或 scope=`execution` 的变量属于单次 Execution；每次 `Start/Do` 从编译期默认模板初始化，Yield/Resume 保留原槽位，不得写回 `GraphInstance` 或 `CompiledGraph`。
+- 只有普通图中显式 scope=`instance` 的变量可写入 `GraphInstance`。每次 Get/Set 必须短锁并复制值，不得跨节点执行或 Yield 持锁；函数变量仍必须是 execution-local。
+- 热加载原子替换图池：旧 Execution 固定旧快照，新 Execution 从图池获取新快照。实例变量只可按稳定 ID 和类型复用；类型变化必须隔离旧槽，旧执行所需的槽至少保留到实例释放。
 - `Init` 必须在锁外完成解析编译并事务发布；存在实例或活动 Execution 时返回 `ErrBlueprintInUse`，不得用 Init 代替 HotReload。
 - 生产执行只能经过 VM；不得恢复 `ExecNode.Do/doNext`、旧 `Continuation` 或双执行内核。
 - 普通 Native 业务节点必须同步完成；RPC 等异步节点通过 `BaseExecNode.Yield` 和一次性 `YieldHandle` 恢复。

@@ -67,11 +67,12 @@ type EdgeConfig struct {
 
 // GraphConfig 是编译蓝图图所需的完整配置。
 type GraphConfig struct {
-	Nodes     []NodeConfig     `json:"nodes"`
-	Edges     []EdgeConfig     `json:"edges"`
-	Variables []VariableConfig `json:"variables"`
-	Functions map[string]*CompiledGraph
-	Legacy    bool `json:"-"`
+	Nodes      []NodeConfig     `json:"nodes"`
+	Edges      []EdgeConfig     `json:"edges"`
+	Variables  []VariableConfig `json:"variables"`
+	Functions  map[string]*CompiledGraph
+	Legacy     bool `json:"-"`
+	IsFunction bool `json:"-"`
 }
 
 type compiledExecEdge struct {
@@ -81,11 +82,31 @@ type compiledExecEdge struct {
 	destPortID   int
 }
 
-// VariableConfig 描述蓝图局部变量的初始值。
+type VariableScope string
+
+const (
+	VariableScopeExecution VariableScope = "execution"
+	VariableScopeInstance  VariableScope = "instance"
+)
+
+// VariableConfig 描述蓝图变量的稳定身份、作用域和初始值。
 type VariableConfig struct {
-	Name  string `json:"name"`
-	Type  string `json:"type"`
-	Value any    `json:"value"`
+	ID    string        `json:"id,omitempty"`
+	Name  string        `json:"name"`
+	Type  string        `json:"type"`
+	Value any           `json:"value"`
+	Scope VariableScope `json:"scope,omitempty"`
+}
+
+func normalizeVariableScope(scope VariableScope) (VariableScope, error) {
+	switch scope {
+	case "", VariableScopeExecution:
+		return VariableScopeExecution, nil
+	case VariableScopeInstance:
+		return VariableScopeInstance, nil
+	default:
+		return "", fmt.Errorf("unknown variable scope %q", scope)
+	}
 }
 
 // ParseGraphConfigJSON 解析蓝图 JSON。
@@ -166,12 +187,20 @@ func compileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error
 	var functionOutputKinds []portKind
 	var hasFunctionEntry bool
 	var hasFunctionReturn bool
+	instanceVariableKeys := make(map[instanceVariableKey]string)
+	variableIDs := make(map[string]string)
 	for _, variable := range config.Variables {
 		if strings.TrimSpace(variable.Name) == "" {
 			return nil, fmt.Errorf("variable name is empty")
 		}
 		if _, exists := variables[variable.Name]; exists {
 			return nil, fmt.Errorf("duplicate variable %q", variable.Name)
+		}
+		if variableID := strings.TrimSpace(variable.ID); variableID != "" {
+			if previous, exists := variableIDs[variableID]; exists {
+				return nil, fmt.Errorf("variables %s and %s have the same id %q", previous, variable.Name, variableID)
+			}
+			variableIDs[variableID] = variable.Name
 		}
 		port, err := newPortFromDataType(variable.Type)
 		if err != nil {
@@ -182,9 +211,25 @@ func compileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error
 				return nil, fmt.Errorf("variable %s default: %w", variable.Name, err)
 			}
 		}
+		scope, err := normalizeVariableScope(variable.Scope)
+		if err != nil {
+			return nil, fmt.Errorf("variable %s: %w", variable.Name, err)
+		}
+		if config.IsFunction && scope == VariableScopeInstance {
+			return nil, fmt.Errorf("function variable %s cannot use instance scope", variable.Name)
+		}
+		variable.Scope = scope
+		plan := variablePlan{Name: variable.Name, ID: strings.TrimSpace(variable.ID), Scope: scope, Default: port}
+		if scope == VariableScopeInstance {
+			plan.InstanceKey = newInstanceVariableKey(plan.ID, plan.Name, port)
+			if previous, exists := instanceVariableKeys[plan.InstanceKey]; exists {
+				return nil, fmt.Errorf("instance variables %s and %s have the same stable id and type", previous, variable.Name)
+			}
+			instanceVariableKeys[plan.InstanceKey] = variable.Name
+		}
 		variables[variable.Name] = variable
 		variableIndexes[variable.Name] = len(variablePlans)
-		variablePlans = append(variablePlans, variablePlan{Name: variable.Name, Default: port})
+		variablePlans = append(variablePlans, plan)
 	}
 
 	for _, nodeConfig := range config.Nodes {
@@ -232,6 +277,10 @@ func compileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error
 		node.VariableName = variableNameFromClass(nodeConfig.Class)
 		if node.VariableName != "" {
 			node.VariableIndex = variableIndexes[node.VariableName]
+			if node.VariableIndex >= 0 && node.VariableIndex < len(variablePlans) {
+				node.VariableScope = variablePlans[node.VariableIndex].Scope
+				node.InstanceVariableKey = variablePlans[node.VariableIndex].InstanceKey
+			}
 		}
 		node.FunctionID = nodeConfig.FunctionID
 		node.FunctionName = nodeConfig.FunctionName

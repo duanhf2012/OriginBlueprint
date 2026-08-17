@@ -1,5 +1,5 @@
 import { ClassicPreset, GetSchemes } from 'rete'
-import type { FunctionNodeMetadata } from './document'
+import type { FunctionNodeMetadata, VariableScope } from './document'
 import type { EntryPortBinding } from './implicitEntryLinks'
 import type { SocketThemeName } from './socketTheme'
 
@@ -28,6 +28,7 @@ export class BlueprintNode extends ClassicPreset.Node {
   compact?: boolean
   variableId?: string
   variableAccess?: 'get' | 'set'
+  variableScope?: VariableScope
   dynamicOutputs?: boolean
   dynamicOutputCount?: number
   dynamicBranch?: DynamicBranchConfig

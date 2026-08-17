@@ -1,4 +1,4 @@
-import type { FunctionSignature, GraphDocument } from './editor/document'
+import { variableScope, type FunctionSignature, type GraphDocument } from './editor/document'
 
 export interface FunctionPersistenceMetadata {
   graphName: string
@@ -22,6 +22,16 @@ export function completeGraphSavePath(path: string, functionBlueprint: boolean, 
   if (filename.lastIndexOf('.') > 0) return path
   const extension = functionBlueprint ? '.obpf' : requiresNative ? '.obp' : '.vgf'
   return `${path}${extension}`
+}
+
+export function documentRequiresNativePersistence(document: GraphDocument) {
+  const nodes = document.nodes ?? []
+  const signature = document.functionSignature ?? { inputs: [], outputs: [] }
+  return nodes.some(node => String(node.typeId ?? '').startsWith('origin.function.') || node.typeId === 'origin.timer.set-by-function')
+    || nodes.some(node => node.typeId === 'origin.flow.delay' || String(node.typeId ?? '').startsWith('origin.timer.'))
+    || (document.variables ?? []).some(variable => variable.type === 'timerhandle' || variableScope(variable) === 'instance')
+    || (signature.inputs?.length ?? 0) > 0
+    || (signature.outputs?.length ?? 0) > 0
 }
 
 export function persistedGraphDocument(path: string, document: GraphDocument) {

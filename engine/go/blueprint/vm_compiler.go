@@ -135,10 +135,10 @@ func ensureVMProgramRecursive(compiled *CompiledGraph, visiting map[*CompiledGra
 	if compiled == nil || visiting[compiled] {
 		return
 	}
-	ensureCompiledVariablePlans(compiled)
 	if compiled.Program != nil {
 		return
 	}
+	ensureCompiledVariablePlans(compiled)
 	visiting[compiled] = true
 	for _, function := range compiled.Functions {
 		ensureVMProgramRecursive(function, visiting)
@@ -199,8 +199,16 @@ func ensureCompiledVariablePlans(compiled *CompiledGraph) {
 			if config.Value != nil {
 				_ = port.setAnyValue(config.Value)
 			}
+			scope, err := normalizeVariableScope(config.Scope)
+			if err != nil {
+				scope = VariableScopeExecution
+			}
+			plan := variablePlan{ID: config.ID, Name: name, Scope: scope, Default: port}
+			if scope == VariableScopeInstance {
+				plan.InstanceKey = newInstanceVariableKey(config.ID, name, port)
+			}
 			compiled.variableIndexes[name] = len(compiled.variablePlans)
-			compiled.variablePlans = append(compiled.variablePlans, variablePlan{Name: name, Default: port})
+			compiled.variablePlans = append(compiled.variablePlans, plan)
 		}
 	} else {
 		for index, plan := range compiled.variablePlans {
@@ -211,6 +219,8 @@ func ensureCompiledVariablePlans(compiled *CompiledGraph) {
 		if node != nil && node.VariableName != "" {
 			if index, ok := compiled.variableIndexes[node.VariableName]; ok {
 				node.VariableIndex = index
+				node.VariableScope = compiled.variablePlans[index].Scope
+				node.InstanceVariableKey = compiled.variablePlans[index].InstanceKey
 			}
 		}
 	}

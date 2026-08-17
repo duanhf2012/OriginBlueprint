@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   applyFunctionPersistenceMetadata,
   completeGraphSavePath,
+  documentRequiresNativePersistence,
   filenameStem,
   isFunctionBlueprintPath,
   prepareGraphSave,
@@ -23,6 +24,17 @@ function document(name: string): GraphDocument {
 }
 
 describe('graph persistence', () => {
+	it('keeps old variables legacy-compatible and requires .obp for instance variables', () => {
+		const local = document('Local')
+		local.variables = [{ id: 'count', name: 'Count', type: 'integer', defaultValue: 0, groupId: 'default' }]
+		expect(documentRequiresNativePersistence(local)).toBe(false)
+		expect(JSON.parse(serializeGraphDocument('Local.obp', local)).variables[0]).not.toHaveProperty('scope')
+
+		const shared = document('Shared')
+		shared.variables = [{ id: 'count', name: 'Count', type: 'integer', defaultValue: 0, groupId: 'default', scope: 'instance' }]
+		expect(documentRequiresNativePersistence(shared)).toBe(true)
+		expect(JSON.parse(serializeGraphDocument('Shared.obp', shared)).variables[0].scope).toBe('instance')
+	})
   it('serializes ordinary save payloads from the selected final path without mutating editor state', () => {
     const source = document('Stale Historical Name')
     const compact = '{"schemaVersion":1,"nodes":[],"connections":[],"groups":[],"variables":[],"variableGroups":[],"view":{"x":0,"y":0,"zoom":1}}'

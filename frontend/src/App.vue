@@ -2,14 +2,14 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { toPng } from 'html-to-image'
 import { createBlueprintEditor, type BlueprintEditorHandle, type EditorMetrics, type FunctionSignature, type FunctionSignaturePort, type GraphDocument, type GraphVariable, type GraphVariableGroup, type SelectedNodeInfo, type ValidationIssue, type VariableType } from './editor/createEditor'
-import type { FunctionNodeMetadata, NodeSnapshot, RestoreLossReport } from './editor/document'
+import { variableScope, type FunctionNodeMetadata, type NodeSnapshot, type RestoreLossReport, type VariableScope } from './editor/document'
 import { getNodeDefinitions, registerNodeSchemas, type NodeDefinition } from './editor/nodeRegistry'
 import { menuLocales, normalizeLocale, type LocaleId } from './i18n'
 import { platform, type NodeReferenceResult, type RecoverySnapshotResult, type WorkspaceEntry } from './platform'
 import { compatibilitySaveOptions, findOpenTab, hasRestoreLoss, resolveCompatibilitySaveAction as resolveCompatibilityPersistenceAction, sourceRequiresProtection, type CompatibilitySaveAction } from './documentSafety'
 import { autoSaveIntervalMs, isAutoSaveEligible, type AutoSaveMode } from './autoSavePolicy'
 import { saveGateDecision } from './saveGate'
-import { applyFunctionPersistenceMetadata, filenameStem, isFunctionBlueprintPath, prepareGraphSave, serializeGraphDocument } from './graphPersistence'
+import { applyFunctionPersistenceMetadata, documentRequiresNativePersistence as graphDocumentRequiresNativePersistence, filenameStem, isFunctionBlueprintPath, prepareGraphSave, serializeGraphDocument } from './graphPersistence'
 
 interface GraphTab { id: string; title: string; path: string; dirty: boolean; document: GraphDocument | null; restoreLoss?: RestoreLossReport | null; restoreFatal?: boolean; saveBlocked?: boolean }
 interface WorkspaceTreeNode extends WorkspaceEntry { children: WorkspaceTreeNode[]; loaded: boolean; loading: boolean }
@@ -940,16 +940,16 @@ function hasFunctionNodes(document: GraphDocument) {
 }
 
 function documentRequiresNativePersistence(document: GraphDocument) {
-  const signature = normalizeFunctionSignature(document.functionSignature)
   const hasNativeTimeNodes = (document.nodes ?? []).some(node =>
     node.typeId === 'origin.flow.delay' || String(node.typeId ?? '').startsWith('origin.timer.'),
   )
   const hasTimerHandleVariables = (document.variables ?? []).some(variable => variable.type === 'timerhandle')
+  const hasInstanceVariables = (document.variables ?? []).some(variable => variableScope(variable) === 'instance')
   return hasFunctionNodes(document)
     || hasNativeTimeNodes
     || hasTimerHandleVariables
-    || signature.inputs.length > 0
-    || signature.outputs.length > 0
+    || hasInstanceVariables
+    || graphDocumentRequiresNativePersistence(document)
 }
 
 function functionPortKey(prefix: 'input' | 'output', port: FunctionSignaturePort, index: number) {
@@ -1157,6 +1157,17 @@ async function updateVariable(variable: GraphVariable, previousType?: VariableTy
 
 async function changeVariableType(variable: GraphVariable) {
   variable.defaultValue = defaultVariableValue(variable.type)
+  await updateVariable(variable)
+}
+
+async function changeVariableScope(variable: GraphVariable, event: Event) {
+  const scope = (event.target as HTMLSelectElement).value as VariableScope
+  if (scope === 'instance' && isFunctionBlueprintTab.value) {
+    status.value = '函数蓝图中的变量只能使用局部作用域'
+    return
+  }
+  if (scope === 'instance') variable.scope = 'instance'
+  else delete variable.scope
   await updateVariable(variable)
 }
 
@@ -1412,7 +1423,8 @@ function normalizeDocument(value: any): GraphDocument {
       type,
       defaultValue: variable?.defaultValue ?? variable?.value ?? defaultVariableValue(type),
       groupId: groupIds.has(requestedGroupId) ? requestedGroupId : (legacyGroupId ?? 'default'),
-      description: String(variable?.description ?? '')
+      description: String(variable?.description ?? ''),
+      scope: variable?.scope === 'instance' ? 'instance' : undefined
     }
   })
   return {
@@ -2888,8 +2900,8 @@ function toggleModuleCategory(category: string) {
               <button title="在此组添加变量" @click="addVariable(entry.group.id)">＋</button><button v-if="entry.group.id !== 'default'" title="重命名组" @click="renameVariableGroup(entry.group)">✎</button><button v-if="entry.group.id !== 'default'" title="删除组" @click="removeVariableGroup(entry.group)">×</button>
             </div>
             <div v-if="!entry.group.collapsed" class="variable-group-list">
-              <div v-for="variable in entry.variables" :key="variable.id" class="variable-row" :class="{ selected: selectedVariableId === variable.id }" draggable="true" @click="selectVariable(variable)" @dragstart="startVariableDrag($event, variable)">
-                <div class="variable-heading"><span class="variable-type-dot" :class="`type-${variable.type}`"></span><span class="variable-name">{{ variable.name }}</span><span class="variable-kind">{{ variable.type }}</span><button title="Get" @click.stop="createVariableNode(variable, 'get')">G</button><button title="Set" @click.stop="createVariableNode(variable, 'set')">S</button><button title="Delete" @click.stop="removeVariable(variable)">×</button></div>
+              <div v-for="variable in entry.variables" :key="variable.id" class="variable-row" :class="{ selected: selectedVariableId === variable.id, 'variable-instance': variableScope(variable) === 'instance' }" draggable="true" @click="selectVariable(variable)" @dragstart="startVariableDrag($event, variable)">
+                <div class="variable-heading"><span class="variable-type-dot" :class="`type-${variable.type}`"></span><span class="variable-name">{{ variable.name }}</span><span class="variable-scope">{{ variableScope(variable) === 'instance' ? '全局' : '局部' }}</span><span class="variable-kind">{{ variable.type }}</span><button title="Get" @click.stop="createVariableNode(variable, 'get')">G</button><button title="Set" @click.stop="createVariableNode(variable, 'set')">S</button><button title="Delete" @click.stop="removeVariable(variable)">×</button></div>
               </div>
               <button v-if="!entry.variables.length" class="empty-variable-group" @click="addVariable(entry.group.id)">＋ 添加变量</button>
             </div>
@@ -2934,7 +2946,7 @@ function toggleModuleCategory(category: string) {
               <button class="add-signature-port" @click="addFunctionSignaturePort('outputs')"><span aria-hidden="true">＋</span>{{ menuText.detail.addOutputParameter }}</button>
             </section>
           </div>
-          <div v-else-if="selectedVariable" class="node-detail variable-detail"><div class="detail-section-title">变量属性</div><label>Variable ID<input :value="selectedVariable.id" disabled /></label><label>名称<input v-model="selectedVariable.name" /></label><label>类型<select v-model="selectedVariable.type" @change="changeVariableType(selectedVariable)"><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="float">Float</option><option value="string">String</option><option value="array">Array</option><option value="timerhandle">Timer Handle</option></select></label><label>分组<select v-model="selectedVariable.groupId"><option v-for="group in variableGroups" :key="group.id" :value="group.id">{{ group.name }}</option></select></label><label>说明<textarea v-model="selectedVariable.description" rows="4" placeholder="变量用途和约束"></textarea></label><label v-if="selectedVariable.type !== 'timerhandle'">默认值<input v-if="selectedVariable.type === 'boolean'" v-model="selectedVariable.defaultValue" type="checkbox" /><input v-else-if="selectedVariable.type === 'string'" v-model="selectedVariable.defaultValue" type="text" /><input v-else-if="selectedVariable.type === 'array'" :value="Array.isArray(selectedVariable.defaultValue) ? selectedVariable.defaultValue.join(', ') : ''" placeholder="1, 2, text" @change="setVariableArrayDefault(selectedVariable, $event)" /><input v-else v-model.number="selectedVariable.defaultValue" type="number" /></label><button class="apply-properties" @click="updateVariable(selectedVariable)">应用变量属性</button><button class="delete-properties" @click="removeVariable(selectedVariable)">删除变量</button></div>
+          <div v-else-if="selectedVariable" class="node-detail variable-detail"><div class="detail-section-title">变量属性</div><label>Variable ID<input :value="selectedVariable.id" disabled /></label><label>名称<input v-model="selectedVariable.name" /></label><label>作用域<select :value="variableScope(selectedVariable)" @change="changeVariableScope(selectedVariable, $event)"><option value="execution">局部（每次执行重置）</option><option value="instance" :disabled="isFunctionBlueprintTab">全局（同一蓝图实例共享）</option></select></label><small v-if="variableScope(selectedVariable) === 'instance'" class="variable-scope-hint">并发执行会共享当前值；单次读取和写入线程安全。</small><label>类型<select v-model="selectedVariable.type" @change="changeVariableType(selectedVariable)"><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="float">Float</option><option value="string">String</option><option value="array">Array</option><option value="timerhandle">Timer Handle</option></select></label><label>分组<select v-model="selectedVariable.groupId"><option v-for="group in variableGroups" :key="group.id" :value="group.id">{{ group.name }}</option></select></label><label>说明<textarea v-model="selectedVariable.description" rows="4" placeholder="变量用途和约束"></textarea></label><label v-if="selectedVariable.type !== 'timerhandle'">默认值<input v-if="selectedVariable.type === 'boolean'" v-model="selectedVariable.defaultValue" type="checkbox" /><input v-else-if="selectedVariable.type === 'string'" v-model="selectedVariable.defaultValue" type="text" /><input v-else-if="selectedVariable.type === 'array'" :value="Array.isArray(selectedVariable.defaultValue) ? selectedVariable.defaultValue.join(', ') : ''" placeholder="1, 2, text" @change="setVariableArrayDefault(selectedVariable, $event)" /><input v-else v-model.number="selectedVariable.defaultValue" type="number" /></label><button class="apply-properties" @click="updateVariable(selectedVariable)">应用变量属性</button><button class="delete-properties" @click="removeVariable(selectedVariable)">删除变量</button></div>
           <div v-else-if="selectedNode" class="node-detail"><label>Node ID<input :value="selectedNode.id" disabled /></label><label>Type<input :value="selectedNode.typeId" disabled /></label><label>Title<input :value="selectedNode.label" readonly /></label><label v-if="selectedNode.description">说明<textarea :value="selectedNode.description" rows="4" readonly></textarea></label></div>
           <div v-else class="empty-detail">选择节点或变量以查看属性</div>
         </div>

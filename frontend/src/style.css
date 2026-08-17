@@ -51,6 +51,10 @@ button { font: inherit; color: inherit; }
 .variable-row { margin: 3px 6px; padding: 4px 5px; border: 1px solid transparent; border-radius: 2px; background: #292929; cursor: grab; }
 .variable-row:hover { background: #333; }.variable-row.selected { border-color: #4d82a3; background: #29465a; }
 .variable-heading { display: flex; align-items: center; gap: 4px; }
+.variable-row.variable-instance { border-color: #8b641f; background: #392f20; }
+.variable-scope { padding: 1px 5px; border: 1px solid #67527e; border-radius: 7px; color: #bea8d2; font-size: 9px; white-space: nowrap; }
+.variable-instance .variable-scope { border-color: #9f7224; color: #f0c36c; }
+.variable-scope-hint { display: block; margin: -2px 0 5px; color: #c79b4e; line-height: 1.4; }
 .variable-heading button { width: 22px; height: 21px; padding: 0; border: 1px solid #444; background: #303030; color: #999; font-size: 10px; }
 .variable-heading button:hover { border-color: #67889d; color: white; }
 .variable-name { min-width: 0; flex: 1; overflow: hidden; color: #ddd; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }.variable-kind { color: #666; font: 9px Consolas, monospace; text-transform: uppercase; }

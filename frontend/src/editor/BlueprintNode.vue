@@ -232,10 +232,11 @@ function handleTimerFunctionKeydown(event: KeyboardEvent) {
 </script>
 
 <template>
-  <article class="blueprint-node" :class="[`kind-${data.kind ?? 'function'}`, { selected: data.selected, compact: data.compact, legacy: Boolean(data.legacyStyle), 'has-entry-binding': hasEntryBinding, 'reference-highlighted': data.referenceHighlighted, 'issue-highlighted': data.issueHighlighted, 'missing-reference': data.functionReferenceMissing }]" :style="nodeStyle">
+  <article class="blueprint-node" :class="[`kind-${data.kind ?? 'function'}`, { selected: data.selected, compact: data.compact, legacy: Boolean(data.legacyStyle), 'variable-instance': data.variableScope === 'instance', 'has-entry-binding': hasEntryBinding, 'reference-highlighted': data.referenceHighlighted, 'issue-highlighted': data.issueHighlighted, 'missing-reference': data.functionReferenceMissing }]" :style="nodeStyle">
     <header class="blueprint-title">
       <span class="node-icon">&#9670;</span>
       <span class="title-text">{{ data.label }}</span>
+      <span v-if="data.variableId" class="variable-scope-badge">{{ data.variableScope === 'instance' ? '全局' : '局部' }}</span>
       <span v-if="data.dynamicOutputs" class="dynamic-actions"><button @pointerdown.stop.prevent="changeOutputs(-1, $event)">-</button><button @pointerdown.stop.prevent="changeOutputs(1, $event)">+</button></span>
     </header>
 
@@ -341,6 +342,7 @@ function handleTimerFunctionKeydown(event: KeyboardEvent) {
 .blueprint-node.kind-event { --accent: #bd202f; }
 .blueprint-node.kind-function { --accent: #4f9a7f; }
 .blueprint-node.kind-variable { --accent: #805aa8; }
+.blueprint-node.kind-variable.variable-instance { --accent: #b7791f; }
 .blueprint-node.legacy { border-style: dashed; }
 .blueprint-node.selected { outline: 2px solid #f5b642; outline-offset: 2px; box-shadow: 0 0 12px #f5b64255; }
 .blueprint-node.reference-highlighted { outline: 3px solid #ffd21f; outline-offset: 3px; box-shadow: 0 0 0 1px #fff4b088, 0 0 22px #ffd21f99, 0 5px 13px #0009; }
@@ -351,6 +353,7 @@ function handleTimerFunctionKeydown(event: KeyboardEvent) {
 .blueprint-node.compact .port-row { min-height: 21px; }
 .blueprint-title { height: 31px; display: flex; align-items: center; gap: 6px; padding: 0 8px; border-radius: 3px 3px 0 0; background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 75%, #222)); color: white; font: var(--node-title-font-size, 16px) Arial, sans-serif; text-shadow: 0 1px #0008; cursor: move; white-space: nowrap; }
 .title-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.variable-scope-badge { margin-left: auto; padding: 1px 5px; border: 1px solid #ffffff66; border-radius: 8px; background: #0004; color: #fff; font: 9px "Segoe UI", sans-serif; text-shadow: none; }
 .node-icon { color: var(--entry-source-color, currentColor); opacity: .95; text-shadow: 0 0 4px color-mix(in srgb, var(--entry-source-color, transparent) 70%, transparent); }
 .dynamic-actions { display: flex; gap: 2px; margin-left: 3px; }
 .dynamic-actions button { width: 19px; height: 18px; padding: 0; border: 1px solid #ffffff55; border-radius: 2px; background: #0003; color: white; line-height: 14px; }

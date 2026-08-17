@@ -3,6 +3,7 @@ package blueprint
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 )
 
@@ -355,24 +356,26 @@ type execTarget struct {
 //
 // 它只保存只读连接信息；每次执行的端口值放在 ExecContext 中。
 type ExecNode struct {
-	ID              string
-	Index           int
-	Definition      *NodeDefinition
-	Next            []*ExecNode
-	NextInPort      []int
-	legacyFanout    [][]execTarget
-	PreInPort       []*PrePortNode
-	DefaultIn       map[int]any
-	DefaultInputs   []IPort
-	DefaultInputSet []bool
-	InputBindings   []InputBinding
-	VariableName    string
-	VariableIndex   int
-	FunctionID      string
-	FunctionName    string
-	FunctionGraph   *CompiledGraph
-	BeConnect       bool
-	IsEntrance      bool
+	ID                  string
+	Index               int
+	Definition          *NodeDefinition
+	Next                []*ExecNode
+	NextInPort          []int
+	legacyFanout        [][]execTarget
+	PreInPort           []*PrePortNode
+	DefaultIn           map[int]any
+	DefaultInputs       []IPort
+	DefaultInputSet     []bool
+	InputBindings       []InputBinding
+	VariableName        string
+	VariableIndex       int
+	VariableScope       VariableScope
+	InstanceVariableKey instanceVariableKey
+	FunctionID          string
+	FunctionName        string
+	FunctionGraph       *CompiledGraph
+	BeConnect           bool
+	IsEntrance          bool
 }
 
 // NewExecNode 创建编译期节点对象。
@@ -685,10 +688,32 @@ type CompiledGraph struct {
 }
 
 // variablePlan 是编译期生成的变量初始化计划。
-// Default 只读；每次新执行通过 Clone 创建独立槽位。
+// Default 只读；局部变量在每次执行初始化，实例变量在 Create/HotReload 时按稳定 key 初始化。
 type variablePlan struct {
-	Name    string
-	Default IPort
+	ID          string
+	Name        string
+	Scope       VariableScope
+	Default     IPort
+	InstanceKey instanceVariableKey
+}
+
+type instanceVariableKey struct {
+	ID           string
+	NameFallback bool
+	Kind         portKind
+}
+
+func newInstanceVariableKey(id, name string, value IPort) instanceVariableKey {
+	stableID := strings.TrimSpace(id)
+	nameFallback := stableID == ""
+	if stableID == "" {
+		stableID = name
+	}
+	kind := portKindAny
+	if port, ok := value.(*Port); ok && port != nil {
+		kind = port.kind
+	}
+	return instanceVariableKey{ID: stableID, NameFallback: nameFallback, Kind: kind}
 }
 
 // Graph 是单次执行过程中的轻量运行对象。
@@ -804,7 +829,7 @@ func initialVariables(compiled *CompiledGraph) []IPort {
 	}
 	variables := make([]IPort, len(compiled.variablePlans))
 	for index, plan := range compiled.variablePlans {
-		if plan.Default != nil {
+		if plan.Scope != VariableScopeInstance && plan.Default != nil {
 			variables[index] = plan.Default.Clone()
 		}
 	}

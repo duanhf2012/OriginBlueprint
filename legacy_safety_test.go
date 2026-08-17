@@ -112,6 +112,18 @@ func TestExportLegacyGraphRejectsUnrepresentableVisibleNode(t *testing.T) {
 	}
 }
 
+func TestExportLegacyGraphRejectsInstanceVariables(t *testing.T) {
+	_, err := exportLegacyGraph(GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		Variables: []GraphVariable{{
+			ID: "shared", Name: "Shared", Type: "integer", Scope: "instance",
+		}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "save as .obp") {
+		t.Fatalf("error = %v, want native persistence guidance", err)
+	}
+}
+
 func TestExportLegacyGraphRejectsUnrepresentableConnection(t *testing.T) {
 	document := GraphDocument{
 		Nodes: []GraphNode{

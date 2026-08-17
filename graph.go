@@ -126,6 +126,7 @@ type GraphVariable struct {
 	DefaultValue interface{} `json:"defaultValue"`
 	GroupID      string      `json:"groupId"`
 	Description  string      `json:"description,omitempty"`
+	Scope        string      `json:"scope,omitempty"`
 }
 
 type GraphVariableGroup struct {
@@ -164,6 +165,8 @@ func coreIssueBlocksSave(code string) bool {
 		"variable.duplicate-id",
 		"variable.duplicate-name",
 		"variable.unknown-type",
+		"variable.unknown-scope",
+		"variable.function-instance-scope",
 		"variable.missing-group",
 		"variable.missing",
 		"node.missing-id",
@@ -446,6 +449,15 @@ func (a *App) ValidateGraph(content string) ([]ValidationIssue, error) {
 
 func validateGraph(document GraphDocument) []ValidationIssue {
 	issues := make([]ValidationIssue, 0)
+	isFunctionDocument := strings.TrimSpace(document.FunctionID) != "" || len(document.FunctionSignature.Inputs)+len(document.FunctionSignature.Outputs) > 0
+	if !isFunctionDocument {
+		for _, node := range document.Nodes {
+			if node.TypeID == "origin.function.entry" || node.TypeID == "origin.function.return" {
+				isFunctionDocument = true
+				break
+			}
+		}
+	}
 	if document.SchemaVersion != GraphSchemaVersion {
 		issues = append(issues, ValidationIssue{Severity: "error", Code: "schema.unsupported", Message: fmt.Sprintf("不支持的蓝图版本：%d", document.SchemaVersion)})
 	}
@@ -486,6 +498,12 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 		}
 		if !variableTypes[variable.Type] {
 			issues = append(issues, ValidationIssue{Severity: "error", Code: "variable.unknown-type", Message: "未知变量类型：" + variable.Type})
+		}
+		if variable.Scope != "" && variable.Scope != "execution" && variable.Scope != "instance" {
+			issues = append(issues, ValidationIssue{Severity: "error", Code: "variable.unknown-scope", Message: "未知变量作用域：" + variable.Scope})
+		}
+		if variable.Scope == "instance" && isFunctionDocument {
+			issues = append(issues, ValidationIssue{Severity: "error", Code: "variable.function-instance-scope", Message: "函数蓝图中的变量只能使用局部作用域"})
 		}
 		groupID := variable.GroupID
 		if groupID == "" {

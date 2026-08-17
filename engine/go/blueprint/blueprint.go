@@ -29,7 +29,7 @@ type Blueprint struct {
 	closed         bool
 }
 
-// GraphInstance 保存单个 Create 实例的运行期状态。
+// GraphInstance 保存单个 Create 实例的生命周期和显式 instance-scope 变量。
 type GraphInstance struct {
 	name        string
 	graphID     int64
@@ -37,6 +37,8 @@ type GraphInstance struct {
 	released    bool
 	releasedCh  chan struct{}
 	leases      int
+	variableMu  sync.RWMutex
+	variables   map[instanceVariableKey]IPort
 }
 
 // HotReloadResult 描述一次热加载应用到运行时后的结果。
@@ -66,6 +68,11 @@ func (p *hotReloadPlan) apply() HotReloadResult {
 	if p.graphs == nil {
 		return result
 	}
+	for _, instance := range b.instances {
+		if instance != nil {
+			instance.ensureVariableDefaults(p.graphs[instance.name])
+		}
+	}
 	b.graphs = p.graphs
 	return result
 }
@@ -80,6 +87,11 @@ func (b *Blueprint) AddCompiledGraph(name string, graph *CompiledGraph) {
 	defer b.mu.Unlock()
 	b.ensureLocked()
 	b.graphs[name] = graph
+	for _, instance := range b.instances {
+		if instance != nil && instance.name == name {
+			instance.ensureVariableDefaults(graph)
+		}
+	}
 }
 
 // Create 创建一个蓝图实例并返回实例 ID。
@@ -102,6 +114,7 @@ func (b *Blueprint) Create(graphName string) int64 {
 		graphID:    graphID,
 		releasedCh: make(chan struct{}),
 	}
+	b.instances[graphID].ensureVariableDefaults(compiled)
 	return graphID
 }
 
@@ -192,7 +205,11 @@ func (i *GraphInstance) releaseLease() {
 	if i.leases > 0 {
 		i.leases--
 	}
+	clearVariables := i.released && i.leases == 0
 	i.lifecycleMu.Unlock()
+	if clearVariables {
+		i.clearVariables()
+	}
 }
 
 func (i *GraphInstance) markReleased() {
@@ -207,7 +224,66 @@ func (i *GraphInstance) markReleased() {
 		}
 		close(i.releasedCh)
 	}
+	clearVariables := i.leases == 0
 	i.lifecycleMu.Unlock()
+	if clearVariables {
+		i.clearVariables()
+	}
+}
+
+func (i *GraphInstance) ensureVariableDefaults(compiled *CompiledGraph) {
+	if i == nil || compiled == nil {
+		return
+	}
+	i.variableMu.Lock()
+	defer i.variableMu.Unlock()
+	if i.variables == nil {
+		i.variables = make(map[instanceVariableKey]IPort)
+	}
+	for _, plan := range compiled.variablePlans {
+		if plan.Scope != VariableScopeInstance || plan.Default == nil {
+			continue
+		}
+		if _, exists := i.variables[plan.InstanceKey]; !exists {
+			i.variables[plan.InstanceKey] = plan.Default.Clone()
+		}
+	}
+}
+
+func (i *GraphInstance) getVariable(key instanceVariableKey) IPort {
+	if i == nil {
+		return nil
+	}
+	i.variableMu.RLock()
+	defer i.variableMu.RUnlock()
+	value := i.variables[key]
+	if value == nil {
+		return nil
+	}
+	return value.Clone()
+}
+
+func (i *GraphInstance) setVariable(key instanceVariableKey, value IPort) bool {
+	if i == nil || value == nil {
+		return false
+	}
+	i.variableMu.Lock()
+	defer i.variableMu.Unlock()
+	if _, exists := i.variables[key]; !exists {
+		return false
+	}
+	i.variables[key] = value.Clone()
+	return true
+}
+
+func (i *GraphInstance) clearVariables() {
+	if i == nil {
+		return
+	}
+	i.variableMu.Lock()
+	clear(i.variables)
+	i.variables = nil
+	i.variableMu.Unlock()
 }
 
 // prepareHotReload 在调用方协程中重新读取节点定义和蓝图文件，并编译为可应用的热加载计划。

@@ -264,6 +264,7 @@ func parseGraphFile(data []byte, root string, path string) (GraphConfig, bool, s
 				name = graphName
 			}
 		}
+		config.IsFunction = isFunction
 		aliases := graphFunctionAliases(document, root, path)
 		return config, isFunction, name, aliases, err
 	}

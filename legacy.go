@@ -336,6 +336,14 @@ func migrateLegacyGraphWithRuntimeSpecs(data []byte, runtimeSpecs map[string]run
 }
 
 func exportLegacyGraph(document GraphDocument) ([]byte, error) {
+	for _, variable := range document.Variables {
+		if variable.Scope == "instance" {
+			return nil, fmt.Errorf("legacy .vgf does not support instance variable %q; save as .obp", variable.Name)
+		}
+		if variable.Scope != "" && variable.Scope != "execution" {
+			return nil, fmt.Errorf("legacy .vgf variable %q has unknown scope %q", variable.Name, variable.Scope)
+		}
+	}
 	runtimeSpecs := runtimeLegacyNodeSpecs()
 	specByType := map[string]runtimeLegacySpec{}
 	classByType := map[string]string{}

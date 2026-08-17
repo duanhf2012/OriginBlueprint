@@ -1,4 +1,5 @@
 export type VariableType = 'boolean' | 'integer' | 'float' | 'string' | 'array' | 'timerhandle'
+export type VariableScope = 'execution' | 'instance'
 
 export function normalizeNodeInputDefault(socketName: string, value: unknown) {
   const type = String(socketName ?? '').trim().toLowerCase()
@@ -13,6 +14,11 @@ export interface GraphVariable {
   defaultValue: unknown
   groupId: string
   description?: string
+  scope?: VariableScope
+}
+
+export function variableScope(variable: Pick<GraphVariable, 'scope'>): VariableScope {
+  return variable.scope === 'instance' ? 'instance' : 'execution'
 }
 
 export interface GraphVariableGroup {

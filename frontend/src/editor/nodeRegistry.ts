@@ -354,11 +354,13 @@ export function createFunctionReturnNode(metadata: FunctionNodeMetadata) {
 }
 
 export function createVariableNode(variable: GraphVariable, access: 'get' | 'set') {
+	const scope = variable.scope === 'instance' ? 'instance' : 'execution'
   const typeId = `origin.variable.${access}`
   const title = `${access === 'get' ? 'Get' : 'Set'} ${variable.name}`
-  const result = node(typeId, title, 'variable', `${variable.type} variable`, 220)
+  const result = node(typeId, title, 'variable', `${scope === 'instance' ? '全局' : '局部'} · ${variable.type}`, 220)
   result.variableId = variable.id
   result.variableAccess = access
+  result.variableScope = scope
   result.compact = access === 'get'
   const socket = variableSocket(variable.type)
   if (access === 'get') {

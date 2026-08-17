@@ -62,12 +62,13 @@ type graphDocumentFuncPort struct {
 }
 
 type graphDocumentVariable struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	Type         string `json:"type"`
-	DefaultValue any    `json:"defaultValue"`
-	GroupID      string `json:"groupId,omitempty"`
-	Description  string `json:"description,omitempty"`
+	ID           string        `json:"id"`
+	Name         string        `json:"name"`
+	Type         string        `json:"type"`
+	DefaultValue any           `json:"defaultValue"`
+	Scope        VariableScope `json:"scope,omitempty"`
+	GroupID      string        `json:"groupId,omitempty"`
+	Description  string        `json:"description,omitempty"`
 }
 
 type graphDocumentLegacyPort struct {
@@ -200,7 +201,7 @@ func graphDocumentToConfig(document graphDocument) (GraphConfig, bool, error) {
 		}
 		variable.ID = variableID
 		variableByID[variable.ID] = variable
-		variables = append(variables, VariableConfig{Name: variable.Name, Type: variable.Type, Value: variable.DefaultValue})
+		variables = append(variables, VariableConfig{ID: variable.ID, Name: variable.Name, Type: variable.Type, Value: variable.DefaultValue, Scope: variable.Scope})
 	}
 
 	nodes := make([]NodeConfig, 0, len(document.Nodes))
@@ -245,7 +246,8 @@ func graphDocumentToConfig(document graphDocument) (GraphConfig, bool, error) {
 		})
 	}
 
-	return GraphConfig{Nodes: nodes, Edges: edges, Variables: variables}, document.FunctionID != "" || len(document.FunctionSignature.Inputs)+len(document.FunctionSignature.Outputs) > 0, nil
+	isFunction := document.FunctionID != "" || len(document.FunctionSignature.Inputs)+len(document.FunctionSignature.Outputs) > 0
+	return GraphConfig{Nodes: nodes, Edges: edges, Variables: variables, IsFunction: isFunction}, isFunction, nil
 }
 
 // documentNodeToConfig 将单个新版节点转换为编译器节点配置。

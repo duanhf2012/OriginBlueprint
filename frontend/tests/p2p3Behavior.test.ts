@@ -3,6 +3,20 @@ import { sourceRequiresProtection } from '../src/documentSafety'
 import { autoSaveIntervalMs, isAutoSaveEligible } from '../src/autoSavePolicy'
 import { pushBoundedHistory } from '../src/editor/history'
 import { saveGateDecision } from '../src/saveGate'
+import { variableScope } from '../src/editor/document'
+import { createVariableNode } from '../src/editor/nodeRegistry'
+
+describe('variable scopes', () => {
+  it('defaults omitted scope to execution for existing .obp files', () => {
+    expect(variableScope({})).toBe('execution')
+  })
+
+  it('marks instance variable nodes explicitly', () => {
+    const node = createVariableNode({ id: 'shared', name: 'Shared', type: 'integer', defaultValue: 0, groupId: 'default', scope: 'instance' }, 'get')
+    expect(node.variableScope).toBe('instance')
+    expect(node.subtitle).toContain('全局')
+  })
+})
 
 describe('raw source validation protection', () => {
   it('protects a source when validation found an error', () => {

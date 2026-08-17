@@ -40,7 +40,7 @@ nodes/*.json
   -> Go Registry 加载节点定义
   -> CompileGraph 编译共享只读 CompiledGraph
   -> Blueprint.Create 创建图名与生命周期实例
-  -> Blueprint.Start/Do 创建带独立局部变量的单次 Execution
+  -> Blueprint.Start/Do 创建带独立局部变量的单次 Execution，并按需访问实例共享变量
   -> VM 执行或 Yield 后等待恢复
 ```
 
@@ -51,7 +51,7 @@ nodes/*.json
 | `Registry` | 节点名称到 `NodeDefinition` 的映射 | 初始化/编译阶段使用 |
 | `NodeDefinition` | 节点工厂、输入输出端口模板 | 编译后只读共享 |
 | `CompiledGraph` | 编译后的程序、入口、函数和变量定义 | 可被多个实例共享 |
-| `GraphInstance` | `Create` 产生的图名身份和生命周期句柄 | 由 `Blueprint` 管理，不保存普通变量 |
+| `GraphInstance` | `Create` 产生的图名身份、生命周期和显式实例变量 | 由 `Blueprint` 管理，同一实例的并发执行可共享 |
 | `Execution` | 一次入口调用的状态、局部变量、结果和取消生命周期 | 每次调用独立 |
 | `Graph` | 单次 Execution 的运行上下文 | 禁止跨 goroutine 复用 |
 | `YieldHandle` | 一次异步挂起的一次性恢复句柄 | 只能成功恢复一次 |
@@ -162,10 +162,11 @@ targetID := returns[1].IntVal
 
 ### 4.3 变量和函数
 
-- 普通图变量属于单次 `Execution`；每次 `Do/Start` 都从蓝图默认值重新初始化，同一 `graphID` 的不同调用也不会共享。
+- 变量未写 `scope` 或写为 `execution` 时属于单次 `Execution`；每次 `Do/Start` 都从默认值重新初始化。所有已有 `.obp` 因未声明 scope，继续保持这一局部语义。
+- 普通图可将变量 scope 设为 `instance`。它由 `Create` 返回的 `graphID` 持有，同一实例的多次及并发 `Do/Start` 共享当前值；不同 `graphID` 互相隔离，`ReleaseGraph` 后清除。
+- 实例变量的单次 Get/Set 使用实例级短时 `RWMutex` 并复制复合值，不会锁住整次执行或 Yield。`Get -> 计算 -> Set` 不是一个原子事务，并发结果允许互相覆盖；需要原子累加或 CAS 时应使用专用业务节点。
 - 同一 Execution 发生 Yield 后恢复时继续使用原变量槽位，不会重置；函数图每次调用仍有自己的局部变量。
-- 当前没有跨 `Do/Start` 共享的全局变量。需要持久状态时放在宿主对象、数据库或缓存中，并通过业务节点显式读写。
-- 函数图每次调用拥有独立函数局部变量和调用帧。
+- 函数图变量只能使用局部作用域；跨实例、跨进程或重启后仍需保留的状态仍应放在宿主对象、数据库或缓存中。
 - 新建函数图会自动创建唯一入口节点和一个返回节点。正常状态下入口节点不可删除、剪切或复制；载入缺少入口的异常旧文件时，详情面板只显示一次性的“恢复入口节点”。
 - 函数图必须至少保留一个返回节点，也可以为不同分支添加多个返回节点。所有返回节点共享并自动同步同一套输出参数签名；保存或运行前必须保证每条可结束的执行路径到达其中一个返回节点。
 - 函数文件应有稳定 `functionId` 和签名；修改已上线函数参数顺序或类型属于兼容变更。
@@ -180,6 +181,7 @@ targetID := returns[1].IntVal
 - 项目设置中的自动保存仅在桌面端生效，支持关闭、1 分钟、3 分钟和 5 分钟。它只覆盖已有路径、已修改、不存在核心保存阻断且不存在兼容性损失的标签；无路径、正在保存、需要转存原生格式或受保护的标签会被跳过。
 - 图文件、项目设置和应用配置均使用同目录临时文件加原子替换，避免进程中断留下半份 JSON。最近文件记录失败只记录诊断，不会把已经成功的图保存报告成失败。
 - `.vgf` 迁移会在 `legacy` 状态中保留未知根字段、节点字段和边字段；导回 legacy 时仅向身份仍匹配的原节点/原边恢复这些扩展，当前编辑器维护的已知字段优先。
+- legacy `.vgf` 无法表达实例变量。只要图中存在 scope=`instance` 的变量，编辑器会要求保存为原生 `.obp`，Go 导出层也会拒绝 `.vgf` 导出，避免静默降级为局部变量。
 - Undo/Redo 保留最近 100 个完整编辑事务。文本连续输入在失焦时提交为一次事务，布尔值、数组项和动态分支增删也可撤销。
 - 桌面校验还会走与运行时相同的 Go 编译器规则。校验沙箱只加载当前图实际引用的 workspace 函数及其传递依赖，无关目录中的函数错误不会污染当前图；被直接或间接引用的函数仍按真实引擎规则编译。Go 诊断标记为 `target.go`，可以设置 `blocksRun`，但不能设置 `blocksSave`；未来其他语言目标遵循相同边界。浏览器模式没有 Go engine，只能返回结构解析结果并报告 `engine.unavailable` 警告，不能作为上线前编译验证。
 
@@ -610,7 +612,7 @@ engine.SetExecutionDispatcher(dispatcher)
 - `Close` 会关闭 Blueprint、释放所有实例并取消全部 Execution；重复调用安全。
 - `HotReload` 编译成功后原子替换只读图池；失败时保留旧图和加载配置。
 - 已经开始或挂起的 Execution 继续使用启动时捕获的旧编译图和局部变量；之后的 `Start/Do` 获取新图并从新默认值初始化。
-- 热加载允许新增、删除变量或修改变量类型，因为普通变量不跨 Execution 迁移。删除图后旧 Execution 可完成，但该 `graphID` 的新调用返回 `ErrGraphNotFound`。
+- 热加载时，实例变量按稳定变量 ID 和数据类型复用当前值，重命名不会丢值；新增变量从新默认值初始化，类型变化创建新类型槽。旧槽保留到实例释放，使已经挂起的旧 Execution 仍可安全完成。局部变量不跨 Execution 迁移。删除图后旧 Execution 可完成，但该 `graphID` 的新调用返回 `ErrGraphNotFound`。
 - `Init` 只用于没有实例和活动 Execution 的完整初始化；运行中重复调用返回 `ErrBlueprintInUse`。无实例时重复 Init 会整体替换图池，加载失败不改变当前 module、logger、路径和图池。
 
 ## 10. 通用异步节点
@@ -1035,7 +1037,7 @@ npm run build
 | `RegisterExecNode` | 注册业务节点工厂，必须在 Init 前 |
 | `Init` | 加载节点定义和蓝图目录 |
 | `AddCompiledGraph` | 手工加入编译图 |
-| `Create` | 创建图名身份和生命周期实例；普通变量在每次 Start/Do 初始化 |
+| `Create` | 创建图实例；初始化显式实例变量，局部变量仍在每次 Start/Do 初始化 |
 | `Start` | 非阻塞启动，异步和事件循环首选 |
 | `Do/DoContext` | 阻塞等待最终结果 |
 | `SetExecutionDispatcher` | 指定执行和恢复调度环境 |

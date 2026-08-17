@@ -632,6 +632,26 @@ func TestValidateGraphAcceptsValidVariableGraph(t *testing.T) {
 	}
 }
 
+func TestValidateGraphDefaultsMissingVariableScopeToExecution(t *testing.T) {
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		Variables:     []GraphVariable{{ID: "score", Name: "Score", Type: "integer", DefaultValue: 0}},
+	}
+	for _, issue := range validateGraph(document) {
+		if strings.HasPrefix(issue.Code, "variable.") {
+			t.Fatalf("variable without scope should remain valid, got %#v", issue)
+		}
+	}
+}
+
+func TestValidateGraphRejectsInvalidAndFunctionInstanceScopes(t *testing.T) {
+	invalid := GraphDocument{SchemaVersion: GraphSchemaVersion, Variables: []GraphVariable{{ID: "bad", Name: "Bad", Type: "integer", Scope: "global"}}}
+	requireValidationIssue(t, validateGraph(invalid), "variable.unknown-scope")
+
+	function := GraphDocument{SchemaVersion: GraphSchemaVersion, Nodes: []GraphNode{{ID: "entry", TypeID: "origin.function.entry"}}, Variables: []GraphVariable{{ID: "shared", Name: "Shared", Type: "integer", Scope: "instance"}}}
+	requireValidationIssue(t, validateGraph(function), "variable.function-instance-scope")
+}
+
 func TestValidateGraphReportsMissingVariableAndTypeMismatch(t *testing.T) {
 	document := GraphDocument{
 		SchemaVersion: GraphSchemaVersion,
