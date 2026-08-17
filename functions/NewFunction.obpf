@@ -64,20 +64,61 @@
     }
   ],
   "groups": [],
-  "variables": [],
+  "variables": [
+    {
+      "id": "9015f030-7f37-487c-85d9-4ea85ba26d65",
+      "name": "Variable1",
+      "type": "integer",
+      "defaultValue": 0,
+      "groupId": "default"
+    },
+    {
+      "id": "0b2235e8-1656-4e1d-8eb8-3a7782f13a36",
+      "name": "Variable2",
+      "type": "integer",
+      "defaultValue": 0,
+      "groupId": "default"
+    },
+    {
+      "id": "a0e7c2f9-d511-4187-a455-c9d0c2f83c84",
+      "name": "Variable3",
+      "type": "integer",
+      "defaultValue": 0,
+      "groupId": "default"
+    },
+    {
+      "id": "810f805d-3077-4a3e-8215-422effcdbc98",
+      "name": "Variable4",
+      "type": "integer",
+      "defaultValue": 0,
+      "groupId": "default"
+    },
+    {
+      "id": "5f06c8d8-404d-4a15-b9ef-75cbf42cc60d",
+      "name": "Variable5",
+      "type": "integer",
+      "defaultValue": 0,
+      "groupId": "af4fe5ac-fa52-40ef-9d9c-b26fb3ca1fb9"
+    }
+  ],
   "variableGroups": [
     {
       "id": "default",
       "name": "Default",
       "collapsed": false
+    },
+    {
+      "id": "af4fe5ac-fa52-40ef-9d9c-b26fb3ca1fb9",
+      "name": "New Group"
     }
   ],
   "view": {
-    "x": 1405,
-    "y": 601.5,
-    "zoom": 1
+    "x": 919.8155029296875,
+    "y": 394.25049743652346,
+    "zoom": 1.3310000000000004
   },
   "functionId": "fn_47963bdb151e",
+  "functionCategory": "函数",
   "functionSignature": {
     "inputs": [
       {

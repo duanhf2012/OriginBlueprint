@@ -102,6 +102,12 @@ export interface MenuLocaleText {
     functionTitleLockedHint: string
     functionCategory: string
     functionCategoryPlaceholder: string
+    restoreFunctionEntry: string
+    restoreFunctionEntryHint: string
+    addFunctionReturn: string
+    addFunctionReturnHint: string
+    addInputParameter: string
+    addOutputParameter: string
   }
   settings: {
     title: string
@@ -262,7 +268,13 @@ export const zhCN: MenuLocaleText = {
     functionTitlePlaceholder: '函数显示名',
     functionTitleLockedHint: '函数名用于函数引用，不能在这里修改',
     functionCategory: '类型',
-    functionCategoryPlaceholder: '选择或输入函数类型'
+    functionCategoryPlaceholder: '选择或输入函数类型',
+    restoreFunctionEntry: '恢复入口节点',
+    restoreFunctionEntryHint: '函数入口缺失时恢复唯一入口节点',
+    addFunctionReturn: '＋ 添加返回节点',
+    addFunctionReturnHint: '添加一个返回节点，可用于不同分支提前返回',
+    addInputParameter: '添加输入参数',
+    addOutputParameter: '添加输出参数'
   },
   settings: {
     title: '工程设置',

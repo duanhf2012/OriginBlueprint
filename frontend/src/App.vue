@@ -51,7 +51,7 @@ const canvas = ref<HTMLElement | null>(null)
 const tabStrip = ref<HTMLElement | null>(null)
 const zoomLabel = ref('100%')
 const status = ref('Ready')
-const metrics = ref<EditorMetrics>({ nodes: 0, connections: 0 })
+const metrics = ref<EditorMetrics>({ nodes: 0, connections: 0, functionEntries: 0, functionReturns: 0 })
 const activeMenu = ref<string | null>(null)
 const contextMenu = ref({ visible: false, x: 0, y: 0, clientX: 0, clientY: 0, search: '' })
 const moduleNodeMenu = ref<ModuleNodeMenuState>({ visible: false, x: 0, y: 0, node: null })
@@ -2911,24 +2911,27 @@ function toggleModuleCategory(category: string) {
               </div>
             </label>
             <div class="detail-section-title">函数签名</div>
-            <div class="function-terminal-actions"><button @click="addFunctionEntryNodeToGraph">＋ 入口参数</button><button @click="addFunctionReturnNodeToGraph">＋ 出口参数</button></div>
+            <div class="function-terminal-actions">
+              <button v-if="metrics.functionEntries === 0" :title="menuText.detail.restoreFunctionEntryHint" @click="addFunctionEntryNodeToGraph">{{ menuText.detail.restoreFunctionEntry }}</button>
+              <button :title="menuText.detail.addFunctionReturnHint" @click="addFunctionReturnNodeToGraph">{{ menuText.detail.addFunctionReturn }}</button>
+            </div>
             <section class="signature-port-section">
-              <header><span>输入参数</span><button @click="addFunctionSignaturePort('inputs')">＋</button></header>
+              <header><span>输入参数</span><small>{{ functionSignature.inputs.length }}</small></header>
               <div v-for="port in functionSignature.inputs" :key="port.id" class="signature-port-row">
                 <input v-model="port.name" placeholder="参数名" @change="syncFunctionSignatureToGraph" />
                 <select v-model="port.type" @change="syncFunctionSignatureToGraph"><option v-for="option in functionSignatureTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select>
                 <button title="删除参数" @click="removeFunctionSignaturePort('inputs', port)">×</button>
               </div>
-              <button v-if="!functionSignature.inputs.length" class="empty-signature-port" @click="addFunctionSignaturePort('inputs')">＋ 添加输入参数</button>
+              <button class="add-signature-port" @click="addFunctionSignaturePort('inputs')"><span aria-hidden="true">＋</span>{{ menuText.detail.addInputParameter }}</button>
             </section>
             <section class="signature-port-section">
-              <header><span>输出参数</span><button @click="addFunctionSignaturePort('outputs')">＋</button></header>
+              <header><span>输出参数</span><small>{{ functionSignature.outputs.length }}</small></header>
               <div v-for="port in functionSignature.outputs" :key="port.id" class="signature-port-row">
                 <input v-model="port.name" placeholder="参数名" @change="syncFunctionSignatureToGraph" />
                 <select v-model="port.type" @change="syncFunctionSignatureToGraph"><option v-for="option in functionSignatureTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select>
                 <button title="删除参数" @click="removeFunctionSignaturePort('outputs', port)">×</button>
               </div>
-              <button v-if="!functionSignature.outputs.length" class="empty-signature-port" @click="addFunctionSignaturePort('outputs')">＋ 添加输出参数</button>
+              <button class="add-signature-port" @click="addFunctionSignaturePort('outputs')"><span aria-hidden="true">＋</span>{{ menuText.detail.addOutputParameter }}</button>
             </section>
           </div>
           <div v-else-if="selectedVariable" class="node-detail variable-detail"><div class="detail-section-title">变量属性</div><label>Variable ID<input :value="selectedVariable.id" disabled /></label><label>名称<input v-model="selectedVariable.name" /></label><label>类型<select v-model="selectedVariable.type" @change="changeVariableType(selectedVariable)"><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="float">Float</option><option value="string">String</option><option value="array">Array</option><option value="timerhandle">Timer Handle</option></select></label><label>分组<select v-model="selectedVariable.groupId"><option v-for="group in variableGroups" :key="group.id" :value="group.id">{{ group.name }}</option></select></label><label>说明<textarea v-model="selectedVariable.description" rows="4" placeholder="变量用途和约束"></textarea></label><label v-if="selectedVariable.type !== 'timerhandle'">默认值<input v-if="selectedVariable.type === 'boolean'" v-model="selectedVariable.defaultValue" type="checkbox" /><input v-else-if="selectedVariable.type === 'string'" v-model="selectedVariable.defaultValue" type="text" /><input v-else-if="selectedVariable.type === 'array'" :value="Array.isArray(selectedVariable.defaultValue) ? selectedVariable.defaultValue.join(', ') : ''" placeholder="1, 2, text" @change="setVariableArrayDefault(selectedVariable, $event)" /><input v-else v-model.number="selectedVariable.defaultValue" type="number" /></label><button class="apply-properties" @click="updateVariable(selectedVariable)">应用变量属性</button><button class="delete-properties" @click="removeVariable(selectedVariable)">删除变量</button></div>

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { createNode, registerNodeSchemas, resolveNodeLegacyClass } from '../src/editor/nodeRegistry'
+import { createFunctionEntryNode, createNode, registerNodeSchemas, resolveNodeLegacyClass } from '../src/editor/nodeRegistry'
+import { entrySourceColor } from '../src/editor/implicitEntryLinks'
 import { parseNodeSchemaDocument } from '../src/editor/runtimeNodeSchemas'
 
 const schemas = parseNodeSchemaDocument([
@@ -48,5 +49,19 @@ describe('runtime node legacyClass', () => {
 
   it('preserves an explicitly persisted runtime class', () => {
     expect(resolveNodeLegacyClass('origin.custom.get-object-info', 'HistoricalGetObjectInfo')).toBe('HistoricalGetObjectInfo')
+  })
+})
+
+describe('function entry source color', () => {
+  it('uses the stable function id for both the Entry diamond and binding badges', () => {
+    const entry = createFunctionEntryNode({
+      functionRole: 'entry',
+      functionId: 'fn_calculate',
+      functionName: 'Calculate',
+      functionSignature: { inputs: [], outputs: [] }
+    })
+
+    expect(entry.entrySourceKey).toBe('fn_calculate')
+    expect(entry.entrySourceColor).toBe(entrySourceColor('fn_calculate'))
   })
 })

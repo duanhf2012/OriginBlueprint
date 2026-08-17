@@ -197,20 +197,21 @@ button { font: inherit; color: inherit; }
 .function-category-options::before { content: ""; position: absolute; top: -6px; left: 18px; width: 10px; height: 10px; transform: rotate(45deg); border-left: 1px solid #3f6a82; border-top: 1px solid #3f6a82; background: #24282a; }
 .function-category-option { position: relative; z-index: 1; width: 100%; min-height: 25px; display: block; padding: 4px 7px; border: 0; border-radius: 2px; background: transparent; color: #d8e7ee; text-align: left; font: var(--detail-font-size) "Segoe UI", "Microsoft YaHei UI", sans-serif; }
 .function-category-option:hover, .function-category-option.selected { background: #315066; color: white; }
-.function-terminal-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 10px; }
+.function-terminal-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 6px; margin-bottom: 10px; }
 .function-terminal-actions button { height: 26px; border: 1px solid #4e7187; border-radius: 2px; background: #315267; color: #dce8ee; font: 600 var(--detail-font-size) "Segoe UI", "Microsoft YaHei UI", sans-serif; }
 .function-terminal-actions button:hover { border-color: #6f9ab4; background: #3d6780; color: white; }
 .signature-port-section { margin-bottom: 12px; border: 1px solid #333; border-radius: 2px; background: #292929; overflow: hidden; }
 .signature-port-section header { min-height: 27px; display: flex; align-items: center; gap: 6px; padding: 0 6px; background: #303030; color: #d7d7d7; font-weight: 600; }
 .signature-port-section header span { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.signature-port-section header button { width: 22px; height: 21px; padding: 0; border: 0; border-radius: 2px; background: transparent; color: #9fb6c2; }
-.signature-port-section header button:hover { background: #3b5567; color: white; }
+.signature-port-section header small { min-width: 19px; height: 18px; display: inline-flex; align-items: center; justify-content: center; padding: 0 5px; border-radius: 9px; background: #202426; color: #8fa5b1; font-size: 10px; font-weight: 600; }
 .signature-port-row { display: grid; grid-template-columns: minmax(0, 1fr) 86px 22px; gap: 5px; align-items: center; padding: 4px 5px; border-top: 1px solid #222; }
 .signature-port-row input, .signature-port-row select { margin: 0; }
 .signature-port-row button { height: 22px; padding: 0; border: 1px solid #4b3333; border-radius: 2px; background: #332626; color: #c99; }
 .signature-port-row button:hover { border-color: #8d5656; background: #5a3434; color: white; }
-.empty-signature-port { width: calc(100% - 10px); height: 24px; margin: 5px; border: 1px dashed #444; border-radius: 2px; background: transparent; color: #777; font-size: 11px; }
-.empty-signature-port:hover { border-color: #63839a; color: #aaa; }
+.add-signature-port { width: calc(100% - 10px); min-height: 30px; display: flex; align-items: center; justify-content: center; gap: 6px; margin: 6px 5px; border: 1px dashed #52758a; border-radius: 3px; background: #293e4b; color: #cfe3ed; font-size: 11px; font-weight: 600; cursor: pointer; }
+.add-signature-port span { width: 17px; height: 17px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; background: #3f7594; color: white; font-size: 13px; line-height: 1; }
+.add-signature-port:hover { border-color: #76a8c5; background: #34576c; color: white; }
+.add-signature-port:focus-visible { outline: 2px solid #73b5dc; outline-offset: -2px; }
 .selection-rectangle { display: none; position: absolute; z-index: 900; border: 1px solid #58a8d8; background: #4388b126; pointer-events: none; }
 .cutting-line-overlay { display: none; position: absolute; z-index: 1100; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }.cutting-line-overlay.active { display: block; }.cutting-line { fill: none; stroke: #f04444; stroke-width: 2px; stroke-dasharray: 6 5; filter: drop-shadow(0 0 2px #ff3030); }.rete-canvas.cutting-mode, .cutting-mode { cursor: crosshair; }
 .node-context-menu { position: absolute; z-index: 1200; width: 245px; max-height: 330px; overflow: auto; padding: 6px; border: 1px solid #151515; border-radius: 3px; background: #292929; box-shadow: 0 8px 24px #000c; }

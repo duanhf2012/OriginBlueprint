@@ -101,6 +101,7 @@ function looksLikeEntryName(value: string | undefined) {
 
 export function isEntryNode(node?: EntryBindingNode) {
   return Boolean(
+    node?.typeId === 'origin.function.entry' ||
     node?.typeId?.startsWith('origin.event.') ||
     node?.typeId?.startsWith('origin.entry.') ||
     looksLikeEntryName(node?.typeId) ||

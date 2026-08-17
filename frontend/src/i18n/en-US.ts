@@ -103,7 +103,13 @@ export const enUS: MenuLocaleText = {
     functionTitlePlaceholder: 'Function display name',
     functionTitleLockedHint: 'Function names are used by references and cannot be edited here',
     functionCategory: 'Type',
-    functionCategoryPlaceholder: 'Select or enter a function type'
+    functionCategoryPlaceholder: 'Select or enter a function type',
+    restoreFunctionEntry: 'Restore Entry Node',
+    restoreFunctionEntryHint: 'Restore the single entry node when it is missing',
+    addFunctionReturn: '+ Add Return Node',
+    addFunctionReturnHint: 'Add a return node for another early-return branch',
+    addInputParameter: 'Add Input Parameter',
+    addOutputParameter: 'Add Output Parameter'
   },
   settings: {
     title: 'Project Settings',

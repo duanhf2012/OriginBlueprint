@@ -60,6 +60,27 @@ const customEntry: EntryBindingNode = {
   label: 'Monster attack entry(extra)'
 }
 
+const functionEntry: EntryBindingNode = {
+  id: 'function-entry',
+  typeId: 'origin.function.entry',
+  label: 'Calculate Entry',
+  outputs: {
+    exec: { label: '', socket: 'exec' },
+    input_value: { label: 'Value', socket: 'integer' },
+    input_name: { label: 'Name', socket: 'string' }
+  }
+}
+
+const functionReturn: EntryBindingNode = {
+  id: 'function-return',
+  typeId: 'origin.function.return',
+  label: 'Calculate Return',
+  inputs: {
+    exec: { label: '', socket: 'exec' },
+    output_result: { label: 'Result', socket: 'integer' }
+  }
+}
+
 const connection: EntryBindingConnection = {
   source: 'entry',
   sourceOutput: 'objectId',
@@ -72,6 +93,8 @@ it('detects, groups and describes compatible entry bindings', () => {
 assert(isEntryOutputConnection(connection, id => id === 'entry' ? entry : target), 'detects data connections sourced from an entry node')
 assert(isEntryNode(legacyEntry), 'detects legacy Entrance_* nodes as entry nodes')
 assert(isEntryNode(customEntry), 'detects schema-generated origin.custom.entrance-* nodes as entry nodes')
+assert(isEntryNode(functionEntry), 'detects function Entry nodes as entry nodes')
+assert(!isEntryNode(functionReturn), 'does not mistake function Return nodes for entry nodes')
 assert(isEntryOutputConnection({ ...connection, source: 'legacy-entry', sourceOutput: 'monsterObjectId' }, id => id === 'legacy-entry' ? legacyEntry : target), 'detects data connections sourced from legacy entry nodes')
 assert(isEntryOutputConnection({ ...connection, source: 'custom-entry', sourceOutput: 'monsterObjectId' }, id => id === 'custom-entry' ? customEntry : target), 'detects data connections sourced from schema-generated entry nodes')
 assert(socketsCompatible('any', 'integer'), 'allows wildcard source sockets for entry bindings')
@@ -85,6 +108,25 @@ assert(candidateGroups[0].sourceNodeId === 'entry', 'keeps source entry order in
 assert(candidateGroups[0].candidates.map(item => item.sourceOutput).join(',') === 'objectId,param1', 'filters exec outputs out of candidate groups')
 assert(candidateGroups[1].candidates.some(item => item.sourceOutput === 'anyValue'), 'keeps wildcard outputs in candidate groups')
 assert(entryBindingCandidateGroups('target', 'name', [target, entry]).length === 0, 'filters out groups without compatible outputs')
+
+const functionCandidateGroups = entryBindingCandidateGroups('target', 'targetId', [target, functionEntry, functionReturn])
+assert(functionCandidateGroups.length === 1, 'offers function Entry parameters in the shared binding menu')
+assert(functionCandidateGroups[0].sourceNodeId === 'function-entry', 'uses the function Entry as the binding source')
+assert(functionCandidateGroups[0].candidates.map(item => item.sourceOutput).join(',') === 'input_value', 'filters function Entry parameters by socket type and excludes exec')
+
+const functionBinding = describeEntryBinding({
+  source: 'function-entry',
+  sourceOutput: 'input_value',
+  target: 'target',
+  targetInput: 'targetId'
+}, id => id === 'function-entry' ? functionEntry : target)
+assert(functionBinding?.sourceOutputLabel === 'Value', 'describes a function Entry binding for the collapsed input badge')
+assert(isEntryOutputConnection({
+  source: 'function-entry',
+  sourceOutput: 'input_value',
+  target: 'target',
+  targetInput: 'targetId'
+}, id => id === 'function-entry' ? functionEntry : target), 'collapses function Entry parameter links like ordinary entry bindings')
 
 const binding = describeEntryBinding(connection, id => id === 'entry' ? entry : target)
 assert(binding?.sourceNodeId === 'entry', 'describes the source entry node')

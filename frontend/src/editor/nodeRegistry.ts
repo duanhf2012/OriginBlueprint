@@ -332,6 +332,8 @@ export function createSetTimerByFunctionNode(options: FunctionNodeMetadata[], se
 export function createFunctionEntryNode(metadata: FunctionNodeMetadata) {
   const spec = normalizedFunctionMetadata({ ...metadata, functionRole: 'entry' })
   const result = node('origin.function.entry', `${spec.functionName} Entry`, 'event', 'Function entry', 245)
+  result.entrySourceKey = spec.functionId
+  result.entrySourceColor = entrySourceColor(spec.functionId)
   result.addOutput('exec', new ClassicPreset.Output(sockets.exec, ''))
   for (const [index, port] of spec.functionSignature?.inputs.entries() ?? []) {
     result.addOutput(functionPortKey('input', port, index), new ClassicPreset.Output(functionSocket(port.type), port.name))

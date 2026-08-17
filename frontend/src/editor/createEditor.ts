@@ -16,6 +16,8 @@ import { pathIntersectsRect, rectsIntersect, type Rect } from './selectionGeomet
 import { normalizeNodeInputDefault, type ConnectionSnapshot, type FunctionNodeMetadata, type FunctionSignature, type GraphDocument, type GraphSnapshot, type GraphVariable, type GraphVariableGroup, type GroupSnapshot, type LegacyGraphState, type NodeProperties, type NodeSnapshot, type RestoreLossReport } from './document'
 import { buildRestorePlan, normalizeDynamicOutputCount } from './restorePlan'
 import { pushBoundedHistory } from './history'
+import { functionEntryTypeId, functionReturnTypeId, isCopyableFunctionNode, isPasteableFunctionNode, planFunctionTerminalDeletion } from './functionTerminalPolicy'
+import { nodeSelectionPointerIntent, shouldCollapsePreservedSelection } from './nodeSelectionPolicy'
 
 export type { FunctionSignature, FunctionSignaturePort, GraphDocument, GraphVariable, GraphVariableGroup, ValidationIssue, VariableType } from './document'
 
@@ -82,6 +84,8 @@ function createFrameSocketPositionWatcher(): SocketWatcher {
 export interface EditorMetrics {
   nodes: number
   connections: number
+  functionEntries: number
+  functionReturns: number
 }
 
 export interface SelectedNodeInfo {
@@ -207,7 +211,8 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   const connection = new ConnectionPlugin<Schemes, AreaExtra>()
   const render = new VuePlugin<Schemes, AreaExtra>()
   const selector = AreaExtensions.selector()
-  const selectable = AreaExtensions.selectableNodes(area, selector, { accumulating: AreaExtensions.accumulateOnCtrl() })
+  let accumulateNodeSelection = false
+  const selectable = AreaExtensions.selectableNodes(area, selector, { accumulating: { active: () => accumulateNodeSelection } })
   const undoStack: EditorHistorySnapshot[] = []
   const redoStack: EditorHistorySnapshot[] = []
   const groups: GroupSnapshot[] = []
@@ -216,7 +221,9 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   let selectedGroupId: string | null = null
   let editingGroupId: string | null = null
   let preservedMultiNodeSelection: string[] = []
+  let preservedMultiNodeSelectionPickedId = ''
   let dragSnapshot: EditorHistorySnapshot | null = null
+  let nodeDragMoved = false
   let clipboard: ClipboardGraph | null = null
   let restoring = false
   let transactionActive = false
@@ -286,16 +293,27 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     const rememberSelection = (event: PointerEvent) => {
       if (event.button !== 0) return
       const target = event.target as HTMLElement
-      if (!target.closest('.blueprint-node')) {
+      accumulateNodeSelection = event.ctrlKey || event.metaKey
+      if (!target.closest('.blueprint-node') || target.closest('.blueprint-socket, input, textarea, select, button')) {
         preservedMultiNodeSelection = []
+        preservedMultiNodeSelectionPickedId = ''
         return
       }
       const pickedNodeId = nodeIdFromEventTarget(target)
       const ids = selectedNodes().map(node => node.id)
-      preservedMultiNodeSelection = pickedNodeId && ids.length > 1 && ids.includes(pickedNodeId) ? ids : []
+      const intent = nodeSelectionPointerIntent(ids, pickedNodeId, accumulateNodeSelection)
+      preservedMultiNodeSelection = intent.preservedIds
+      preservedMultiNodeSelectionPickedId = intent.preservedIds.length ? pickedNodeId : ''
     }
+    const resetAccumulation = () => { accumulateNodeSelection = false }
     container.addEventListener('pointerdown', rememberSelection, true)
-    return () => container.removeEventListener('pointerdown', rememberSelection, true)
+    window.addEventListener('pointerup', resetAccumulation, true)
+    window.addEventListener('pointercancel', resetAccumulation, true)
+    return () => {
+      container.removeEventListener('pointerdown', rememberSelection, true)
+      window.removeEventListener('pointerup', resetAccumulation, true)
+      window.removeEventListener('pointercancel', resetAccumulation, true)
+    }
   }
 
   function nodeIdFromEventTarget(target: HTMLElement) {
@@ -307,12 +325,24 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
 
   async function restoreMultiSelectionAfterNodePick(pickedId: string) {
     const ids = preservedMultiNodeSelection
-    preservedMultiNodeSelection = []
     if (ids.length < 2 || !ids.includes(pickedId)) return
     for (const id of ids) {
       if (editor.getNode(id)) await selectable.select(id, true)
     }
     callbacks.onStatus(`Selected ${ids.length} node(s)`)
+  }
+
+  async function finishPreservedMultiSelectionClick(pickedId: string) {
+    const shouldCollapse = pickedId === preservedMultiNodeSelectionPickedId
+      && shouldCollapsePreservedSelection(preservedMultiNodeSelection, pickedId, nodeDragMoved)
+    preservedMultiNodeSelection = []
+    preservedMultiNodeSelectionPickedId = ''
+    if (!shouldCollapse || !editor.getNode(pickedId)) return
+    await selector.unselectAll()
+    await selectable.select(pickedId, false)
+    const node = editor.getNode(pickedId)
+    callbacks.onSelection(node ? selectedNodeInfo(node) : null)
+    callbacks.onStatus('Node selected')
   }
 
   const stopNodeDragFeedback = () => setInteractionClass('is-dragging-node', false)
@@ -324,7 +354,13 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   }
 
   function updateMetrics() {
-    callbacks.onMetrics({ nodes: editor.getNodes().length, connections: editor.getConnections().length })
+    const nodes = editor.getNodes()
+    callbacks.onMetrics({
+      nodes: nodes.length,
+      connections: editor.getConnections().length,
+      functionEntries: nodes.filter(node => node.typeId === functionEntryTypeId).length,
+      functionReturns: nodes.filter(node => node.typeId === functionReturnTypeId).length
+    })
   }
 
   async function clearConnectionSelection(exceptId?: string) {
@@ -1007,6 +1043,10 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   }
 
   async function addFunctionEntryNode(spec: FunctionNodeMetadata, clientPosition?: Position) {
+    if (editor.getNodes().some(node => node.typeId === functionEntryTypeId)) {
+      callbacks.onStatus(callbacks.locale?.() === 'en-US' ? 'The function entry already exists' : '函数入口节点已存在')
+      return
+    }
     await mutate('Function entry node created', async () => {
       await clearConnectionSelection()
       const node = createFunctionEntryNodeFromSpec(spec)
@@ -1101,22 +1141,42 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     const selected = selectedNodes()
     const selectedConnections = new Set(selectedConnectionIds)
     if (!selected.length && !selectedConnections.size) return
-    const ids = new Set(selected.map(node => node.id))
+    const deletionPlan = planFunctionTerminalDeletion(editor.getNodes(), selected)
+    const deletableIds = new Set(deletionPlan.deletableIds)
+    const deletableNodes = selected.filter(node => deletableIds.has(node.id))
+    const protectedEntries = deletionPlan.protectedEntryIds.length
+    const protectedReturns = deletionPlan.protectedReturnIds.length
+    const english = callbacks.locale?.() === 'en-US'
+    const protectionParts = [
+      protectedEntries ? (english ? 'a function must keep one entry node' : '函数必须保留一个入口节点') : '',
+      protectedReturns ? (english ? 'a function must keep at least one return node' : '函数必须至少保留一个返回节点') : ''
+    ].filter(Boolean)
+    if (!deletableNodes.length && !selectedConnections.size) {
+      callbacks.onStatus(protectionParts.join(english ? '; ' : '；'))
+      return
+    }
+    const ids = new Set(deletableNodes.map(node => node.id))
     const hiddenLegacyConnections = hiddenLegacyEdgeIndexes(ids).length
-    const parts = [selected.length ? `${selected.length} node(s)` : '', selectedConnections.size ? `${selectedConnections.size} connection(s)` : '', hiddenLegacyConnections ? `${hiddenLegacyConnections} hidden legacy connection(s)` : ''].filter(Boolean)
-    await mutate(`Deleted ${parts.join(' and ')}`, async () => {
+    const parts = [deletableNodes.length ? `${deletableNodes.length} node(s)` : '', selectedConnections.size ? `${selectedConnections.size} connection(s)` : '', hiddenLegacyConnections ? `${hiddenLegacyConnections} hidden legacy connection(s)` : ''].filter(Boolean)
+    const status = [`Deleted ${parts.join(' and ')}`, ...protectionParts].join(english ? '; ' : '；')
+    await mutate(status, async () => {
       pruneHiddenLegacyEdges(ids)
       for (const item of editor.getConnections()) {
         if (selectedConnections.has(item.id) || ids.has(item.source) || ids.has(item.target)) await editor.removeConnection(item.id)
       }
-      for (const node of selected) await editor.removeNode(node.id)
+      for (const node of deletableNodes) await editor.removeNode(node.id)
       selectedConnectionIds.clear()
-      callbacks.onSelection(null)
+      const protectedSelection = selected.find(node => !deletableIds.has(node.id))
+      callbacks.onSelection(protectedSelection ? selectedNodeInfo(protectedSelection) : null)
     })
   }
 
   function copy() {
-    const selected = selectedNodes()
+    const selected = selectedNodes().filter(isCopyableFunctionNode)
+    if (!selected.length && selectedNodes().some(node => node.typeId === functionEntryTypeId)) {
+      callbacks.onStatus(callbacks.locale?.() === 'en-US' ? 'Function entry nodes cannot be copied' : '函数入口节点不能复制')
+      return
+    }
     if (!selected.length) return
     const ids = new Map(selected.map((node, index) => [node.id, index]))
     const positions = selected.map(node => area.nodeViews.get(node.id)?.position ?? { x: 0, y: 0 })
@@ -1157,6 +1217,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
       for (const [index, item] of clipboard!.nodes.entries()) {
         const typeId = typeof item.typeId === 'string' ? item.typeId : ''
         if (!typeId) continue
+        if (!isPasteableFunctionNode({ id: '', typeId })) continue
         const node = createRestoredNode(item, typeId)
         if (!node) continue
         if (node.entrySourceKey && (!canAddOrdinaryEntryNode() || isDuplicateEntryNode(node))) continue
@@ -1860,15 +1921,22 @@ function nodeSize(node: BlueprintNode) {
       await clearGroupSelection()
       startNodeDragFeedback()
       dragSnapshot = historySnapshot()
+      nodeDragMoved = false
       await restoreMultiSelectionAfterNodePick(context.data.id)
       requestAnimationFrame(() => {
         const node = editor.getNode(context.data.id)
         callbacks.onSelection(node ? selectedNodeInfo(node) : null)
       })
     }
+    if (context.type === 'nodetranslated' && dragSnapshot) nodeDragMoved = true
     if (context.type === 'nodedragged' && dragSnapshot) {
       stopNodeDragFeedback()
-      pushUndoHistory(dragSnapshot); redoStack.length = 0; dragSnapshot = null; callbacks.onDirty(); callbacks.onStatus('Node moved')
+      if (nodeDragMoved) {
+        pushUndoHistory(dragSnapshot); redoStack.length = 0; callbacks.onDirty(); callbacks.onStatus('Node moved')
+      }
+      dragSnapshot = null
+      await finishPreservedMultiSelectionClick(context.data.id)
+      nodeDragMoved = false
     }
     return context
   })
