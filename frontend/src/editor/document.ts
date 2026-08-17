@@ -97,6 +97,7 @@ export interface LegacyGraphState {
   hiddenEdgeOrdinals?: number[]
   groups?: Array<{ title: string; nodes: string[] }>
   variables?: Array<Record<string, unknown>>
+  variableIds?: string[]
   residualNodeDefaults?: Record<string, LegacyResidualNodeDefaults>
   extraRootFields?: Record<string, unknown>
   extraNodeFields?: Record<string, { class: string; fields: Record<string, unknown> }>

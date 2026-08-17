@@ -5,6 +5,7 @@ import { pushBoundedHistory } from '../src/editor/history'
 import { saveGateDecision } from '../src/saveGate'
 import { variableScope } from '../src/editor/document'
 import { createVariableNode } from '../src/editor/nodeRegistry'
+import { moveVariablesToDefaultGroup, normalizeVariableGroups, variableGroupNameExists, variableGroupRemovalMessage, variableGroupUsage } from '../src/editor/variableGroups'
 
 describe('variable scopes', () => {
   it('defaults omitted scope to execution for existing .obp files', () => {
@@ -15,6 +16,34 @@ describe('variable scopes', () => {
     const node = createVariableNode({ id: 'shared', name: 'Shared', type: 'integer', defaultValue: 0, groupId: 'default', scope: 'instance' }, 'get')
     expect(node.variableScope).toBe('instance')
     expect(node.subtitle).toContain('全局')
+  })
+
+  it('reports local and global group usage separately before deletion', () => {
+    const usage = variableGroupUsage([
+      { id: 'local', name: 'Local', type: 'integer', defaultValue: 0, groupId: 'shared' },
+      { id: 'global', name: 'Global', type: 'integer', defaultValue: 0, groupId: 'shared', scope: 'instance' },
+      { id: 'other', name: 'Other', type: 'integer', defaultValue: 0, groupId: 'default' },
+    ], 'shared')
+    expect(usage).toEqual({ localCount: 1, globalCount: 1, totalCount: 2 })
+    expect(variableGroupRemovalMessage('Shared', usage)).toContain('局部变量 1 个、全局变量 1 个')
+  })
+
+  it('preserves case-conflicting native groups for validation instead of silently dropping one', () => {
+    const groups = normalizeVariableGroups([
+      { id: 'combat-a', name: 'Combat' },
+      { id: 'combat-b', name: 'combat' },
+    ], [], () => 'generated')
+    expect(groups.map(group => group.id)).toEqual(['default', 'combat-a', 'combat-b'])
+  })
+
+  it('checks group names case-insensitively and moves both scopes on confirmed deletion', () => {
+    expect(variableGroupNameExists([{ id: 'combat', name: 'Combat' }], ' combat ')).toBe(true)
+    const variables = [
+      { id: 'local', name: 'Local', type: 'integer' as const, defaultValue: 0, groupId: 'shared' },
+      { id: 'global', name: 'Global', type: 'integer' as const, defaultValue: 0, groupId: 'shared', scope: 'instance' as const },
+    ]
+    moveVariablesToDefaultGroup(variables, 'shared')
+    expect(variables.map(variable => variable.groupId)).toEqual(['default', 'default'])
   })
 })
 

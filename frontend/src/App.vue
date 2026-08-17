@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { toPng } from 'html-to-image'
 import { createBlueprintEditor, type BlueprintEditorHandle, type EditorMetrics, type FunctionSignature, type FunctionSignaturePort, type GraphDocument, type GraphVariable, type GraphVariableGroup, type SelectedNodeInfo, type ValidationIssue, type VariableType } from './editor/createEditor'
 import { variableScope, type FunctionNodeMetadata, type NodeSnapshot, type RestoreLossReport, type VariableScope } from './editor/document'
+import { moveVariablesToDefaultGroup, normalizeVariableGroups, variableGroupNameExists, variableGroupRemovalMessage, variableGroupUsage } from './editor/variableGroups'
 import { getNodeDefinitions, registerNodeSchemas, type NodeDefinition } from './editor/nodeRegistry'
 import { menuLocales, normalizeLocale, type LocaleId } from './i18n'
 import { platform, type NodeReferenceResult, type RecoverySnapshotResult, type WorkspaceEntry } from './platform'
@@ -152,6 +153,10 @@ const workspaceRefreshIntervalMs = Math.max(1000, Number.parseInt(localStorage.g
 const activeTab = computed(() => tabs.value.find(tab => tab.id === activeTabId.value)!)
 const selectedVariable = computed(() => variables.value.find(variable => variable.id === selectedVariableId.value) ?? null)
 const isFunctionBlueprintTab = computed(() => isFunctionBlueprintPath(activeTab.value?.path || activeTab.value?.title || ''))
+const customVariableGroups = computed(() => variableGroups.value.filter(group => group.id !== 'default'))
+const variableGroupManagerEntries = computed(() => customVariableGroups.value.map(group => {
+  return { group, ...variableGroupUsage(variables.value, group.id) }
+}))
 const variableScopeSections = computed(() => ([
   {
     scope: 'execution' as const,
@@ -1301,10 +1306,10 @@ async function selectVariable(variable: GraphVariable) {
 }
 
 async function addVariableGroup() {
-  const rawName = window.prompt('Variable group name', 'New Group')
+  const rawName = window.prompt('变量分组名称', '新分组')
   const name = rawName?.trim()
   if (!name) return
-  if (variableGroups.value.some(group => group.name.toLowerCase() === name.toLowerCase())) {
+  if (variableGroupNameExists(variableGroups.value, name)) {
     status.value = `Variable group already exists: ${name}`
     return
   }
@@ -1314,10 +1319,10 @@ async function addVariableGroup() {
 
 async function renameVariableGroup(group: GraphVariableGroup) {
   if (group.id === 'default') return
-  const rawName = window.prompt('Rename variable group', group.name)
+  const rawName = window.prompt('重命名变量分组', group.name)
   const name = rawName?.trim()
   if (!name || name === group.name) return
-  if (variableGroups.value.some(item => item.id !== group.id && item.name.toLowerCase() === name.toLowerCase())) {
+  if (variableGroupNameExists(variableGroups.value, name, group.id)) {
     status.value = `Variable group already exists: ${name}`
     return
   }
@@ -1327,15 +1332,10 @@ async function renameVariableGroup(group: GraphVariableGroup) {
 
 async function removeVariableGroup(group: GraphVariableGroup) {
   if (group.id === 'default') return
-  const count = variables.value.filter(variable => variable.groupId === group.id).length
-  if (count && !window.confirm(`Move ${count} variable(s) from ${group.name} to Default and delete the group?`)) return
-  for (const variable of variables.value) if (variable.groupId === group.id) variable.groupId = 'default'
+  const usage = variableGroupUsage(variables.value, group.id)
+  if (usage.totalCount && !window.confirm(variableGroupRemovalMessage(group.name, usage))) return
+  moveVariablesToDefaultGroup(variables.value, group.id)
   variableGroups.value = variableGroups.value.filter(item => item.id !== group.id)
-  await syncVariables()
-}
-
-async function toggleVariableGroup(group: GraphVariableGroup) {
-  group.collapsed = !group.collapsed
   await syncVariables()
 }
 
@@ -1416,28 +1416,10 @@ function normalizeVariableType(value: unknown): VariableType {
 
 function normalizeDocument(value: any): GraphDocument {
   const sourceVariables = Array.isArray(value.variables) ? value.variables : []
-  const groups: GraphVariableGroup[] = []
-  const groupIds = new Set<string>()
-  const groupNames = new Set<string>()
-  const addGroup = (id: string, name: string, collapsed = false) => {
-    const cleanId = id.trim()
-    const cleanName = name.trim()
-    if (!cleanId || !cleanName || groupIds.has(cleanId) || groupNames.has(cleanName.toLowerCase())) return
-    groupIds.add(cleanId); groupNames.add(cleanName.toLowerCase()); groups.push({ id: cleanId, name: cleanName, collapsed })
-  }
-  addGroup('default', 'Default')
-  for (const group of Array.isArray(value.variableGroups) ? value.variableGroups : []) {
-    if (group?.id === 'default') {
-      groups[0].collapsed = Boolean(group.collapsed)
-      continue
-    }
-    addGroup(String(group?.id ?? ''), String(group?.name ?? ''), Boolean(group?.collapsed))
-  }
-  for (const variable of sourceVariables) {
-    const legacyName = String(variable?.group ?? '').trim()
-    if (legacyName && legacyName.toLowerCase() !== 'default' && !groupNames.has(legacyName.toLowerCase())) addGroup(crypto.randomUUID(), legacyName)
-  }
-  const groupByName = new Map(groups.map(group => [group.name.toLowerCase(), group.id]))
+  const groups = normalizeVariableGroups(value.variableGroups, sourceVariables)
+  const groupIds = new Set(groups.map(group => group.id))
+  const groupByName = new Map<string, string>()
+  for (const group of groups) if (!groupByName.has(group.name.toLowerCase())) groupByName.set(group.name.toLowerCase(), group.id)
   const variables: GraphVariable[] = sourceVariables.map((variable: any, index: number) => {
     const type = normalizeVariableType(variable?.type)
     const requestedGroupId = String(variable?.groupId ?? '')
@@ -2917,6 +2899,15 @@ function toggleModuleCategory(category: string) {
       <div v-show="showTools" class="sidebar-splitter" @pointerdown="beginLeftSidebarResize"></div>
       <aside v-show="showTools" class="sidebar sidebar-left">
         <div class="panel grow variable-panel" :style="variablePanelStyle"><div class="panel-title"><span class="chevron">⌄</span> 变量 <span class="panel-title-spacer"></span><button class="panel-action" title="添加变量组（局部与全局共用）" @click="addVariableGroup">▣＋</button></div>
+          <section v-if="variableGroupManagerEntries.length" class="variable-group-manager">
+            <header><strong>自定义分组</strong><small>局部与全局共用</small></header>
+            <div v-for="entry in variableGroupManagerEntries" :key="entry.group.id" class="variable-group-manager-row">
+              <span :title="entry.group.name">{{ entry.group.name }}</span>
+              <small :title="`局部 ${entry.localCount} 个，全局 ${entry.globalCount} 个`">局 {{ entry.localCount }} · 全 {{ entry.globalCount }}</small>
+              <button title="重命名分组" @click="renameVariableGroup(entry.group)">✎</button>
+              <button title="删除分组" @click="removeVariableGroup(entry.group)">×</button>
+            </div>
+          </section>
           <section v-for="scopeEntry in variableScopeSections" :key="scopeEntry.scope" class="variable-scope-section" :class="`scope-${scopeEntry.scope}`">
             <header class="variable-scope-header">
               <span class="variable-scope-icon">{{ scopeEntry.scope === 'instance' ? 'G' : 'L' }}</span>
@@ -2926,13 +2917,12 @@ function toggleModuleCategory(category: string) {
             </header>
             <div v-if="scopeEntry.scope === 'instance' && isFunctionBlueprintTab" class="variable-scope-notice">函数蓝图不支持全局变量</div>
             <template v-if="scopeEntry.scope !== 'instance' || !isFunctionBlueprintTab || scopeEntry.variables.length">
-              <section v-for="entry in scopeEntry.groups" :key="`${scopeEntry.scope}-${entry.group.id}`" class="variable-group">
-                <div class="variable-group-header">
-                  <button class="group-toggle" @click="toggleVariableGroup(entry.group)">{{ entry.group.collapsed ? '›' : '⌄' }}</button>
-                  <span class="variable-group-name" @dblclick="renameVariableGroup(entry.group)">{{ entry.group.name }}</span><small>{{ entry.variables.length }}</small>
-                  <button :title="`在此组添加${scopeEntry.title}`" :disabled="scopeEntry.scope === 'instance' && isFunctionBlueprintTab" @click="addVariable(entry.group.id, scopeEntry.scope)">＋</button><button v-if="entry.group.id !== 'default'" title="重命名组" @click="renameVariableGroup(entry.group)">✎</button><button v-if="entry.group.id !== 'default'" title="删除组" @click="removeVariableGroup(entry.group)">×</button>
+              <section v-for="entry in scopeEntry.groups" :key="`${scopeEntry.scope}-${entry.group.id}`" class="variable-group" :class="{ 'variable-group-flat': !customVariableGroups.length }">
+                <div v-if="customVariableGroups.length" class="variable-group-header">
+                  <span class="variable-group-name">{{ entry.group.name }}</span><small>{{ entry.variables.length }}</small>
+                  <button :title="`在此组添加${scopeEntry.title}`" :disabled="scopeEntry.scope === 'instance' && isFunctionBlueprintTab" @click="addVariable(entry.group.id, scopeEntry.scope)">＋</button>
                 </div>
-                <div v-if="!entry.group.collapsed" class="variable-group-list">
+                <div class="variable-group-list">
                   <div v-for="variable in entry.variables" :key="variable.id" class="variable-row" :class="{ selected: selectedVariableId === variable.id, 'variable-instance': scopeEntry.scope === 'instance' }" draggable="true" @click="selectVariable(variable)" @dragstart="startVariableDrag($event, variable)">
                     <div class="variable-heading"><span class="variable-type-dot" :class="`type-${variable.type}`"></span><span class="variable-name">{{ variable.name }}</span><span class="variable-scope">{{ scopeEntry.scope === 'instance' ? '全局' : '局部' }}</span><span class="variable-kind">{{ variable.type }}</span><button title="Get" @click.stop="createVariableNode(variable, 'get')">G</button><button title="Set" @click.stop="createVariableNode(variable, 'set')">S</button><button title="Delete" @click.stop="removeVariable(variable)">×</button></div>
                   </div>

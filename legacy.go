@@ -198,6 +198,7 @@ func migrateLegacyGraphWithRuntimeSpecs(data []byte, runtimeSpecs map[string]run
 		}
 		id := uuid.NewString()
 		variableIDs[name] = id
+		document.Legacy.VariableIDs = append(document.Legacy.VariableIDs, id)
 		document.Variables = append(document.Variables, GraphVariable{ID: id, Name: name, Type: legacyVariableType(item["type"]), DefaultValue: item["value"], GroupID: groupID})
 	}
 	nodeByID := map[string]int{}
@@ -1198,12 +1199,70 @@ func legacyPortsFromRuntimeSpec(keys []string, ports []GraphLegacyPort, prefix s
 }
 
 func legacyVariables(document GraphDocument) []map[string]interface{} {
-	if document.Legacy != nil && document.Legacy.Variables != nil {
-		return cloneLegacyVariables(document.Legacy.Variables)
+	groupNames := map[string]string{"default": "Default", "": "Default"}
+	for _, group := range document.VariableGroups {
+		if strings.TrimSpace(group.ID) == "" || strings.TrimSpace(group.Name) == "" {
+			continue
+		}
+		groupNames[group.ID] = group.Name
 	}
+
+	var source []map[string]interface{}
+	var sourceIDs []string
+	if document.Legacy != nil {
+		source = document.Legacy.Variables
+		sourceIDs = document.Legacy.VariableIDs
+	}
+	byID := make(map[string]int, len(sourceIDs))
+	for index, id := range sourceIDs {
+		if id != "" && index < len(source) {
+			byID[id] = index
+		}
+	}
+	byName := make(map[string][]int, len(source))
+	for index, item := range source {
+		name := fmt.Sprint(item["name"])
+		byName[name] = append(byName[name], index)
+	}
+	used := make([]bool, len(source))
+	matchingCount := len(document.Variables) == len(source)
+
 	result := make([]map[string]interface{}, 0, len(document.Variables))
-	for _, variable := range document.Variables {
-		result = append(result, map[string]interface{}{"name": variable.Name, "type": variable.Type, "value": variable.DefaultValue})
+	for variableIndex, variable := range document.Variables {
+		sourceIndex := -1
+		if index, exists := byID[variable.ID]; exists && !used[index] {
+			sourceIndex = index
+		}
+		if sourceIndex < 0 {
+			for _, index := range byName[variable.Name] {
+				if !used[index] {
+					sourceIndex = index
+					break
+				}
+			}
+		}
+		if sourceIndex < 0 && matchingCount && variableIndex < len(source) && !used[variableIndex] {
+			sourceIndex = variableIndex
+		}
+
+		item := map[string]interface{}{}
+		if sourceIndex >= 0 {
+			used[sourceIndex] = true
+			item = cloneInterfaceMap(source[sourceIndex])
+		}
+		item["name"] = variable.Name
+		if legacyVariableType(item["type"]) != variable.Type {
+			item["type"] = variable.Type
+		} else if _, exists := item["type"]; !exists {
+			item["type"] = variable.Type
+		}
+		item["value"] = variable.DefaultValue
+		groupName := groupNames[variable.GroupID]
+		if groupName == "" {
+			groupName = "Default"
+		}
+		item["group"] = groupName
+		result = append(result, item)
 	}
 	return result
 }

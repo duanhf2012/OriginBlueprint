@@ -72,6 +72,7 @@ type GraphLegacyState struct {
 	HiddenEdgeOrdinals   []int                                  `json:"hiddenEdgeOrdinals,omitempty"`
 	Groups               []legacyGroup                          `json:"groups,omitempty"`
 	Variables            []map[string]interface{}               `json:"variables,omitempty"`
+	VariableIDs          []string                               `json:"variableIds,omitempty"`
 	ResidualNodeDefaults map[string]GraphLegacyResidualDefaults `json:"residualNodeDefaults,omitempty"`
 	ExtraRootFields      map[string]json.RawMessage             `json:"extraRootFields,omitempty"`
 	ExtraNodeFields      map[string]GraphLegacyNodeExtraFields  `json:"extraNodeFields,omitempty"`
@@ -470,20 +471,30 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 	variableNames := make(map[string]bool, len(document.Variables))
 	variableTypes := map[string]bool{"boolean": true, "integer": true, "float": true, "string": true, "array": true, "timerhandle": true}
 	variableGroups := map[string]bool{"default": true}
-	variableGroupNames := map[string]bool{"Default": true}
+	variableGroupNames := map[string]bool{"default": true}
+	defaultGroupSeen := false
 	for _, group := range document.VariableGroups {
-		if group.ID == "" || group.Name == "" {
+		groupID := strings.TrimSpace(group.ID)
+		groupName := strings.TrimSpace(group.Name)
+		if groupID == "" || groupName == "" || groupID != group.ID || groupName != group.Name {
 			issues = append(issues, ValidationIssue{Severity: "error", Code: "variable-group.invalid", Message: "变量分组缺少 ID 或名称"})
 			continue
 		}
-		if variableGroups[group.ID] && group.ID != "default" {
-			issues = append(issues, ValidationIssue{Severity: "error", Code: "variable-group.duplicate-id", Message: "变量分组 ID 重复：" + group.ID})
+		if (groupID == "default" && defaultGroupSeen) || (groupID != "default" && variableGroups[groupID]) {
+			issues = append(issues, ValidationIssue{Severity: "error", Code: "variable-group.duplicate-id", Message: "变量分组 ID 重复：" + groupID})
 		}
-		if variableGroupNames[group.Name] && !(group.ID == "default" && group.Name == "Default") {
-			issues = append(issues, ValidationIssue{Severity: "error", Code: "variable-group.duplicate-name", Message: "变量分组名称重复：" + group.Name})
+		groupNameKey := strings.ToLower(groupName)
+		if groupID == "default" && groupNameKey != "default" {
+			issues = append(issues, ValidationIssue{Severity: "error", Code: "variable-group.invalid-default", Message: "Default 分组不能重命名"})
 		}
-		variableGroups[group.ID] = true
-		variableGroupNames[group.Name] = true
+		if variableGroupNames[groupNameKey] && !(groupID == "default" && groupNameKey == "default" && !defaultGroupSeen) {
+			issues = append(issues, ValidationIssue{Severity: "error", Code: "variable-group.duplicate-name", Message: "变量分组名称重复：" + groupName})
+		}
+		if groupID == "default" {
+			defaultGroupSeen = true
+		}
+		variableGroups[groupID] = true
+		variableGroupNames[groupNameKey] = true
 	}
 	for _, variable := range document.Variables {
 		if variable.ID == "" || variable.Name == "" {

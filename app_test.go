@@ -570,6 +570,72 @@ func TestExportLegacyGraphSynthesizesNewVariableNodes(t *testing.T) {
 	}
 }
 
+func TestExportLegacyGraphWritesCurrentVariableGroup(t *testing.T) {
+	document := GraphDocument{
+		SchemaVersion:  GraphSchemaVersion,
+		GraphName:      "Grouped Variables",
+		VariableGroups: []GraphVariableGroup{{ID: "default", Name: "Default"}, {ID: "combat", Name: "Combat"}},
+		Variables: []GraphVariable{{
+			ID:           "health",
+			Name:         "Health",
+			Type:         "integer",
+			DefaultValue: 100,
+			GroupID:      "combat",
+		}},
+	}
+	data, err := exportLegacyGraph(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var legacy legacyGraph
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		t.Fatal(err)
+	}
+	if len(legacy.Variables) != 1 || legacy.Variables[0]["group"] != "Combat" {
+		t.Fatalf("legacy variables = %#v", legacy.Variables)
+	}
+	roundTrip, err := migrateLegacyGraph(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(roundTrip.Variables) != 1 || len(roundTrip.VariableGroups) != 2 || roundTrip.Variables[0].GroupID != roundTrip.VariableGroups[1].ID || roundTrip.VariableGroups[1].Name != "Combat" {
+		t.Fatalf("round-trip document = %#v", roundTrip)
+	}
+}
+
+func TestExportLegacyGraphAppliesVariableEditsAndPreservesExtensions(t *testing.T) {
+	document, err := migrateLegacyGraph([]byte(`{"graph_name":"Legacy","nodes":[],"edges":[],"groups":[],"variables":[{"name":"Score","type":"Integer","value":1,"group":"Combat","plugin_meta":{"owner":"system"}}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if document.Legacy == nil || len(document.Legacy.VariableIDs) != 1 || document.Legacy.VariableIDs[0] != document.Variables[0].ID {
+		t.Fatalf("legacy variable identity was not recorded: %#v", document.Legacy)
+	}
+	document.VariableGroups[1].Name = "Shared State"
+	document.Variables[0].Name = "CurrentScore"
+	document.Variables[0].DefaultValue = 7
+
+	data, err := exportLegacyGraph(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var legacy legacyGraph
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		t.Fatal(err)
+	}
+	if len(legacy.Variables) != 1 {
+		t.Fatalf("legacy variables = %#v", legacy.Variables)
+	}
+	variable := legacy.Variables[0]
+	if variable["name"] != "CurrentScore" || variable["group"] != "Shared State" || variable["value"] != float64(7) {
+		t.Fatalf("edited legacy variable = %#v", variable)
+	}
+	pluginMeta, ok := variable["plugin_meta"].(map[string]interface{})
+	if !ok || pluginMeta["owner"] != "system" {
+		t.Fatalf("legacy variable extension was not preserved: %#v", variable)
+	}
+}
+
 func TestExportLegacyGraphPreservesRuntimeJSONNodeClassAndPortIDs(t *testing.T) {
 	legacyInputs := make([]GraphLegacyPort, 15)
 	for index := range legacyInputs {
@@ -1516,6 +1582,23 @@ func TestValidateGraphRejectsInvalidVariableGroups(t *testing.T) {
 	if len(issues) != 2 || issues[0].Code != "variable-group.duplicate-name" || issues[1].Code != "variable.missing-group" {
 		t.Fatalf("unexpected issues: %#v", issues)
 	}
+}
+
+func TestValidateGraphRejectsCaseInsensitiveAndDuplicateDefaultVariableGroups(t *testing.T) {
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		VariableGroups: []GraphVariableGroup{
+			{ID: "default", Name: "Default"},
+			{ID: "combat", Name: "Combat"},
+			{ID: "combat-copy", Name: "combat"},
+			{ID: "default", Name: "Default"},
+			{ID: "default", Name: "Renamed Default"},
+		},
+	}
+	issues := validateGraph(document)
+	requireValidationIssue(t, issues, "variable-group.duplicate-name")
+	requireValidationIssue(t, issues, "variable-group.duplicate-id")
+	requireValidationIssue(t, issues, "variable-group.invalid-default")
 }
 
 func TestExecuteGraphRunsLoopVariablesAndResults(t *testing.T) {
