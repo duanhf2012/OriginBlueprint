@@ -91,7 +91,7 @@ func (g *Graph) traceNodeStage(node *ExecNode, ctx *ExecContext, nextIndex int, 
 		PC:              InvalidPC,
 		Stage:           stage,
 		NodeID:          node.ID,
-		NodeName:        node.Definition.Name,
+		NodeName:        nodeDisplayName(node),
 		ExecInputPortID: ctx.ExecInputPortID,
 		NextIndex:       nextIndex,
 		Inputs:          tracePortValues(ctx.InputPorts),
@@ -118,7 +118,35 @@ func (g *Graph) logLegacyNode(node *ExecNode, ctx *ExecContext, nextIndex int, e
 	if !ok {
 		return
 	}
-	logger.LogNodeExec(node.Definition.Name, node.ID, ctx.InputPorts, ctx.OutputPorts, nextIndex, execErr)
+	logger.LogNodeExec(nodeDisplayName(node), node.ID, ctx.InputPorts, ctx.OutputPorts, nextIndex, execErr)
+}
+
+// nodeDisplayName 返回节点在日志中的显示名。
+//
+// 函数入口/返回/调用节点使用 "函数名 + 角色" 形式（与编辑器 label 一致），
+// 便于在执行日志中区分调用的是哪个函数；其余节点保持类名。
+func nodeDisplayName(node *ExecNode) string {
+	if node == nil || node.Definition == nil {
+		return ""
+	}
+	switch node.Definition.Name {
+	case "FunctionEntry":
+		if node.FunctionName != "" {
+			return node.FunctionName + " Entry"
+		}
+	case "FunctionReturn":
+		if node.FunctionName != "" {
+			return node.FunctionName + " Return"
+		}
+	case "FunctionCall":
+		if node.FunctionName != "" {
+			return node.FunctionName
+		}
+		if node.FunctionID != "" {
+			return node.FunctionID
+		}
+	}
+	return node.Definition.Name
 }
 
 func isTraceControlError(err error) bool {

@@ -256,13 +256,13 @@ func documentNodeToConfig(node graphDocumentNode, variables map[string]graphDocu
 		if err := validateDocumentFunctionSignature(signature); err != nil {
 			return NodeConfig{}, documentNodeSpec{}, fmt.Errorf("node %s: %w", node.ID, err)
 		}
-		return NodeConfig{ID: node.ID, Class: "FunctionEntry", FunctionInputTypes: signatureTypes(signature.Inputs), PortDefault: documentDefaults(node.Values, functionEntrySpec(signature).inputs)}, functionEntrySpec(signature), nil
+		return NodeConfig{ID: node.ID, Class: "FunctionEntry", FunctionName: node.Properties.FunctionName, FunctionInputTypes: signatureTypes(signature.Inputs), PortDefault: documentDefaults(node.Values, functionEntrySpec(signature).inputs)}, functionEntrySpec(signature), nil
 	case "origin.function.return":
 		signature := node.Properties.FunctionSignature
 		if err := validateDocumentFunctionSignature(signature); err != nil {
 			return NodeConfig{}, documentNodeSpec{}, fmt.Errorf("node %s: %w", node.ID, err)
 		}
-		return NodeConfig{ID: node.ID, Class: "FunctionReturn", FunctionOutputTypes: signatureTypes(signature.Outputs), PortDefault: documentDefaults(node.Values, functionReturnSpec(signature).inputs)}, functionReturnSpec(signature), nil
+		return NodeConfig{ID: node.ID, Class: "FunctionReturn", FunctionName: node.Properties.FunctionName, FunctionOutputTypes: signatureTypes(signature.Outputs), PortDefault: documentDefaults(node.Values, functionReturnSpec(signature).inputs)}, functionReturnSpec(signature), nil
 	case "origin.function.call":
 		signature := node.Properties.FunctionSignature
 		if err := validateDocumentFunctionSignature(signature); err != nil {

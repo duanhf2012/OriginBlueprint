@@ -10,6 +10,71 @@ func (l *testTraceLogger) TraceBlueprintNode(event BlueprintTraceEvent) {
 	l.events = append(l.events, event)
 }
 
+type legacyNodeNameCollector struct {
+	names []string
+}
+
+func (l *legacyNodeNameCollector) LogNodeExec(nodeName string, nodeID string, inPorts []IPort, outPorts []IPort, execResult int, err error) {
+	l.names = append(l.names, nodeName)
+}
+
+func TestLegacyLoggerCoversFunctionNodesAndControlNodes(t *testing.T) {
+	logger := &legacyNodeNameCollector{}
+	registry := vmFlowRegistry()
+
+	functionCompiled, err := CompileGraph(registry, GraphConfig{
+		Nodes: []NodeConfig{
+			{ID: "fn-entry", Class: "FunctionEntry", FunctionName: "Calc", FunctionInputTypes: []string{"integer"}},
+			{ID: "fn-return", Class: "FunctionReturn", FunctionName: "Calc", FunctionOutputTypes: []string{"integer"}},
+		},
+		Edges: []EdgeConfig{
+			{SourceNodeID: "fn-entry", SourcePortID: 0, DesNodeID: "fn-return", DesPortID: 0},
+			{SourceNodeID: "fn-entry", SourcePortID: 1, DesNodeID: "fn-return", DesPortID: 1},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CompileGraph function failed: %v", err)
+	}
+
+	mainCompiled, err := CompileGraph(registry, GraphConfig{
+		Nodes: []NodeConfig{
+			{ID: "entry", Class: "VMEntry_1"},
+			{ID: "call", Class: "FunctionCall", FunctionName: "Calc", FunctionInputTypes: []string{"integer"}, FunctionOutputTypes: []string{"integer"}},
+			{ID: "sequence", Class: "Sequence"},
+			{ID: "result", Class: "VMReturnPort"},
+		},
+		Edges: []EdgeConfig{
+			{SourceNodeID: "entry", SourcePortID: 0, DesNodeID: "call", DesPortID: 0},
+			{SourceNodeID: "entry", SourcePortID: 1, DesNodeID: "call", DesPortID: 1},
+			{SourceNodeID: "call", SourcePortID: 0, DesNodeID: "sequence", DesPortID: 0},
+			{SourceNodeID: "call", SourcePortID: 1, DesNodeID: "result", DesPortID: 1},
+			{SourceNodeID: "sequence", SourcePortID: 0, DesNodeID: "result", DesPortID: 0},
+		},
+		Functions: map[string]*CompiledGraph{"Calc": functionCompiled},
+	})
+	if err != nil {
+		t.Fatalf("CompileGraph main failed: %v", err)
+	}
+
+	graph := NewGraph(mainCompiled)
+	graph.logger = logger
+	returns, err := graph.Do(1, PortInt(11))
+	if err != nil {
+		t.Fatalf("Do failed: %v", err)
+	}
+	assertVMIntReturns(t, returns, 11)
+
+	want := []string{"VMEntry", "Calc", "Calc Entry", "Calc Return", "Sequence", "VMReturnPort"}
+	if len(logger.names) != len(want) {
+		t.Fatalf("legacy node names = %#v, want %#v", logger.names, want)
+	}
+	for index, name := range want {
+		if logger.names[index] != name {
+			t.Fatalf("legacy node names = %#v, want %#v", logger.names, want)
+		}
+	}
+}
+
 func TestBlueprintTraceDisabledByDefault(t *testing.T) {
 	logger := &testTraceLogger{}
 	bp, graphID := newTraceTestBlueprint(t, logger)

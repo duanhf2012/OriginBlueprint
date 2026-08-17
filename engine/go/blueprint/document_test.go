@@ -66,6 +66,12 @@ func TestParseGraphDocumentFunctionCanBeCalled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseGraphConfigJSON failed: %v", err)
 	}
+	if got := functionConfig.Nodes[0].FunctionName; got != "Passthrough" {
+		t.Fatalf("FunctionEntry name = %q, want Passthrough", got)
+	}
+	if got := functionConfig.Nodes[1].FunctionName; got != "Passthrough" {
+		t.Fatalf("FunctionReturn name = %q, want Passthrough", got)
+	}
 	functionGraph, err := CompileGraph(registry, functionConfig)
 	if err != nil {
 		t.Fatalf("CompileGraph function failed: %v", err)

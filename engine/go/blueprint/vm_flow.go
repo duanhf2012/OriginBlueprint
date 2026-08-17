@@ -117,6 +117,12 @@ func (m *vmMachine) prepareControlNode(nodeIndex int) (*NodePlan, *ExecContext, 
 	if m.graph.trace != nil {
 		m.graph.traceControlNode(node, ctx)
 	}
+	// 控制流节点（序列/循环/函数调用/函数返回）不经过 executeWithInput，
+	// 需要在这里单独输出 legacy 节点日志；nextIndex 传 0 表示无跳转语义。
+	// logger 为 nil（生产未挂日志）时仅剩一次 nil 判断，不进入函数调用。
+	if m.graph.logger != nil {
+		m.graph.logLegacyNode(node, ctx, 0, nil)
+	}
 	return plan, ctx, nil
 }
 
