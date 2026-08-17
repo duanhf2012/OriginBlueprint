@@ -152,10 +152,26 @@ const workspaceRefreshIntervalMs = Math.max(1000, Number.parseInt(localStorage.g
 const activeTab = computed(() => tabs.value.find(tab => tab.id === activeTabId.value)!)
 const selectedVariable = computed(() => variables.value.find(variable => variable.id === selectedVariableId.value) ?? null)
 const isFunctionBlueprintTab = computed(() => isFunctionBlueprintPath(activeTab.value?.path || activeTab.value?.title || ''))
-const groupedVariables = computed(() => variableGroups.value.map(group => ({
-  group,
-  variables: variables.value.filter(variable => variable.groupId === group.id)
-})))
+const variableScopeSections = computed(() => ([
+  {
+    scope: 'execution' as const,
+    title: '局部变量',
+    description: '每次执行从默认值开始',
+    variables: variables.value.filter(variable => variableScope(variable) === 'execution')
+  },
+  {
+    scope: 'instance' as const,
+    title: '全局变量',
+    description: '同一蓝图实例的并发执行共享',
+    variables: variables.value.filter(variable => variableScope(variable) === 'instance')
+  }
+].map(section => ({
+  ...section,
+  groups: variableGroups.value.map(group => ({
+    group,
+    variables: section.variables.filter(variable => variable.groupId === group.id)
+  }))
+}))))
 const functionLibraryItems = computed(() => collectFunctionLibraryItems(workspaceTree.value))
 const callableFunctionItems = computed<FunctionLibraryItem[]>(() => [
   ...blueprintFunctions.value.map(item => ({ id: item.id, functionId: item.id, name: item.name, category: currentFunctionCategory(), path: activeTab.value?.path || activeTab.value?.title || '', source: 'current' as const })),
@@ -1140,10 +1156,21 @@ async function syncVariables(refreshNodes = false) {
   activeTab.value.dirty = true
 }
 
-async function addVariable(groupId = 'default') {
+async function addVariable(groupId = 'default', scope: VariableScope = 'execution') {
+  if (scope === 'instance' && isFunctionBlueprintTab.value) {
+    status.value = '函数蓝图中的变量只能使用局部作用域'
+    return
+  }
   let index = variables.value.length + 1
   while (variables.value.some(item => item.name === `Variable${index}`)) index++
-  const variable: GraphVariable = { id: crypto.randomUUID(), name: `Variable${index}`, type: 'integer', defaultValue: 0, groupId }
+  const variable: GraphVariable = {
+    id: crypto.randomUUID(),
+    name: `Variable${index}`,
+    type: 'integer',
+    defaultValue: 0,
+    groupId,
+    ...(scope === 'instance' ? { scope: 'instance' as const } : {})
+  }
   variables.value.push(variable)
   await syncVariables()
   await selectVariable(variable)
@@ -2891,22 +2918,31 @@ function toggleModuleCategory(category: string) {
       </aside>
       <div v-show="showTools" class="sidebar-splitter" @pointerdown="beginLeftSidebarResize"></div>
       <aside v-show="showTools" class="sidebar sidebar-left">
-        <div class="panel grow variable-panel" :style="variablePanelStyle"><div class="panel-title"><span class="chevron">⌄</span> 变量 <span class="panel-title-spacer"></span><button class="panel-action" title="添加变量组" @click="addVariableGroup">▣＋</button><button class="panel-action" title="添加变量" @click="addVariable()">＋</button></div>
-          <div v-if="!variables.length" class="empty-panel">尚未创建变量</div>
-          <section v-for="entry in groupedVariables" :key="entry.group.id" class="variable-group">
-            <div class="variable-group-header">
-              <button class="group-toggle" @click="toggleVariableGroup(entry.group)">{{ entry.group.collapsed ? '›' : '⌄' }}</button>
-              <span class="variable-group-name" @dblclick="renameVariableGroup(entry.group)">{{ entry.group.name }}</span><small>{{ entry.variables.length }}</small>
-              <button title="在此组添加变量" @click="addVariable(entry.group.id)">＋</button><button v-if="entry.group.id !== 'default'" title="重命名组" @click="renameVariableGroup(entry.group)">✎</button><button v-if="entry.group.id !== 'default'" title="删除组" @click="removeVariableGroup(entry.group)">×</button>
-            </div>
-            <div v-if="!entry.group.collapsed" class="variable-group-list">
-              <div v-for="variable in entry.variables" :key="variable.id" class="variable-row" :class="{ selected: selectedVariableId === variable.id, 'variable-instance': variableScope(variable) === 'instance' }" draggable="true" @click="selectVariable(variable)" @dragstart="startVariableDrag($event, variable)">
-                <div class="variable-heading"><span class="variable-type-dot" :class="`type-${variable.type}`"></span><span class="variable-name">{{ variable.name }}</span><span class="variable-scope">{{ variableScope(variable) === 'instance' ? '全局' : '局部' }}</span><span class="variable-kind">{{ variable.type }}</span><button title="Get" @click.stop="createVariableNode(variable, 'get')">G</button><button title="Set" @click.stop="createVariableNode(variable, 'set')">S</button><button title="Delete" @click.stop="removeVariable(variable)">×</button></div>
-              </div>
-              <button v-if="!entry.variables.length" class="empty-variable-group" @click="addVariable(entry.group.id)">＋ 添加变量</button>
-            </div>
+        <div class="panel grow variable-panel" :style="variablePanelStyle"><div class="panel-title"><span class="chevron">⌄</span> 变量 <span class="panel-title-spacer"></span><button class="panel-action" title="添加变量组（局部与全局共用）" @click="addVariableGroup">▣＋</button></div>
+          <section v-for="scopeEntry in variableScopeSections" :key="scopeEntry.scope" class="variable-scope-section" :class="`scope-${scopeEntry.scope}`">
+            <header class="variable-scope-header">
+              <span class="variable-scope-icon">{{ scopeEntry.scope === 'instance' ? 'G' : 'L' }}</span>
+              <span class="variable-scope-summary"><strong>{{ scopeEntry.title }}</strong><small>{{ scopeEntry.description }}</small></span>
+              <span class="variable-scope-count">{{ scopeEntry.variables.length }}</span>
+              <button :title="`添加${scopeEntry.title}`" :disabled="scopeEntry.scope === 'instance' && isFunctionBlueprintTab" @click="addVariable('default', scopeEntry.scope)">＋</button>
+            </header>
+            <div v-if="scopeEntry.scope === 'instance' && isFunctionBlueprintTab" class="variable-scope-notice">函数蓝图不支持全局变量</div>
+            <template v-if="scopeEntry.scope !== 'instance' || !isFunctionBlueprintTab || scopeEntry.variables.length">
+              <section v-for="entry in scopeEntry.groups" :key="`${scopeEntry.scope}-${entry.group.id}`" class="variable-group">
+                <div class="variable-group-header">
+                  <button class="group-toggle" @click="toggleVariableGroup(entry.group)">{{ entry.group.collapsed ? '›' : '⌄' }}</button>
+                  <span class="variable-group-name" @dblclick="renameVariableGroup(entry.group)">{{ entry.group.name }}</span><small>{{ entry.variables.length }}</small>
+                  <button :title="`在此组添加${scopeEntry.title}`" :disabled="scopeEntry.scope === 'instance' && isFunctionBlueprintTab" @click="addVariable(entry.group.id, scopeEntry.scope)">＋</button><button v-if="entry.group.id !== 'default'" title="重命名组" @click="renameVariableGroup(entry.group)">✎</button><button v-if="entry.group.id !== 'default'" title="删除组" @click="removeVariableGroup(entry.group)">×</button>
+                </div>
+                <div v-if="!entry.group.collapsed" class="variable-group-list">
+                  <div v-for="variable in entry.variables" :key="variable.id" class="variable-row" :class="{ selected: selectedVariableId === variable.id, 'variable-instance': scopeEntry.scope === 'instance' }" draggable="true" @click="selectVariable(variable)" @dragstart="startVariableDrag($event, variable)">
+                    <div class="variable-heading"><span class="variable-type-dot" :class="`type-${variable.type}`"></span><span class="variable-name">{{ variable.name }}</span><span class="variable-scope">{{ scopeEntry.scope === 'instance' ? '全局' : '局部' }}</span><span class="variable-kind">{{ variable.type }}</span><button title="Get" @click.stop="createVariableNode(variable, 'get')">G</button><button title="Set" @click.stop="createVariableNode(variable, 'set')">S</button><button title="Delete" @click.stop="removeVariable(variable)">×</button></div>
+                  </div>
+                  <button v-if="!entry.variables.length" class="empty-variable-group" :disabled="scopeEntry.scope === 'instance' && isFunctionBlueprintTab" @click="addVariable(entry.group.id, scopeEntry.scope)">＋ 添加{{ scopeEntry.title }}</button>
+                </div>
+              </section>
+            </template>
           </section>
-          <button class="add-variable" @click="addVariable()">＋ 添加变量</button>
         </div>
         <div class="panel-height-splitter" @pointerdown="beginVariablePanelHeightResize"></div>
         <div class="panel grow detail-panel sidebar-detail-panel">

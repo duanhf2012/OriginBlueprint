@@ -36,13 +36,22 @@ button { font: inherit; color: inherit; }
 .panel-title { height: 30px; display: flex; align-items: center; gap: 7px; padding: 0 10px; background: #242424; color: #dedede; font-size: var(--panel-font-size); font-weight: 600; }
 .chevron { color: #aaa; font-size: 16px; }
 .tree-row { margin: 7px 8px; padding: 6px 8px; color: #d0d0d0; font-size: var(--panel-font-size); }
-.add-variable { margin: 6px 12px; padding: 5px 8px; border: 1px solid #454545; border-radius: 2px; background: #333; color: #aaa; }
 .empty-panel { padding: 12px; color: #707070; font-size: var(--small-ui-font-size); }
 .variable-panel { overflow: auto; }
 .sidebar-left .variable-panel { min-height: 130px; flex: 1 1 42%; }
 .detail-panel { min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .sidebar-detail-panel { min-height: 170px; flex: 1 1 46%; }
 .panel-title-spacer { flex: 1; }.panel-title-spacer ~ .panel-action { margin-left: 0; width: auto; min-width: 24px; }
+.variable-scope-section { margin: 7px 7px 9px; overflow: hidden; border: 1px solid #3b3b3b; border-radius: 3px; background: #272727; }
+.variable-scope-section.scope-instance { border-color: #665126; }
+.variable-scope-header { min-height: 39px; display: flex; align-items: center; gap: 7px; padding: 5px 6px; background: #323036; user-select: none; }
+.scope-instance > .variable-scope-header { background: #393225; }
+.variable-scope-icon { width: 22px; height: 22px; flex: 0 0 22px; display: grid; place-items: center; border: 1px solid #7b6790; border-radius: 4px; color: #c5addc; font: 700 10px Consolas, monospace; }
+.scope-instance .variable-scope-icon { border-color: #a7792e; color: #f0c36c; }
+.variable-scope-summary { min-width: 0; flex: 1; display: flex; flex-direction: column; line-height: 1.2; }.variable-scope-summary strong { color: #ddd; font-size: 11px; }.variable-scope-summary small { overflow: hidden; color: #777; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.variable-scope-count { min-width: 17px; color: #888; font-size: 10px; text-align: center; }
+.variable-scope-header > button { width: 24px; height: 24px; padding: 0; border: 1px solid #4d4d4d; background: #292929; color: #aaa; }.variable-scope-header > button:hover:not(:disabled) { border-color: #708ca0; color: white; }.variable-scope-header > button:disabled { color: #555; cursor: not-allowed; }
+.variable-scope-notice { padding: 7px 9px; border-bottom: 1px solid #332e24; color: #8c7b5d; font-size: 10px; line-height: 1.4; }
 .variable-group { border-bottom: 1px solid #202020; }
 .variable-group-header { height: 27px; display: flex; align-items: center; gap: 4px; padding: 0 5px; background: #303030; color: #bdbdbd; font-size: 11px; user-select: none; }
 .variable-group-header button { width: 21px; height: 21px; padding: 0; border: 0; background: transparent; color: #858585; }.variable-group-header button:hover { background: #424242; color: white; }
@@ -61,7 +70,7 @@ button { font: inherit; color: inherit; }
 .variable-type-dot { width: 8px; height: 8px; flex: 0 0 auto; border-radius: 50%; background: #aaa; }
 .variable-type-dot.type-boolean { background: #e33b48; }.variable-type-dot.type-integer { background: #25bf48; }.variable-type-dot.type-float { background: #55cbb1; }.variable-type-dot.type-string { background: #e23abb; }
 .variable-type-dot.type-array { background: #d6ac19; }
-.empty-variable-group { width: calc(100% - 12px); height: 23px; margin: 2px 6px; border: 1px dashed #444; background: transparent; color: #686868; font-size: 10px; }.empty-variable-group:hover { border-color: #63839a; color: #aaa; }
+.empty-variable-group { width: calc(100% - 12px); height: 23px; margin: 2px 6px; border: 1px dashed #444; background: transparent; color: #686868; font-size: 10px; }.empty-variable-group:hover:not(:disabled) { border-color: #63839a; color: #aaa; }.empty-variable-group:disabled { color: #4f4a42; cursor: not-allowed; }
 .editor-column { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: #161616; }
 .tab-strip-wrap { display: flex; align-items: flex-end; border-bottom: 2px solid #151515; background: #5a5a5a; }
 .tab-scroll-arrow { flex: 0 0 26px; height: 34px; display: flex; align-items: center; justify-content: center; border: 0; background: transparent; color: #888; font-size: 11px; cursor: pointer; user-select: none; }
