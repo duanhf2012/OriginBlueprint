@@ -156,13 +156,11 @@ const variableScopeSections = computed(() => ([
   {
     scope: 'execution' as const,
     title: '局部变量',
-    description: '每次执行从默认值开始',
     variables: variables.value.filter(variable => variableScope(variable) === 'execution')
   },
   {
     scope: 'instance' as const,
     title: '全局变量',
-    description: '同一蓝图实例的并发执行共享',
     variables: variables.value.filter(variable => variableScope(variable) === 'instance')
   }
 ].map(section => ({
@@ -2922,7 +2920,7 @@ function toggleModuleCategory(category: string) {
           <section v-for="scopeEntry in variableScopeSections" :key="scopeEntry.scope" class="variable-scope-section" :class="`scope-${scopeEntry.scope}`">
             <header class="variable-scope-header">
               <span class="variable-scope-icon">{{ scopeEntry.scope === 'instance' ? 'G' : 'L' }}</span>
-              <span class="variable-scope-summary"><strong>{{ scopeEntry.title }}</strong><small>{{ scopeEntry.description }}</small></span>
+              <strong class="variable-scope-title">{{ scopeEntry.title }}</strong>
               <span class="variable-scope-count">{{ scopeEntry.variables.length }}</span>
               <button :title="`添加${scopeEntry.title}`" :disabled="scopeEntry.scope === 'instance' && isFunctionBlueprintTab" @click="addVariable('default', scopeEntry.scope)">＋</button>
             </header>

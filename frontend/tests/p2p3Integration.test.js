@@ -22,6 +22,7 @@ assert(editor.includes("addEventListener('origin-control-edit-start'") && editor
 assert(!editor.includes('undoStack.push(') && !editor.includes('redoStack.push('), 'all history writes must pass through the bounded history helper')
 assert(history.includes('editorHistoryLimit = 100'), 'editor history must remain capped at 100 snapshots')
 assert(app.includes("title: '局部变量'") && app.includes("title: '全局变量'"), 'the variable panel must expose separate local and global sections')
+assert(!app.includes('scopeEntry.description'), 'variable scope headers must remain single-line at narrow panel widths')
 assert(app.includes("addVariable('default', scopeEntry.scope)") && app.includes("addVariable(entry.group.id, scopeEntry.scope)"), 'each variable scope section must have an explicit add path')
 assert(app.includes("scope === 'instance' && isFunctionBlueprintTab.value"), 'function blueprints must reject creating global variables')
 
