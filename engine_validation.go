@@ -43,7 +43,7 @@ var validationNodeIDPattern = regexp.MustCompile(`\bnode\s+([^\s:]+)`)
 
 func (a *App) ValidateGraphForWorkspace(content, workspaceRoot, sourcePath string) ([]ValidationIssue, error) {
 	var document GraphDocument
-	if err := json.Unmarshal([]byte(content), &document); err != nil {
+	if err := decodeJSONUseNumber([]byte(content), &document); err != nil {
 		return []ValidationIssue{{Severity: "error", Code: "document.decode", Message: fmt.Sprintf("decode graph document: %v", err), BlocksSave: true, BlocksRun: true}}, nil
 	}
 	issues := validateGraph(document)
@@ -143,7 +143,7 @@ func prepareValidationGraphDocuments(graphsDir, workspaceRoot, sourcePath, conte
 			return "", err
 		}
 		var document GraphDocument
-		if json.Unmarshal([]byte(content), &document) == nil {
+		if decodeJSONUseNumber([]byte(content), &document) == nil {
 			references := validationFunctionReferences(document)
 			if functionID := strings.TrimSpace(document.FunctionID); functionID != "" {
 				references = append(references, validationFunctionReference{functionID: functionID})
@@ -230,7 +230,7 @@ func indexValidationWorkspaceFunctions(root, source string) (map[string][]*valid
 				}
 			}
 			var document GraphDocument
-			if json.Unmarshal(record.data, &document) == nil {
+			if decodeJSONUseNumber(record.data, &document) == nil {
 				record.references = validationFunctionReferences(document)
 			}
 		}

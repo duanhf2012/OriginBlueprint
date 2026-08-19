@@ -3,8 +3,11 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
+	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -194,9 +197,32 @@ func coreIssueBlocksSave(code string) bool {
 	}
 }
 
-// validIntegerDefault accepts the integer values that the Go runtime can store
-// without silently truncating a fractional or overflowing value. JSON numbers
-// arrive here as float64, so the upper bound is exclusive at 2^63.
+func decodeJSONUseNumber(data []byte, target interface{}) error {
+	decoder := json.NewDecoder(strings.NewReader(string(data)))
+	decoder.UseNumber()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	var trailing interface{}
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("unexpected trailing JSON value")
+		}
+		return err
+	}
+	return nil
+}
+
+func parseInt64Decimal(value string) (int64, bool) {
+	if value == "" || strings.TrimSpace(value) != value {
+		return 0, false
+	}
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	return parsed, err == nil
+}
+
+// validIntegerDefault accepts old JSON numbers and the decimal-string encoding
+// used for values outside JavaScript's exact integer range.
 func validIntegerDefault(value interface{}) bool {
 	if value == nil {
 		return true
@@ -212,6 +238,15 @@ func validIntegerDefault(value interface{}) bool {
 		return true
 	case int64:
 		return true
+	case json.Number:
+		if _, ok := parseInt64Decimal(number.String()); ok {
+			return true
+		}
+		converted, err := strconv.ParseFloat(number.String(), 64)
+		return err == nil && !math.IsNaN(converted) && !math.IsInf(converted, 0) && math.Trunc(converted) == converted && converted >= -9223372036854775808.0 && converted < 9223372036854775808.0
+	case string:
+		_, ok := parseInt64Decimal(number)
+		return ok
 	case uint:
 		return uint64(number) <= uint64(math.MaxInt64)
 	case uint8:
@@ -230,6 +265,43 @@ func validIntegerDefault(value interface{}) bool {
 	default:
 		return false
 	}
+}
+
+func unsupportedArrayElement(value interface{}) (int, string, bool) {
+	if value == nil {
+		return 0, "", false
+	}
+	items := reflect.ValueOf(value)
+	if items.Kind() != reflect.Slice && items.Kind() != reflect.Array {
+		return -1, fmt.Sprintf("%T", value), true
+	}
+	for index := 0; index < items.Len(); index++ {
+		item := items.Index(index).Interface()
+		supported := false
+		switch number := item.(type) {
+		case string, bool,
+			int, int8, int16, int32, int64,
+			uint, uint8, uint16, uint32:
+			supported = true
+		case uint64:
+			supported = number <= uint64(math.MaxInt64)
+		case float32:
+			value := float64(number)
+			supported = !math.IsNaN(value) && !math.IsInf(value, 0)
+		case float64:
+			supported = !math.IsNaN(number) && !math.IsInf(number, 0)
+		case json.Number:
+			if _, err := strconv.ParseInt(number.String(), 10, 64); err == nil {
+				supported = true
+			} else if value, err := strconv.ParseFloat(number.String(), 64); err == nil {
+				supported = !math.IsNaN(value) && !math.IsInf(value, 0)
+			}
+		}
+		if !supported {
+			return index, fmt.Sprintf("%T", item), true
+		}
+	}
+	return 0, "", false
 }
 
 type portDefinition struct {
@@ -483,7 +555,7 @@ func applyDynamicBranchOutputs(node GraphNode, definition portDefinition) portDe
 
 func (a *App) ValidateGraph(content string) ([]ValidationIssue, error) {
 	var document GraphDocument
-	if err := json.Unmarshal([]byte(content), &document); err != nil {
+	if err := decodeJSONUseNumber([]byte(content), &document); err != nil {
 		return nil, fmt.Errorf("decode graph document: %w", err)
 	}
 	return validateGraph(document), nil
@@ -569,6 +641,11 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 		}
 		if variable.Type == "integer" && !validIntegerDefault(variable.DefaultValue) {
 			issues = append(issues, ValidationIssue{Severity: "error", Code: "integer.invalid-default", Message: "整数变量默认值必须是有效的 64 位整数：" + variable.Name})
+		}
+		if variable.Type == "array" {
+			if index, kind, invalid := unsupportedArrayElement(variable.DefaultValue); invalid {
+				issues = append(issues, ValidationIssue{Severity: "error", Code: "array.unsupported-element", Message: fmt.Sprintf("数组变量 %s 的默认值包含不支持的元素（索引 %d，类型 %s）", variable.Name, index, kind), BlocksRun: true})
+			}
 		}
 		if variable.Scope != "" && variable.Scope != "execution" && variable.Scope != "instance" {
 			issues = append(issues, ValidationIssue{Severity: "error", Code: "variable.unknown-scope", Message: "未知变量作用域：" + variable.Scope})
@@ -711,14 +788,20 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 		}
 		definition = applyDynamicBranchOutputs(node, definition)
 		for portKey, portType := range definition.Inputs {
-			if portType != "integer" {
-				continue
-			}
 			if connectedInputs[node.ID][portKey] {
 				continue
 			}
-			if value, exists := node.Values[portKey]; exists && !validIntegerDefault(value) {
+			value, exists := node.Values[portKey]
+			if !exists {
+				continue
+			}
+			if portType == "integer" && !validIntegerDefault(value) {
 				issues = append(issues, ValidationIssue{Severity: "error", Code: "integer.invalid-default", Message: "整数输入默认值必须是有效的 64 位整数：" + portKey, NodeID: node.ID})
+			}
+			if portType == "array" {
+				if index, kind, invalid := unsupportedArrayElement(value); invalid {
+					issues = append(issues, ValidationIssue{Severity: "error", Code: "array.unsupported-element", Message: fmt.Sprintf("数组输入 %s 包含不支持的元素（索引 %d，类型 %s）", portKey, index, kind), NodeID: node.ID, BlocksRun: true})
+				}
 			}
 		}
 		ports[node.ID] = definition

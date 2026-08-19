@@ -11,7 +11,8 @@ import { compatibilitySaveOptions, findOpenTab, hasRestoreLoss, resolveCompatibi
 import { autoSaveIntervalMs, isAutoSaveEligible, type AutoSaveMode } from './autoSavePolicy'
 import { saveGateDecision } from './saveGate'
 import { applyFunctionPersistenceMetadata, documentRequiresNativePersistence as graphDocumentRequiresNativePersistence, filenameStem, isFunctionBlueprintPath, prepareGraphSave, serializeGraphDocument } from './graphPersistence'
-import { isValidIntegerDefault } from './editor/valueValidation'
+import { isValidIntegerDefault, normalizeIntegerInput } from './editor/valueValidation'
+import { parseGraphJSON } from './graphJSON'
 
 interface GraphTab { id: string; title: string; path: string; dirty: boolean; document: GraphDocument | null; restoreLoss?: RestoreLossReport | null; restoreFatal?: boolean; saveBlocked?: boolean }
 interface WorkspaceTreeNode extends WorkspaceEntry { children: WorkspaceTreeNode[]; loaded: boolean; loading: boolean }
@@ -1085,7 +1086,7 @@ async function loadFunctionSignatureForId(id: string) {
   try {
     const file = await platform.openGraph(item.path)
     if (!file) return emptyFunctionSignature()
-    const parsed = JSON.parse(file.content) as Partial<GraphDocument>
+    const parsed = parseGraphJSON(file.content) as Partial<GraphDocument>
     return normalizeFunctionSignature(parsed.functionSignature)
   } catch (error) {
     status.value = `读取函数签名失败: ${error instanceof Error ? error.message : String(error)}`
@@ -1183,7 +1184,7 @@ async function addVariable(groupId = 'default', scope: VariableScope = 'executio
 async function updateVariable(variable: GraphVariable, previousType?: VariableType) {
   variable.name = variable.name.trim() || 'Variable'
   if (variable.type === 'integer' && !isValidIntegerDefault(variable.defaultValue)) {
-    status.value = 'Integer 默认值必须是安全整数，不能包含小数或超出 JavaScript 安全范围'
+    status.value = 'Integer 默认值必须是有效的 64 位整数，不能包含小数或超出 int64 范围'
     return
   }
   if (previousType && previousType !== variable.type) variable.defaultValue = defaultVariableValue(variable.type)
@@ -1209,8 +1210,15 @@ async function changeVariableScope(variable: GraphVariable, event: Event) {
 
 async function setVariableArrayDefault(variable: GraphVariable, event: Event) {
   const text = (event.target as HTMLInputElement).value
-  variable.defaultValue = text.split(',').map(item => item.trim()).filter(Boolean).map(item => /^-?\d+(\.\d+)?$/.test(item) ? Number(item) : item)
+  variable.defaultValue = text.split(',').map(item => item.trim()).filter(Boolean).map(item => {
+    if (/^[+-]?\d+$/.test(item)) return normalizeIntegerInput(item)
+    return /^[+-]?(?:\d+\.\d*|\d*\.\d+)(?:[eE][+-]?\d+)?$/.test(item) ? Number(item) : item
+  })
   await updateVariable(variable)
+}
+
+function setVariableIntegerDefault(variable: GraphVariable, event: Event) {
+  variable.defaultValue = normalizeIntegerInput((event.target as HTMLInputElement).value)
 }
 
 async function removeVariable(variable: GraphVariable) {
@@ -1579,7 +1587,7 @@ async function restoreRecoverySnapshot() {
   if (!snapshot) return
   try {
     const raw = await platform.readRecoverySnapshot(snapshot.path)
-    const envelope = JSON.parse(raw) as { document?: unknown; blockingIssues?: ValidationIssue[] }
+    const envelope = parseGraphJSON(raw) as { document?: unknown; blockingIssues?: ValidationIssue[] }
     if (!envelope.document || typeof envelope.document !== 'object') throw new Error('Recovery snapshot has no graph document')
     const document = normalizeDocument(envelope.document)
     const sourcePath = snapshot.sourcePath ?? ''
@@ -1622,7 +1630,7 @@ async function openGraph(path = '', highlightTypeId = '') {
     return
   }
   let parsed: any
-  try { parsed = JSON.parse(file.content) } catch { status.value = 'Invalid graph file'; return }
+  try { parsed = parseGraphJSON(file.content) } catch { status.value = 'Invalid graph file'; return }
   let document: GraphDocument
   let sourceIssues: ValidationIssue[] = []
   if (isNativeGraphDocument(parsed)) {
@@ -1630,7 +1638,7 @@ async function openGraph(path = '', highlightTypeId = '') {
     document = normalizeDocument(parsed)
   }
   else if (platform.isDesktop()) {
-    try { document = normalizeDocument(JSON.parse(await platform.migrateLegacyGraph(file.content))) }
+    try { document = normalizeDocument(parseGraphJSON(await platform.migrateLegacyGraph(file.content))) }
     catch (error) { status.value = error instanceof Error ? error.message : 'Legacy graph migration failed'; return }
   } else { status.value = 'Legacy graph migration requires the desktop runtime'; return }
   if (!isFunctionBlueprintPath(file.path)) document.graphName = filenameStem(file.path)
@@ -2086,7 +2094,7 @@ async function loadFunctionLibraryTitles(items: FunctionLibraryItem[]) {
     try {
       const file = await platform.openGraph(item.path)
       if (!file) continue
-      const parsed = JSON.parse(file.content) as Partial<GraphDocument>
+      const parsed = parseGraphJSON(file.content) as Partial<GraphDocument>
       const title = String(parsed.graphName ?? '').trim()
       const id = String(parsed.functionId ?? '').trim()
       const category = functionCategoryFromDocument(parsed, item.path)
@@ -2481,7 +2489,7 @@ async function loadFunctionSignatureForModuleItem(item: ModuleLibraryItem) {
   try {
     const file = await platform.openGraph(item.path)
     if (!file) return emptyFunctionSignature()
-    const parsed = JSON.parse(file.content) as Partial<GraphDocument>
+    const parsed = parseGraphJSON(file.content) as Partial<GraphDocument>
     return normalizeFunctionSignature(parsed.functionSignature)
   } catch (error) {
     status.value = `读取函数签名失败: ${error instanceof Error ? error.message : String(error)}`
@@ -2976,7 +2984,7 @@ function toggleModuleCategory(category: string) {
               <button class="add-signature-port" @click="addFunctionSignaturePort('outputs')"><span aria-hidden="true">＋</span>{{ menuText.detail.addOutputParameter }}</button>
             </section>
           </div>
-          <div v-else-if="selectedVariable" class="node-detail variable-detail"><div class="detail-section-title">变量属性</div><label>Variable ID<input :value="selectedVariable.id" disabled /></label><label>名称<input v-model="selectedVariable.name" /></label><label>作用域<select :value="variableScope(selectedVariable)" @change="changeVariableScope(selectedVariable, $event)"><option value="execution">局部（每次执行重置）</option><option value="instance" :disabled="isFunctionBlueprintTab">全局（同一蓝图实例共享）</option></select></label><small v-if="variableScope(selectedVariable) === 'instance'" class="variable-scope-hint">并发执行会共享当前值；单次读取和写入线程安全。</small><label>类型<select v-model="selectedVariable.type" @change="changeVariableType(selectedVariable)"><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="float">Float</option><option value="string">String</option><option value="array">Array</option><option value="timerhandle">Timer Handle</option></select></label><label>分组<select v-model="selectedVariable.groupId"><option v-for="group in variableGroupsForScope(variableGroups, variableScope(selectedVariable))" :key="group.id" :value="group.id">{{ group.name }}</option></select></label><label>说明<textarea v-model="selectedVariable.description" rows="4" placeholder="变量用途和约束"></textarea></label><label v-if="selectedVariable.type !== 'timerhandle'">默认值<input v-if="selectedVariable.type === 'boolean'" v-model="selectedVariable.defaultValue" type="checkbox" /><input v-else-if="selectedVariable.type === 'string'" v-model="selectedVariable.defaultValue" type="text" /><input v-else-if="selectedVariable.type === 'array'" :value="Array.isArray(selectedVariable.defaultValue) ? selectedVariable.defaultValue.join(', ') : ''" placeholder="1, 2, text" @change="setVariableArrayDefault(selectedVariable, $event)" /><input v-else v-model.number="selectedVariable.defaultValue" type="number" :step="selectedVariable.type === 'integer' ? 1 : 'any'" /></label><button class="apply-properties" @click="updateVariable(selectedVariable)">应用变量属性</button><button class="delete-properties" @click="removeVariable(selectedVariable)">删除变量</button></div>
+          <div v-else-if="selectedVariable" class="node-detail variable-detail"><div class="detail-section-title">变量属性</div><label>Variable ID<input :value="selectedVariable.id" disabled /></label><label>名称<input v-model="selectedVariable.name" /></label><label>作用域<select :value="variableScope(selectedVariable)" @change="changeVariableScope(selectedVariable, $event)"><option value="execution">局部（每次执行重置）</option><option value="instance" :disabled="isFunctionBlueprintTab">全局（同一蓝图实例共享）</option></select></label><small v-if="variableScope(selectedVariable) === 'instance'" class="variable-scope-hint">并发执行会共享当前值；单次读取和写入线程安全。</small><label>类型<select v-model="selectedVariable.type" @change="changeVariableType(selectedVariable)"><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="float">Float</option><option value="string">String</option><option value="array">Array</option><option value="timerhandle">Timer Handle</option></select></label><label>分组<select v-model="selectedVariable.groupId"><option v-for="group in variableGroupsForScope(variableGroups, variableScope(selectedVariable))" :key="group.id" :value="group.id">{{ group.name }}</option></select></label><label>说明<textarea v-model="selectedVariable.description" rows="4" placeholder="变量用途和约束"></textarea></label><label v-if="selectedVariable.type !== 'timerhandle'">默认值<input v-if="selectedVariable.type === 'boolean'" v-model="selectedVariable.defaultValue" type="checkbox" /><input v-else-if="selectedVariable.type === 'string'" v-model="selectedVariable.defaultValue" type="text" /><input v-else-if="selectedVariable.type === 'array'" :value="Array.isArray(selectedVariable.defaultValue) ? selectedVariable.defaultValue.join(', ') : ''" placeholder="1, 2, text" @change="setVariableArrayDefault(selectedVariable, $event)" /><input v-else-if="selectedVariable.type === 'integer'" :value="selectedVariable.defaultValue" type="text" inputmode="numeric" @input="setVariableIntegerDefault(selectedVariable, $event)" /><input v-else v-model.number="selectedVariable.defaultValue" type="number" step="any" /></label><button class="apply-properties" @click="updateVariable(selectedVariable)">应用变量属性</button><button class="delete-properties" @click="removeVariable(selectedVariable)">删除变量</button></div>
           <div v-else-if="selectedNode" class="node-detail"><label>Node ID<input :value="selectedNode.id" disabled /></label><label>Type<input :value="selectedNode.typeId" disabled /></label><label>Title<input :value="selectedNode.label" readonly /></label><label v-if="selectedNode.description">说明<textarea :value="selectedNode.description" rows="4" readonly></textarea></label></div>
           <div v-else class="empty-detail">选择节点或变量以查看属性</div>
         </div>

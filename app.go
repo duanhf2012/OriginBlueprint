@@ -175,7 +175,7 @@ func (a *App) ChooseGraphSavePath(suggestedPath string, functionBlueprint, requi
 
 func (a *App) SaveGraph(path, content string) (string, error) {
 	var contentDocument GraphDocument
-	isGraphDocument := json.Unmarshal([]byte(content), &contentDocument) == nil && contentDocument.SchemaVersion == GraphSchemaVersion
+	isGraphDocument := decodeJSONUseNumber([]byte(content), &contentDocument) == nil && contentDocument.SchemaVersion == GraphSchemaVersion
 	requiresNative := isGraphDocument && graphDocumentRequiresNativePersistence(contentDocument)
 	if path == "" {
 		var err error
@@ -286,7 +286,7 @@ func writeFileAtomically(path string, data []byte, mode os.FileMode) (err error)
 func graphContentForPath(path, content string) ([]byte, error) {
 	if exportsLegacyGraph(filepath.Ext(path)) {
 		var document GraphDocument
-		if err := json.Unmarshal([]byte(content), &document); err == nil && document.SchemaVersion == GraphSchemaVersion {
+		if err := decodeJSONUseNumber([]byte(content), &document); err == nil && document.SchemaVersion == GraphSchemaVersion {
 			if graphDocumentRequiresNativePersistence(document) {
 				if strings.EqualFold(filepath.Ext(path), ".vgf") {
 					return nil, errors.New("this graph uses native-only nodes and must be saved as .obp or .obpf")
@@ -535,7 +535,7 @@ func (a *App) RevealInFolder(path string) error {
 
 func graphDocumentForReferenceSearch(data []byte) (GraphDocument, error) {
 	var document GraphDocument
-	if err := json.Unmarshal(data, &document); err == nil && document.SchemaVersion == GraphSchemaVersion {
+	if err := decodeJSONUseNumber(data, &document); err == nil && document.SchemaVersion == GraphSchemaVersion {
 		return document, nil
 	}
 	return migrateLegacyGraph(data)

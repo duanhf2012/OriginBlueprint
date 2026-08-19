@@ -15,7 +15,9 @@ describe('integer default validation', () => {
     expect(isValidIntegerDefault(Number.MAX_SAFE_INTEGER)).toBe(true)
     expect(isValidIntegerDefault(1.5)).toBe(false)
     expect(isValidIntegerDefault(Number.MAX_SAFE_INTEGER + 1)).toBe(false)
-    expect(isValidIntegerDefault('42')).toBe(false)
+    expect(isValidIntegerDefault('42')).toBe(true)
+    expect(isValidIntegerDefault('9223372036854775807')).toBe(true)
+    expect(isValidIntegerDefault('9223372036854775808')).toBe(false)
   })
 })
 

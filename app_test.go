@@ -1598,6 +1598,79 @@ func TestValidateGraphAcceptsIntegralIntegerDefaults(t *testing.T) {
 	}
 }
 
+func TestValidateGraphPreservesFullInt64DefaultsFromJSON(t *testing.T) {
+	content := `{
+		"schemaVersion":1,
+		"nodes":[{"id":"loop","typeId":"origin.flow.for-loop","values":{"start":9223372036854775807,"end":"-9223372036854775808"}}],
+		"connections":[],"groups":[],
+		"variables":[{"id":"limit","name":"Limit","type":"integer","defaultValue":"9223372036854775807","groupId":"default"}],
+		"variableGroups":[],"view":{"x":0,"y":0,"zoom":1}
+	}`
+	issues, err := (&App{}).ValidateGraph(content)
+	if err != nil {
+		t.Fatalf("ValidateGraph: %v", err)
+	}
+	if countValidationIssues(issues, "integer.invalid-default") != 0 {
+		t.Fatalf("full int64 defaults should remain valid: %#v", issues)
+	}
+}
+
+func TestValidateGraphKeepsIntegralLegacyJSONNumberForms(t *testing.T) {
+	content := `{"schemaVersion":1,"nodes":[{"id":"loop","typeId":"origin.flow.for-loop","values":{"start":1.0,"end":1e3}}],"connections":[],"groups":[],"variables":[],"variableGroups":[],"view":{"x":0,"y":0,"zoom":1}}`
+	issues, err := (&App{}).ValidateGraph(content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if countValidationIssues(issues, "integer.invalid-default") != 0 {
+		t.Fatalf("integral legacy number forms should remain valid: %#v", issues)
+	}
+}
+
+func TestLegacyRoundTripPreservesEncodedInt64Variable(t *testing.T) {
+	native := `{
+		"schemaVersion":1,"nodes":[],"connections":[],"groups":[],
+		"variables":[{"id":"limit","name":"Limit","type":"integer","defaultValue":"9223372036854775807","groupId":"default"}],
+		"variableGroups":[{"id":"default","name":"Default"}],"view":{"x":0,"y":0,"zoom":1}
+	}`
+	legacy, err := (&App{}).ExportLegacyGraph(native)
+	if err != nil {
+		t.Fatalf("ExportLegacyGraph: %v", err)
+	}
+	var exported legacyGraph
+	if err := decodeJSONUseNumber([]byte(legacy), &exported); err != nil {
+		t.Fatalf("decode exported legacy graph: %v", err)
+	}
+	value, ok := exported.Variables[0]["value"].(json.Number)
+	if !ok || value.String() != "9223372036854775807" {
+		t.Fatalf("legacy integer encoding changed: %T(%v)", exported.Variables[0]["value"], exported.Variables[0]["value"])
+	}
+	document, err := migrateLegacyGraph([]byte(legacy))
+	if err != nil {
+		t.Fatalf("migrateLegacyGraph: %v", err)
+	}
+	if len(document.Variables) != 1 || fmt.Sprint(document.Variables[0].DefaultValue) != "9223372036854775807" {
+		t.Fatalf("round-trip variable = %#v", document.Variables)
+	}
+}
+
+func TestValidateGraphReportsUnsupportedArrayElementsWithoutBlockingSave(t *testing.T) {
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		Variables:     []GraphVariable{{ID: "items", Name: "Items", Type: "array", DefaultValue: []interface{}{1, map[string]interface{}{"nested": true}}}},
+	}
+	issues := validateGraph(document)
+	for _, issue := range issues {
+		if issue.Code != "array.unsupported-element" {
+			continue
+		}
+		if !issue.BlocksRun || issue.BlocksSave {
+			t.Fatalf("array issue flags = %#v, want run-only error", issue)
+		}
+		return
+	}
+	t.Fatalf("issues = %#v, want array.unsupported-element", issues)
+}
+
 func TestValidateGraphIgnoresInvalidConnectedIntegerDefaults(t *testing.T) {
 	document := GraphDocument{
 		SchemaVersion: GraphSchemaVersion,

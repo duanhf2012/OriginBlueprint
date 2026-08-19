@@ -4,6 +4,7 @@ import { Ref } from 'rete-vue-plugin'
 import type { BlueprintNode } from './types'
 import { entryBindingBadgeLabel, entryBindingTitle } from './implicitEntryLinks'
 import { socketClassName, socketStyle } from './socketTheme'
+import { normalizeIntegerInput } from './valueValidation'
 
 const props = defineProps<{ data: BlueprintNode; emit: (signal: unknown) => void }>()
 const branchRevision = ref(0)
@@ -172,7 +173,7 @@ function updateBranchValue(index: number, event: Event) {
   const control = dynamicControl()
   const values = [...branchValues.value] as Array<string | number>
   const raw = (event.target as HTMLInputElement).value
-  values[index] = control?.itemType === 'number' ? Number(raw) : raw
+  values[index] = control?.itemType === 'number' ? normalizeIntegerInput(raw) : raw
   setBranchValues(values, false)
 }
 
@@ -289,7 +290,7 @@ function handleTimerFunctionKeydown(event: KeyboardEvent) {
           <span v-else class="socket-ref branch-socket-spacer"></span>
           <span v-if="row.index === 0 && data.inputs[data.dynamicBranch.controlInput]" class="port-label">{{ data.inputs[data.dynamicBranch.controlInput]!.label }}</span>
           <span v-else class="port-label branch-label-spacer"></span>
-          <input class="branch-value" :value="row.value" :type="dynamicControl()?.itemType === 'number' ? 'number' : 'text'" @pointerdown.stop @dblclick.stop @focus="beginControlEdit" @blur="commitControlEdit" @input="updateBranchValue(row.index, $event)" />
+          <input class="branch-value" :value="row.value" type="text" :inputmode="dynamicControl()?.itemType === 'number' ? 'numeric' : undefined" @pointerdown.stop @dblclick.stop @focus="beginControlEdit" @blur="commitControlEdit" @input="updateBranchValue(row.index, $event)" />
           <button class="branch-remove" title="Remove branch" @pointerdown.stop.prevent="removeBranch(row.index)">-</button>
         </div>
         <div class="port-spacer middle-spacer"></div>

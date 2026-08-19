@@ -57,7 +57,11 @@ function input(socket: ClassicPreset.Socket, label: string, value?: unknown, arr
   if (Array.isArray(value)) {
     port.addControl(new ArrayControl(arrayItemType, value))
   } else if (value !== undefined) {
-    if (socket.name === 'integer' || socket.name === 'float' || typeof value === 'number') {
+    if (socket.name === 'integer') {
+      const control = new ClassicPreset.InputControl('text', { initial: value as never }) as ClassicPreset.InputControl<'text'> & { integer?: boolean }
+      control.integer = true
+      port.addControl(control)
+    } else if (socket.name === 'float' || typeof value === 'number') {
       const numberValue = typeof value === 'number' ? value : Number(value)
       port.addControl(new ClassicPreset.InputControl('number', { initial: Number.isFinite(numberValue) ? numberValue : 0 }))
     } else {

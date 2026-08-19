@@ -102,6 +102,34 @@ func TestParseGraphDocumentFunctionCanBeCalled(t *testing.T) {
 	}
 }
 
+func TestCompileGraphDocumentAcceptsFullInt64Encodings(t *testing.T) {
+	for _, literal := range []string{`9223372036854775807`, `"-9223372036854775808"`} {
+		document := []byte(`{
+			"schemaVersion":1,"nodes":[],"connections":[],
+			"variables":[{"id":"limit","name":"Limit","type":"integer","defaultValue":` + literal + `}],
+			"groups":[],"variableGroups":[],"view":{"x":0,"y":0,"zoom":1}
+		}`)
+		config, err := ParseGraphConfigJSON(document)
+		if err != nil {
+			t.Fatalf("ParseGraphConfigJSON(%s): %v", literal, err)
+		}
+		compiled, err := CompileGraph(NewRegistry(), config)
+		if err != nil {
+			t.Fatalf("CompileGraph(%s): %v", literal, err)
+		}
+		value, ok := compiled.variablePlans[0].Default.GetInt()
+		if !ok {
+			t.Fatalf("default for %s is not Integer", literal)
+		}
+		if literal[0] == '"' && value != -9223372036854775808 {
+			t.Fatalf("default = %d, want MinInt64", value)
+		}
+		if literal[0] != '"' && value != 9223372036854775807 {
+			t.Fatalf("default = %d, want MaxInt64", value)
+		}
+	}
+}
+
 func TestLoadGraphDirLoadsOBPFFunctionsForGraphCalls(t *testing.T) {
 	var recorder *testRecorder
 	registry := NewRegistry()

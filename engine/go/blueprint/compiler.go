@@ -135,10 +135,13 @@ func parseGraphConfigJSON(data []byte) (GraphConfig, error) {
 	}
 
 	var config GraphConfig
-	if err := json.Unmarshal(data, &config); err != nil {
+	if err := decodeJSONNumbers(data, &config); err != nil {
 		return GraphConfig{}, err
 	}
 	config.Legacy = true
+	for index := range config.Variables {
+		config.Variables[index].Value = compatibleJSONValue(config.Variables[index].Value)
+	}
 	for index := range config.Nodes {
 		if err := validateNodeConfigLimits(config.Nodes[index]); err != nil {
 			return GraphConfig{}, fmt.Errorf("node %s: %w", config.Nodes[index].ID, err)
@@ -207,7 +210,7 @@ func compileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error
 			return nil, fmt.Errorf("variable %s: %w", variable.Name, err)
 		}
 		if variable.Value != nil {
-			if err := port.setAnyValue(variable.Value); err != nil {
+			if err := setConfiguredPortValue(port, variable.Value); err != nil {
 				return nil, fmt.Errorf("variable %s default: %w", variable.Name, err)
 			}
 		}
@@ -717,13 +720,26 @@ func compileDefaultInputs(inPorts []IPort, preInPorts []*PrePortNode, defaults m
 			}
 		}
 		clone := port.Clone()
-		if err := clone.setAnyValue(value); err != nil {
+		if err := setConfiguredPortValue(clone, value); err != nil {
 			return nil, nil, fmt.Errorf("input port %d: %w", index, err)
 		}
 		defaultInputs[index] = clone
 		defaultInputSet[index] = true
 	}
 	return defaultInputs, defaultInputSet, nil
+}
+
+func setConfiguredPortValue(port IPort, value any) error {
+	if concrete, ok := port.(*Port); ok && concrete != nil && concrete.kind == portKindInt {
+		if text, ok := value.(string); ok {
+			integer, err := strconv.ParseInt(text, 10, 64)
+			if err != nil || strings.TrimSpace(text) != text {
+				return fmt.Errorf("port expects int64 decimal string, got %q", text)
+			}
+			value = PortInt(integer)
+		}
+	}
+	return port.setAnyValue(value)
 }
 
 // dynamicDefinition 为函数、变量等动态节点生成节点定义。
@@ -809,7 +825,7 @@ func parsePortDefaults(raw map[string]any) map[int]any {
 		if err != nil {
 			continue
 		}
-		defaults[index] = value
+		defaults[index] = compatibleJSONValue(value)
 	}
 	return defaults
 }

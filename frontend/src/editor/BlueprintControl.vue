@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
+import { normalizeIntegerInput } from './valueValidation'
 
-const props = defineProps<{ data: { value?: unknown; type?: 'text' | 'number'; itemType?: 'string' | 'number'; setValue: (value: unknown) => void } }>()
+const props = defineProps<{ data: { value?: unknown; type?: 'text' | 'number'; integer?: boolean; itemType?: 'string' | 'number'; setValue: (value: unknown) => void } }>()
 const value = ref<unknown>(Array.isArray(props.data.value) ? [...props.data.value] : props.data.value ?? '')
 const isArray = computed(() => Array.isArray(value.value))
 const isBoolean = computed(() => typeof value.value === 'boolean')
-const scalarInputType = computed(() => props.data.type === 'number' ? 'number' : 'text')
+const scalarInputType = computed(() => props.data.type === 'number' && !props.data.integer ? 'number' : 'text')
 
 function beginEdit() {
   document.dispatchEvent(new CustomEvent('origin-control-edit-start'))
@@ -34,12 +35,14 @@ function removeItem(index: number) {
 function updateItem(index: number, event: Event) {
   if (!Array.isArray(value.value)) return
   const next = (event.target as HTMLInputElement).value
-  value.value[index] = props.data.itemType === 'number' ? Number(next) : next
+  value.value[index] = props.data.itemType === 'number' ? normalizeIntegerInput(next) : next
 }
 
 function updateScalar(event: Event) {
   const next = (event.target as HTMLInputElement).value
-  value.value = props.data.type === 'number' ? (next === '' ? '' : Number(next)) : next
+  value.value = props.data.integer
+    ? normalizeIntegerInput(next)
+    : props.data.type === 'number' ? (next === '' ? '' : Number(next)) : next
 }
 
 </script>
@@ -47,10 +50,10 @@ function updateScalar(event: Event) {
 <template>
   <label v-if="isBoolean" class="boolean-control" @pointerdown.stop="beginEdit" @dblclick.stop><input v-model="value" type="checkbox" @change="commitEdit" /><span>{{ value ? 'True' : 'False' }}</span></label>
   <div v-else-if="isArray" class="array-control" @pointerdown.stop @dblclick.stop>
-    <div v-for="(item, index) in (value as Array<unknown>)" :key="index" class="array-item"><input :value="item" :type="data.itemType === 'number' ? 'number' : 'text'" @focus="beginEdit" @blur="commitEdit" @input="updateItem(index, $event)" /><button @click="removeItem(index)">×</button></div>
+    <div v-for="(item, index) in (value as Array<unknown>)" :key="index" class="array-item"><input :value="item" type="text" :inputmode="data.itemType === 'number' ? 'numeric' : undefined" @focus="beginEdit" @blur="commitEdit" @input="updateItem(index, $event)" /><button @click="removeItem(index)">×</button></div>
     <button class="array-add" @click="addItem">＋ Item</button>
   </div>
-  <input v-else :value="value" :type="scalarInputType" class="node-input" @pointerdown.stop @dblclick.stop @focus="beginEdit" @blur="commitEdit" @input="updateScalar" />
+  <input v-else :value="value" :type="scalarInputType" :inputmode="data.integer ? 'numeric' : undefined" class="node-input" @pointerdown.stop @dblclick.stop @focus="beginEdit" @blur="commitEdit" @input="updateScalar" />
 </template>
 
 <style scoped>

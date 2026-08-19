@@ -1,6 +1,10 @@
 package blueprint
 
-import "testing"
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
 
 // TestAsPortArrayNumericString 覆盖蓝图数组端口填入字符串形式数字的解析场景。
 // 用户反馈：数组类型参数填数字（字符串形式）时解析失败，业务读 IntVal 得到 0。
@@ -103,6 +107,37 @@ func TestAsPortIntRejectsFractionalAndOverflowingNumbers(t *testing.T) {
 	}
 	if _, ok := asPortInt(uint64(1) << 63); ok {
 		t.Fatal("uint64 overflow must not wrap into an integer")
+	}
+}
+
+func TestAsPortArrayPreservesJSONInt64(t *testing.T) {
+	decoder := json.NewDecoder(strings.NewReader(`[9223372036854775807,"-9223372036854775808"]`))
+	decoder.UseNumber()
+	var source []any
+	if err := decoder.Decode(&source); err != nil {
+		t.Fatal(err)
+	}
+	array, ok := asPortArray(source)
+	if !ok || len(array) != 2 {
+		t.Fatalf("array = %#v,%v", array, ok)
+	}
+	if array[0].IntVal != 9223372036854775807 || array[1].IntVal != -9223372036854775808 {
+		t.Fatalf("int64 values changed: %#v", array)
+	}
+}
+
+func TestArrayAssignmentRejectsUnsupportedElementsWithoutPartialMutation(t *testing.T) {
+	port := NewPortArray()
+	if err := port.setAnyValue([]any{1, "kept"}); err != nil {
+		t.Fatal(err)
+	}
+	err := port.setAnyValue([]any{2, map[string]any{"nested": true}, 3})
+	if err == nil || !strings.Contains(err.Error(), "element 1") {
+		t.Fatalf("error = %v, want unsupported element index", err)
+	}
+	array, ok := port.GetArray()
+	if !ok || len(array) != 2 || array[0].IntVal != 1 || array[1].StrVal != "kept" {
+		t.Fatalf("failed assignment mutated port: %#v,%v", array, ok)
 	}
 }
 

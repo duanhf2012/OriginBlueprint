@@ -147,7 +147,7 @@ func (a *App) MigrateLegacyGraph(content string) (string, error) {
 
 func (a *App) ExportLegacyGraph(content string) (string, error) {
 	var document GraphDocument
-	if err := json.Unmarshal([]byte(content), &document); err != nil {
+	if err := decodeJSONUseNumber([]byte(content), &document); err != nil {
 		return "", fmt.Errorf("decode graph document: %w", err)
 	}
 	data, err := exportLegacyGraph(document)
@@ -160,7 +160,7 @@ func migrateLegacyGraph(data []byte) (GraphDocument, error) {
 
 func migrateLegacyGraphWithRuntimeSpecs(data []byte, runtimeSpecs map[string]runtimeLegacySpec) (GraphDocument, error) {
 	var legacy legacyGraph
-	if err := json.Unmarshal(data, &legacy); err != nil {
+	if err := decodeJSONUseNumber(data, &legacy); err != nil {
 		return GraphDocument{}, fmt.Errorf("decode legacy graph: %w", err)
 	}
 	extraRootFields, extraNodeFields, extraEdgeFields, err := extractLegacyExtraFields(data, legacy)
@@ -471,6 +471,9 @@ func exportLegacyGraph(document GraphDocument) ([]byte, error) {
 		}
 		for key, value := range node.Values {
 			if index, ok := legacyKeyIndex(spec.Inputs, key, "in"); ok {
+				if strings.EqualFold(runtimeLegacySpecPortType(spec, false, index), "integer") || strings.EqualFold(runtimeLegacySpecPortType(spec, false, index), "int") {
+					value = legacyIntegerJSONValue(value)
+				}
 				portDefaults[strconv.Itoa(index)] = value
 			}
 		}
@@ -1256,7 +1259,11 @@ func legacyVariables(document GraphDocument) []map[string]interface{} {
 		} else if _, exists := item["type"]; !exists {
 			item["type"] = variable.Type
 		}
-		item["value"] = variable.DefaultValue
+		value := variable.DefaultValue
+		if strings.EqualFold(variable.Type, "integer") || strings.EqualFold(variable.Type, "int") {
+			value = legacyIntegerJSONValue(value)
+		}
+		item["value"] = value
 		groupName := groupNames[variable.GroupID]
 		if groupName == "" {
 			groupName = "Default"
@@ -1265,6 +1272,18 @@ func legacyVariables(document GraphDocument) []map[string]interface{} {
 		result = append(result, item)
 	}
 	return result
+}
+
+func legacyIntegerJSONValue(value interface{}) interface{} {
+	text, ok := value.(string)
+	if !ok {
+		return value
+	}
+	integer, ok := parseInt64Decimal(text)
+	if !ok {
+		return value
+	}
+	return json.Number(strconv.FormatInt(integer, 10))
 }
 
 func legacyGroups(document GraphDocument) []legacyGroup {

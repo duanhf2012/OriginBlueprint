@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 )
 
@@ -89,7 +90,24 @@ type graphDocumentConnection struct {
 
 func decodeGraphDocument(data []byte, target *graphDocument) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
 	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("unexpected trailing JSON value")
+		}
+		return err
+	}
+	return nil
+}
+
+func decodeJSONNumbers(data []byte, target any) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
 	if err := decoder.Decode(target); err != nil {
 		return err
 	}
@@ -201,7 +219,7 @@ func graphDocumentToConfig(document graphDocument) (GraphConfig, bool, error) {
 		}
 		variable.ID = variableID
 		variableByID[variable.ID] = variable
-		variables = append(variables, VariableConfig{ID: variable.ID, Name: variable.Name, Type: variable.Type, Value: variable.DefaultValue, Scope: variable.Scope})
+		variables = append(variables, VariableConfig{ID: variable.ID, Name: variable.Name, Type: variable.Type, Value: compatibleJSONValue(variable.DefaultValue), Scope: variable.Scope})
 	}
 
 	nodes := make([]NodeConfig, 0, len(document.Nodes))
@@ -465,11 +483,42 @@ func documentDefaults(values map[string]any, inputs map[string]int) map[int]any 
 	defaults := map[int]any{}
 	for key, value := range values {
 		if index, ok := inputs[key]; ok {
-			defaults[index] = value
+			defaults[index] = compatibleJSONValue(value)
 		}
 	}
 	if len(defaults) == 0 {
 		return nil
 	}
 	return defaults
+}
+
+func compatibleJSONValue(value any) any {
+	switch current := value.(type) {
+	case json.Number:
+		if integer, err := strconv.ParseInt(current.String(), 10, 64); err == nil {
+			const maxSafeInteger = int64(9007199254740991)
+			if integer >= -maxSafeInteger && integer <= maxSafeInteger {
+				return float64(integer)
+			}
+			return current
+		}
+		if number, err := strconv.ParseFloat(current.String(), 64); err == nil {
+			return number
+		}
+		return current
+	case []any:
+		result := make([]any, len(current))
+		for index, item := range current {
+			result[index] = compatibleJSONValue(item)
+		}
+		return result
+	case map[string]any:
+		result := make(map[string]any, len(current))
+		for key, item := range current {
+			result[key] = compatibleJSONValue(item)
+		}
+		return result
+	default:
+		return value
+	}
 }

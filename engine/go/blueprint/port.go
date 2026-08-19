@@ -1,6 +1,7 @@
 package blueprint
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"strconv"
@@ -426,9 +427,9 @@ func (p *Port) setAnyValue(value any) error {
 		p.boolv = boolv
 		return nil
 	case portKindArray:
-		arrayv, ok := asTypedPortArray(value)
-		if !ok {
-			return fmt.Errorf("port expects array, got %T", value)
+		arrayv, err := parseTypedPortArray(value)
+		if err != nil {
+			return fmt.Errorf("port expects array: %w", err)
 		}
 		p.setArrayValue(arrayv)
 		return nil
@@ -550,6 +551,9 @@ func asPortInt(value any) (PortInt, bool) {
 		return PortInt(v), true
 	case int64:
 		return PortInt(v), true
+	case json.Number:
+		parsed, err := strconv.ParseInt(v.String(), 10, 64)
+		return PortInt(parsed), err == nil
 	case float64:
 		if math.IsNaN(v) || math.IsInf(v, 0) || math.Trunc(v) != v || v < -9223372036854775808.0 || v >= 9223372036854775808.0 {
 			return 0, false
@@ -592,6 +596,12 @@ func asPortFloat(value any) (PortFloat, bool) {
 		return PortFloat(v), true
 	case int64:
 		return PortFloat(v), true
+	case json.Number:
+		parsed, err := strconv.ParseFloat(v.String(), 64)
+		if err != nil || math.IsNaN(parsed) || math.IsInf(parsed, 0) {
+			return 0, false
+		}
+		return PortFloat(parsed), true
 	default:
 		return 0, false
 	}
@@ -638,14 +648,19 @@ func asPortArray(value any) (PortArray, bool) {
 }
 
 func asTypedPortArray(value any) (typedPortArray, bool) {
+	array, err := parseTypedPortArray(value)
+	return array, err == nil
+}
+
+func parseTypedPortArray(value any) (typedPortArray, error) {
 	switch v := value.(type) {
 	case typedPortArray:
-		return cloneTypedPortArray(v), true
+		return cloneTypedPortArray(v), nil
 	case PortArray:
-		return typedPortArray{values: append(PortArray(nil), v...), kinds: inferArrayElementKinds(v)}, true
+		return typedPortArray{values: append(PortArray(nil), v...), kinds: inferArrayElementKinds(v)}, nil
 	case []ArrayData:
 		values := append(PortArray(nil), v...)
-		return typedPortArray{values: values, kinds: inferArrayElementKinds(values)}, true
+		return typedPortArray{values: values, kinds: inferArrayElementKinds(values)}, nil
 	case []int:
 		array := make(PortArray, 0, len(v))
 		kinds := make([]arrayElementKinds, 0, len(v))
@@ -653,7 +668,7 @@ func asTypedPortArray(value any) (typedPortArray, bool) {
 			array = append(array, ArrayData{IntVal: PortInt(item)})
 			kinds = append(kinds, arrayElementInteger)
 		}
-		return typedPortArray{values: array, kinds: kinds}, true
+		return typedPortArray{values: array, kinds: kinds}, nil
 	case []int64:
 		array := make(PortArray, 0, len(v))
 		kinds := make([]arrayElementKinds, 0, len(v))
@@ -661,7 +676,7 @@ func asTypedPortArray(value any) (typedPortArray, bool) {
 			array = append(array, ArrayData{IntVal: PortInt(item)})
 			kinds = append(kinds, arrayElementInteger)
 		}
-		return typedPortArray{values: array, kinds: kinds}, true
+		return typedPortArray{values: array, kinds: kinds}, nil
 	case []string:
 		array := make(PortArray, 0, len(v))
 		kinds := make([]arrayElementKinds, 0, len(v))
@@ -669,11 +684,11 @@ func asTypedPortArray(value any) (typedPortArray, bool) {
 			array = append(array, arrayDataFromString(item))
 			kinds = append(kinds, stringArrayElementKinds(item))
 		}
-		return typedPortArray{values: array, kinds: kinds}, true
+		return typedPortArray{values: array, kinds: kinds}, nil
 	case []any:
 		array := make(PortArray, 0, len(v))
 		kinds := make([]arrayElementKinds, 0, len(v))
-		for _, item := range v {
+		for index, item := range v {
 			if intv, ok := asPortInt(item); ok {
 				array = append(array, ArrayData{IntVal: intv})
 				kinds = append(kinds, arrayElementInteger)
@@ -694,10 +709,11 @@ func asTypedPortArray(value any) (typedPortArray, bool) {
 				kinds = append(kinds, arrayElementFloat)
 				continue
 			}
+			return typedPortArray{}, fmt.Errorf("element %d has unsupported type %T", index, item)
 		}
-		return typedPortArray{values: array, kinds: kinds}, true
+		return typedPortArray{values: array, kinds: kinds}, nil
 	default:
-		return typedPortArray{}, false
+		return typedPortArray{}, fmt.Errorf("got %T", value)
 	}
 }
 
