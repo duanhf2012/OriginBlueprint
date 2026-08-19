@@ -60,6 +60,7 @@ describe('graph persistence', () => {
 		const parsed = parseGraphJSON('{"value":9223372036854775807}') as { value: unknown }
 		expect(isValidIntegerDefault(parsed.value)).toBe(true)
 		expect(normalizeNodeInputDefault('integer', parsed.value)).toBe('9223372036854775807')
+		expect(normalizeNodeInputDefault('integer', '')).toBe(0)
 	})
 
 	it('keeps old variables legacy-compatible and requires .obp for instance variables', () => {

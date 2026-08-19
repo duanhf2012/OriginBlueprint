@@ -167,6 +167,9 @@ func coreIssueBlocksSave(code string) bool {
 		"variable-group.invalid",
 		"variable-group.duplicate-id",
 		"variable-group.duplicate-name",
+		"variable-group.unknown-scope",
+		"variable-group.invalid-default",
+		"variable-group.invalid-default-scope",
 		"variable.invalid",
 		"integer.invalid-default",
 		"variable.duplicate-id",
@@ -175,6 +178,7 @@ func coreIssueBlocksSave(code string) bool {
 		"variable.unknown-scope",
 		"variable.function-instance-scope",
 		"variable.missing-group",
+		"variable.group-scope-mismatch",
 		"variable.missing",
 		"node.missing-id",
 		"node.duplicate-id",
@@ -795,7 +799,10 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 			if !exists {
 				continue
 			}
-			if portType == "integer" && !validIntegerDefault(value) {
+			// Older editors persisted a cleared numeric control as an empty
+			// string. The production compiler has always interpreted that legacy
+			// node-input representation as zero, so validation must do the same.
+			if portType == "integer" && value != "" && !validIntegerDefault(value) {
 				issues = append(issues, ValidationIssue{Severity: "error", Code: "integer.invalid-default", Message: "整数输入默认值必须是有效的 64 位整数：" + portKey, NodeID: node.ID})
 			}
 			if portType == "array" {

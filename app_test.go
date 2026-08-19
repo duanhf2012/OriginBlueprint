@@ -977,6 +977,10 @@ func TestCoreIssueBlocksSaveUsesExplicitLanguageNeutralCodes(t *testing.T) {
 	blocking := []string{
 		"document.decode",
 		"schema.unsupported",
+		"variable-group.unknown-scope",
+		"variable-group.invalid-default",
+		"variable-group.invalid-default-scope",
+		"variable.group-scope-mismatch",
 		"node.missing-id",
 		"node.duplicate-id",
 		"connection.dangling",
@@ -1626,6 +1630,26 @@ func TestValidateGraphKeepsIntegralLegacyJSONNumberForms(t *testing.T) {
 	}
 }
 
+func TestValidateGraphTreatsLegacyBlankIntegerNodeDefaultAsZero(t *testing.T) {
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		Nodes: []GraphNode{
+			{ID: "begin", TypeID: "origin.event.begin"},
+			{ID: "loop", TypeID: "origin.flow.for-loop", Values: map[string]interface{}{"start": "", "end": 1}},
+		},
+		Connections: []GraphConnection{{Source: "begin", SourceOutput: "exec", Target: "loop", TargetInput: "exec"}},
+	}
+	if issues := validateGraph(document); countValidationIssues(issues, "integer.invalid-default") != 0 {
+		t.Fatalf("legacy blank node input must remain compatible with compiler zero normalization: %#v", issues)
+	}
+
+	document.Variables = []GraphVariable{{ID: "blank", Name: "Blank", Type: "integer", DefaultValue: ""}}
+	issue := requireValidationIssue(t, validateGraph(document), "integer.invalid-default")
+	if !issue.BlocksSave || !issue.BlocksRun {
+		t.Fatalf("blank Integer variable issue = %#v, want save and run blocking", issue)
+	}
+}
+
 func TestLegacyRoundTripPreservesEncodedInt64Variable(t *testing.T) {
 	native := `{
 		"schemaVersion":1,"nodes":[],"connections":[],"groups":[],
@@ -1738,7 +1762,10 @@ func TestValidateGraphRejectsVariableGroupScopeMismatch(t *testing.T) {
 		Variables:      []GraphVariable{{ID: "local", Name: "Local", Type: "integer", GroupID: "global"}},
 	}
 	issues := validateGraph(document)
-	requireValidationIssue(t, issues, "variable.group-scope-mismatch")
+	issue := requireValidationIssue(t, issues, "variable.group-scope-mismatch")
+	if !issue.BlocksSave || !issue.BlocksRun {
+		t.Fatalf("issue = %#v, want source-overwrite protection", issue)
+	}
 }
 
 func TestValidateGraphRejectsInvalidVariableGroupScopes(t *testing.T) {
@@ -1751,8 +1778,12 @@ func TestValidateGraphRejectsInvalidVariableGroupScopes(t *testing.T) {
 		},
 	}
 	issues := validateGraph(document)
-	requireValidationIssue(t, issues, "variable-group.invalid-default-scope")
-	requireValidationIssue(t, issues, "variable-group.unknown-scope")
+	for _, code := range []string{"variable-group.invalid-default-scope", "variable-group.unknown-scope"} {
+		issue := requireValidationIssue(t, issues, code)
+		if !issue.BlocksSave || !issue.BlocksRun {
+			t.Fatalf("%s issue = %#v, want source-overwrite protection", code, issue)
+		}
+	}
 }
 
 func TestValidateGraphRejectsCaseInsensitiveAndDuplicateDefaultVariableGroups(t *testing.T) {
@@ -1769,7 +1800,10 @@ func TestValidateGraphRejectsCaseInsensitiveAndDuplicateDefaultVariableGroups(t 
 	issues := validateGraph(document)
 	requireValidationIssue(t, issues, "variable-group.duplicate-name")
 	requireValidationIssue(t, issues, "variable-group.duplicate-id")
-	requireValidationIssue(t, issues, "variable-group.invalid-default")
+	issue := requireValidationIssue(t, issues, "variable-group.invalid-default")
+	if !issue.BlocksSave || !issue.BlocksRun {
+		t.Fatalf("issue = %#v, want source-overwrite protection", issue)
+	}
 }
 
 func TestExecuteGraphRunsLoopVariablesAndResults(t *testing.T) {
