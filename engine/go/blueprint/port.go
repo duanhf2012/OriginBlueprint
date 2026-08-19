@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"strings"
 )
 
 // PortInt 是蓝图整数端口值。
@@ -24,14 +25,32 @@ type PortArray []ArrayData
 // PortAny 是蓝图任意类型端口值。
 type PortAny = any
 
-// ArrayData 是数组端口中的单个元素。
-//
-// DataType 指示当前元素应该读取哪个具体值字段。
+// ArrayData 是数组端口中的单个元素。运行时在 Port 内部维护元素类型，
+// 不改变这个公开结构；宿主直接构造的旧 PortArray 继续使用字段兼容语义。
 type ArrayData struct {
 	IntVal   PortInt
 	FloatVal PortFloat
 	StrVal   PortString
 	BoolVal  PortBool
+}
+
+// arrayElementKinds is runtime-only metadata. It deliberately stays outside
+// ArrayData so the public PortArray shape and persisted graph format remain
+// compatible with existing callers and legacy files.
+type arrayElementKinds uint8
+
+const (
+	arrayElementInteger arrayElementKinds = 1 << iota
+	arrayElementFloat
+	arrayElementString
+	arrayElementBoolean
+)
+
+// typedPortArray carries element kinds across internal Any/function bindings.
+// Public GetAny calls unwrap it back to PortArray.
+type typedPortArray struct {
+	values PortArray
+	kinds  []arrayElementKinds
 }
 
 type Port_Int = PortInt
@@ -83,14 +102,15 @@ type IPort interface {
 
 // Port 是 IPort 的默认实现。
 type Port struct {
-	kind   portKind
-	intv   PortInt
-	floatv PortFloat
-	strv   PortString
-	boolv  PortBool
-	arrv   PortArray
-	anyv   any
-	timerv TimerHandle
+	kind     portKind
+	intv     PortInt
+	floatv   PortFloat
+	strv     PortString
+	boolv    PortBool
+	arrv     PortArray
+	arrKinds []arrayElementKinds
+	anyv     any
+	timerv   TimerHandle
 }
 
 // NewPortExec 创建执行流端口。
@@ -145,6 +165,9 @@ func clonePortValue(source Port) Port {
 	if source.arrv != nil {
 		clone.arrv = append(PortArray(nil), source.arrv...)
 	}
+	if source.arrKinds != nil {
+		clone.arrKinds = append([]arrayElementKinds(nil), source.arrKinds...)
+	}
 	clone.anyv = cloneAnyValue(source.anyv)
 	return clone
 }
@@ -164,6 +187,7 @@ func (p *Port) SetValue(source IPort) {
 	p.strv = sourcePort.strv
 	p.boolv = sourcePort.boolv
 	p.arrv = append(p.arrv[:0], sourcePort.arrv...)
+	p.arrKinds = append(p.arrKinds[:0], sourcePort.arrKinds...)
 	p.anyv = cloneAnyValue(sourcePort.anyv)
 	p.timerv = sourcePort.timerv
 }
@@ -185,11 +209,15 @@ func assignPortValue(target, source IPort) error {
 		return fmt.Errorf("can not assign exec port")
 	}
 	if targetPort.kind == portKindAny {
-		targetPort.anyv = cloneAnyValue(sourcePort.GetAny())
+		if sourcePort.kind == portKindAny {
+			targetPort.anyv = cloneAnyValue(sourcePort.anyv)
+		} else {
+			targetPort.anyv = cloneAnyValue(portAnyValue(sourcePort))
+		}
 		return nil
 	}
 	if sourcePort.kind == portKindAny {
-		return targetPort.setAnyValue(sourcePort.GetAny())
+		return targetPort.setAnyValue(cloneAnyValue(sourcePort.anyv))
 	}
 	if targetPort.kind != sourcePort.kind {
 		return fmt.Errorf("can not assign port kind %d to %d", sourcePort.kind, targetPort.kind)
@@ -205,6 +233,7 @@ func assignPortValue(target, source IPort) error {
 		targetPort.boolv = sourcePort.boolv
 	case portKindArray:
 		targetPort.arrv = append(targetPort.arrv[:0], sourcePort.arrv...)
+		targetPort.arrKinds = append(targetPort.arrKinds[:0], sourcePort.arrKinds...)
 	case portKindTimerHandle:
 		targetPort.timerv = sourcePort.timerv
 	default:
@@ -266,11 +295,17 @@ func (p *Port) GetArrayValInt(index int) (PortInt, bool) {
 	if p == nil || p.kind != portKindArray || index < 0 || index >= len(p.arrv) {
 		return 0, false
 	}
+	if !p.arrayElementAllows(index, arrayElementInteger) {
+		return 0, false
+	}
 	return p.arrv[index].IntVal, true
 }
 
 func (p *Port) GetArrayValStr(index int) (PortString, bool) {
 	if p == nil || p.kind != portKindArray || index < 0 || index >= len(p.arrv) {
+		return "", false
+	}
+	if !p.arrayElementAllows(index, arrayElementString) {
 		return "", false
 	}
 	return p.arrv[index].StrVal, true
@@ -320,7 +355,7 @@ func (p *Port) AppendArrayValInt(value PortInt) bool {
 	if p == nil || p.kind != portKindArray {
 		return false
 	}
-	p.arrv = append(p.arrv, ArrayData{IntVal: value})
+	p.appendArrayElement(ArrayData{IntVal: value}, arrayElementInteger)
 	return true
 }
 
@@ -328,7 +363,7 @@ func (p *Port) AppendArrayValStr(value PortString) bool {
 	if p == nil || p.kind != portKindArray {
 		return false
 	}
-	p.arrv = append(p.arrv, ArrayData{StrVal: value})
+	p.appendArrayElement(ArrayData{StrVal: value}, arrayElementString)
 	return true
 }
 
@@ -337,7 +372,14 @@ func (p *Port) GetAny() any {
 		return nil
 	}
 	if p.kind == portKindAny {
-		return cloneAnyValue(p.anyv)
+		value := cloneAnyValue(p.anyv)
+		if array, ok := value.(typedPortArray); ok {
+			return append(PortArray(nil), array.values...)
+		}
+		return value
+	}
+	if p.kind == portKindArray {
+		return append(PortArray(nil), p.arrv...)
 	}
 	return portAnyValue(p)
 }
@@ -384,11 +426,11 @@ func (p *Port) setAnyValue(value any) error {
 		p.boolv = boolv
 		return nil
 	case portKindArray:
-		arrayv, ok := asPortArray(value)
+		arrayv, ok := asTypedPortArray(value)
 		if !ok {
 			return fmt.Errorf("port expects array, got %T", value)
 		}
-		p.arrv = append(p.arrv[:0], arrayv...)
+		p.setArrayValue(arrayv)
 		return nil
 	case portKindAny:
 		p.anyv = cloneAnyValue(value)
@@ -409,6 +451,8 @@ func (p *Port) setAnyValue(value any) error {
 
 func cloneAnyValue(value any) any {
 	switch v := value.(type) {
+	case typedPortArray:
+		return cloneTypedPortArray(v)
 	case PortArray:
 		return append(PortArray(nil), v...)
 	case []ArrayData:
@@ -426,6 +470,72 @@ func cloneAnyValue(value any) any {
 	default:
 		return value
 	}
+}
+
+func cloneTypedPortArray(source typedPortArray) typedPortArray {
+	return typedPortArray{
+		values: append(PortArray(nil), source.values...),
+		kinds:  append([]arrayElementKinds(nil), source.kinds...),
+	}
+}
+
+func (p *Port) setArrayValue(value typedPortArray) {
+	p.arrv = append(p.arrv[:0], value.values...)
+	p.arrKinds = append(p.arrKinds[:0], value.kinds...)
+	for len(p.arrKinds) < len(p.arrv) {
+		p.arrKinds = append(p.arrKinds, 0)
+	}
+	if len(p.arrKinds) > len(p.arrv) {
+		p.arrKinds = p.arrKinds[:len(p.arrv)]
+	}
+}
+
+func (p *Port) appendArrayElement(value ArrayData, kinds arrayElementKinds) {
+	for len(p.arrKinds) < len(p.arrv) {
+		p.arrKinds = append(p.arrKinds, 0)
+	}
+	p.arrv = append(p.arrv, value)
+	p.arrKinds = append(p.arrKinds, kinds)
+}
+
+func (p *Port) arrayElementAllows(index int, expected arrayElementKinds) bool {
+	if index < 0 || index >= len(p.arrv) {
+		return false
+	}
+	// Missing metadata means a caller supplied a legacy PortArray. Preserve its
+	// historical field-based behavior because zero values cannot be inferred.
+	if index >= len(p.arrKinds) || p.arrKinds[index] == 0 {
+		return true
+	}
+	return p.arrKinds[index]&expected != 0
+}
+
+func (p *Port) arrayElementTypeLabel(index int) string {
+	if p == nil || index < 0 || index >= len(p.arrv) || index >= len(p.arrKinds) || p.arrKinds[index] == 0 {
+		return "Legacy/Unknown"
+	}
+	kinds := p.arrKinds[index]
+	labels := make([]string, 0, 2)
+	if kinds&arrayElementInteger != 0 {
+		labels = append(labels, "Integer")
+	}
+	if kinds&arrayElementFloat != 0 {
+		labels = append(labels, "Float")
+	}
+	if kinds&arrayElementString != 0 {
+		labels = append(labels, "String")
+	}
+	if kinds&arrayElementBoolean != 0 {
+		labels = append(labels, "Boolean")
+	}
+	return strings.Join(labels, "/")
+}
+
+func describeArrayElementType(port IPort, index int) string {
+	if concrete, ok := port.(*Port); ok && concrete != nil {
+		return concrete.arrayElementTypeLabel(index)
+	}
+	return "Unknown"
 }
 
 func asPortInt(value any) (PortInt, bool) {
@@ -520,51 +630,99 @@ func arrayDataFromString(s string) ArrayData {
 }
 
 func asPortArray(value any) (PortArray, bool) {
+	array, ok := asTypedPortArray(value)
+	if !ok {
+		return nil, false
+	}
+	return array.values, true
+}
+
+func asTypedPortArray(value any) (typedPortArray, bool) {
 	switch v := value.(type) {
+	case typedPortArray:
+		return cloneTypedPortArray(v), true
 	case PortArray:
-		return append(PortArray(nil), v...), true
+		return typedPortArray{values: append(PortArray(nil), v...), kinds: inferArrayElementKinds(v)}, true
 	case []ArrayData:
-		return append(PortArray(nil), v...), true
+		values := append(PortArray(nil), v...)
+		return typedPortArray{values: values, kinds: inferArrayElementKinds(values)}, true
 	case []int:
 		array := make(PortArray, 0, len(v))
+		kinds := make([]arrayElementKinds, 0, len(v))
 		for _, item := range v {
 			array = append(array, ArrayData{IntVal: PortInt(item)})
+			kinds = append(kinds, arrayElementInteger)
 		}
-		return array, true
+		return typedPortArray{values: array, kinds: kinds}, true
 	case []int64:
 		array := make(PortArray, 0, len(v))
+		kinds := make([]arrayElementKinds, 0, len(v))
 		for _, item := range v {
 			array = append(array, ArrayData{IntVal: PortInt(item)})
+			kinds = append(kinds, arrayElementInteger)
 		}
-		return array, true
+		return typedPortArray{values: array, kinds: kinds}, true
 	case []string:
 		array := make(PortArray, 0, len(v))
+		kinds := make([]arrayElementKinds, 0, len(v))
 		for _, item := range v {
 			array = append(array, arrayDataFromString(item))
+			kinds = append(kinds, stringArrayElementKinds(item))
 		}
-		return array, true
+		return typedPortArray{values: array, kinds: kinds}, true
 	case []any:
 		array := make(PortArray, 0, len(v))
+		kinds := make([]arrayElementKinds, 0, len(v))
 		for _, item := range v {
 			if intv, ok := asPortInt(item); ok {
 				array = append(array, ArrayData{IntVal: intv})
+				kinds = append(kinds, arrayElementInteger)
 				continue
 			}
 			if strv, ok := asPortString(item); ok {
 				array = append(array, arrayDataFromString(strv))
+				kinds = append(kinds, stringArrayElementKinds(strv))
 				continue
 			}
 			if boolv, ok := asPortBool(item); ok {
 				array = append(array, ArrayData{BoolVal: boolv})
+				kinds = append(kinds, arrayElementBoolean)
 				continue
 			}
 			if floatv, ok := asPortFloat(item); ok {
 				array = append(array, ArrayData{FloatVal: floatv})
+				kinds = append(kinds, arrayElementFloat)
 				continue
 			}
 		}
-		return array, true
+		return typedPortArray{values: array, kinds: kinds}, true
 	default:
-		return nil, false
+		return typedPortArray{}, false
 	}
+}
+
+func stringArrayElementKinds(value string) arrayElementKinds {
+	if _, err := strconv.ParseInt(value, 10, 64); err == nil {
+		return arrayElementInteger | arrayElementString
+	}
+	return arrayElementString
+}
+
+func inferArrayElementKinds(values PortArray) []arrayElementKinds {
+	kinds := make([]arrayElementKinds, len(values))
+	for index, value := range values {
+		if value.IntVal != 0 {
+			kinds[index] |= arrayElementInteger
+		}
+		if value.FloatVal != 0 {
+			kinds[index] |= arrayElementFloat
+		}
+		if value.StrVal != "" {
+			kinds[index] |= arrayElementString
+		}
+		if value.BoolVal {
+			kinds[index] |= arrayElementBoolean
+		}
+	}
+	return kinds
 }

@@ -115,3 +115,71 @@ func TestAsPortArrayPreservesFractionalJSONNumbersAsFloat(t *testing.T) {
 		t.Fatalf("array element = %#v, want FloatVal 2.5 without integer truncation", arr[0])
 	}
 }
+
+func TestPortArrayTracksMixedScalarTypesWithoutRestrictingStorage(t *testing.T) {
+	port := NewPortArray()
+	if err := port.setAnyValue([]any{float64(7), 2.5, false, ""}); err != nil {
+		t.Fatalf("set mixed array: %v", err)
+	}
+	array, ok := port.GetArray()
+	if !ok || len(array) != 4 {
+		t.Fatalf("array = %#v,%v, want four mixed elements", array, ok)
+	}
+	if value, ok := port.GetArrayValInt(0); !ok || value != 7 {
+		t.Fatalf("integer element = %d,%v, want 7,true", value, ok)
+	}
+	if _, ok := port.GetArrayValInt(1); ok {
+		t.Fatal("Float element must not be readable as Integer")
+	}
+	if _, ok := port.GetArrayValInt(2); ok {
+		t.Fatal("false Boolean element must retain its type")
+	}
+	if value, ok := port.GetArrayValStr(3); !ok || value != "" {
+		t.Fatalf("empty String element = %q,%v, want empty,true", value, ok)
+	}
+}
+
+func TestPortArrayKeepsNumericStringAndLegacyCompatibility(t *testing.T) {
+	typed := NewPortArray()
+	if err := typed.setAnyValue([]any{"0"}); err != nil {
+		t.Fatalf("set numeric string: %v", err)
+	}
+	if value, ok := typed.GetArrayValInt(0); !ok || value != 0 {
+		t.Fatalf("numeric string Integer compatibility = %d,%v", value, ok)
+	}
+	if value, ok := typed.GetArrayValStr(0); !ok || value != "0" {
+		t.Fatalf("numeric string String compatibility = %q,%v", value, ok)
+	}
+
+	legacy := NewPortArray()
+	if err := legacy.setAnyValue(PortArray{{}}); err != nil {
+		t.Fatalf("set legacy zero element: %v", err)
+	}
+	if _, ok := legacy.GetArrayValInt(0); !ok {
+		t.Fatal("untyped legacy zero element must keep field-based Integer access")
+	}
+	if _, ok := legacy.GetArrayValStr(0); !ok {
+		t.Fatal("untyped legacy zero element must keep field-based String access")
+	}
+}
+
+func TestPortArrayTypeMetadataSurvivesAnyBindingWithoutLeakingWrapper(t *testing.T) {
+	source := NewPortArray()
+	if err := source.setAnyValue([]any{2.5}); err != nil {
+		t.Fatalf("set Float array: %v", err)
+	}
+	anyPort := NewPortAny()
+	if err := assignPortValue(anyPort, source); err != nil {
+		t.Fatalf("Array -> Any: %v", err)
+	}
+	if _, ok := anyPort.GetAny().(PortArray); !ok {
+		t.Fatalf("public Any value type = %T, want PortArray", anyPort.GetAny())
+	}
+	target := NewPortArray()
+	if err := assignPortValue(target, anyPort); err != nil {
+		t.Fatalf("Any -> Array: %v", err)
+	}
+	if _, ok := target.GetArrayValInt(0); ok {
+		t.Fatal("Float element type must survive Array -> Any -> Array binding")
+	}
+}

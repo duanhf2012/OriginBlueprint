@@ -357,9 +357,13 @@ func (n *GetArrayInt) Exec() (int, error) {
 	if arrayPort == nil || !ok {
 		return -1, fmt.Errorf("GetArrayInt inputs not found")
 	}
+	array, ok := arrayPort.GetArray()
+	if !ok || index < 0 || index >= PortInt(len(array)) {
+		return -1, fmt.Errorf("GetArrayInt index out of range")
+	}
 	value, ok := arrayPort.GetArrayValInt(int(index))
 	if !ok {
-		return -1, fmt.Errorf("GetArrayInt index out of range")
+		return -1, fmt.Errorf("GetArrayInt element %d is %s, expected Integer", index, describeArrayElementType(arrayPort, int(index)))
 	}
 	n.SetOutPortInt(0, value)
 	return -1, nil
@@ -371,9 +375,13 @@ func (n *GetArrayString) Exec() (int, error) {
 	if arrayPort == nil || !ok {
 		return -1, fmt.Errorf("GetArrayString inputs not found")
 	}
+	array, ok := arrayPort.GetArray()
+	if !ok || index < 0 || index >= PortInt(len(array)) {
+		return -1, fmt.Errorf("GetArrayString index out of range")
+	}
 	value, ok := arrayPort.GetArrayValStr(int(index))
 	if !ok {
-		return -1, fmt.Errorf("GetArrayString index out of range")
+		return -1, fmt.Errorf("GetArrayString element %d is %s, expected String", index, describeArrayElementType(arrayPort, int(index)))
 	}
 	n.SetOutPortStr(0, value)
 	return -1, nil
@@ -389,6 +397,7 @@ func (n *GetArrayLen) Exec() (int, error) {
 }
 
 func (n *CreateIntArray) Exec() (int, error) {
+	input := n.GetInPort(0)
 	array, ok := n.GetInPortArray(0)
 	if !ok {
 		array = nil
@@ -397,13 +406,18 @@ func (n *CreateIntArray) Exec() (int, error) {
 	if out == nil {
 		return -1, fmt.Errorf("CreateIntArray output not found")
 	}
-	for _, item := range array {
-		out.AppendArrayValInt(item.IntVal)
+	for index := range array {
+		value, compatible := input.GetArrayValInt(index)
+		if !compatible {
+			return -1, fmt.Errorf("CreateIntArray element %d is %s, expected Integer", index, describeArrayElementType(input, index))
+		}
+		out.AppendArrayValInt(value)
 	}
 	return -1, nil
 }
 
 func (n *CreateStringArray) Exec() (int, error) {
+	input := n.GetInPort(0)
 	array, ok := n.GetInPortArray(0)
 	if !ok {
 		array = nil
@@ -412,13 +426,18 @@ func (n *CreateStringArray) Exec() (int, error) {
 	if out == nil {
 		return -1, fmt.Errorf("CreateStringArray output not found")
 	}
-	for _, item := range array {
-		out.AppendArrayValStr(item.StrVal)
+	for index := range array {
+		value, compatible := input.GetArrayValStr(index)
+		if !compatible {
+			return -1, fmt.Errorf("CreateStringArray element %d is %s, expected String", index, describeArrayElementType(input, index))
+		}
+		out.AppendArrayValStr(value)
 	}
 	return -1, nil
 }
 
 func (n *AppendIntegerToArray) Exec() (int, error) {
+	input := n.GetInPort(0)
 	array, ok := n.GetInPortArray(0)
 	value, vok := n.GetInPortInt(1)
 	if !ok || !vok {
@@ -428,14 +447,19 @@ func (n *AppendIntegerToArray) Exec() (int, error) {
 	if out == nil {
 		return -1, fmt.Errorf("AppendIntegerToArray output not found")
 	}
-	for _, item := range array {
-		out.AppendArrayValInt(item.IntVal)
+	for index := range array {
+		item, compatible := input.GetArrayValInt(index)
+		if !compatible {
+			return -1, fmt.Errorf("AppendIntegerToArray element %d is %s, expected Integer", index, describeArrayElementType(input, index))
+		}
+		out.AppendArrayValInt(item)
 	}
 	out.AppendArrayValInt(value)
 	return -1, nil
 }
 
 func (n *AppendStringToArray) Exec() (int, error) {
+	input := n.GetInPort(0)
 	array, ok := n.GetInPortArray(0)
 	value, vok := n.GetInPortStr(1)
 	if !ok || !vok {
@@ -445,8 +469,12 @@ func (n *AppendStringToArray) Exec() (int, error) {
 	if out == nil {
 		return -1, fmt.Errorf("AppendStringToArray output not found")
 	}
-	for _, item := range array {
-		out.AppendArrayValStr(item.StrVal)
+	for index := range array {
+		item, compatible := input.GetArrayValStr(index)
+		if !compatible {
+			return -1, fmt.Errorf("AppendStringToArray element %d is %s, expected String", index, describeArrayElementType(input, index))
+		}
+		out.AppendArrayValStr(item)
 	}
 	out.AppendArrayValStr(value)
 	return -1, nil

@@ -140,7 +140,7 @@ func portAnyValue(port IPort) any {
 	case portKindBool:
 		return p.boolv
 	case portKindArray:
-		return append(PortArray(nil), p.arrv...)
+		return cloneTypedPortArray(typedPortArray{values: p.arrv, kinds: p.arrKinds})
 	case portKindAny:
 		return cloneAnyValue(p.anyv)
 	case portKindTimerHandle:
@@ -152,6 +152,8 @@ func portAnyValue(port IPort) any {
 
 func arrayDataFromAny(value any) (ArrayData, error) {
 	switch v := value.(type) {
+	case typedPortArray:
+		return ArrayData{}, fmt.Errorf("top-level function return PortArray is unsupported")
 	case int:
 		return ArrayData{IntVal: PortInt(v)}, nil
 	case int64:

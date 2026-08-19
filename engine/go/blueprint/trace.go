@@ -192,7 +192,7 @@ func traceConcretePortValue(index int, port *Port) BlueprintTracePortValue {
 	case portKindArray:
 		return BlueprintTracePortValue{Index: index, Type: "数组", Value: append(PortArray(nil), port.arrv...)}
 	case portKindAny:
-		return BlueprintTracePortValue{Index: index, Type: "任意", Value: cloneAnyValue(port.anyv)}
+		return BlueprintTracePortValue{Index: index, Type: "任意", Value: port.GetAny()}
 	default:
 		return BlueprintTracePortValue{Index: index, Type: "未知"}
 	}

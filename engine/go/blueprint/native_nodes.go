@@ -31,7 +31,7 @@ func (n *CastFloatString) Exec() (int, error) {
 	return -1, nil
 }
 func (n *CastAnyString) Exec() (int, error) {
-	value := portAnyValue(n.GetInPort(1))
+	value := n.GetInPort(1).GetAny()
 	n.SetOutPortBool(1, value != nil)
 	n.SetOutPortStr(2, PortString(fmt.Sprint(value)))
 	return 0, nil
@@ -104,10 +104,12 @@ func (n *StringSplit) Exec() (int, error) {
 	delimiter, _ := n.GetInPortStr(2)
 	parts := strings.Split(string(text), string(delimiter))
 	array := make(PortArray, 0, len(parts))
+	kinds := make([]arrayElementKinds, 0, len(parts))
 	for _, part := range parts {
 		array = append(array, ArrayData{StrVal: PortString(part)})
+		kinds = append(kinds, arrayElementString)
 	}
-	n.GetOutPort(1).setAnyValue(array)
+	n.GetOutPort(1).setAnyValue(typedPortArray{values: array, kinds: kinds})
 	return 0, nil
 }
 func (n *GetArrayAny) Exec() (int, error) {

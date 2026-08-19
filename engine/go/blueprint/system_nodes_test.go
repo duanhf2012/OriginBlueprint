@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -270,6 +271,31 @@ func TestBuiltinArrayNodes(t *testing.T) {
 	}
 	if value, ok := appendStringCtx.OutputPorts[0].GetArrayValStr(1); !ok || value != "csharp" {
 		t.Fatalf("AppendStringToArray value = %q,%v want csharp,true", value, ok)
+	}
+}
+
+func TestTypedArrayNodesReportElementTypeMismatch(t *testing.T) {
+	mixed := NewPortArray()
+	if err := mixed.setAnyValue([]any{2.5, false}); err != nil {
+		t.Fatalf("set mixed array: %v", err)
+	}
+
+	getInt := &GetArrayInt{}
+	bindNode(t, getInt, []IPort{mixed, intPort(0)}, []IPort{NewPortInt()})
+	if _, err := getInt.Exec(); err == nil || !strings.Contains(err.Error(), "Float") || !strings.Contains(err.Error(), "expected Integer") {
+		t.Fatalf("GetArrayInt error = %v, want Float/Integer mismatch", err)
+	}
+
+	getString := &GetArrayString{}
+	bindNode(t, getString, []IPort{mixed, intPort(1)}, []IPort{NewPortStr()})
+	if _, err := getString.Exec(); err == nil || !strings.Contains(err.Error(), "Boolean") || !strings.Contains(err.Error(), "expected String") {
+		t.Fatalf("GetArrayString error = %v, want Boolean/String mismatch", err)
+	}
+
+	createInt := &CreateIntArray{}
+	bindNode(t, createInt, []IPort{mixed}, []IPort{NewPortArray()})
+	if _, err := createInt.Exec(); err == nil || !strings.Contains(err.Error(), "expected Integer") {
+		t.Fatalf("CreateIntArray error = %v, want typed element mismatch", err)
 	}
 }
 

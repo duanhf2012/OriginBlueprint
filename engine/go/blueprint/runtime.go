@@ -308,8 +308,10 @@ func resetContextPorts(targets []IPort, templates []IPort) []IPort {
 		source, sourceBuiltin := template.(*Port)
 		if targetBuiltin && sourceBuiltin && target != nil && source != nil {
 			arrayStorage := target.arrv[:0]
+			arrayKindsStorage := target.arrKinds[:0]
 			*target = *source
 			target.arrv = append(arrayStorage, source.arrv...)
+			target.arrKinds = append(arrayKindsStorage, source.arrKinds...)
 			target.anyv = cloneAnyValue(source.anyv)
 			targets[index] = target
 			continue
@@ -935,6 +937,7 @@ func releasePortReferences(ports []IPort) {
 		}
 		builtin.strv = ""
 		builtin.arrv = nil
+		builtin.arrKinds = nil
 		builtin.anyv = nil
 	}
 }

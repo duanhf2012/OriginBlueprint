@@ -154,7 +154,11 @@ func (m *vmMachine) continueLoop(loopID uint64) error {
 		if hasNext {
 			item := frame.array[frame.index]
 			if frame.kind == vmLoopIntArray {
-				if !setPortIntAt(frame.ctx.OutputPorts, 2, frame.index) || !setPortIntAt(frame.ctx.OutputPorts, 3, item.IntVal) {
+				value, compatible := frame.ctx.InputPorts[1].GetArrayValInt(int(frame.index))
+				if !compatible {
+					return fmt.Errorf("node %s array element %d is %s, expected Integer", frame.node.ID, frame.index, describeArrayElementType(frame.ctx.InputPorts[1], int(frame.index)))
+				}
+				if !setPortIntAt(frame.ctx.OutputPorts, 2, frame.index) || !setPortIntAt(frame.ctx.OutputPorts, 3, value) {
 					return fmt.Errorf("node %s array loop outputs not found", frame.node.ID)
 				}
 			} else {

@@ -134,6 +134,28 @@ func TestVMIntArrayLoopSnapshotsArrayAndVisitsEachItemOnce(t *testing.T) {
 	assertVMIntReturns(t, returns, 4, 5, 6)
 }
 
+func TestVMIntArrayLoopRejectsNonIntegerElement(t *testing.T) {
+	compiled, err := CompileGraph(vmLoopRegistry(nil), GraphConfig{
+		Nodes: []NodeConfig{
+			{ID: "entry", Class: "VMEntry_1"},
+			{ID: "loop", Class: "ForeachIntArray", PortDefault: map[int]any{1: []any{float64(4), 2.5}}},
+			{ID: "body", Class: "VMReturnPort"},
+		},
+		Edges: []EdgeConfig{
+			{SourceNodeID: "entry", SourcePortID: 0, DesNodeID: "loop", DesPortID: 0},
+			{SourceNodeID: "loop", SourcePortID: 0, DesNodeID: "body", DesPortID: 0},
+			{SourceNodeID: "loop", SourcePortID: 3, DesNodeID: "body", DesPortID: 1},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CompileGraph failed: %v", err)
+	}
+	_, err = NewGraph(compiled).runVMEntrance(1)
+	if err == nil || !strings.Contains(err.Error(), "element 1") || !strings.Contains(err.Error(), "Float") || !strings.Contains(err.Error(), "expected Integer") {
+		t.Fatalf("runVMEntrance error = %v, want Float/Integer mismatch", err)
+	}
+}
+
 func TestVMAnyArrayLoopPreservesItemValues(t *testing.T) {
 	array := PortArray{{IntVal: 7}, {IntVal: 8}}
 	compiled, err := CompileGraph(vmLoopRegistry(nil), GraphConfig{
