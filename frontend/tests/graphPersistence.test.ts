@@ -9,7 +9,8 @@ import {
   serializeGraphDocument,
 } from '../src/graphPersistence'
 import type { GraphDocument } from '../src/editor/document'
-import { parseGraphJSON, preserveUnsafeJSONIntegers } from '../src/graphJSON'
+import { normalizeNodeInputDefault } from '../src/editor/document'
+import { cloneGraphJSONValue, isPreciseJSONInteger, parseGraphJSON, stringifyGraphJSON } from '../src/graphJSON'
 import { isValidIntegerDefault, normalizeIntegerInput } from '../src/editor/valueValidation'
 
 function document(name: string): GraphDocument {
@@ -28,13 +29,24 @@ function document(name: string): GraphDocument {
 describe('graph persistence', () => {
 	it('preserves full int64 values while keeping safe integers numeric', () => {
 		const parsed = parseGraphJSON('{"safe":9007199254740991,"max":9223372036854775807,"min":-9223372036854775808,"text":"9223372036854775807"}') as Record<string, unknown>
-		expect(parsed).toEqual({
-			safe: 9007199254740991,
-			max: '9223372036854775807',
-			min: '-9223372036854775808',
-			text: '9223372036854775807',
-		})
-		expect(preserveUnsafeJSONIntegers('{"value":1.5,"exponent":1e20}')).toBe('{"value":1.5,"exponent":1e20}')
+		expect(parsed.safe).toBe(9007199254740991)
+		expect(parsed.text).toBe('9223372036854775807')
+		expect(isPreciseJSONInteger(parsed.max)).toBe(true)
+		expect(String(parsed.max)).toBe('9223372036854775807')
+		expect(String(parsed.min)).toBe('-9223372036854775808')
+		expect(stringifyGraphJSON(parsed)).toBe('{"safe":9007199254740991,"max":9223372036854775807,"min":-9223372036854775808,"text":"9223372036854775807"}')
+	})
+
+	it('preserves opaque legacy and Any unsafe integers as JSON numbers through clone and save', () => {
+		const source = '{"schemaVersion":1,"nodes":[{"id":"opaque","typeId":"origin.legacy.placeholder","position":{"x":0,"y":0},"values":{"value":9223372036854775807}}],"connections":[],"groups":[],"variables":[],"variableGroups":[],"view":{"x":0,"y":0,"zoom":1},"legacy":{"extraRootFields":{"future_root":9223372036854775807},"extraNodeFields":{"opaque":{"class":"Future","fields":{"future_node":-9223372036854775808}}},"extraEdgeFields":{"0":{"future_edge":9007199254740992}}}}'
+		const parsed = parseGraphJSON(source) as GraphDocument
+		parsed.legacy = cloneGraphJSONValue(parsed.legacy)
+		const saved = serializeGraphDocument('Opaque.obp', parsed)
+		expect(saved).toContain('"value":9223372036854775807')
+		expect(saved).toContain('"future_root":9223372036854775807')
+		expect(saved).toContain('"future_node":-9223372036854775808')
+		expect(saved).toContain('"future_edge":9007199254740992')
+		expect(saved).not.toContain('"9223372036854775807"')
 	})
 
 	it('normalizes integer edits without storing BigInt values in graph documents', () => {
@@ -45,6 +57,9 @@ describe('graph persistence', () => {
 		expect(isValidIntegerDefault('9223372036854775807')).toBe(true)
 		expect(isValidIntegerDefault('9223372036854775808')).toBe(false)
 		expect(isValidIntegerDefault(9007199254740992)).toBe(false)
+		const parsed = parseGraphJSON('{"value":9223372036854775807}') as { value: unknown }
+		expect(isValidIntegerDefault(parsed.value)).toBe(true)
+		expect(normalizeNodeInputDefault('integer', parsed.value)).toBe('9223372036854775807')
 	})
 
 	it('keeps old variables legacy-compatible and requires .obp for instance variables', () => {

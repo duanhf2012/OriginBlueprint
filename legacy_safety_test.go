@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -356,14 +357,14 @@ func TestLegacyRoundTripPreservesUnknownRootNodeAndEdgeFields(t *testing.T) {
 	input := []byte(`{
 		"graph_name":"Forward Compatible",
 		"time":"now",
-		"future_root":{"version":2},
+		"future_root":{"version":2,"counter":9223372036854775807},
 		"nodes":[
-			{"id":"begin","class":"BeginNode","module":"nodes.Event","pos":[1,2],"port_defaultv":{},"future_node":{"color":"blue"}},
+			{"id":"begin","class":"BeginNode","module":"nodes.Event","pos":[1,2],"port_defaultv":{},"future_node":{"color":"blue","counter":-9223372036854775808}},
 			{"id":"print","class":"PrintNode","module":"nodes.Base","pos":[3,4],"port_defaultv":{}},
 			{"id":"hidden","class":"FileNode","module":"future.Nodes","pos":[5,6],"port_defaultv":{},"future_hidden":[1,2,3]}
 		],
 		"edges":[
-			{"edge_id":"visible","source_node_id":"begin","source_port_id":0,"des_node_id":"print","des_port_id":0,"future_edge":"visible-extra"},
+			{"edge_id":"visible","source_node_id":"begin","source_port_id":0,"des_node_id":"print","des_port_id":0,"future_edge":{"label":"visible-extra","counter":9007199254740992}},
 			{"edge_id":"hidden-edge","source_node_id":"hidden","source_port_id":0,"des_node_id":"print","des_port_id":1,"future_edge":{"hidden":true}}
 		],
 		"groups":[],
@@ -382,7 +383,7 @@ func TestLegacyRoundTripPreservesUnknownRootNodeAndEdgeFields(t *testing.T) {
 	if err := json.Unmarshal(output, &got); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(got["future_root"], map[string]interface{}{"version": float64(2)}) {
+	if futureRoot, ok := got["future_root"].(map[string]interface{}); !ok || futureRoot["version"] != float64(2) {
 		t.Fatalf("future_root = %#v", got["future_root"])
 	}
 	nodes := got["nodes"].([]interface{})
@@ -391,17 +392,33 @@ func TestLegacyRoundTripPreservesUnknownRootNodeAndEdgeFields(t *testing.T) {
 		node := raw.(map[string]interface{})
 		byID[node["id"].(string)] = node
 	}
-	if !reflect.DeepEqual(byID["begin"]["future_node"], map[string]interface{}{"color": "blue"}) {
+	if futureNode, ok := byID["begin"]["future_node"].(map[string]interface{}); !ok || futureNode["color"] != "blue" {
 		t.Fatalf("visible node extras = %#v", byID["begin"])
 	}
 	if !reflect.DeepEqual(byID["hidden"]["future_hidden"], []interface{}{float64(1), float64(2), float64(3)}) {
 		t.Fatalf("hidden node extras = %#v", byID["hidden"])
 	}
 	edges := got["edges"].([]interface{})
-	if edges[0].(map[string]interface{})["future_edge"] != "visible-extra" {
+	if futureEdge, ok := edges[0].(map[string]interface{})["future_edge"].(map[string]interface{}); !ok || futureEdge["label"] != "visible-extra" {
 		t.Fatalf("visible edge extras = %#v", edges[0])
 	}
 	if !reflect.DeepEqual(edges[1].(map[string]interface{})["future_edge"], map[string]interface{}{"hidden": true}) {
 		t.Fatalf("hidden edge extras = %#v", edges[1])
+	}
+
+	var precise map[string]interface{}
+	if err := decodeJSONUseNumber(output, &precise); err != nil {
+		t.Fatal(err)
+	}
+	if value := precise["future_root"].(map[string]interface{})["counter"]; fmt.Sprint(value) != "9223372036854775807" {
+		t.Fatalf("future root integer changed: %T(%v)", value, value)
+	}
+	preciseNodes := precise["nodes"].([]interface{})
+	if value := preciseNodes[0].(map[string]interface{})["future_node"].(map[string]interface{})["counter"]; fmt.Sprint(value) != "-9223372036854775808" {
+		t.Fatalf("future node integer changed: %T(%v)", value, value)
+	}
+	preciseEdges := precise["edges"].([]interface{})
+	if value := preciseEdges[0].(map[string]interface{})["future_edge"].(map[string]interface{})["counter"]; fmt.Sprint(value) != "9007199254740992" {
+		t.Fatalf("future edge integer changed: %T(%v)", value, value)
 	}
 }

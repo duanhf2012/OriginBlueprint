@@ -18,6 +18,7 @@ import { buildRestorePlan, normalizeDynamicOutputCount } from './restorePlan'
 import { pushBoundedHistory } from './history'
 import { functionEntryTypeId, functionReturnTypeId, isCopyableFunctionNode, isPasteableFunctionNode, planFunctionTerminalDeletion } from './functionTerminalPolicy'
 import { nodeSelectionPointerIntent, shouldCollapsePreservedSelection } from './nodeSelectionPolicy'
+import { cloneGraphJSONValue } from '../graphJSON'
 
 export type { FunctionSignature, FunctionSignaturePort, GraphDocument, GraphVariable, GraphVariableGroup, ValidationIssue, VariableScope, VariableType } from './document'
 
@@ -430,7 +431,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   }
 
   function cloneLegacyState(value?: LegacyGraphState): LegacyGraphState | undefined {
-    return value ? JSON.parse(JSON.stringify(value)) as LegacyGraphState : undefined
+    return value ? cloneGraphJSONValue(value) : undefined
   }
 
   function historySnapshot(): EditorHistorySnapshot {

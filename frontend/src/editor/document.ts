@@ -1,8 +1,11 @@
+import { isPreciseJSONInteger } from '../graphJSON'
+
 export type VariableType = 'boolean' | 'integer' | 'float' | 'string' | 'array' | 'timerhandle'
 export type VariableScope = 'execution' | 'instance'
 
 export function normalizeNodeInputDefault(socketName: string, value: unknown) {
   const type = String(socketName ?? '').trim().toLowerCase()
+  if ((type === 'integer' || type === 'number') && isPreciseJSONInteger(value)) return value.lexeme
   if (value === '' && (type === 'integer' || type === 'number' || type === 'float')) return 0
   return value
 }

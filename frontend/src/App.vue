@@ -12,7 +12,7 @@ import { autoSaveIntervalMs, isAutoSaveEligible, type AutoSaveMode } from './aut
 import { saveGateDecision } from './saveGate'
 import { applyFunctionPersistenceMetadata, documentRequiresNativePersistence as graphDocumentRequiresNativePersistence, filenameStem, isFunctionBlueprintPath, prepareGraphSave, serializeGraphDocument } from './graphPersistence'
 import { isValidIntegerDefault, normalizeIntegerInput } from './editor/valueValidation'
-import { parseGraphJSON } from './graphJSON'
+import { isPreciseJSONInteger, parseGraphJSON } from './graphJSON'
 
 interface GraphTab { id: string; title: string; path: string; dirty: boolean; document: GraphDocument | null; restoreLoss?: RestoreLossReport | null; restoreFatal?: boolean; saveBlocked?: boolean }
 interface WorkspaceTreeNode extends WorkspaceEntry { children: WorkspaceTreeNode[]; loaded: boolean; loading: boolean }
@@ -1442,11 +1442,14 @@ function normalizeDocument(value: any): GraphDocument {
     const type = normalizeVariableType(variable?.type)
     const scope: VariableScope = variable?.scope === 'instance' ? 'instance' : 'execution'
     const requestedGroupId = String(variable?.groupId ?? '')
+    let defaultValue = variable?.defaultValue ?? variable?.value ?? defaultVariableValue(type)
+    if (type === 'integer' && isPreciseJSONInteger(defaultValue)) defaultValue = defaultValue.lexeme
+    else if (type === 'float' && isPreciseJSONInteger(defaultValue)) defaultValue = Number(defaultValue.lexeme)
     return {
       id: String(variable?.id || crypto.randomUUID()),
       name: String(variable?.name || `Variable${index + 1}`),
       type,
-      defaultValue: variable?.defaultValue ?? variable?.value ?? defaultVariableValue(type),
+      defaultValue,
       groupId: groupNormalization.resolveGroupId(requestedGroupId, String(variable?.group ?? 'Default'), scope),
       description: String(variable?.description ?? ''),
       scope: scope === 'instance' ? 'instance' : undefined

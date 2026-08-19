@@ -1,4 +1,5 @@
 import { variableScope, type FunctionSignature, type GraphDocument } from './editor/document'
+import { stringifyGraphJSON } from './graphJSON'
 
 export interface FunctionPersistenceMetadata {
   graphName: string
@@ -42,7 +43,7 @@ export function persistedGraphDocument(path: string, document: GraphDocument) {
 }
 
 export function serializeGraphDocument(path: string, document: GraphDocument, indentation?: number) {
-  return JSON.stringify(persistedGraphDocument(path, document), null, indentation)
+  return stringifyGraphJSON(persistedGraphDocument(path, document), indentation)
 }
 
 export function applyFunctionPersistenceMetadata(path: string, document: GraphDocument, metadata: FunctionPersistenceMetadata) {

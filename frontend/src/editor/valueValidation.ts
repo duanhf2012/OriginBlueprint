@@ -1,3 +1,5 @@
+import { isPreciseJSONInteger } from '../graphJSON'
+
 const minInt64 = BigInt('-9223372036854775808')
 const maxInt64 = BigInt('9223372036854775807')
 const minSafeInteger = BigInt(Number.MIN_SAFE_INTEGER)
@@ -18,6 +20,7 @@ export function normalizeIntegerInput(value: string): number | string {
 }
 
 export function isValidIntegerDefault(value: unknown) {
+  if (isPreciseJSONInteger(value)) value = value.lexeme
   if (typeof value === 'number') return Number.isSafeInteger(value)
   if (typeof value !== 'string' || !decimalIntegerPattern.test(value)) return false
   try {
