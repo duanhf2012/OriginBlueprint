@@ -5,7 +5,7 @@ import { pushBoundedHistory } from '../src/editor/history'
 import { saveGateDecision } from '../src/saveGate'
 import { variableScope } from '../src/editor/document'
 import { createVariableNode } from '../src/editor/nodeRegistry'
-import { matchingVariableGroupId, moveVariablesToDefaultGroup, normalizeVariableGroups, variableGroupNameExists, variableGroupRemovalMessage, variableGroupUsage, variableGroupsForScope } from '../src/editor/variableGroups'
+import { applyVariableGroupDrop, matchingVariableGroupId, moveVariablesToDefaultGroup, normalizeVariableGroups, planVariableGroupDrop, variableGroupNameExists, variableGroupRemovalMessage, variableGroupUsage, variableGroupsForScope } from '../src/editor/variableGroups'
 import { isValidIntegerDefault } from '../src/editor/valueValidation'
 
 describe('integer default validation', () => {
@@ -121,6 +121,56 @@ describe('variable scopes', () => {
     ]
     expect(matchingVariableGroupId(groups, 'local-combat', 'instance')).toBe('global-combat')
     expect(matchingVariableGroupId(groups, 'local-only', 'instance')).toBe('default')
+  })
+
+  it('moves variables between groups without changing their scope or identity', () => {
+    const groups = [
+      { id: 'local-a', name: 'A', scope: 'execution' as const },
+      { id: 'local-b', name: 'B', scope: 'execution' as const },
+    ]
+    const variable = { id: 'stable-id', name: 'Value', type: 'integer' as const, defaultValue: 0, groupId: 'local-a' }
+    const variables = [
+      { id: 'before', name: 'Before', type: 'integer' as const, defaultValue: 0, groupId: 'local-a' },
+      variable,
+      { id: 'after', name: 'After', type: 'integer' as const, defaultValue: 0, groupId: 'local-b' },
+    ]
+    const plan = planVariableGroupDrop(groups, variable, 'local-b', 'execution', false)
+    expect(plan.kind).toBe('move')
+    expect(applyVariableGroupDrop(variable, plan)).toBe(true)
+    expect(variable).toMatchObject({ id: 'stable-id', groupId: 'local-b' })
+    expect(variable).not.toHaveProperty('scope')
+    expect(variables.map(item => item.id)).toEqual(['before', 'stable-id', 'after'])
+  })
+
+  it('requires a scope-change plan for cross-scope drops and applies target scope atomically', () => {
+    const groups = [
+      { id: 'local', name: 'State', scope: 'execution' as const },
+      { id: 'global', name: 'State', scope: 'instance' as const },
+    ]
+    const variable = { id: 'stable-id', name: 'Value', type: 'integer' as const, defaultValue: 0, groupId: 'local' }
+    const toGlobal = planVariableGroupDrop(groups, variable, 'global', 'instance', false)
+    expect(toGlobal.kind).toBe('scope-change')
+    applyVariableGroupDrop(variable, toGlobal)
+    expect(variable).toMatchObject({ id: 'stable-id', groupId: 'global', scope: 'instance' })
+
+    const toLocal = planVariableGroupDrop(groups, variable, 'default', 'execution', false)
+    expect(toLocal.kind).toBe('scope-change')
+    applyVariableGroupDrop(variable, toLocal)
+    expect(variable).toMatchObject({ id: 'stable-id', groupId: 'default' })
+    expect(variable).not.toHaveProperty('scope')
+  })
+
+  it('rejects function-global and mismatched group drop targets without mutation', () => {
+    const groups = [{ id: 'local', name: 'Local', scope: 'execution' as const }]
+    const variable = { id: 'stable-id', name: 'Value', type: 'integer' as const, defaultValue: 0, groupId: 'local' }
+    const functionPlan = planVariableGroupDrop(groups, variable, 'default', 'instance', true)
+    expect(functionPlan).toMatchObject({ kind: 'forbidden', reason: 'function-instance-scope' })
+    expect(applyVariableGroupDrop(variable, functionPlan)).toBe(false)
+
+    const invalidPlan = planVariableGroupDrop(groups, variable, 'local', 'instance', false)
+    expect(invalidPlan).toMatchObject({ kind: 'forbidden', reason: 'invalid-target-group' })
+    expect(variable).toMatchObject({ id: 'stable-id', groupId: 'local' })
+    expect(variable).not.toHaveProperty('scope')
   })
 })
 

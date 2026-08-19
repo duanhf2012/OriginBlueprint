@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { toPng } from 'html-to-image'
 import { createBlueprintEditor, type BlueprintEditorHandle, type EditorMetrics, type FunctionSignature, type FunctionSignaturePort, type GraphDocument, type GraphVariable, type GraphVariableGroup, type SelectedNodeInfo, type ValidationIssue, type VariableType } from './editor/createEditor'
 import { variableScope, type FunctionNodeMetadata, type NodeSnapshot, type RestoreLossReport, type VariableScope } from './editor/document'
-import { matchingVariableGroupId, moveVariablesToDefaultGroup, normalizeVariableGroups, variableGroupNameExists, variableGroupRemovalMessage, variableGroupsForScope, variableGroupScope, variableGroupUsage } from './editor/variableGroups'
+import { applyVariableGroupDrop, matchingVariableGroupId, moveVariablesToDefaultGroup, normalizeVariableGroups, planVariableGroupDrop, variableGroupNameExists, variableGroupRemovalMessage, variableGroupsForScope, variableGroupScope, variableGroupUsage, type VariableGroupDropPlan } from './editor/variableGroups'
 import { getNodeDefinitions, registerNodeSchemas, type NodeDefinition } from './editor/nodeRegistry'
 import { menuLocales, normalizeLocale, type LocaleId } from './i18n'
 import { platform, type NodeReferenceResult, type RecoverySnapshotResult, type WorkspaceEntry } from './platform'
@@ -134,6 +134,8 @@ let recoveryQueue: RecoverySnapshotResult[] = []
 let untitledCount = 1
 const tabDragIndex = ref(-1)
 const tabDragOverIndex = ref(-1)
+const variableDragId = ref('')
+const variableDropIndicator = ref<{ key: string; plan: VariableGroupDropPlan; label: string } | null>(null)
 let editor: BlueprintEditorHandle | null = null
 let unsubscribeCloseRequest = () => {}
 let closingApplication = false
@@ -1197,15 +1199,59 @@ async function changeVariableType(variable: GraphVariable) {
 }
 
 async function changeVariableScope(variable: GraphVariable, event: Event) {
-  const scope = (event.target as HTMLSelectElement).value as VariableScope
-  if (scope === 'instance' && isFunctionBlueprintTab.value) {
-    status.value = '函数蓝图中的变量只能使用局部作用域'
-    return
+  const select = event.target as HTMLSelectElement
+  const previousScope = variableScope(variable)
+  const scope = select.value as VariableScope
+  const targetGroupId = matchingVariableGroupId(variableGroups.value, variable.groupId, scope)
+  const plan = planVariableGroupDrop(variableGroups.value, variable, targetGroupId, scope, isFunctionBlueprintTab.value)
+  if (!await commitVariableGroupDrop(variable, plan)) select.value = previousScope
+}
+
+function variableScopeTitle(scope: VariableScope) {
+  return scope === 'instance' ? '全局变量' : '局部变量'
+}
+
+function variableDropGroupName(groupId: string) {
+  return groupId === 'default' ? 'Default' : variableGroups.value.find(group => group.id === groupId)?.name ?? groupId
+}
+
+function variableScopeChangeConfirmation(variable: GraphVariable, plan: VariableGroupDropPlan) {
+  const sourceScope = variableScope(variable)
+  const targetTitle = variableScopeTitle(plan.targetScope)
+  const consequence = plan.targetScope === 'instance'
+    ? '之后同一蓝图实例的并发执行和后续执行将共享此变量。'
+    : '之后每次执行都会从默认值重新初始化，当前实例共享值不会迁移为局部值。'
+  const legacyWarning = plan.targetScope === 'instance' && isLegacyGraphPath(activeTab.value?.path || activeTab.value?.title || '')
+    ? '\n\n当前文件是 .vgf，旧格式不能保存全局变量；确认后必须另存为 .obp。'
+    : ''
+  return `将变量“${variable.name}”从${variableScopeTitle(sourceScope)}改为${targetTitle}，并移动到“${variableDropGroupName(plan.targetGroupId)}”。\n\n${consequence}${legacyWarning}`
+}
+
+async function commitVariableGroupDrop(variable: GraphVariable, plan: VariableGroupDropPlan) {
+  if (plan.kind === 'forbidden') {
+    status.value = plan.reason === 'function-instance-scope'
+      ? '函数蓝图中的变量只能使用局部作用域'
+      : '目标分组与变量作用域不匹配'
+    return false
   }
-  variable.groupId = matchingVariableGroupId(variableGroups.value, variable.groupId, scope)
-  if (scope === 'instance') variable.scope = 'instance'
-  else delete variable.scope
-  await updateVariable(variable)
+  if (plan.kind === 'none') return false
+  if (plan.kind === 'scope-change') {
+    if (variable.type === 'integer' && !isValidIntegerDefault(variable.defaultValue)) {
+      status.value = 'Integer 默认值必须是有效的 64 位整数，不能包含小数或超出 int64 范围'
+      return false
+    }
+    if (!window.confirm(variableScopeChangeConfirmation(variable, plan))) return false
+  }
+  const sourceScope = variableScope(variable)
+  if (!applyVariableGroupDrop(variable, plan)) return false
+  await syncVariables(plan.kind === 'scope-change')
+  status.value = plan.kind === 'scope-change'
+    ? `已将 ${variable.name} 改为${variableScopeTitle(plan.targetScope)}并移动到 ${variableDropGroupName(plan.targetGroupId)}`
+    : `已将 ${variable.name} 移动到 ${variableDropGroupName(plan.targetGroupId)}`
+  if (sourceScope === 'execution' && plan.targetScope === 'instance' && isLegacyGraphPath(activeTab.value?.path || activeTab.value?.title || '')) {
+    status.value += '；保存时必须另存为 .obp'
+  }
+  return true
 }
 
 async function setVariableArrayDefault(variable: GraphVariable, event: Event) {
@@ -1361,9 +1407,59 @@ async function removeVariableGroup(group: GraphVariableGroup) {
 }
 
 function startVariableDrag(event: DragEvent, variable: GraphVariable) {
+  variableDragId.value = variable.id
+  variableDropIndicator.value = null
   event.dataTransfer?.setData('application/x-origin-variable', variable.id)
   event.dataTransfer?.setData('application/x-origin-variable-access', event.altKey ? 'set' : 'get')
-  if (event.dataTransfer) event.dataTransfer.effectAllowed = 'copy'
+  if (event.dataTransfer) event.dataTransfer.effectAllowed = 'copyMove'
+}
+
+function endVariableDrag() {
+  variableDragId.value = ''
+  variableDropIndicator.value = null
+}
+
+function variableDropLabel(plan: VariableGroupDropPlan) {
+  if (plan.kind === 'forbidden') return plan.reason === 'function-instance-scope' ? '函数蓝图不支持全局变量' : '不能移动到此分组'
+  if (plan.kind === 'scope-change') return `变更为${variableScopeTitle(plan.targetScope)}并移动到 ${variableDropGroupName(plan.targetGroupId)}`
+  if (plan.kind === 'move') return `移动到 ${variableDropGroupName(plan.targetGroupId)}`
+  return ''
+}
+
+function showVariableGroupDrop(event: DragEvent, key: string, groupId: string, scope: VariableScope) {
+  const variable = variables.value.find(item => item.id === variableDragId.value)
+  if (!variable) return
+  event.preventDefault()
+  event.stopPropagation()
+  const plan = planVariableGroupDrop(variableGroups.value, variable, groupId, scope, isFunctionBlueprintTab.value)
+  const label = variableDropLabel(plan)
+  variableDropIndicator.value = label ? { key, plan, label } : null
+  if (event.dataTransfer) event.dataTransfer.dropEffect = plan.kind === 'move' || plan.kind === 'scope-change' ? 'move' : 'none'
+}
+
+function leaveVariableGroupDrop(event: DragEvent, key: string) {
+  const current = event.currentTarget as HTMLElement | null
+  const related = event.relatedTarget as Node | null
+  if (current && related && current.contains(related)) return
+  if (variableDropIndicator.value?.key === key) variableDropIndicator.value = null
+}
+
+async function dropVariableIntoGroup(event: DragEvent, key: string, groupId: string, scope: VariableScope) {
+  event.preventDefault()
+  event.stopPropagation()
+  const variable = variables.value.find(item => item.id === variableDragId.value)
+  variableDropIndicator.value = null
+  if (!variable) return
+  const plan = planVariableGroupDrop(variableGroups.value, variable, groupId, scope, isFunctionBlueprintTab.value)
+  await commitVariableGroupDrop(variable, plan)
+}
+
+function variableDropClass(key: string) {
+  return variableDropIndicator.value?.key === key ? `variable-drop-${variableDropIndicator.value.plan.kind}` : ''
+}
+
+function variableDropHint(key: string) {
+  return variableDropIndicator.value?.key === key ? variableDropIndicator.value.label : undefined
 }
 
 async function createVariableNode(variable: GraphVariable, access: 'get' | 'set', position?: { x: number; y: number }) {
@@ -2921,7 +3017,7 @@ function toggleModuleCategory(category: string) {
       <aside v-show="showTools" class="sidebar sidebar-left">
         <div class="panel grow variable-panel" :style="variablePanelStyle"><div class="panel-title"><span class="chevron">⌄</span> 变量</div>
           <section v-for="scopeEntry in variableScopeSections" :key="scopeEntry.scope" class="variable-scope-section" :class="`scope-${scopeEntry.scope}`">
-            <header class="variable-scope-header">
+            <header class="variable-scope-header" :class="variableDropClass(`scope-${scopeEntry.scope}-default`)" :data-drop-hint="variableDropHint(`scope-${scopeEntry.scope}-default`)" @dragenter="showVariableGroupDrop($event, `scope-${scopeEntry.scope}-default`, 'default', scopeEntry.scope)" @dragover="showVariableGroupDrop($event, `scope-${scopeEntry.scope}-default`, 'default', scopeEntry.scope)" @dragleave="leaveVariableGroupDrop($event, `scope-${scopeEntry.scope}-default`)" @drop="dropVariableIntoGroup($event, `scope-${scopeEntry.scope}-default`, 'default', scopeEntry.scope)">
               <span class="variable-scope-icon">{{ scopeEntry.scope === 'instance' ? 'G' : 'L' }}</span>
               <strong class="variable-scope-title">{{ scopeEntry.title }}</strong>
               <span class="variable-scope-count">{{ scopeEntry.variables.length }}</span>
@@ -2932,7 +3028,7 @@ function toggleModuleCategory(category: string) {
             </div>
             <div v-if="scopeEntry.scope === 'instance' && isFunctionBlueprintTab" class="variable-scope-notice">函数蓝图不支持全局变量</div>
             <template v-if="scopeEntry.scope !== 'instance' || !isFunctionBlueprintTab || scopeEntry.variables.length">
-              <section v-for="entry in scopeEntry.groups" :key="`${scopeEntry.scope}-${entry.group.id}`" class="variable-group" :class="{ 'variable-group-flat': !scopeEntry.hasCustomGroups }">
+              <section v-for="entry in scopeEntry.groups" :key="`${scopeEntry.scope}-${entry.group.id}`" class="variable-group" :class="[{ 'variable-group-flat': !scopeEntry.hasCustomGroups }, variableDropClass(`group-${scopeEntry.scope}-${entry.group.id}`)]" :data-drop-hint="variableDropHint(`group-${scopeEntry.scope}-${entry.group.id}`)" @dragenter="showVariableGroupDrop($event, `group-${scopeEntry.scope}-${entry.group.id}`, entry.group.id, scopeEntry.scope)" @dragover="showVariableGroupDrop($event, `group-${scopeEntry.scope}-${entry.group.id}`, entry.group.id, scopeEntry.scope)" @dragleave="leaveVariableGroupDrop($event, `group-${scopeEntry.scope}-${entry.group.id}`)" @drop="dropVariableIntoGroup($event, `group-${scopeEntry.scope}-${entry.group.id}`, entry.group.id, scopeEntry.scope)">
                 <div v-if="scopeEntry.hasCustomGroups" class="variable-group-header">
                   <span class="variable-group-name">{{ entry.group.name }}</span><small>{{ entry.variables.length }}</small>
                   <button :title="`在此组添加${scopeEntry.title}`" :disabled="scopeEntry.scope === 'instance' && isFunctionBlueprintTab" @click="addVariable(entry.group.id, scopeEntry.scope)">＋</button>
@@ -2940,7 +3036,7 @@ function toggleModuleCategory(category: string) {
                   <button v-if="entry.group.id !== 'default'" title="删除分组" @click="removeVariableGroup(entry.group)">×</button>
                 </div>
                 <div class="variable-group-list">
-                  <div v-for="variable in entry.variables" :key="variable.id" class="variable-row" :class="{ selected: selectedVariableId === variable.id, 'variable-instance': scopeEntry.scope === 'instance' }" draggable="true" @click="selectVariable(variable)" @dragstart="startVariableDrag($event, variable)">
+                  <div v-for="variable in entry.variables" :key="variable.id" class="variable-row" :class="{ selected: selectedVariableId === variable.id, 'variable-instance': scopeEntry.scope === 'instance' }" draggable="true" @click="selectVariable(variable)" @dragstart="startVariableDrag($event, variable)" @dragend="endVariableDrag">
                     <div class="variable-heading"><span class="variable-type-dot" :class="`type-${variable.type}`"></span><span class="variable-name">{{ variable.name }}</span><span class="variable-scope">{{ scopeEntry.scope === 'instance' ? '全局' : '局部' }}</span><span class="variable-kind">{{ variable.type }}</span><button title="Get" @click.stop="createVariableNode(variable, 'get')">G</button><button title="Set" @click.stop="createVariableNode(variable, 'set')">S</button><button title="Delete" @click.stop="removeVariable(variable)">×</button></div>
                   </div>
                   <button v-if="!entry.variables.length && entry.group.id !== 'default'" class="empty-variable-group" :disabled="scopeEntry.scope === 'instance' && isFunctionBlueprintTab" @click="addVariable(entry.group.id, scopeEntry.scope)">＋ 添加{{ scopeEntry.title }}</button>

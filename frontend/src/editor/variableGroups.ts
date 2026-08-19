@@ -11,6 +11,15 @@ export interface NormalizedVariableGroups {
   resolveGroupId(requestedGroupId: string, legacyGroupName: string, scope: VariableScope): string
 }
 
+export type VariableGroupDropKind = 'none' | 'move' | 'scope-change' | 'forbidden'
+
+export interface VariableGroupDropPlan {
+  kind: VariableGroupDropKind
+  targetGroupId: string
+  targetScope: VariableScope
+  reason?: 'function-instance-scope' | 'invalid-target-group'
+}
+
 export function variableGroupScope(group: Pick<GraphVariableGroup, 'id' | 'scope'>): VariableScope | null {
   if (group.id === 'default') return null
   return group.scope === 'instance' ? 'instance' : 'execution'
@@ -51,6 +60,41 @@ export function matchingVariableGroupId(groups: GraphVariableGroup[], currentGro
   if (!current) return 'default'
   const name = current.name.trim().toLowerCase()
   return variableGroupsForScope(groups, targetScope).find(group => group.id !== 'default' && group.name.trim().toLowerCase() === name)?.id ?? 'default'
+}
+
+export function planVariableGroupDrop(
+  groups: GraphVariableGroup[],
+  variable: GraphVariable,
+  targetGroupId: string,
+  targetScope: VariableScope,
+  functionBlueprint: boolean,
+): VariableGroupDropPlan {
+  if (targetScope === 'instance' && functionBlueprint) {
+    return { kind: 'forbidden', targetGroupId, targetScope, reason: 'function-instance-scope' }
+  }
+  if (targetGroupId !== 'default') {
+    const target = groups.find(group => group.id === targetGroupId)
+    if (!target || variableGroupScope(target) !== targetScope) {
+      return { kind: 'forbidden', targetGroupId, targetScope, reason: 'invalid-target-group' }
+    }
+  }
+  const sourceScope = variableScope(variable)
+  if (sourceScope === targetScope && variable.groupId === targetGroupId) {
+    return { kind: 'none', targetGroupId, targetScope }
+  }
+  return {
+    kind: sourceScope === targetScope ? 'move' : 'scope-change',
+    targetGroupId,
+    targetScope,
+  }
+}
+
+export function applyVariableGroupDrop(variable: GraphVariable, plan: VariableGroupDropPlan) {
+  if (plan.kind !== 'move' && plan.kind !== 'scope-change') return false
+  variable.groupId = plan.targetGroupId
+  if (plan.targetScope === 'instance') variable.scope = 'instance'
+  else delete variable.scope
+  return true
 }
 
 export function normalizeVariableGroups(rawGroups: unknown, sourceVariables: unknown[], createId = () => crypto.randomUUID()): NormalizedVariableGroups {
