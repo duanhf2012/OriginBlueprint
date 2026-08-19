@@ -943,6 +943,16 @@ func requireValidationIssue(t *testing.T, issues []ValidationIssue, code string)
 	return ValidationIssue{}
 }
 
+func countValidationIssues(issues []ValidationIssue, code string) int {
+	count := 0
+	for _, issue := range issues {
+		if issue.Code == code {
+			count++
+		}
+	}
+	return count
+}
+
 func hasValidationErrors(issues []ValidationIssue) bool {
 	for _, issue := range issues {
 		if issue.Severity == "error" {
@@ -1557,6 +1567,33 @@ func TestValidateGraphRejectsUnknownVariableType(t *testing.T) {
 	document := GraphDocument{SchemaVersion: GraphSchemaVersion, Variables: []GraphVariable{{ID: "bad", Name: "Bad", Type: "mystery"}}}
 	issues := validateGraph(document)
 	if len(issues) != 1 || issues[0].Code != "variable.unknown-type" {
+		t.Fatalf("issues = %#v", issues)
+	}
+}
+
+func TestValidateGraphRejectsFractionalIntegerDefaults(t *testing.T) {
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		Variables:     []GraphVariable{{ID: "bad", Name: "Bad", Type: "integer", DefaultValue: 1.5}},
+		Nodes:         []GraphNode{{ID: "loop", TypeID: "origin.flow.for-loop", Values: map[string]interface{}{"start": 1.5, "end": 3}}},
+	}
+	issues := validateGraph(document)
+	if countValidationIssues(issues, "integer.invalid-default") != 2 {
+		t.Fatalf("issues = %#v", issues)
+	}
+}
+
+func TestValidateGraphAcceptsIntegralIntegerDefaults(t *testing.T) {
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		Variables:     []GraphVariable{{ID: "ok", Name: "Ok", Type: "integer", DefaultValue: float64(2)}},
+		Nodes: []GraphNode{
+			{ID: "begin", TypeID: "origin.event.begin"},
+			{ID: "loop", TypeID: "origin.flow.for-loop", Values: map[string]interface{}{"start": float64(1), "end": float64(3)}},
+		},
+		Connections: []GraphConnection{{Source: "begin", SourceOutput: "exec", Target: "loop", TargetInput: "exec"}},
+	}
+	if issues := validateGraph(document); len(issues) != 0 {
 		t.Fatalf("issues = %#v", issues)
 	}
 }

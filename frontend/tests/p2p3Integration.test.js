@@ -28,6 +28,8 @@ assert(app.includes("scope === 'instance' && isFunctionBlueprintTab.value"), 'fu
 assert(!app.includes('variable-group-manager') && !app.includes('variableGroupManagerEntries'), 'the ambiguous shared group manager must not return')
 assert(app.includes('addVariableGroup(scopeEntry.scope)') && app.includes('variableGroupsForScope(variableGroups.value, section.scope)'), 'each scope section must create and render only its own groups')
 assert(app.includes('matchingVariableGroupId(variableGroups.value, variable.groupId, scope)'), 'changing variable scope must map to a same-named target group or Default')
+assert(app.includes("selectedVariable.type === 'integer' ? 1 : 'any'"), 'integer variable defaults must use integer step controls')
+assert(app.includes('isValidIntegerDefault(variable.defaultValue)'), 'integer variable defaults must be rejected before syncing')
 assert(!app.includes('toggleVariableGroup'), 'variable group collapse must not couple local and global scope presentation')
 
 console.log('p2p3Integration tests passed')

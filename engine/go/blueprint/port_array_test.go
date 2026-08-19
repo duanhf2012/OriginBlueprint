@@ -93,3 +93,25 @@ func TestAsPortArrayNativeNumber(t *testing.T) {
 		t.Errorf("元素1 IntVal 期望 10, 实际 %d", arr[1].IntVal)
 	}
 }
+
+func TestAsPortIntRejectsFractionalAndOverflowingNumbers(t *testing.T) {
+	if value, ok := asPortInt(float64(2)); !ok || value != 2 {
+		t.Fatalf("integral float = %d,%v, want 2,true", value, ok)
+	}
+	if _, ok := asPortInt(float64(2.5)); ok {
+		t.Fatal("fractional float must not be silently truncated to an integer")
+	}
+	if _, ok := asPortInt(uint64(1) << 63); ok {
+		t.Fatal("uint64 overflow must not wrap into an integer")
+	}
+}
+
+func TestAsPortArrayPreservesFractionalJSONNumbersAsFloat(t *testing.T) {
+	arr, ok := asPortArray([]any{2.5})
+	if !ok || len(arr) != 1 {
+		t.Fatalf("array = %#v,%v, want one element", arr, ok)
+	}
+	if arr[0].FloatVal != 2.5 || arr[0].IntVal != 0 {
+		t.Fatalf("array element = %#v, want FloatVal 2.5 without integer truncation", arr[0])
+	}
+}

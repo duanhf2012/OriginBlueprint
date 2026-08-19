@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 )
@@ -164,6 +165,7 @@ func coreIssueBlocksSave(code string) bool {
 		"variable-group.duplicate-id",
 		"variable-group.duplicate-name",
 		"variable.invalid",
+		"integer.invalid-default",
 		"variable.duplicate-id",
 		"variable.duplicate-name",
 		"variable.unknown-type",
@@ -187,6 +189,44 @@ func coreIssueBlocksSave(code string) bool {
 		"function.signature-duplicate-id",
 		"function.signature-mismatch":
 		return true
+	default:
+		return false
+	}
+}
+
+// validIntegerDefault accepts the integer values that the Go runtime can store
+// without silently truncating a fractional or overflowing value. JSON numbers
+// arrive here as float64, so the upper bound is exclusive at 2^63.
+func validIntegerDefault(value interface{}) bool {
+	if value == nil {
+		return true
+	}
+	switch number := value.(type) {
+	case int:
+		return true
+	case int8:
+		return true
+	case int16:
+		return true
+	case int32:
+		return true
+	case int64:
+		return true
+	case uint:
+		return uint64(number) <= uint64(math.MaxInt64)
+	case uint8:
+		return true
+	case uint16:
+		return true
+	case uint32:
+		return true
+	case uint64:
+		return number <= uint64(math.MaxInt64)
+	case float32:
+		converted := float64(number)
+		return math.IsNaN(converted) == false && math.IsInf(converted, 0) == false && math.Trunc(converted) == converted && converted >= -9223372036854775808.0 && converted < 9223372036854775808.0
+	case float64:
+		return math.IsNaN(number) == false && math.IsInf(number, 0) == false && math.Trunc(number) == number && number >= -9223372036854775808.0 && number < 9223372036854775808.0
 	default:
 		return false
 	}
@@ -527,6 +567,9 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 		if !variableTypes[variable.Type] {
 			issues = append(issues, ValidationIssue{Severity: "error", Code: "variable.unknown-type", Message: "未知变量类型：" + variable.Type})
 		}
+		if variable.Type == "integer" && !validIntegerDefault(variable.DefaultValue) {
+			issues = append(issues, ValidationIssue{Severity: "error", Code: "integer.invalid-default", Message: "整数变量默认值必须是有效的 64 位整数：" + variable.Name})
+		}
 		if variable.Scope != "" && variable.Scope != "execution" && variable.Scope != "instance" {
 			issues = append(issues, ValidationIssue{Severity: "error", Code: "variable.unknown-scope", Message: "未知变量作用域：" + variable.Scope})
 		}
@@ -656,6 +699,14 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 			continue
 		}
 		definition = applyDynamicBranchOutputs(node, definition)
+		for portKey, portType := range definition.Inputs {
+			if portType != "integer" {
+				continue
+			}
+			if value, exists := node.Values[portKey]; exists && !validIntegerDefault(value) {
+				issues = append(issues, ValidationIssue{Severity: "error", Code: "integer.invalid-default", Message: "整数输入默认值必须是有效的 64 位整数：" + portKey, NodeID: node.ID})
+			}
+		}
 		ports[node.ID] = definition
 	}
 

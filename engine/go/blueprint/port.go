@@ -2,6 +2,7 @@ package blueprint
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 )
 
@@ -440,10 +441,20 @@ func asPortInt(value any) (PortInt, bool) {
 	case int64:
 		return PortInt(v), true
 	case float64:
+		if math.IsNaN(v) || math.IsInf(v, 0) || math.Trunc(v) != v || v < -9223372036854775808.0 || v >= 9223372036854775808.0 {
+			return 0, false
+		}
 		return PortInt(v), true
 	case float32:
+		converted := float64(v)
+		if math.IsNaN(converted) || math.IsInf(converted, 0) || math.Trunc(converted) != converted || converted < -9223372036854775808.0 || converted >= 9223372036854775808.0 {
+			return 0, false
+		}
 		return PortInt(v), true
 	case uint:
+		if uint64(v) > uint64(math.MaxInt64) {
+			return 0, false
+		}
 		return PortInt(v), true
 	case uint8:
 		return PortInt(v), true
@@ -452,6 +463,9 @@ func asPortInt(value any) (PortInt, bool) {
 	case uint32:
 		return PortInt(v), true
 	case uint64:
+		if v > uint64(math.MaxInt64) {
+			return 0, false
+		}
 		return PortInt(v), true
 	default:
 		return 0, false

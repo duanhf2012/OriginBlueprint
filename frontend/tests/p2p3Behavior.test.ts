@@ -6,6 +6,18 @@ import { saveGateDecision } from '../src/saveGate'
 import { variableScope } from '../src/editor/document'
 import { createVariableNode } from '../src/editor/nodeRegistry'
 import { matchingVariableGroupId, moveVariablesToDefaultGroup, normalizeVariableGroups, variableGroupNameExists, variableGroupRemovalMessage, variableGroupUsage, variableGroupsForScope } from '../src/editor/variableGroups'
+import { isValidIntegerDefault } from '../src/editor/valueValidation'
+
+describe('integer default validation', () => {
+  it('accepts safe integers and rejects fractional or unsafe values', () => {
+    expect(isValidIntegerDefault(0)).toBe(true)
+    expect(isValidIntegerDefault(-42)).toBe(true)
+    expect(isValidIntegerDefault(Number.MAX_SAFE_INTEGER)).toBe(true)
+    expect(isValidIntegerDefault(1.5)).toBe(false)
+    expect(isValidIntegerDefault(Number.MAX_SAFE_INTEGER + 1)).toBe(false)
+    expect(isValidIntegerDefault('42')).toBe(false)
+  })
+})
 
 describe('variable scopes', () => {
   it('defaults omitted scope to execution for existing .obp files', () => {
