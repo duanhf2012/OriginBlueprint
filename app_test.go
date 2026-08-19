@@ -1598,6 +1598,25 @@ func TestValidateGraphAcceptsIntegralIntegerDefaults(t *testing.T) {
 	}
 }
 
+func TestValidateGraphIgnoresInvalidConnectedIntegerDefaults(t *testing.T) {
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		Nodes: []GraphNode{
+			{ID: "begin", TypeID: "origin.event.begin"},
+			{ID: "source", TypeID: "origin.math.add-integer", Values: map[string]interface{}{"a": 1, "b": 2}},
+			{ID: "loop", TypeID: "origin.flow.for-loop", Values: map[string]interface{}{"start": 1.5, "end": 3}},
+		},
+		Connections: []GraphConnection{
+			{Source: "begin", SourceOutput: "exec", Target: "loop", TargetInput: "exec"},
+			{Source: "source", SourceOutput: "result", Target: "loop", TargetInput: "start"},
+		},
+	}
+	issues := validateGraph(document)
+	if countValidationIssues(issues, "integer.invalid-default") != 0 {
+		t.Fatalf("connected integer default must be ignored, issues = %#v", issues)
+	}
+}
+
 func TestValidateGraphAcceptsVariableGroups(t *testing.T) {
 	document := GraphDocument{
 		SchemaVersion:  GraphSchemaVersion,

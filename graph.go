@@ -596,6 +596,17 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 		variableNames[variable.Name] = true
 	}
 
+	// Rete keeps control values in node.Values after an input is connected, but
+	// the production compiler ignores those inactive defaults. Do the same here
+	// so a stale control value cannot block saving an otherwise valid graph.
+	connectedInputs := make(map[string]map[string]bool)
+	for _, connection := range document.Connections {
+		if connectedInputs[connection.Target] == nil {
+			connectedInputs[connection.Target] = make(map[string]bool)
+		}
+		connectedInputs[connection.Target][connection.TargetInput] = true
+	}
+
 	nodes := make(map[string]GraphNode, len(document.Nodes))
 	ports := make(map[string]portDefinition, len(document.Nodes))
 	for _, node := range document.Nodes {
@@ -701,6 +712,9 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 		definition = applyDynamicBranchOutputs(node, definition)
 		for portKey, portType := range definition.Inputs {
 			if portType != "integer" {
+				continue
+			}
+			if connectedInputs[node.ID][portKey] {
 				continue
 			}
 			if value, exists := node.Values[portKey]; exists && !validIntegerDefault(value) {
