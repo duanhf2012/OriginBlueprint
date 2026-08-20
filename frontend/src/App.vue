@@ -13,6 +13,7 @@ import { saveGateDecision } from './saveGate'
 import { applyFunctionPersistenceMetadata, documentRequiresNativePersistence as graphDocumentRequiresNativePersistence, filenameStem, isFunctionBlueprintPath, prepareGraphSave, serializeGraphDocument } from './graphPersistence'
 import { isValidIntegerDefault, normalizeIntegerInput } from './editor/valueValidation'
 import { isPreciseJSONInteger, parseGraphJSON } from './graphJSON'
+import { socketStyle } from './editor/socketTheme'
 
 interface GraphTab { id: string; title: string; path: string; dirty: boolean; document: GraphDocument | null; restoreLoss?: RestoreLossReport | null; restoreFatal?: boolean; saveBlocked?: boolean }
 interface WorkspaceTreeNode extends WorkspaceEntry { children: WorkspaceTreeNode[]; loaded: boolean; loading: boolean }
@@ -78,8 +79,11 @@ const selectedWorkspacePath = ref('')
 const functionTitleByPath = ref<Record<string, string>>({})
 const functionIdByPath = ref<Record<string, string>>({})
 const functionCategoryByPath = ref<Record<string, string>>({})
+const leftToolsDefaultWidth = 280
+const leftToolsMinWidth = 240
+const leftToolsMaxWidth = 520
 const fileBrowserWidth = ref(savedPanelWidth('origin-blueprint-file-browser-width', 210))
-const leftToolsWidth = ref(savedPanelWidth('origin-blueprint-left-tools-width', 210, 160, 520))
+const leftToolsWidth = ref(savedPanelWidth('origin-blueprint-left-tools-width', leftToolsDefaultWidth, leftToolsMinWidth, leftToolsMaxWidth))
 const rightSidebarWidth = ref(savedPanelWidth('origin-blueprint-right-sidebar-width', 230, 160, 460))
 const variablePanelHeight = ref(savedPanelSize('origin-blueprint-variable-panel-height', 300, 130, 520))
 const showTools = ref(true)
@@ -369,7 +373,7 @@ function normalizeProjectSettings(value: unknown): ProjectSettings {
     layout: {
       panels: {
         files: clampNumber(panels.files, fallback.layout.panels.files, 140, 360),
-        tools: clampNumber(panels.tools, fallback.layout.panels.tools, 160, 520),
+        tools: clampNumber(panels.tools, fallback.layout.panels.tools, leftToolsMinWidth, leftToolsMaxWidth),
         library: clampNumber(panels.library, fallback.layout.panels.library, 160, 460),
         variables: clampNumber(panels.variables, fallback.layout.panels.variables, 130, 520),
         test: clampNumber(panels.test, fallback.layout.panels.test, 96, 360),
@@ -2390,10 +2394,12 @@ function beginLeftSidebarResize(event: PointerEvent) {
   const startFileWidth = fileBrowserWidth.value
   const startToolsWidth = leftToolsWidth.value
   const totalWidth = startFileWidth + startToolsWidth
-  const minWidth = 140
+  const minFileWidth = 140
+  const minToolsWidth = leftToolsMinWidth
 
   const move = (next: PointerEvent) => {
-    const fileWidth = Math.min(totalWidth - minWidth, Math.max(minWidth, startFileWidth + next.clientX - startX))
+    const maxFileWidth = Math.max(minFileWidth, totalWidth - minToolsWidth)
+    const fileWidth = Math.min(maxFileWidth, Math.max(minFileWidth, startFileWidth + next.clientX - startX))
     fileBrowserWidth.value = Math.round(fileWidth)
     leftToolsWidth.value = Math.round(totalWidth - fileWidth)
   }
@@ -2416,7 +2422,7 @@ function beginLeftToolsResize(event: PointerEvent) {
   const startX = event.clientX
   const startWidth = leftToolsWidth.value
   const move = (next: PointerEvent) => {
-    leftToolsWidth.value = Math.min(520, Math.max(160, Math.round(startWidth + next.clientX - startX)))
+    leftToolsWidth.value = Math.min(leftToolsMaxWidth, Math.max(leftToolsMinWidth, Math.round(startWidth + next.clientX - startX)))
   }
   const up = () => {
     localStorage.setItem('origin-blueprint-left-tools-width', String(leftToolsWidth.value))
@@ -3036,8 +3042,8 @@ function toggleModuleCategory(category: string) {
                   <button v-if="entry.group.id !== 'default'" title="删除分组" @click="removeVariableGroup(entry.group)">×</button>
                 </div>
                 <div class="variable-group-list">
-                  <div v-for="variable in entry.variables" :key="variable.id" class="variable-row" :class="{ selected: selectedVariableId === variable.id, 'variable-instance': scopeEntry.scope === 'instance' }" draggable="true" @click="selectVariable(variable)" @dragstart="startVariableDrag($event, variable)" @dragend="endVariableDrag">
-                    <div class="variable-heading"><span class="variable-type-dot" :class="`type-${variable.type}`"></span><span class="variable-name">{{ variable.name }}</span><span class="variable-scope">{{ scopeEntry.scope === 'instance' ? '全局' : '局部' }}</span><span class="variable-kind">{{ variable.type }}</span><button title="Get" @click.stop="createVariableNode(variable, 'get')">G</button><button title="Set" @click.stop="createVariableNode(variable, 'set')">S</button><button title="Delete" @click.stop="removeVariable(variable)">×</button></div>
+                  <div v-for="variable in entry.variables" :key="variable.id" class="variable-row" :class="{ selected: selectedVariableId === variable.id, 'variable-instance': scopeEntry.scope === 'instance' }" :style="socketStyle(variable.type)" :title="`${variable.name} · ${variable.type} · ${scopeEntry.title}`" draggable="true" @click="selectVariable(variable)" @dragstart="startVariableDrag($event, variable)" @dragend="endVariableDrag">
+                    <div class="variable-heading"><span class="variable-type-dot"></span><span class="variable-name">{{ variable.name }}</span><span class="variable-kind">{{ variable.type }}</span><button title="Get" @click.stop="createVariableNode(variable, 'get')">G</button><button title="Set" @click.stop="createVariableNode(variable, 'set')">S</button><button title="Delete" @click.stop="removeVariable(variable)">×</button></div>
                   </div>
                   <button v-if="!entry.variables.length && entry.group.id !== 'default'" class="empty-variable-group" :disabled="scopeEntry.scope === 'instance' && isFunctionBlueprintTab" @click="addVariable(entry.group.id, scopeEntry.scope)">＋ 添加{{ scopeEntry.title }}</button>
                 </div>

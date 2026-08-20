@@ -18,9 +18,9 @@ button { font: inherit; color: inherit; }
 .dropdown-menu { position: absolute; z-index: 1000; top: 33px; left: 0; width: 230px; max-height: calc(100vh - 42px); overflow-y: auto; overscroll-behavior: contain; padding: 5px 0; border: 1px solid #111; background: #292929; box-shadow: 0 7px 18px #000a; scrollbar-gutter: stable; }
 .dropdown-menu button { width: 100%; height: 27px; display: flex; align-items: center; justify-content: space-between; padding: 0 10px; text-align: left; }
 .dropdown-menu button:disabled { color: #666; }.dropdown-menu kbd { color: #888; font: 11px "Segoe UI"; }.menu-separator { height: 1px; margin: 4px 6px; background: #444; }
-.workspace { min-height: 0; flex: 1; overflow: hidden; display: grid; grid-template-columns: var(--file-browser-width, 210px) 3px var(--left-tools-width, 210px) 3px minmax(520px, 1fr) 3px var(--right-sidebar-width, 230px); }
+.workspace { min-height: 0; flex: 1; overflow: hidden; display: grid; grid-template-columns: var(--file-browser-width, 210px) 3px var(--left-tools-width, 280px) 3px minmax(520px, 1fr) 3px var(--right-sidebar-width, 230px); }
 .application-shell.tools-hidden .workspace { grid-template-columns: var(--file-browser-width, 210px) minmax(520px, 1fr) 3px var(--right-sidebar-width, 230px); }
-.application-shell.right-hidden .workspace { grid-template-columns: var(--file-browser-width, 210px) 3px var(--left-tools-width, 210px) 3px minmax(520px, 1fr); }
+.application-shell.right-hidden .workspace { grid-template-columns: var(--file-browser-width, 210px) 3px var(--left-tools-width, 280px) 3px minmax(520px, 1fr); }
 .application-shell.tools-hidden.right-hidden .workspace { grid-template-columns: var(--file-browser-width, 210px) minmax(520px, 1fr); }
 .sidebar { min-width: 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; background: #2c2c2c; border-color: #111; }
 .sidebar-file-browser { border-right: 1px solid #151515; }
@@ -62,15 +62,11 @@ button { font: inherit; color: inherit; }
 .variable-row:hover { background: #333; }.variable-row.selected { border-color: #4d82a3; background: #29465a; }
 .variable-heading { display: flex; align-items: center; gap: 4px; }
 .variable-row.variable-instance { border-color: #8b641f; background: #392f20; }
-.variable-scope { padding: 1px 5px; border: 1px solid #67527e; border-radius: 7px; color: #bea8d2; font-size: 9px; white-space: nowrap; }
-.variable-instance .variable-scope { border-color: #9f7224; color: #f0c36c; }
 .variable-scope-hint { display: block; margin: -2px 0 5px; color: #c79b4e; line-height: 1.4; }
 .variable-heading button { width: 22px; height: 21px; padding: 0; border: 1px solid #444; background: #303030; color: #999; font-size: 10px; }
 .variable-heading button:hover { border-color: #67889d; color: white; }
-.variable-name { min-width: 0; flex: 1; overflow: hidden; color: #ddd; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }.variable-kind { color: #666; font: 9px Consolas, monospace; text-transform: uppercase; }
-.variable-type-dot { width: 8px; height: 8px; flex: 0 0 auto; border-radius: 50%; background: #aaa; }
-.variable-type-dot.type-boolean { background: #e33b48; }.variable-type-dot.type-integer { background: #25bf48; }.variable-type-dot.type-float { background: #55cbb1; }.variable-type-dot.type-string { background: #e23abb; }
-.variable-type-dot.type-array { background: #d6ac19; }
+.variable-name { min-width: 0; flex: 1; overflow: hidden; color: var(--socket-label-color, var(--socket-color, #ddd)); font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }.variable-kind { flex: 0 0 auto; color: #777; font: 9px Consolas, monospace; text-transform: uppercase; white-space: nowrap; }
+.variable-type-dot { width: 8px; height: 8px; flex: 0 0 8px; border-radius: 50%; background: var(--socket-color, #aaa); }
 .empty-variable-group { width: calc(100% - 12px); height: 23px; margin: 2px 6px; border: 1px dashed #444; background: transparent; color: #686868; font-size: 10px; }.empty-variable-group:hover:not(:disabled) { border-color: #63839a; color: #aaa; }.empty-variable-group:disabled { color: #4f4a42; cursor: not-allowed; }
 .variable-scope-header.variable-drop-move, .variable-scope-header.variable-drop-scope-change, .variable-scope-header.variable-drop-forbidden, .variable-group.variable-drop-move, .variable-group.variable-drop-scope-change, .variable-group.variable-drop-forbidden { position: relative; z-index: 2; outline: 2px solid #4d91bd; outline-offset: -2px; }
 .variable-scope-header.variable-drop-scope-change, .variable-group.variable-drop-scope-change { outline-color: #d7952d; }
