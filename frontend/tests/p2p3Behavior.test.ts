@@ -4,7 +4,7 @@ import { autoSaveIntervalMs, isAutoSaveEligible } from '../src/autoSavePolicy'
 import { pushBoundedHistory } from '../src/editor/history'
 import { saveGateDecision } from '../src/saveGate'
 import { variableScope } from '../src/editor/document'
-import { createVariableNode } from '../src/editor/nodeRegistry'
+import { applyVariableNodePresentation, createVariableNode } from '../src/editor/nodeRegistry'
 import { applyVariableGroupDrop, matchingVariableGroupId, moveVariablesToDefaultGroup, normalizeVariableGroups, planVariableGroupDrop, variableGroupNameExists, variableGroupRemovalMessage, variableGroupUsage, variableGroupsForScope } from '../src/editor/variableGroups'
 import { isValidIntegerDefault } from '../src/editor/valueValidation'
 
@@ -30,6 +30,25 @@ describe('variable scopes', () => {
     const node = createVariableNode({ id: 'shared', name: 'Shared', type: 'integer', defaultValue: 0, groupId: 'default', scope: 'instance' }, 'get')
     expect(node.variableScope).toBe('instance')
     expect(node.subtitle).toContain('全局')
+  })
+
+  it('keeps Chinese variable names in Getter and Setter titles and port labels', () => {
+    const variable = { id: 'health', name: '生命值', type: 'integer' as const, defaultValue: 100, groupId: 'default' }
+    const getter = createVariableNode(variable, 'get')
+    const setter = createVariableNode(variable, 'set')
+    expect(getter.label).toBe('Get 生命值')
+    expect(getter.outputs.value?.label).toBe('生命值')
+    expect(setter.label).toBe('Set 生命值')
+    expect(setter.inputs.value?.label).toBe('生命值')
+    expect(setter.outputs.value?.label).toBe('生命值')
+
+    const getterId = getter.id
+    const getterOutput = getter.outputs.value
+    applyVariableNodePresentation(getter, { ...variable, name: '当前生命值' })
+    expect(getter.id).toBe(getterId)
+    expect(getter.outputs.value).toBe(getterOutput)
+    expect(getter.label).toBe('Get 当前生命值')
+    expect(getter.outputs.value?.label).toBe('当前生命值')
   })
 
   it('reports usage separately and describes deletion within one scope', () => {

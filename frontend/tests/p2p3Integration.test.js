@@ -36,6 +36,7 @@ assert(app.includes("保存时必须另存为 .obp") && app.includes("reason ===
 assert(app.includes(':style="socketStyle(variable.type)"') && style.includes('color: var(--socket-label-color, var(--socket-color, #ddd))'), 'variable names must reuse the canonical socket type colors')
 assert(!app.includes('<span class="variable-scope">'), 'variable rows must not repeat the scope already conveyed by their local or global section')
 assert(app.includes("savedPanelWidth('origin-blueprint-left-tools-width', leftToolsDefaultWidth, leftToolsMinWidth, leftToolsMaxWidth)") && app.includes('tools: clampNumber(panels.tools, fallback.layout.panels.tools, leftToolsMinWidth, leftToolsMaxWidth)') && style.includes('var(--left-tools-width, 280px)'), 'the variable and detail sidebar must migrate saved layouts to a wider readable range')
+assert(app.includes('@input="previewVariableName(selectedVariable)"') && editor.includes('refreshVariableNodePresentation(variable: GraphVariable)'), 'renaming a variable must refresh existing Getter and Setter presentations while editing')
 assert(app.includes('setVariableIntegerDefault') && app.includes('inputmode="numeric"'), 'integer variable defaults must use precision-preserving text controls')
 assert(app.includes('isValidIntegerDefault(variable.defaultValue)'), 'integer variable defaults must be rejected before syncing')
 assert(!app.includes('toggleVariableGroup'), 'variable group collapse must not couple local and global scope presentation')

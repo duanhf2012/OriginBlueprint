@@ -375,7 +375,22 @@ export function createVariableNode(variable: GraphVariable, access: 'get' | 'set
     result.addOutput('exec', new ClassicPreset.Output(sockets.exec, ''))
     result.addOutput('value', new ClassicPreset.Output(socket, variable.name))
   }
+  applyVariableNodePresentation(result, variable)
   return result
+}
+
+export function applyVariableNodePresentation(node: BlueprintNode, variable: GraphVariable) {
+  const access = node.variableAccess ?? (node.typeId === 'origin.variable.set' ? 'set' : 'get')
+  const scope = variable.scope === 'instance' ? 'instance' : 'execution'
+  node.label = `${access === 'get' ? 'Get' : 'Set'} ${variable.name}`
+  node.subtitle = `${scope === 'instance' ? '全局' : '局部'} · ${variable.type}`
+  node.variableId = variable.id
+  node.variableAccess = access
+  node.variableScope = scope
+  node.width = nodeTitleWidth(node.label)
+  if (node.inputs.value) node.inputs.value.label = variable.name
+  if (node.outputs.value) node.outputs.value.label = variable.name
+  return node
 }
 
 export function createLegacyNode(properties: NodeProperties) {

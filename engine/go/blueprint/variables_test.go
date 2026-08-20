@@ -59,6 +59,46 @@ func TestCompilerSupportsLegacyGetSetVariableNodes(t *testing.T) {
 	}
 }
 
+func TestCompilerExecutesChineseVariableNames(t *testing.T) {
+	var reader *testReadVariable
+	registry := NewRegistry()
+	registry.Register(NewNodeDefinition("Entrance_IntParam", func() IExecNode {
+		return &EntranceIntParam{}
+	}, nil, []IPort{NewPortExec()}))
+	registry.Register(NewNodeDefinition("TestReadVariable", func() IExecNode {
+		reader = &testReadVariable{}
+		return reader
+	}, []IPort{NewPortExec(), NewPortInt()}, nil))
+
+	compiled, err := CompileGraph(registry, GraphConfig{
+		Variables: []VariableConfig{{Name: "生命值", Type: "Integer"}},
+		Nodes: []NodeConfig{
+			{ID: "entrance", Class: "Entrance_IntParam_1"},
+			{ID: "set", Class: "Set_生命值", PortDefault: map[int]any{1: 88}},
+			{ID: "get", Class: "Get_生命值"},
+			{ID: "read", Class: "TestReadVariable"},
+		},
+		Edges: []EdgeConfig{
+			{SourceNodeID: "entrance", SourcePortID: 0, DesNodeID: "set", DesPortID: 0},
+			{SourceNodeID: "set", SourcePortID: 0, DesNodeID: "read", DesPortID: 0},
+			{SourceNodeID: "get", SourcePortID: 0, DesNodeID: "read", DesPortID: 1},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CompileGraph failed: %v", err)
+	}
+
+	var bp Blueprint
+	bp.AddCompiledGraph("chinese-variable", compiled)
+	graphID := bp.Create("chinese-variable")
+	if _, err := bp.Do(graphID, 1); err != nil {
+		t.Fatalf("Do failed: %v", err)
+	}
+	if reader == nil || len(reader.values) != 1 || reader.values[0] != 88 {
+		t.Fatalf("reader values = %#v, want [88]", reader)
+	}
+}
+
 func TestBlueprintVariablesResetAcrossExecutions(t *testing.T) {
 	var reader *testReadVariable
 	registry := NewRegistry()

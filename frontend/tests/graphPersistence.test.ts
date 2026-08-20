@@ -74,6 +74,23 @@ describe('graph persistence', () => {
 		expect(documentRequiresNativePersistence(shared)).toBe(true)
 		expect(JSON.parse(serializeGraphDocument('Shared.obp', shared)).variables[0].scope).toBe('instance')
 	})
+
+  it('round-trips Chinese variable names and stable Getter references', () => {
+    const source = document('中文变量测试')
+    source.variables = [{ id: 'health', name: '当前生命值', type: 'integer', defaultValue: 100, groupId: 'default' }]
+    source.nodes = [{
+      id: 'get-health',
+      typeId: 'origin.variable.get',
+      position: { x: 12, y: 34 },
+      values: {},
+      properties: { variableId: 'health', variableAccess: 'get' },
+    }]
+
+    const restored = JSON.parse(serializeGraphDocument('中文变量测试.obp', source)) as GraphDocument
+    expect(restored.variables[0]).toMatchObject({ id: 'health', name: '当前生命值' })
+    expect(restored.nodes[0].properties?.variableId).toBe('health')
+  })
+
   it('serializes ordinary save payloads from the selected final path without mutating editor state', () => {
     const source = document('Stale Historical Name')
     const compact = '{"schemaVersion":1,"nodes":[],"connections":[],"groups":[],"variables":[],"variableGroups":[],"view":{"x":0,"y":0,"zoom":1}}'

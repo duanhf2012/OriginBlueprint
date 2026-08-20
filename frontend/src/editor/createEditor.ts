@@ -7,7 +7,7 @@ import BlueprintControl from './BlueprintControl.vue'
 import BlueprintConnectionComponent from './BlueprintConnection.vue'
 import BlueprintNodeComponent from './BlueprintNode.vue'
 import BlueprintSocket from './BlueprintSocket.vue'
-import { applyTimerFunctionMetadata, createFunctionCallNode, createFunctionEntryNode as createFunctionEntryNodeFromSpec, createFunctionReturnNode as createFunctionReturnNodeFromSpec, createLegacyNode, createNode, createSetTimerByFunctionNode, createVariableNode, hasNodeDefinition, nodeTitleWidth, resolveNodeLegacyClass } from './nodeRegistry'
+import { applyTimerFunctionMetadata, applyVariableNodePresentation, createFunctionCallNode, createFunctionEntryNode as createFunctionEntryNodeFromSpec, createFunctionReturnNode as createFunctionReturnNodeFromSpec, createLegacyNode, createNode, createSetTimerByFunctionNode, createVariableNode, hasNodeDefinition, nodeTitleWidth, resolveNodeLegacyClass } from './nodeRegistry'
 import { normalizeSocketName } from './socketTheme'
 import { BlueprintNode, type Schemes } from './types'
 import { describeEntryBinding, entryBindingCandidateGroups, isEntryOutputConnection, type EntryBindingNode } from './implicitEntryLinks'
@@ -133,6 +133,7 @@ export interface BlueprintEditorHandle {
   toggleGroupSelected(): Promise<void>
   fitSelected(): Promise<void>
   setVariables(variables: GraphVariable[], variableGroups?: GraphVariableGroup[], refreshNodes?: boolean): Promise<void>
+  refreshVariableNodePresentation(variable: GraphVariable): Promise<void>
   setCallableFunctions(functions: FunctionNodeMetadata[]): Promise<void>
   focusNode(id: string): Promise<void>
   highlightNodesByType(typeId: string): Promise<number>
@@ -1653,6 +1654,15 @@ function nodeSize(node: BlueprintNode) {
     callbacks.onVariableGroups(currentVariableGroups.map(item => ({ ...item })))
   }
 
+  async function refreshVariableNodePresentation(variable: GraphVariable) {
+    const index = currentVariables.findIndex(item => item.id === variable.id)
+    if (index >= 0) currentVariables[index] = { ...variable }
+    const nodes = editor.getNodes().filter(node => node.variableId === variable.id)
+    for (const node of nodes) applyVariableNodePresentation(node, variable)
+    await Promise.all(nodes.map(node => area.update('node', node.id)))
+    callbacks.onDirty()
+  }
+
   async function focusNode(id: string) {
     const node = editor.getNode(id)
     if (!node) return
@@ -1997,6 +2007,7 @@ function nodeSize(node: BlueprintNode) {
     toggleGroupSelected,
     fitSelected,
     setVariables,
+    refreshVariableNodePresentation,
     setCallableFunctions,
     focusNode,
     highlightNodesByType,
