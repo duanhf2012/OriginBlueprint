@@ -46,6 +46,7 @@ type DesktopApp = {
   MigrateLegacyGraph(content: string): Promise<string>
   ExportLegacyGraph(content: string): Promise<string>
   LoadNodeSchemaDocuments(): Promise<RawNodeSchemaDocumentLoadResult>
+  LoadNodeSchemaDocumentsForWorkspace(workspaceRoot: string): Promise<RawNodeSchemaDocumentLoadResult>
   LogClientError(level: string, message: string, stack: string, context: string): Promise<void>
 }
 
@@ -216,8 +217,14 @@ export const platform = {
   },
   async migrateLegacyGraph(content: string) { return desktop() ? withDesktopLogging('MigrateLegacyGraph', () => desktop()!.MigrateLegacyGraph(content)) : '' },
   async exportLegacyGraph(content: string) { return desktop() ? withDesktopLogging('ExportLegacyGraph', () => desktop()!.ExportLegacyGraph(content)) : content },
-  async loadNodeSchemas(): Promise<NodeSchemaLoadResult> {
-    const result = normalizeNodeSchemaDocumentLoadResult(desktop() ? await withDesktopLogging('LoadNodeSchemaDocuments', () => desktop()!.LoadNodeSchemaDocuments()) : await loadBrowserNodeSchemaDocuments())
+  async loadNodeSchemas(workspaceRoot = ''): Promise<NodeSchemaLoadResult> {
+    const root = workspaceRoot.trim()
+    const documents = desktop()
+      ? root
+        ? await withDesktopLogging('LoadNodeSchemaDocumentsForWorkspace', () => desktop()!.LoadNodeSchemaDocumentsForWorkspace(root))
+        : await withDesktopLogging('LoadNodeSchemaDocuments', () => desktop()!.LoadNodeSchemaDocuments())
+      : await loadBrowserNodeSchemaDocuments()
+    const result = normalizeNodeSchemaDocumentLoadResult(documents)
     return parseNodeSchemaDocuments(result.documents, result.errors)
   },
   onCloseRequest(callback: () => void) {

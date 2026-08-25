@@ -1,7 +1,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const root = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/(.:)/, '$1')), '..', 'src')
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'src')
 const source = relative => fs.readFileSync(path.join(root, relative), 'utf8')
 
 function assert(value, message) {

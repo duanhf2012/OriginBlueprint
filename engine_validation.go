@@ -69,7 +69,7 @@ func validateGraphWithEngine(content, workspaceRoot, sourcePath string) *Validat
 		return engineValidationIssue("engine.prepare", err)
 	}
 
-	loadResult := loadRuntimeNodeSchemaDocumentsWithEmbedded(runtimeNodeDirectories())
+	loadResult := loadRuntimeNodeSchemaDocumentsForWorkspace(workspaceRoot)
 	if len(loadResult.Errors) != 0 {
 		first := loadResult.Errors[0]
 		return engineValidationIssue("engine.definition", fmt.Errorf("%s: %s", first.Path, first.Message))

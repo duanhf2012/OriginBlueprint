@@ -66,6 +66,10 @@ export function LoadNodeSchemaDocuments() {
   return window['go']['main']['App']['LoadNodeSchemaDocuments']();
 }
 
+export function LoadNodeSchemaDocumentsForWorkspace(arg1) {
+  return window['go']['main']['App']['LoadNodeSchemaDocumentsForWorkspace'](arg1);
+}
+
 export function LoadProjectSettings(arg1) {
   return window['go']['main']['App']['LoadProjectSettings'](arg1);
 }

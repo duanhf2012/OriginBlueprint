@@ -2,9 +2,11 @@ package main
 
 import (
 	"embed"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 )
@@ -31,19 +33,23 @@ func (a *App) LoadNodeSchemaDocuments() RuntimeNodeSchemaDocumentLoadResult {
 	return loadRuntimeNodeSchemaDocumentsWithEmbedded(runtimeNodeDirectories())
 }
 
+// LoadNodeSchemaDocumentsForWorkspace 加载内建、全局扩展和当前工作区节点定义。
+// 工作区节点最后加载，因此可以按相对路径覆盖低优先级来源。
+func (a *App) LoadNodeSchemaDocumentsForWorkspace(workspaceRoot string) RuntimeNodeSchemaDocumentLoadResult {
+	return loadRuntimeNodeSchemaDocumentsForWorkspace(workspaceRoot)
+}
+
 func runtimeNodeDirectories() []string {
-	seen := map[string]bool{}
-	var result []string
+	directories, _ := runtimeNodeDirectoriesForWorkspace("")
+	return directories
+}
+
+func runtimeNodeDirectoriesForWorkspace(workspaceRoot string) ([]string, error) {
+	var candidates []string
 	add := func(base string) {
-		if base == "" {
-			return
+		if strings.TrimSpace(base) != "" {
+			candidates = append(candidates, filepath.Join(base, "nodes"))
 		}
-		path, err := filepath.Abs(filepath.Join(base, "nodes"))
-		if err != nil || seen[path] {
-			return
-		}
-		seen[path] = true
-		result = append(result, path)
 	}
 	if executable, err := os.Executable(); err == nil {
 		add(filepath.Dir(executable))
@@ -51,7 +57,56 @@ func runtimeNodeDirectories() []string {
 	if cwd, err := os.Getwd(); err == nil {
 		add(cwd)
 	}
+
+	workspaceRoot = strings.TrimSpace(workspaceRoot)
+	if workspaceRoot != "" {
+		absolute, err := filepath.Abs(workspaceRoot)
+		if err != nil {
+			return nil, fmt.Errorf("resolve workspace %q: %w", workspaceRoot, err)
+		}
+		info, err := os.Stat(absolute)
+		if err != nil {
+			return nil, fmt.Errorf("open workspace %q: %w", absolute, err)
+		}
+		if !info.IsDir() {
+			return nil, fmt.Errorf("workspace %q is not a directory", absolute)
+		}
+		add(absolute)
+	}
+	return uniqueRuntimeNodeDirectories(candidates), nil
+}
+
+func uniqueRuntimeNodeDirectories(candidates []string) []string {
+	seen := map[string]bool{}
+	result := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		absolute, err := filepath.Abs(candidate)
+		if err != nil {
+			continue
+		}
+		absolute = filepath.Clean(absolute)
+		key := absolute
+		if runtime.GOOS == "windows" {
+			key = strings.ToLower(key)
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		result = append(result, absolute)
+	}
 	return result
+}
+
+func loadRuntimeNodeSchemaDocumentsForWorkspace(workspaceRoot string) RuntimeNodeSchemaDocumentLoadResult {
+	directories, err := runtimeNodeDirectoriesForWorkspace(workspaceRoot)
+	if err != nil {
+		return RuntimeNodeSchemaDocumentLoadResult{Errors: []RuntimeNodeLoadError{{
+			Path:    strings.TrimSpace(workspaceRoot),
+			Message: err.Error(),
+		}}}
+	}
+	return loadRuntimeNodeSchemaDocumentsWithEmbedded(directories)
 }
 
 func loadRuntimeNodeSchemaDocuments(directories []string) RuntimeNodeSchemaDocumentLoadResult {

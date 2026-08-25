@@ -130,6 +130,65 @@ func TestExternalNodeSchemaDocumentsOverrideEmbeddedByRelativePath(t *testing.T)
 	t.Fatal("Base.json document not found")
 }
 
+func TestWorkspaceNodeSchemaDocumentsOverrideGlobalSources(t *testing.T) {
+	workspace := t.TempDir()
+	nodesDir := filepath.Join(workspace, "nodes")
+	if err := os.MkdirAll(nodesDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	overrideContent := `[{"name":"WorkspaceBase","title":"Workspace Base"}]`
+	if err := os.WriteFile(filepath.Join(nodesDir, "Base.json"), []byte(overrideContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result := NewApp().LoadNodeSchemaDocumentsForWorkspace(workspace)
+
+	if len(result.Errors) != 0 {
+		t.Fatalf("unexpected errors: %#v", result.Errors)
+	}
+	for _, document := range result.Documents {
+		if strings.HasSuffix(filepath.ToSlash(document.Path), "/nodes/Base.json") {
+			if document.Content != overrideContent {
+				t.Fatalf("workspace Base.json should override lower-priority sources, got %#v", document)
+			}
+			return
+		}
+	}
+	t.Fatal("workspace Base.json document not found")
+}
+
+func TestWorkspaceNodeSchemaDocumentsAllowMissingNodesDirectory(t *testing.T) {
+	result := NewApp().LoadNodeSchemaDocumentsForWorkspace(t.TempDir())
+
+	if len(result.Errors) != 0 {
+		t.Fatalf("workspace without nodes should remain valid: %#v", result.Errors)
+	}
+	if len(result.Documents) == 0 {
+		t.Fatal("workspace without nodes should still load embedded definitions")
+	}
+}
+
+func TestWorkspaceNodeSchemaDocumentsRejectInvalidWorkspace(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "missing")
+	result := NewApp().LoadNodeSchemaDocumentsForWorkspace(missing)
+
+	if len(result.Documents) != 0 {
+		t.Fatalf("invalid workspace must not return a partial node library: %#v", result.Documents)
+	}
+	if len(result.Errors) != 1 || !strings.Contains(result.Errors[0].Message, "open workspace") {
+		t.Fatalf("invalid workspace error = %#v", result.Errors)
+	}
+}
+
+func TestUniqueRuntimeNodeDirectoriesDeduplicatesCleanPaths(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "nodes")
+	result := uniqueRuntimeNodeDirectories([]string{directory, directory, filepath.Join(directory, ".")})
+
+	if len(result) != 1 {
+		t.Fatalf("deduplicated directories = %#v, want one path", result)
+	}
+}
+
 func TestRangeCompareUsesDynamicBranchSchema(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("nodes", "SysFlowControl.json"))
 	if err != nil {

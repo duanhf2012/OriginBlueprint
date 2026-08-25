@@ -34,6 +34,8 @@ export function ListWorkspace(arg1:string):Promise<Array<main.WorkspaceEntry>>;
 
 export function LoadNodeSchemaDocuments():Promise<main.RuntimeNodeSchemaDocumentLoadResult>;
 
+export function LoadNodeSchemaDocumentsForWorkspace(arg1:string):Promise<main.RuntimeNodeSchemaDocumentLoadResult>;
+
 export function LoadProjectSettings(arg1:string):Promise<main.ProjectSettingsResult>;
 
 export function LogClientError(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;

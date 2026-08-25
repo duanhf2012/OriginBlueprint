@@ -146,6 +146,7 @@ let closingApplication = false
 let nodePointerDrag: { item: ModuleLibraryItem; startX: number; startY: number; lastX: number; lastY: number; moved: boolean } | null = null
 let removeNodePointerListeners = () => {}
 let workspaceLoadToken = 0
+let nodeSchemaLoadToken = 0
 let workspaceRefreshInFlight = false
 let workspaceRefreshTimer: ReturnType<typeof window.setInterval> | undefined
 let validationIssueClickTimer: ReturnType<typeof window.setTimeout> | undefined
@@ -545,13 +546,16 @@ async function openUpdateRelease() {
   closeUpdateDialog()
 }
 
-async function loadRuntimeNodeLibrary() {
+async function loadRuntimeNodeLibrary(requestedWorkspace = workspaceRoot.value) {
+  const token = ++nodeSchemaLoadToken
   let result
   try {
-    result = await platform.loadNodeSchemas()
+    result = await platform.loadNodeSchemas(requestedWorkspace)
   } catch (error) {
+    if (token !== nodeSchemaLoadToken) return ''
     return `Node library load failed: ${error instanceof Error ? error.message : String(error)}`
   }
+  if (token !== nodeSchemaLoadToken) return ''
   if (result.nodes.length) {
     registerNodeSchemas(result.nodes, currentLocale.value)
     nodeLibrary.value = getNodeDefinitions()
@@ -2024,7 +2028,7 @@ async function chooseWorkspace() {
 
 async function refreshWorkspace() {
   if (!workspaceRoot.value) return
-  await loadWorkspace(workspaceRoot.value)
+  await loadWorkspace(workspaceRoot.value, false)
   status.value = 'Workspace refreshed'
 }
 
@@ -2042,15 +2046,20 @@ async function clearRecentFiles() {
 async function quitApplication() {
   await handleCloseRequest()
 }
-async function loadWorkspace(path: string) {
+async function loadWorkspace(path: string, refreshNodeSchemas = true) {
   const token = ++workspaceLoadToken
   workspaceRoot.value = path
   expandedWorkspacePaths.value = new Set()
   workspaceTree.value = []
   await loadProjectSettings(path)
+  if (token !== workspaceLoadToken) return
+  const nodeLoadStatus = refreshNodeSchemas ? await loadRuntimeNodeLibrary(path) : ''
+  if (token !== workspaceLoadToken) return
   workspaceTree.value = await loadWorkspaceTree(path)
+  if (token !== workspaceLoadToken) return
   void hydrateWorkspaceTree(workspaceTree.value, 1, token)
   if (projectSettingsContent.value.explorer.revealActiveFile) void revealActiveWorkspaceFile()
+  if (nodeLoadStatus) status.value = nodeLoadStatus
 }
 
 async function loadWorkspaceTree(path: string, depth = 0): Promise<WorkspaceTreeNode[]> {

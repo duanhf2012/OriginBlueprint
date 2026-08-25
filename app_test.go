@@ -1226,6 +1226,49 @@ func TestValidateGraphForWorkspaceUsesWorkspaceFunctionSignatures(t *testing.T) 
 	}
 }
 
+func TestValidateGraphForWorkspaceUsesWorkspaceNodeSchemas(t *testing.T) {
+	workspace := t.TempDir()
+	nodesDir := filepath.Join(workspace, "nodes")
+	if err := os.MkdirAll(nodesDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	schema := `[{"name":"WorkspaceOnlyNode","title":"Workspace Only","package":"Test","inputs":[{"name":"","type":"exec","port_id":0}],"outputs":[{"name":"Done","type":"exec","port_id":0}]}]`
+	if err := os.WriteFile(filepath.Join(nodesDir, "workspace.json"), []byte(schema), 0644); err != nil {
+		t.Fatal(err)
+	}
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		GraphName:     "workspace-node",
+		Nodes: []GraphNode{
+			{ID: "entry", TypeID: "origin.event.entry-two-integers"},
+			{ID: "custom", TypeID: "origin.custom.workspace-only-node", Properties: GraphNodeProperties{
+				LegacyClass:   "WorkspaceOnlyNode",
+				LegacyInputs:  []GraphLegacyPort{{Key: "in0", Type: "exec"}},
+				LegacyOutputs: []GraphLegacyPort{{Key: "out0", Type: "exec"}},
+			}},
+		},
+		Connections:    []GraphConnection{{Source: "entry", SourceOutput: "exec", Target: "custom", TargetInput: "in0"}},
+		Groups:         []GraphGroup{},
+		Variables:      []GraphVariable{},
+		VariableGroups: []GraphVariableGroup{{ID: "default", Name: "Default"}},
+		View:           GraphView{Zoom: 1},
+	}
+	data, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	issues, err := NewApp().ValidateGraphForWorkspace(string(data), workspace, filepath.Join(workspace, "main.obp"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, issue := range issues {
+		if strings.HasPrefix(issue.Code, "engine.") && issue.Severity == "error" {
+			t.Fatalf("workspace node should compile with its workspace schema: %#v", issues)
+		}
+	}
+}
+
 func TestValidateGraphForWorkspaceIgnoresUnreferencedWorkspaceFunction(t *testing.T) {
 	workspace := t.TempDir()
 	brokenPath := filepath.Join(workspace, "examples", "unrelated.obpf")
