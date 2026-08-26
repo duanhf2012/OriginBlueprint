@@ -19,6 +19,15 @@ export function normalizeIntegerInput(value: string): number | string {
   }
 }
 
+export function parseIntegerInput(value: string): number | string | undefined {
+  const normalized = normalizeIntegerInput(value)
+  return isValidIntegerDefault(normalized) ? normalized : undefined
+}
+
+export function isIntegerInputDraft(value: string) {
+  return value === '' || value === '+' || value === '-' || parseIntegerInput(value) !== undefined
+}
+
 export function isValidIntegerDefault(value: unknown) {
   if (isPreciseJSONInteger(value)) value = value.lexeme
   if (typeof value === 'number') return Number.isSafeInteger(value)

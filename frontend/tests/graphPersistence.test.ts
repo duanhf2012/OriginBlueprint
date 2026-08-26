@@ -11,7 +11,7 @@ import {
 import type { GraphDocument } from '../src/editor/document'
 import { normalizeNodeInputDefault } from '../src/editor/document'
 import { cloneGraphJSONValue, isPreciseJSONInteger, parseGraphJSON, stringifyGraphJSON } from '../src/graphJSON'
-import { isValidIntegerDefault, normalizeIntegerInput } from '../src/editor/valueValidation'
+import { isIntegerInputDraft, isValidIntegerDefault, normalizeIntegerInput, parseIntegerInput } from '../src/editor/valueValidation'
 
 function document(name: string): GraphDocument {
   return {
@@ -61,6 +61,17 @@ describe('graph persistence', () => {
 		expect(isValidIntegerDefault(parsed.value)).toBe(true)
 		expect(normalizeNodeInputDefault('integer', parsed.value)).toBe('9223372036854775807')
 		expect(normalizeNodeInputDefault('integer', '')).toBe(0)
+	})
+
+	it('accepts only complete int64 values from integer controls', () => {
+		expect(parseIntegerInput('42')).toBe(42)
+		expect(parseIntegerInput('-9223372036854775808')).toBe('-9223372036854775808')
+		expect(parseIntegerInput('0.5')).toBeUndefined()
+		expect(parseIntegerInput('1e3')).toBeUndefined()
+		expect(parseIntegerInput('9223372036854775808')).toBeUndefined()
+		expect(isIntegerInputDraft('')).toBe(true)
+		expect(isIntegerInputDraft('-')).toBe(true)
+		expect(isIntegerInputDraft('0.5')).toBe(false)
 	})
 
 	it('keeps old variables legacy-compatible and requires .obp for instance variables', () => {

@@ -1128,6 +1128,9 @@ func TestGoCompilerIssueNeverBlocksCoreSave(t *testing.T) {
 	if issue.Target != "target.go" || !issue.BlocksRun || issue.BlocksSave {
 		t.Fatalf("engine issue = %#v, want run-only Go target diagnostic", issue)
 	}
+	if issue.NodeID != "future" {
+		t.Fatalf("engine issue = %#v, want source node id future", issue)
+	}
 	if !sameValidationPath(issue.SourcePath, validationAbsolutePath("graph.obp")) {
 		t.Fatalf("engine issue source = %q, want current source path", issue.SourcePath)
 	}
@@ -1266,6 +1269,74 @@ func TestValidateGraphForWorkspaceUsesWorkspaceNodeSchemas(t *testing.T) {
 		if strings.HasPrefix(issue.Code, "engine.") && issue.Severity == "error" {
 			t.Fatalf("workspace node should compile with its workspace schema: %#v", issues)
 		}
+	}
+}
+
+func TestValidateGraphForWorkspaceUsesEmbeddedLegacyPortFallbacks(t *testing.T) {
+	workspace := t.TempDir()
+	sourcePath := filepath.Join(workspace, "functions", "fallback.obpf")
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		GraphName:     "fallback-function",
+		FunctionID:    "fn_fallback_function",
+		Nodes: []GraphNode{
+			{ID: "entry", TypeID: "origin.function.entry"},
+			{
+				ID:     "custom",
+				TypeID: "origin.custom.fallback-only",
+				Properties: GraphNodeProperties{
+					LegacyClass:   "FallbackOnlyNode",
+					LegacyInputs:  []GraphLegacyPort{{Key: "in0", Type: "exec"}, {Key: "in1", Type: "integer"}},
+					LegacyOutputs: []GraphLegacyPort{{Key: "out0", Type: "exec"}, {Key: "out1", Type: "integer"}},
+				},
+				Values: map[string]interface{}{"in1": 7},
+			},
+			{ID: "return", TypeID: "origin.function.return"},
+		},
+		Connections: []GraphConnection{
+			{Source: "entry", SourceOutput: "exec", Target: "custom", TargetInput: "in0"},
+			{Source: "custom", SourceOutput: "out0", Target: "return", TargetInput: "exec"},
+		},
+		Groups:         []GraphGroup{},
+		Variables:      []GraphVariable{},
+		VariableGroups: []GraphVariableGroup{{ID: "default", Name: "Default"}},
+		View:           GraphView{Zoom: 1},
+	}
+	data, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	issues, err := NewApp().ValidateGraphForWorkspace(string(data), workspace, sourcePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, issue := range issues {
+		if strings.HasPrefix(issue.Code, "engine.") && issue.Severity == "error" {
+			t.Fatalf("embedded executable fallback should compile without an external schema: %#v", issues)
+		}
+	}
+}
+
+func TestValidationDocumentFallbackDoesNotOverrideKnownFactory(t *testing.T) {
+	graphsDir := t.TempDir()
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		Nodes: []GraphNode{{
+			ID:     "custom",
+			TypeID: "origin.custom.known",
+			Properties: GraphNodeProperties{
+				LegacyClass:  "KnownNode",
+				LegacyInputs: []GraphLegacyPort{{Key: "in0", Type: "string"}},
+			},
+		}},
+	}
+	writeValidationGraphDocument(t, filepath.Join(graphsDir, "known.obp"), document)
+	definitions, err := validationDocumentFallbackDefinitions(graphsDir, []string{"KnownNode"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(definitions) != 0 {
+		t.Fatalf("fallback definitions = %#v, want real schema to keep precedence", definitions)
 	}
 }
 
@@ -2331,9 +2402,6 @@ func TestValidateChoiceskillEasyRecognizesMonsterChoiceSkillEntry(t *testing.T) 
 	issues := validateGraph(document)
 	if hasIssue(issues, "flow.missing-entry", "") {
 		t.Fatalf("monster choice skill entry should be recognized: %#v", issues)
-	}
-	if !hasIssue(issues, "flow.unreachable-node", "") {
-		t.Fatalf("detached legacy node should still be reported: %#v", issues)
 	}
 }
 

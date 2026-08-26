@@ -337,7 +337,12 @@ func documentNodeToConfig(node graphDocumentNode, variables map[string]graphDocu
 		spec, ok = externalDocumentNodeSpecs[node.TypeID]
 	}
 	if !ok {
-		return NodeConfig{}, documentNodeSpec{}, fmt.Errorf("%s node has not been registered", node.TypeID)
+		return NodeConfig{}, documentNodeSpec{}, &BlueprintError{
+			Stage:  BlueprintStageParse,
+			NodeID: node.ID,
+			PC:     InvalidPC,
+			Cause:  fmt.Errorf("%s node has not been registered", node.TypeID),
+		}
 	}
 	return NodeConfig{ID: node.ID, Class: spec.class, PortDefault: documentDefaults(node.Values, spec.inputs)}, spec, nil
 }

@@ -258,7 +258,12 @@ func compileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error
 			var dynamicErr error
 			definition, dynamicErr = dynamicDefinition(nodeConfig, variables)
 			if dynamicErr != nil {
-				return nil, dynamicErr
+				return nil, &BlueprintError{
+					Stage:  BlueprintStageCompile,
+					NodeID: nodeConfig.ID,
+					PC:     InvalidPC,
+					Cause:  dynamicErr,
+				}
 			}
 			nodeName = definition.Name
 		}

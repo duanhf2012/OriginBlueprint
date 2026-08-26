@@ -13,6 +13,7 @@ import { BlueprintNode, type Schemes } from './types'
 import { describeEntryBinding, entryBindingCandidateGroups, isEntryOutputConnection, type EntryBindingNode } from './implicitEntryLinks'
 import { refreshNodePortStates } from './portVisualState'
 import { pathIntersectsRect, rectsIntersect, type Rect } from './selectionGeometry'
+import { execOutputReplacementIds } from './connectionPolicy'
 import { normalizeNodeInputDefault, type ConnectionSnapshot, type FunctionNodeMetadata, type FunctionSignature, type GraphDocument, type GraphSnapshot, type GraphVariable, type GraphVariableGroup, type GroupSnapshot, type LegacyGraphState, type NodeProperties, type NodeSnapshot, type RestoreLossReport } from './document'
 import { buildRestorePlan, normalizeDynamicOutputCount } from './restorePlan'
 import { pushBoundedHistory } from './history'
@@ -231,6 +232,8 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   let transactionActive = false
   let initializing = true
   let pendingConnectionSnapshot: EditorHistorySnapshot | null = null
+  let pendingExecReplacementSnapshot: EditorHistorySnapshot | null = null
+  let replacingExecConnection = false
   let controlEditSnapshot: EditorHistorySnapshot | null = null
   let controlEditChanged = false
   let currentVariables: GraphVariable[] = []
@@ -966,7 +969,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     })
   }
 
-  editor.addPipe(context => {
+  editor.addPipe(async context => {
     if (context.type !== 'connectioncreate' || restoring) return context
     const types = connectionTypes(context.data)
     ;(context.data as Schemes['Connection']).socketType = normalizeSocketName(types.source ?? types.target)
@@ -980,6 +983,29 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
       }
       callbacks.onStatus(`Connection rejected: ${types.source ?? 'unknown'} cannot connect to ${types.target ?? 'unknown'}`)
       return
+    }
+    const replacementIds = execOutputReplacementIds({
+      source: context.data.source,
+      sourceOutput: String(context.data.sourceOutput)
+    }, editor.getConnections().map(item => ({
+      id: item.id,
+      source: item.source,
+      sourceOutput: String(item.sourceOutput)
+    })), types.source)
+    if (replacementIds.length) {
+      const trackStandaloneEdit = !transactionActive && !controlEditSnapshot && !initializing
+      if (trackStandaloneEdit) {
+        pendingExecReplacementSnapshot = historySnapshot()
+        replacingExecConnection = true
+      }
+      try {
+        for (const id of replacementIds) await editor.removeConnection(id)
+      } catch (error) {
+        pendingExecReplacementSnapshot = null
+        replacingExecConnection = false
+        callbacks.onStatus(`Connection replacement failed: ${error instanceof Error ? error.message : String(error)}`)
+        return
+      }
     }
     return context
   })
@@ -1909,7 +1935,7 @@ function nodeSize(node: BlueprintNode) {
   area.addPipe(async context => {
     if (context.type === 'zoomed') callbacks.onZoom(context.data.zoom)
     if (context.type === 'connectioncreate' || context.type === 'connectionremove') {
-      pendingConnectionSnapshot = !restoring && !transactionActive && !controlEditSnapshot && !initializing ? historySnapshot() : null
+      pendingConnectionSnapshot = !restoring && !transactionActive && !controlEditSnapshot && !initializing && !replacingExecConnection ? historySnapshot() : null
     }
     if (context.type === 'connectioncreated' || context.type === 'connectionremoved') {
       if (context.type === 'connectioncreated') {
@@ -1922,7 +1948,15 @@ function nodeSize(node: BlueprintNode) {
       }
       queueMicrotask(() => void refreshPortStates(true, [context.data.source, context.data.target]))
       updateMetrics()
-      if (!restoring && !transactionActive && !controlEditSnapshot && !initializing && pendingConnectionSnapshot) {
+      if (context.type === 'connectioncreated' && pendingExecReplacementSnapshot) {
+        pushUndoHistory(pendingExecReplacementSnapshot)
+        redoStack.length = 0
+        pendingExecReplacementSnapshot = null
+        pendingConnectionSnapshot = null
+        replacingExecConnection = false
+        callbacks.onDirty()
+        callbacks.onStatus('Execution connection replaced')
+      } else if (!restoring && !transactionActive && !controlEditSnapshot && !initializing && pendingConnectionSnapshot) {
         pushUndoHistory(pendingConnectionSnapshot); redoStack.length = 0; pendingConnectionSnapshot = null
         callbacks.onDirty(); callbacks.onStatus(context.type === 'connectioncreated' ? 'Connection created' : 'Connection removed')
       }

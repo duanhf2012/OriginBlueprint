@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	blueprint "github.com/duanhf2012/OriginBlueprint/engine/go/blueprint"
@@ -85,9 +86,26 @@ func validateGraphWithEngine(content, workspaceRoot, sourcePath string) *Validat
 	if err != nil {
 		return engineValidationIssue("engine.prepare", err)
 	}
+	factoryNames := validationFactoryNames(loadResult.Documents)
+	fallbackDefinitions, err := validationDocumentFallbackDefinitions(graphsDir, factoryNames)
+	if err != nil {
+		return engineValidationIssue("engine.definition", err)
+	}
+	if len(fallbackDefinitions) != 0 {
+		data, err := json.Marshal(fallbackDefinitions)
+		if err != nil {
+			return engineValidationIssue("engine.prepare", err)
+		}
+		if err := os.WriteFile(filepath.Join(nodesDir, "document-fallbacks.json"), data, 0644); err != nil {
+			return engineValidationIssue("engine.prepare", err)
+		}
+		for _, definition := range fallbackDefinitions {
+			factoryNames = append(factoryNames, validationFactoryName(definition.Name))
+		}
+	}
 
 	engine := &blueprint.Blueprint{}
-	for _, name := range validationFactoryNames(loadResult.Documents) {
+	for _, name := range factoryNames {
 		factoryName := name
 		engine.RegisterExecNode(func() blueprint.IExecNode { return &validationExecNode{name: factoryName} })
 	}
@@ -119,6 +137,131 @@ func validationFactoryNames(documents []RuntimeNodeSchemaDocument) []string {
 		}
 	}
 	return result
+}
+
+// validationDocumentFallbackDefinitions turns the executable class and port
+// metadata embedded in native documents into validation-only definitions.
+// Real node schema documents always win; fallbacks only fill classes that are
+// otherwise unavailable to the compiler sandbox.
+func validationDocumentFallbackDefinitions(graphsDir string, knownFactoryNames []string) ([]blueprint.ExecDefinitionConfig, error) {
+	known := make(map[string]bool, len(knownFactoryNames))
+	for _, name := range knownFactoryNames {
+		if name = validationFactoryName(strings.TrimSpace(name)); name != "" {
+			known[name] = true
+		}
+	}
+	definitions := map[string]*blueprint.ExecDefinitionConfig{}
+	err := filepath.WalkDir(graphsDir, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		extension := strings.ToLower(filepath.Ext(path))
+		if extension != ".obp" && extension != ".obpf" {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		var document GraphDocument
+		if err := decodeJSONUseNumber(data, &document); err != nil {
+			// The production parser will report malformed graph documents with
+			// their original source path. Do not replace that better diagnostic.
+			return nil
+		}
+		for _, node := range document.Nodes {
+			name := validationFactoryName(strings.TrimSpace(node.Properties.LegacyClass))
+			if name == "" || known[name] {
+				continue
+			}
+			definition := definitions[name]
+			if definition == nil {
+				definition = &blueprint.ExecDefinitionConfig{Name: name}
+				definitions[name] = definition
+			}
+			if err := mergeValidationFallbackPorts(&definition.Inputs, node.Properties.LegacyInputs, name, "input"); err != nil {
+				return fmt.Errorf("node %s: %w", node.ID, err)
+			}
+			if err := mergeValidationFallbackPorts(&definition.Outputs, node.Properties.LegacyOutputs, name, "output"); err != nil {
+				return fmt.Errorf("node %s: %w", node.ID, err)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(definitions))
+	for name := range definitions {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	result := make([]blueprint.ExecDefinitionConfig, 0, len(names))
+	for _, name := range names {
+		result = append(result, *definitions[name])
+	}
+	return result, nil
+}
+
+func mergeValidationFallbackPorts(target *[]blueprint.PortDefinition, ports []GraphLegacyPort, className, direction string) error {
+	if len(*target) < len(ports) {
+		*target = append(*target, make([]blueprint.PortDefinition, len(ports)-len(*target))...)
+	}
+	for index, port := range ports {
+		candidate := validationFallbackPortDefinition(port, index)
+		existing := (*target)[index]
+		if strings.TrimSpace(existing.PortType) != "" && !sameValidationFallbackPort(existing, candidate) {
+			return fmt.Errorf("fallback definition %s %s port %d has conflicting types %s and %s", className, direction, index, validationPortTypeLabel(existing), validationPortTypeLabel(candidate))
+		}
+		if strings.TrimSpace(existing.PortType) == "" {
+			(*target)[index] = candidate
+		}
+	}
+	return nil
+}
+
+func validationFallbackPortDefinition(port GraphLegacyPort, index int) blueprint.PortDefinition {
+	typeName := strings.ToLower(strings.TrimSpace(port.Type))
+	definition := blueprint.PortDefinition{Key: strings.TrimSpace(port.Key), PortID: index}
+	if typeName == "exec" {
+		definition.PortType = "exec"
+		return definition
+	}
+	definition.PortType = "data"
+	switch typeName {
+	case "int", "int64", "integer":
+		definition.DataType = "Integer"
+	case "float", "float64", "number":
+		definition.DataType = "Float"
+	case "bool", "boolean":
+		definition.DataType = "Boolean"
+	case "str", "string":
+		definition.DataType = "String"
+	case "array":
+		definition.DataType = "Array"
+	case "any":
+		definition.DataType = "Any"
+	case "timerhandle", "timer_handle":
+		definition.DataType = "TimerHandle"
+	default:
+		definition.DataType = strings.TrimSpace(port.Type)
+	}
+	return definition
+}
+
+func sameValidationFallbackPort(left, right blueprint.PortDefinition) bool {
+	return strings.EqualFold(strings.TrimSpace(left.PortType), strings.TrimSpace(right.PortType)) &&
+		strings.EqualFold(strings.TrimSpace(left.DataType), strings.TrimSpace(right.DataType))
+}
+
+func validationPortTypeLabel(port blueprint.PortDefinition) string {
+	if strings.EqualFold(strings.TrimSpace(port.PortType), "exec") {
+		return "exec"
+	}
+	return strings.TrimSpace(port.DataType)
 }
 
 func validationFactoryName(name string) string {

@@ -38,6 +38,28 @@ func TestCompileGraphReturnsStructuredCompileError(t *testing.T) {
 	}
 }
 
+func TestCompileGraphMissingDefinitionCarriesNodeID(t *testing.T) {
+	_, err := CompileGraph(NewRegistry(), GraphConfig{Nodes: []NodeConfig{{ID: "missing", Class: "MissingNode"}}})
+	var structured *BlueprintError
+	if err == nil || !errors.As(err, &structured) || structured.Stage != BlueprintStageCompile || structured.NodeID != "missing" {
+		t.Fatalf("CompileGraph error = %#v, want compile BlueprintError for node missing", err)
+	}
+}
+
+func TestParseGraphDocumentMissingDefinitionCarriesNodeID(t *testing.T) {
+	_, err := ParseGraphConfigJSON([]byte(`{
+		"schemaVersion":1,
+		"graphName":"Missing",
+		"nodes":[{"id":"missing","typeId":"origin.missing","values":{}}],
+		"connections":[],
+		"variables":[]
+	}`))
+	var structured *BlueprintError
+	if err == nil || !errors.As(err, &structured) || structured.Stage != BlueprintStageParse || structured.NodeID != "missing" {
+		t.Fatalf("ParseGraphConfigJSON error = %#v, want parse BlueprintError for node missing", err)
+	}
+}
+
 func TestParseGraphDocumentAllowsKnownEditorMetadata(t *testing.T) {
 	data := []byte(`{
 		"schemaVersion":1,
