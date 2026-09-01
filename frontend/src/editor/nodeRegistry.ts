@@ -2,6 +2,7 @@ import { ClassicPreset } from 'rete'
 import { ArrayControl, BlueprintNode, type DynamicBranchConfig, type NodeKind } from './types'
 import type { FunctionNodeMetadata, FunctionSignature, FunctionSignaturePort, GraphVariable, NodeProperties } from './document'
 import { entrySourceColor } from './implicitEntryLinks'
+import { inputAllowsMultipleConnections } from './connectionPolicy'
 
 export interface NodeDefinition {
   id: string
@@ -52,7 +53,7 @@ const hiddenNodeTypes = new Set<string>()
 export let nodeDefinitions: NodeDefinition[] = []
 
 function input(socket: ClassicPreset.Socket, label: string, value?: unknown, arrayItemType: 'string' | 'number' = 'string') {
-  const port = new ClassicPreset.Input(socket, label)
+  const port = new ClassicPreset.Input(socket, label, inputAllowsMultipleConnections(socket.name))
 	if (socket.name === 'timerhandle') return port
   if (Array.isArray(value)) {
     port.addControl(new ArrayControl(arrayItemType, value))

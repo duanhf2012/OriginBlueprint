@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { execOutputReplacementIds } from '../src/editor/connectionPolicy'
+import { execOutputReplacementIds, inputAllowsMultipleConnections } from '../src/editor/connectionPolicy'
 
 describe('execution connection policy', () => {
   const connections = [
@@ -22,5 +22,15 @@ describe('execution connection policy', () => {
   it('does not apply the single-cast rule to data outputs', () => {
     expect(execOutputReplacementIds({ source: 'entry', sourceOutput: 'exec' }, connections, 'integer'))
       .toEqual([])
+  })
+
+  it('allows multiple control-flow predecessors on an exec input', () => {
+    expect(inputAllowsMultipleConnections('exec')).toBe(true)
+    expect(inputAllowsMultipleConnections('Exec')).toBe(true)
+  })
+
+  it('keeps data inputs single-producer', () => {
+    expect(inputAllowsMultipleConnections('integer')).toBe(false)
+    expect(inputAllowsMultipleConnections('string')).toBe(false)
   })
 })

@@ -83,6 +83,28 @@ func TestCoreAnalyzerBlocksMultipleProducersAndExecFanout(t *testing.T) {
 	}
 }
 
+func TestCoreAnalyzerAllowsMultipleExecPredecessors(t *testing.T) {
+	document := analyzerDocument([]GraphNode{
+		{ID: "entry", TypeID: "origin.event.begin"},
+		{ID: "branch", TypeID: "origin.flow.branch"},
+		{ID: "left", TypeID: "origin.action.print"},
+		{ID: "right", TypeID: "origin.action.print"},
+		{ID: "merged", TypeID: "origin.action.print"},
+	}, []GraphConnection{
+		{Source: "entry", SourceOutput: "exec", Target: "branch", TargetInput: "exec"},
+		{Source: "branch", SourceOutput: "true", Target: "left", TargetInput: "exec"},
+		{Source: "branch", SourceOutput: "false", Target: "right", TargetInput: "exec"},
+		{Source: "left", SourceOutput: "exec", Target: "merged", TargetInput: "exec"},
+		{Source: "right", SourceOutput: "exec", Target: "merged", TargetInput: "exec"},
+	})
+	issues := validateGraph(document)
+	for _, issue := range issues {
+		if issue.Code == "connection.multiple-producers" || issue.Code == "flow.exec-fanout" {
+			t.Fatalf("exec merge reported as %s: %#v", issue.Code, issue)
+		}
+	}
+}
+
 func TestCoreAnalyzerReturnsEveryConfirmedCycle(t *testing.T) {
 	nodes := []GraphNode{
 		{ID: "entry", TypeID: "origin.event.begin"},

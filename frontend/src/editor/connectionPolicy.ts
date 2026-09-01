@@ -6,6 +6,10 @@ export interface ConnectionEndpoint {
   sourceOutput: string
 }
 
+export function inputAllowsMultipleConnections(socketName?: string) {
+  return normalizeSocketName(socketName) === 'exec'
+}
+
 export function execOutputReplacementIds(
   candidate: Pick<ConnectionEndpoint, 'source' | 'sourceOutput'>,
   existing: ConnectionEndpoint[],
