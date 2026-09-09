@@ -21,7 +21,7 @@
 - 普通 Native 业务节点必须同步完成；RPC 等异步节点通过 `BaseExecNode.Yield` 和一次性 `YieldHandle` 恢复。
 - Native 节点成功调用 `Yield` 后必须立即返回 `ErrExecutionSuspended`；恢复发生在所选 exec 出口，不会回到 `Exec()` 的 Go 语句中间。
 - Resume 必须经过 Execution 启动时捕获的 Dispatcher；业务宿主负责把恢复投递回所属 Actor。
-- VM Core 不实现 Delay/Timer 调度。需要时间语义时由业务或可选 stdlib 节点持有宿主调度器。
+- VM Core 实现 `Delay`、基于静态 Key 的回调 Timer，以及可替换的 `TimerScheduler`。Timer 回调必须创建独立 Execution，并使用创建时捕获帧，不能恢复或读取已经结束的旧 Graph Context。
 - 挂起期间不得释放或复用 Execution 的 Context、Flow/Loop/Call Stack；取消、完成或失败时统一释放引用。
 - 保持 `.vgf` 兼容性。已删除或未知的 legacy 节点应隐藏或保留，不能静默丢弃。
 - 顶层 `nodes/*.json` 是系统节点定义。除非用户明确要求，`nodes/json/**` 业务定义不在处理范围。

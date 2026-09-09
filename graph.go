@@ -188,6 +188,11 @@ func coreIssueBlocksSave(code string) bool {
 		"connection.missing-port",
 		"connection.type-mismatch",
 		"connection.multiple-producers",
+		"timer.key-empty",
+		"timer.key-duplicate",
+		"timer.key-must-be-literal",
+		"timer.callback-missing",
+		"timer.function-unsupported",
 		"flow.exec-fanout",
 		"flow.data-cycle",
 		"flow.exec-cycle",
@@ -464,15 +469,17 @@ var graphNodePorts = map[string]portDefinition{
 	"origin.event.entry-two-integers": {
 		Outputs: map[string]string{"exec": "exec", "objectId": "integer", "param1": "integer", "param2": "integer"},
 	},
-	"origin.flow.delay":      {Inputs: map[string]string{"exec": "exec", "duration": "integer"}, Outputs: map[string]string{"completed": "exec"}},
-	"origin.timer.clear":     {Inputs: map[string]string{"exec": "exec", "timerHandle": "timerhandle", "cancelRunningCallback": "boolean"}, Outputs: map[string]string{"then": "exec", "success": "boolean"}},
-	"origin.timer.pause":     {Inputs: map[string]string{"exec": "exec", "timerHandle": "timerhandle"}, Outputs: map[string]string{"then": "exec", "success": "boolean"}},
-	"origin.timer.unpause":   {Inputs: map[string]string{"exec": "exec", "timerHandle": "timerhandle"}, Outputs: map[string]string{"then": "exec", "success": "boolean"}},
-	"origin.timer.is-active": {Inputs: map[string]string{"timerHandle": "timerhandle"}, Outputs: map[string]string{"active": "boolean"}},
-	"origin.timer.is-paused": {Inputs: map[string]string{"timerHandle": "timerhandle"}, Outputs: map[string]string{"paused": "boolean"}},
-	"origin.timer.is-valid":  {Inputs: map[string]string{"timerHandle": "timerhandle"}, Outputs: map[string]string{"valid": "boolean"}},
-	"origin.timer.remaining": {Inputs: map[string]string{"timerHandle": "timerhandle"}, Outputs: map[string]string{"remaining": "integer"}},
-	"origin.timer.elapsed":   {Inputs: map[string]string{"timerHandle": "timerhandle"}, Outputs: map[string]string{"elapsed": "integer"}},
+	"origin.flow.delay":         {Inputs: map[string]string{"exec": "exec", "duration": "integer"}, Outputs: map[string]string{"completed": "exec"}},
+	"origin.timer.create":       {Inputs: map[string]string{"exec": "exec", "duration": "integer", "looping": "boolean", "firstDelay": "integer", "timerKey": "string"}, Outputs: map[string]string{"created": "exec", "triggered": "callback"}},
+	"origin.timer.clear-by-key": {Inputs: map[string]string{"exec": "exec", "timerKey": "string"}, Outputs: map[string]string{"then": "exec", "success": "boolean"}},
+	"origin.timer.clear":        {Inputs: map[string]string{"exec": "exec", "timerHandle": "timerhandle", "cancelRunningCallback": "boolean"}, Outputs: map[string]string{"then": "exec", "success": "boolean"}},
+	"origin.timer.pause":        {Inputs: map[string]string{"exec": "exec", "timerHandle": "timerhandle"}, Outputs: map[string]string{"then": "exec", "success": "boolean"}},
+	"origin.timer.unpause":      {Inputs: map[string]string{"exec": "exec", "timerHandle": "timerhandle"}, Outputs: map[string]string{"then": "exec", "success": "boolean"}},
+	"origin.timer.is-active":    {Inputs: map[string]string{"timerHandle": "timerhandle"}, Outputs: map[string]string{"active": "boolean"}},
+	"origin.timer.is-paused":    {Inputs: map[string]string{"timerHandle": "timerhandle"}, Outputs: map[string]string{"paused": "boolean"}},
+	"origin.timer.is-valid":     {Inputs: map[string]string{"timerHandle": "timerhandle"}, Outputs: map[string]string{"valid": "boolean"}},
+	"origin.timer.remaining":    {Inputs: map[string]string{"timerHandle": "timerhandle"}, Outputs: map[string]string{"remaining": "integer"}},
+	"origin.timer.elapsed":      {Inputs: map[string]string{"timerHandle": "timerhandle"}, Outputs: map[string]string{"elapsed": "integer"}},
 	"origin.flow.foreach-integer-array": {
 		Inputs: map[string]string{"exec": "exec", "array": "array"}, Outputs: map[string]string{"body": "exec", "completed": "exec", "index": "integer", "value": "integer"},
 	},
@@ -690,6 +697,7 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 
 	nodes := make(map[string]GraphNode, len(document.Nodes))
 	ports := make(map[string]portDefinition, len(document.Nodes))
+	timerKeys := make(map[string]string)
 	for _, node := range document.Nodes {
 		if node.ID == "" {
 			issues = append(issues, ValidationIssue{Severity: "error", Code: "node.missing-id", Message: "存在缺少 ID 的结点"})
@@ -700,6 +708,25 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 			continue
 		}
 		nodes[node.ID] = node
+		if node.TypeID == "origin.timer.create" || node.TypeID == "origin.timer.clear-by-key" {
+			key, stringKey := node.Values["timerKey"].(string)
+			key = strings.TrimSpace(key)
+			if !stringKey || key == "" {
+				issues = append(issues, ValidationIssue{Severity: "error", Code: "timer.key-empty", Message: "Timer Key 不能为空", NodeID: node.ID})
+			} else if node.TypeID == "origin.timer.create" {
+				if previous, exists := timerKeys[key]; exists {
+					issues = append(issues, ValidationIssue{Severity: "error", Code: "timer.key-duplicate", Message: "同一蓝图中 Timer Key 重复：" + key, NodeID: node.ID, NodeIDs: []string{previous, node.ID}})
+				} else {
+					timerKeys[key] = node.ID
+				}
+			}
+			if connectedInputs[node.ID]["timerKey"] {
+				issues = append(issues, ValidationIssue{Severity: "error", Code: "timer.key-must-be-literal", Message: "Timer Key 必须直接填写，不能使用数据连线", NodeID: node.ID})
+			}
+			if isFunctionDocument && node.TypeID == "origin.timer.create" {
+				issues = append(issues, ValidationIssue{Severity: "error", Code: "timer.function-unsupported", Message: "函数蓝图中暂不支持创建回调定时器", NodeID: node.ID})
+			}
+		}
 		definition, known := graphNodePorts[node.TypeID]
 		if node.TypeID == "origin.flow.sequence" {
 			count := node.Properties.DynamicOutputCount
@@ -833,8 +860,24 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 			issues = append(issues, ValidationIssue{Severity: "error", Code: "connection.missing-port", Message: "连线引用了不存在的端口", NodeID: target.ID})
 			continue
 		}
-		if sourceType != targetType && sourceType != "any" && targetType != "any" {
+		callbackToExec := sourceType == "callback" && targetType == "exec"
+		if !callbackToExec && sourceType != targetType && sourceType != "any" && targetType != "any" {
 			issues = append(issues, ValidationIssue{Severity: "error", Code: "connection.type-mismatch", Message: fmt.Sprintf("端口类型不匹配：%s 不能连接到 %s", sourceType, targetType), NodeID: target.ID})
+		}
+	}
+	for _, node := range document.Nodes {
+		if node.TypeID != "origin.timer.create" {
+			continue
+		}
+		connected := false
+		for _, connection := range document.Connections {
+			if connection.Source == node.ID && connection.SourceOutput == "triggered" {
+				connected = true
+				break
+			}
+		}
+		if !connected {
+			issues = append(issues, ValidationIssue{Severity: "error", Code: "timer.callback-missing", Message: "创建定时器的 On Triggered 回调出口尚未连接", NodeID: node.ID})
 		}
 	}
 	issues = append(issues, analyzeCoreGraph(document, nodes, ports)...)

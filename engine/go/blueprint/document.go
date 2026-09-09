@@ -175,6 +175,8 @@ var documentNodeSpecs = map[string]documentNodeSpec{
 	"origin.result.append-integer":      {class: "AppendIntReturn", inputs: map[string]int{"exec": 0, "value": 1}, outputs: map[string]int{"exec": 0}},
 	"origin.result.append-string":       {class: "AppendStringReturn", inputs: map[string]int{"exec": 0, "value": 1}, outputs: map[string]int{"exec": 0}},
 	"origin.flow.delay":                 {class: "Delay", inputs: map[string]int{"exec": 0, "duration": 1}, outputs: map[string]int{"completed": 0}},
+	"origin.timer.create":               {class: "CreateTimer", inputs: map[string]int{"exec": 0, "duration": 1, "looping": 2, "firstDelay": 3, "timerKey": 4}, outputs: map[string]int{"created": 0, "triggered": 1}},
+	"origin.timer.clear-by-key":         {class: "ClearTimerByKey", inputs: map[string]int{"exec": 0, "timerKey": 1}, outputs: map[string]int{"then": 0, "success": 1}},
 	"origin.timer.clear":                {class: "ClearTimer", inputs: map[string]int{"exec": 0, "timerHandle": 1, "cancelRunningCallback": 2}, outputs: map[string]int{"then": 0, "success": 1}},
 	"origin.timer.pause":                {class: "PauseTimer", inputs: map[string]int{"exec": 0, "timerHandle": 1}, outputs: map[string]int{"then": 0, "success": 1}},
 	"origin.timer.unpause":              {class: "UnpauseTimer", inputs: map[string]int{"exec": 0, "timerHandle": 1}, outputs: map[string]int{"then": 0, "success": 1}},
@@ -271,6 +273,10 @@ func graphDocumentToConfig(document graphDocument) (GraphConfig, bool, error) {
 // documentNodeToConfig 将单个新版节点转换为编译器节点配置。
 func documentNodeToConfig(node graphDocumentNode, variables map[string]graphDocumentVariable) (NodeConfig, documentNodeSpec, error) {
 	switch node.TypeID {
+	case "origin.timer.create", "origin.timer.clear-by-key":
+		spec := documentNodeSpecs[node.TypeID]
+		key, _ := node.Values["timerKey"].(string)
+		return NodeConfig{ID: node.ID, Class: spec.class, TimerKey: strings.TrimSpace(key), PortDefault: documentDefaults(node.Values, spec.inputs)}, spec, nil
 	case "origin.function.entry":
 		signature := node.Properties.FunctionSignature
 		if err := validateDocumentFunctionSignature(signature); err != nil {

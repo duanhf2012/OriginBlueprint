@@ -12,45 +12,37 @@ const eventNodes = JSON.parse(readFileSync(resolve(root, 'nodes/Event.json'), 'u
 const entranceNodes = JSON.parse(readFileSync(resolve(root, 'nodes/Entrance.json'), 'utf8'))
 const names = new Set(eventNodes.map(node => node.name))
 
-for (const name of [
-  'Delay',
-  'SetTimerByFunction',
-  'ClearTimer',
-  'PauseTimer',
-  'UnpauseTimer',
-  'IsTimerActive',
-  'IsTimerPaused',
-  'IsTimerValid',
-  'GetTimerRemaining',
-  'GetTimerElapsed',
-]) {
+for (const name of ['Delay', 'CreateTimer', 'ClearTimerByKey']) {
   assert(names.has(name), `Event.json must register ${name}`)
 }
-assert(!names.has('CreateTimer') && !names.has('CloseTimer'), 'old timer nodes must stay removed')
-assert(!entranceNodes.some(node => /timer/i.test(node.name)), 'old Timer event entrance must stay removed')
+for (const name of ['SetTimerByFunction', 'ClearTimer', 'PauseTimer', 'UnpauseTimer', 'IsTimerActive', 'IsTimerPaused', 'IsTimerValid', 'GetTimerRemaining', 'GetTimerElapsed']) {
+  assert(!names.has(name), `retired timer node ${name} must not remain in the node library`)
+}
+assert(!entranceNodes.some(node => /timer/i.test(node.name)), 'a generic Timer event entrance must not be required')
+
+const createTimer = eventNodes.find(node => node.name === 'CreateTimer')
+assert(createTimer.inputs.map(port => port.port_id).join(',') === '0,1,2,3,4', 'CreateTimer inputs must keep stable port IDs')
+assert(createTimer.outputs[0].type === 'exec' && createTimer.outputs[1].type === 'callback', 'Created and OnTriggered must use different control port types')
+assert(createTimer.outputs[1].name_en === 'On Triggered', 'callback output must be clearly named')
+assert(createTimer.inputs.some(port => port.data_type === 'String' && /Key/.test(port.name_en)), 'CreateTimer must expose a literal Timer Key')
 
 const registry = source('editor/nodeRegistry.ts')
 const runtimeSchemas = source('editor/runtimeNodeSchemas.ts')
 const editor = source('editor/createEditor.ts')
-const nodeView = source('editor/BlueprintNode.vue')
-const documentSource = source('editor/document.ts')
+const socketView = source('editor/BlueprintSocket.vue')
+const connectionView = source('editor/BlueprintConnection.vue')
+const theme = source('editor/socketTheme.ts')
 const app = source('App.vue')
 
-assert(runtimeSchemas.includes("case 'timerhandle':") && runtimeSchemas.includes("return 'timerhandle'"), 'runtime schemas must map TimerHandle ports')
-assert(registry.includes("timerhandle: new ClassicPreset.Socket('timerhandle')"), 'registry must expose a distinct TimerHandle socket')
-assert(registry.includes('createSetTimerByFunctionNode'), 'registry must create dynamic timer function nodes')
-assert(registry.includes('applyTimerFunctionMetadata'), 'timer function selection must rebuild callback argument ports')
-assert(editor.includes("node.typeId === 'origin.timer.set-by-function'"), 'editor must restore and manage timer function nodes')
-assert(editor.includes("node.typeId === 'origin.function.call' || node.typeId === 'origin.timer.set-by-function'"), 'reference highlighting must include timer function references')
-assert(nodeView.includes('data.functionOptions') && nodeView.includes('data.functionSelectorLabel'), 'timer function nodes must render the function selector')
-assert(nodeView.includes('filteredTimerFunctions') && nodeView.includes('type="search"'), 'timer function selector must filter a searchable option list')
-assert(nodeView.includes("event.key === 'Enter'") && nodeView.includes("event.key === 'Escape'"), 'timer function selector must support keyboard selection and dismissal')
-assert(nodeView.includes('functionReferenceMissing') && nodeView.includes('functionMissingLabel'), 'missing timer function references must remain visible on the node')
-assert(documentSource.includes("'timerhandle'"), 'GraphDocument variables must support TimerHandle')
-assert(app.includes("String(node.typeId ?? '').startsWith('origin.timer.')"), 'timer nodes must force native persistence')
-assert(app.includes("variable.type === 'timerhandle'"), 'TimerHandle variables must force native persistence')
-assert(app.includes('forceNativeSaveAs'), 'native timer graphs opened from .vgf must use Save As instead of overwriting legacy files')
-assert(editor.includes("callbacks.onDirty()"), 'undo and redo must mark restored graph state dirty')
-assert(editor.includes("outputs.set('timerHandle', 'timerhandle')"), 'timer signature sync must preserve static TimerHandle output connections')
+assert(runtimeSchemas.includes("'callback'"), 'runtime schemas must preserve callback ports')
+assert(runtimeSchemas.includes('CreateTimer') && runtimeSchemas.includes('ClearTimerByKey'), 'legacy node schemas must map the new timer classes')
+assert(registry.includes("callback: new ClassicPreset.Socket('callback')"), 'registry must expose a distinct callback socket')
+assert(theme.includes('callback:') && theme.includes('#ff9f2f'), 'callback socket must use its own color')
+assert(socketView.includes('isCallback') && socketView.includes('<circle'), 'callback socket must render a distinct diamond/dot shape')
+assert(connectionView.includes('socket-callback') && connectionView.includes('stroke-dasharray'), 'callback connection must have distinct styling')
+assert(editor.includes("types.source === 'callback' && types.target === 'exec'"), 'callback outputs must connect to ordinary exec inputs')
+assert(editor.includes('Timer Key must be entered directly'), 'Timer Key must reject dynamic data connections')
+assert(editor.includes('createRetiredTimerNode') && editor.includes("legacyModule: properties?.legacyModule || 'retired-timer'"), 'retired native timer nodes must restore as visible legacy placeholders')
+assert(app.includes("String(node.typeId ?? '').startsWith('origin.timer.')"), 'timer graphs must use native persistence')
 
 console.log('timerNodes tests passed')

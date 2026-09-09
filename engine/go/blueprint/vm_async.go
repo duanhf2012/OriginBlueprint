@@ -29,6 +29,17 @@ type YieldHandle struct {
 	used      atomic.Bool
 }
 
+func (h *YieldHandle) abandon() {
+	if h == nil || h.machine == nil || !h.used.CompareAndSwap(false, true) {
+		return
+	}
+	state := h.machine.pendingYield
+	if state != nil && state.token == h.token {
+		state.graph.releaseContext(state.node, state.ctx)
+		h.machine.pendingYield = nil
+	}
+}
+
 // Yield 暂停当前 Native 节点；节点必须将 ErrExecutionSuspended 返回给 VM。
 func (n *BaseExecNode) Yield(nextPort int) (*YieldHandle, error) {
 	if n == nil || n.graph == nil || n.node == nil || n.ctx == nil || n.graph.vm == nil {

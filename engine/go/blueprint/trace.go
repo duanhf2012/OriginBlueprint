@@ -181,6 +181,8 @@ func traceConcretePortValue(index int, port *Port) BlueprintTracePortValue {
 	switch port.kind {
 	case portKindExec:
 		return BlueprintTracePortValue{Index: index, Type: "执行", IsExec: true}
+	case portKindCallback:
+		return BlueprintTracePortValue{Index: index, Type: "回调", IsExec: true}
 	case portKindInt:
 		return BlueprintTracePortValue{Index: index, Type: "整数", Value: port.intv}
 	case portKindFloat:

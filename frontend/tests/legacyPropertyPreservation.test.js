@@ -32,9 +32,9 @@ const applyPropertiesBody = findFunctionBody(source, 'applyNodeProperties')
 assert(restoreBody.includes('applyNodeProperties(node, item.properties)'), 'restore must apply persisted node properties')
 assert(pasteBody.includes('applyNodeProperties(node, item.properties)'), 'paste must apply clipboard node properties')
 
-assert(applyPropertiesBody.includes('node.legacyClass = resolveNodeLegacyClass(node.typeId, properties?.legacyClass)'), 'node property restoration must preserve legacyClass with the registry fallback')
-assert(applyPropertiesBody.includes('node.legacyInputs = properties?.legacyInputs?.map'), 'node property restoration must clone legacyInputs')
-assert(applyPropertiesBody.includes('node.legacyOutputs = properties?.legacyOutputs?.map'), 'node property restoration must clone legacyOutputs')
+assert(applyPropertiesBody.includes('properties?.legacyClass || node.legacyClass || resolveNodeLegacyClass'), 'node property restoration must preserve an existing legacyClass before using the registry fallback')
+assert(applyPropertiesBody.includes('node.legacyInputs = properties.legacyInputs.map'), 'node property restoration must clone persisted legacyInputs without erasing generated fallback ports')
+assert(applyPropertiesBody.includes('node.legacyOutputs = properties.legacyOutputs.map'), 'node property restoration must clone persisted legacyOutputs without erasing generated fallback ports')
 
 const snapshotBody = findFunctionBody(source, 'snapshot')
 assert(snapshotBody.includes('legacyInputs: legacyInputsForSnapshot(node)'), 'snapshot must serialize legacyInputs')

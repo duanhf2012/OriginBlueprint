@@ -987,6 +987,10 @@ func TestCoreIssueBlocksSaveUsesExplicitLanguageNeutralCodes(t *testing.T) {
 		"connection.missing-port",
 		"connection.type-mismatch",
 		"connection.multiple-producers",
+		"timer.key-empty",
+		"timer.key-duplicate",
+		"timer.key-must-be-literal",
+		"timer.callback-missing",
 		"flow.exec-fanout",
 		"flow.data-cycle",
 		"flow.exec-cycle",
@@ -1007,6 +1011,74 @@ func TestCoreIssueBlocksSaveUsesExplicitLanguageNeutralCodes(t *testing.T) {
 		if coreIssueBlocksSave(code) {
 			t.Errorf("%s should not block save", code)
 		}
+	}
+}
+
+func TestValidateGraphAcceptsCallbackControlEdgeAndRejectsDuplicateTimerKeys(t *testing.T) {
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		Nodes: []GraphNode{
+			{ID: "begin", TypeID: "origin.event.begin"},
+			{ID: "timer-a", TypeID: "origin.timer.create", Values: map[string]interface{}{"duration": 1000, "looping": false, "firstDelay": -1, "timerKey": "spawn"}},
+			{ID: "timer-b", TypeID: "origin.timer.create", Values: map[string]interface{}{"duration": 2000, "looping": false, "firstDelay": -1, "timerKey": "spawn"}},
+			{ID: "callback-a", TypeID: "origin.debug.output"},
+			{ID: "callback-b", TypeID: "origin.debug.output"},
+		},
+		Connections: []GraphConnection{
+			{Source: "begin", SourceOutput: "exec", Target: "timer-a", TargetInput: "exec"},
+			{Source: "timer-a", SourceOutput: "created", Target: "timer-b", TargetInput: "exec"},
+			{Source: "timer-a", SourceOutput: "triggered", Target: "callback-a", TargetInput: "exec"},
+			{Source: "timer-b", SourceOutput: "triggered", Target: "callback-b", TargetInput: "exec"},
+		},
+	}
+	issues := validateGraph(document)
+	duplicate := requireValidationIssue(t, issues, "timer.key-duplicate")
+	if !duplicate.BlocksSave || !duplicate.BlocksRun {
+		t.Fatalf("duplicate Timer Key must block save and run: %#v", duplicate)
+	}
+	if hasIssue(issues, "connection.type-mismatch", "callback-a") || hasIssue(issues, "connection.type-mismatch", "callback-b") {
+		t.Fatalf("callback -> exec edges were rejected: %#v", issues)
+	}
+}
+
+func TestValidateGraphRequiresLiteralTimerKeyAndCallback(t *testing.T) {
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		Nodes: []GraphNode{
+			{ID: "begin", TypeID: "origin.event.begin"},
+			{ID: "literal", TypeID: "origin.literal.string", Values: map[string]interface{}{"value": "dynamic"}},
+			{ID: "timer", TypeID: "origin.timer.create", Values: map[string]interface{}{"duration": 1000, "looping": false, "firstDelay": -1, "timerKey": ""}},
+		},
+		Connections: []GraphConnection{
+			{Source: "begin", SourceOutput: "exec", Target: "timer", TargetInput: "exec"},
+			{Source: "literal", SourceOutput: "value", Target: "timer", TargetInput: "timerKey"},
+		},
+	}
+	issues := validateGraph(document)
+	for _, code := range []string{"timer.key-empty", "timer.key-must-be-literal", "timer.callback-missing"} {
+		issue := requireValidationIssue(t, issues, code)
+		if !issue.BlocksSave || !issue.BlocksRun {
+			t.Fatalf("%s must block save and run: %#v", code, issue)
+		}
+	}
+}
+
+func TestValidateGraphTreatsCallbackAsAsyncCycleBoundary(t *testing.T) {
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		Nodes: []GraphNode{
+			{ID: "begin", TypeID: "origin.event.begin"},
+			{ID: "timer", TypeID: "origin.timer.create", Values: map[string]interface{}{"duration": 1000, "looping": false, "firstDelay": -1, "timerKey": "repeat"}},
+			{ID: "callback", TypeID: "origin.debug.output"},
+		},
+		Connections: []GraphConnection{
+			{Source: "begin", SourceOutput: "exec", Target: "timer", TargetInput: "exec"},
+			{Source: "timer", SourceOutput: "triggered", Target: "callback", TargetInput: "exec"},
+			{Source: "callback", SourceOutput: "exec", Target: "timer", TargetInput: "exec"},
+		},
+	}
+	if issues := issuesWithCode(validateGraph(document), "flow.exec-cycle"); len(issues) != 0 {
+		t.Fatalf("callback boundary was treated as a synchronous cycle: %#v", issues)
 	}
 }
 

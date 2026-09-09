@@ -26,6 +26,7 @@ type Blueprint struct {
 	dispatcher     ExecutionDispatcher
 	executions     map[uint64]*Execution
 	executionSeed  uint64
+	timerScheduler TimerScheduler
 	closed         bool
 }
 
@@ -37,6 +38,8 @@ type GraphInstance struct {
 	released    bool
 	releasedCh  chan struct{}
 	leases      int
+	timerSeq    uint64
+	timers      map[string]*instanceTimer
 	variableMu  sync.RWMutex
 	variables   map[instanceVariableKey]IPort
 }
@@ -224,8 +227,19 @@ func (i *GraphInstance) markReleased() {
 		}
 		close(i.releasedCh)
 	}
+	timers := make([]ScheduledTimer, 0, len(i.timers))
+	for _, timer := range i.timers {
+		if timer != nil && timer.scheduled != nil {
+			timers = append(timers, timer.scheduled)
+		}
+	}
+	clear(i.timers)
+	i.timers = nil
 	clearVariables := i.leases == 0
 	i.lifecycleMu.Unlock()
+	for _, timer := range timers {
+		timer.Cancel()
+	}
 	if clearVariables {
 		i.clearVariables()
 	}

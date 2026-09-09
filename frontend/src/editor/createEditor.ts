@@ -482,10 +482,10 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     node.functionName = properties?.functionName
     node.functionSource = properties?.functionSource
     node.functionSignature = cloneFunctionSignatureFromProperties(properties?.functionSignature)
-    node.legacyClass = resolveNodeLegacyClass(node.typeId, properties?.legacyClass)
-    node.legacyModule = properties?.legacyModule
-    node.legacyInputs = properties?.legacyInputs?.map(port => ({ ...port }))
-    node.legacyOutputs = properties?.legacyOutputs?.map(port => ({ ...port }))
+		node.legacyClass = properties?.legacyClass || node.legacyClass || resolveNodeLegacyClass(node.typeId, properties?.legacyClass)
+		node.legacyModule = properties?.legacyModule || node.legacyModule
+		if (properties?.legacyInputs) node.legacyInputs = properties.legacyInputs.map(port => ({ ...port }))
+		if (properties?.legacyOutputs) node.legacyOutputs = properties.legacyOutputs.map(port => ({ ...port }))
   }
 
   function functionMetadataFromProperties(properties?: NodeProperties): FunctionNodeMetadata {
@@ -509,6 +509,34 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     const selected = properties?.functionId || properties?.functionName ? { ...functionMetadataFromProperties(properties), functionRole: 'timer' as const } : undefined
     return createSetTimerByFunctionNode(callableFunctions, selected, callbacks.locale?.() ?? 'zh-CN', (node, functionId) => { void changeTimerFunction(node, functionId) })
   }
+
+	function createRetiredTimerNode(typeId: string, properties?: NodeProperties) {
+		const ports: Record<string, { legacyClass: string; inputs: Array<[string, string]>; outputs: Array<[string, string]> }> = {
+			'origin.timer.clear': { legacyClass: 'ClearTimer', inputs: [['exec', 'exec'], ['timerHandle', 'timerhandle'], ['cancelRunningCallback', 'boolean']], outputs: [['then', 'exec'], ['success', 'boolean']] },
+			'origin.timer.pause': { legacyClass: 'PauseTimer', inputs: [['exec', 'exec'], ['timerHandle', 'timerhandle']], outputs: [['then', 'exec'], ['success', 'boolean']] },
+			'origin.timer.unpause': { legacyClass: 'UnpauseTimer', inputs: [['exec', 'exec'], ['timerHandle', 'timerhandle']], outputs: [['then', 'exec'], ['success', 'boolean']] },
+			'origin.timer.is-active': { legacyClass: 'IsTimerActive', inputs: [['timerHandle', 'timerhandle']], outputs: [['active', 'boolean']] },
+			'origin.timer.is-paused': { legacyClass: 'IsTimerPaused', inputs: [['timerHandle', 'timerhandle']], outputs: [['paused', 'boolean']] },
+			'origin.timer.is-valid': { legacyClass: 'IsTimerValid', inputs: [['timerHandle', 'timerhandle']], outputs: [['valid', 'boolean']] },
+			'origin.timer.remaining': { legacyClass: 'GetTimerRemaining', inputs: [['timerHandle', 'timerhandle']], outputs: [['remaining', 'integer']] },
+			'origin.timer.elapsed': { legacyClass: 'GetTimerElapsed', inputs: [['timerHandle', 'timerhandle']], outputs: [['elapsed', 'integer']] }
+		}
+		if (typeId === 'origin.timer.set-by-function') {
+			const dynamicInputs: Array<[string, string]> = [['exec', 'exec'], ['time', 'integer'], ['looping', 'boolean'], ['firstDelay', 'integer']]
+			properties?.functionSignature?.inputs.forEach((port, index) => dynamicInputs.push([functionPortKey('input', port, index), normalizeSocketName(port.type)]))
+			ports[typeId] = { legacyClass: 'SetTimerByFunction', inputs: dynamicInputs, outputs: [['then', 'exec'], ['timerHandle', 'timerhandle']] }
+		}
+		const spec = ports[typeId]
+		if (!spec) return null
+		return createLegacyNode({
+			...properties,
+			label: properties?.label || spec.legacyClass,
+			legacyClass: properties?.legacyClass || spec.legacyClass,
+			legacyModule: properties?.legacyModule || 'retired-timer',
+			legacyInputs: properties?.legacyInputs ?? spec.inputs.map(([key, type]) => ({ key, label: key, type })),
+			legacyOutputs: properties?.legacyOutputs ?? spec.outputs.map(([key, type]) => ({ key, label: key, type }))
+		})
+	}
 
   async function changeTimerFunction(node: BlueprintNode, functionId: string) {
     const metadata = callableFunctions.find(item => item.functionId === functionId)
@@ -546,7 +574,8 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
         variableAccess
       )
     }
-    if (typeId === 'origin.timer.set-by-function') return createTimerFunctionNodeFromProperties(item.properties)
+		const retiredTimer = createRetiredTimerNode(typeId, item.properties)
+		if (retiredTimer) return retiredTimer
     if (typeId.startsWith('origin.function.')) return createFunctionNodeFromProperties(item.properties)
     if (typeId === 'origin.legacy.placeholder') return createLegacyNode(item.properties ?? {})
     if (hasNodeDefinition(typeId)) return createNode(typeId)
@@ -597,7 +626,8 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
         ?? normalizeSocketName(editor.getNode(connection.source)?.outputs[connection.sourceOutput]?.socket.name)
       const targetType = targetPorts?.inputs.get(connection.targetInput)
         ?? normalizeSocketName(editor.getNode(connection.target)?.inputs[connection.targetInput]?.socket.name)
-      if (sourceType && targetType && sourceType !== targetType && sourceType !== 'any' && targetType !== 'any') return false
+		const callbackToExec = sourceType === 'callback' && targetType === 'exec'
+      if (sourceType && targetType && !callbackToExec && sourceType !== targetType && sourceType !== 'any' && targetType !== 'any') return false
       return true
     })
   }
@@ -972,8 +1002,14 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   editor.addPipe(async context => {
     if (context.type !== 'connectioncreate' || restoring) return context
     const types = connectionTypes(context.data)
+		const targetNode = editor.getNode(context.data.target)
+		if ((targetNode?.typeId === 'origin.timer.create' || targetNode?.typeId === 'origin.timer.clear-by-key') && String(context.data.targetInput) === 'timerKey') {
+			callbacks.onStatus('Connection rejected: Timer Key must be entered directly')
+			return
+		}
     ;(context.data as Schemes['Connection']).socketType = normalizeSocketName(types.source ?? types.target)
-    if (types.source && types.target && types.source !== types.target && types.source !== 'any' && types.target !== 'any') {
+		const callbackToExec = types.source === 'callback' && types.target === 'exec'
+    if (types.source && types.target && !callbackToExec && types.source !== types.target && types.source !== 'any' && types.target !== 'any') {
       const converter = automaticConverter(types.source, types.target)
       if (converter) {
         const item = { ...context.data, sourceOutput: String(context.data.sourceOutput), targetInput: String(context.data.targetInput) }

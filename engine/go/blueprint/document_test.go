@@ -130,6 +130,36 @@ func TestCompileGraphDocumentAcceptsFullInt64Encodings(t *testing.T) {
 	}
 }
 
+func TestGraphDocumentMapsKeyedTimerAndCallbackPorts(t *testing.T) {
+	config, _, err := graphDocumentToConfig(graphDocument{
+		Nodes: []graphDocumentNode{
+			{ID: "entry", TypeID: "origin.event.entry-array", Values: map[string]any{}},
+			{ID: "timer", TypeID: "origin.timer.create", Values: map[string]any{"duration": int64(60000), "looping": false, "firstDelay": int64(-1), "timerKey": "spawn-60"}},
+			{ID: "callback", TypeID: "origin.debug.output", Values: map[string]any{}},
+		},
+		Connections: []graphDocumentConnection{
+			{Source: "entry", SourceOutput: "exec", Target: "timer", TargetInput: "exec"},
+			{Source: "timer", SourceOutput: "triggered", Target: "callback", TargetInput: "exec"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("graphDocumentToConfig failed: %v", err)
+	}
+	if len(config.Nodes) != 3 || config.Nodes[1].Class != "CreateTimer" || config.Nodes[1].TimerKey != "spawn-60" {
+		t.Fatalf("timer config = %#v", config.Nodes)
+	}
+	if len(config.Edges) != 2 || config.Edges[1].SourcePortID != 1 || config.Edges[1].DesPortID != 0 {
+		t.Fatalf("callback edge = %#v", config.Edges)
+	}
+	registry := NewRegistry()
+	if err := loadDefinitionDir(registry, filepath.Join("..", "..", "..", "nodes"), BuiltinExecNodeFactories()); err != nil {
+		t.Fatalf("loadDefinitionDir failed: %v", err)
+	}
+	if _, err := CompileGraph(registry, config); err != nil {
+		t.Fatalf("CompileGraph timer document failed: %v", err)
+	}
+}
+
 func TestLoadGraphDirLoadsOBPFFunctionsForGraphCalls(t *testing.T) {
 	var recorder *testRecorder
 	registry := NewRegistry()
@@ -520,6 +550,11 @@ func TestAllNativeDocumentNodeSpecsCompile(t *testing.T) {
 	}
 	for typeID, spec := range documentNodeSpecs {
 		t.Run(typeID, func(t *testing.T) {
+			// Retired TimerHandle nodes remain parseable for lossless legacy files,
+			// while the new callback timer requires a key and callback branch.
+			if strings.HasPrefix(typeID, "origin.timer.") {
+				return
+			}
 			_, err := CompileGraph(registry, GraphConfig{
 				Nodes: []NodeConfig{{ID: "node", Class: spec.class}},
 			})

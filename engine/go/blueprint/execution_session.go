@@ -86,17 +86,19 @@ func (s ExecutionState) terminal() bool {
 
 // Execution 是一次入口调用的独立运行句柄。
 type Execution struct {
-	id         uint64
-	blueprint  *Blueprint
-	graphID    int64
-	instance   *GraphInstance
-	graph      *Graph
-	vm         *vmMachine
-	dispatcher ExecutionDispatcher
-	entranceID int64
-	args       []any
-	done       chan struct{}
-	scope      *executionScope
+	id              uint64
+	blueprint       *Blueprint
+	graphID         int64
+	instance        *GraphInstance
+	graph           *Graph
+	vm              *vmMachine
+	dispatcher      ExecutionDispatcher
+	entranceID      int64
+	args            []any
+	callbackTarget  *VMTarget
+	callbackCapture *timerCaptureFrame
+	done            chan struct{}
+	scope           *executionScope
 
 	mu              sync.RWMutex
 	state           ExecutionState
@@ -215,7 +217,12 @@ func (e *Execution) runInitial() {
 			}
 		}()
 		var found bool
-		e.vm, found, err = e.graph.newVMMachineForEntrance(e.entranceID, e.args...)
+		if e.callbackTarget != nil {
+			e.vm, err = e.graph.newVMMachineForTarget(*e.callbackTarget, e.callbackCapture)
+			found = err == nil
+		} else {
+			e.vm, found, err = e.graph.newVMMachineForEntrance(e.entranceID, e.args...)
+		}
 		if err == nil && found {
 			err = e.vm.run()
 			returns = e.graph.resultSnapshot()
@@ -331,6 +338,8 @@ func (e *Execution) finishWhen(state ExecutionState, result PortArray, err error
 	}
 	e.mu.Lock()
 	e.args = nil
+	e.callbackCapture = nil
+	e.callbackTarget = nil
 	e.graph = nil
 	e.vm = nil
 	e.mu.Unlock()

@@ -14,7 +14,8 @@ type coreGraphEdges struct {
 
 type coreExecConnection struct {
 	GraphConnection
-	breakCandidate bool
+	breakCandidate   bool
+	callbackBoundary bool
 }
 
 func analyzeCoreGraph(document GraphDocument, nodes map[string]GraphNode, ports map[string]portDefinition) []ValidationIssue {
@@ -23,7 +24,7 @@ func analyzeCoreGraph(document GraphDocument, nodes map[string]GraphNode, ports 
 	entries := make(map[string]bool)
 	for nodeID, definition := range ports {
 		hasExecInput := hasPortType(definition.Inputs, "exec")
-		hasExecOutput := hasPortType(definition.Outputs, "exec")
+		hasExecOutput := hasPortType(definition.Outputs, "exec") || hasPortType(definition.Outputs, "callback")
 		if hasExecInput || hasExecOutput {
 			executable[nodeID] = true
 		}
@@ -53,10 +54,11 @@ func analyzeCoreGraph(document GraphDocument, nodes map[string]GraphNode, ports 
 			continue
 		}
 		validConnections = append(validConnections, connection)
-		if sourceType == "exec" && targetType == "exec" {
+		if (sourceType == "exec" || sourceType == "callback") && targetType == "exec" {
 			execConnections = append(execConnections, coreExecConnection{
-				GraphConnection: connection,
-				breakCandidate:  nodes[connection.Target].TypeID == "origin.flow.for-loop-break" && connection.TargetInput == "break",
+				GraphConnection:  connection,
+				breakCandidate:   nodes[connection.Target].TypeID == "origin.flow.for-loop-break" && connection.TargetInput == "break",
+				callbackBoundary: sourceType == "callback",
 			})
 			key := connection.Source + "\x00" + connection.SourceOutput
 			group := execTargets[key]
@@ -67,7 +69,7 @@ func analyzeCoreGraph(document GraphDocument, nodes map[string]GraphNode, ports 
 			group.nodeIDs = append(group.nodeIDs, connection.Target)
 			continue
 		}
-		if sourceType != "exec" && targetType != "exec" {
+		if sourceType != "exec" && sourceType != "callback" && targetType != "exec" {
 			edges.dataAdj[connection.Source] = append(edges.dataAdj[connection.Source], connection.Target)
 			edges.dataReverse[connection.Target] = append(edges.dataReverse[connection.Target], connection.Source)
 			key := connection.Target + "\x00" + connection.TargetInput
@@ -79,8 +81,14 @@ func analyzeCoreGraph(document GraphDocument, nodes map[string]GraphNode, ports 
 			group.nodeIDs = append(group.nodeIDs, connection.Source)
 		}
 	}
-	edges.execAdj = normalizedExecAdjacency(execConnections)
-	issues = append(issues, coreCycleIssues("flow.exec-cycle", "执行流形成确定死循环", edges.execAdj, nodes)...)
+	cycleAdjacency := normalizedExecAdjacency(execConnections)
+	edges.execAdj = cloneCoreAdjacency(cycleAdjacency)
+	for _, connection := range execConnections {
+		if connection.callbackBoundary {
+			edges.execAdj[connection.Source] = append(edges.execAdj[connection.Source], connection.Target)
+		}
+	}
+	issues = append(issues, coreCycleIssues("flow.exec-cycle", "执行流形成确定死循环", cycleAdjacency, nodes)...)
 	issues = append(issues, coreCycleIssues("flow.data-cycle", "数据依赖形成循环", edges.dataAdj, nodes)...)
 
 	for _, group := range dataProducers {
@@ -157,7 +165,7 @@ func analyzeCoreGraph(document GraphDocument, nodes map[string]GraphNode, ports 
 		}
 	}
 	for nodeID, definition := range ports {
-		if hasPortType(definition.Inputs, "exec") || hasPortType(definition.Outputs, "exec") || liveData[nodeID] {
+		if hasPortType(definition.Inputs, "exec") || hasPortType(definition.Outputs, "exec") || hasPortType(definition.Outputs, "callback") || liveData[nodeID] {
 			continue
 		}
 		issues = append(issues, ValidationIssue{Severity: "warning", Code: "flow.unused-data-node", Message: "纯数据结点未被任何可达执行路径使用", NodeID: nodeID})
@@ -165,7 +173,7 @@ func analyzeCoreGraph(document GraphDocument, nodes map[string]GraphNode, ports 
 	for _, connection := range validConnections {
 		sourceType := ports[connection.Source].Outputs[connection.SourceOutput]
 		targetType := ports[connection.Target].Inputs[connection.TargetInput]
-		if sourceType == "exec" || targetType == "exec" {
+		if sourceType == "exec" || sourceType == "callback" || targetType == "exec" {
 			continue
 		}
 		if !entrySetsOverlap(entryReachable[connection.Source], entryReachable[connection.Target]) {
@@ -221,7 +229,7 @@ func normalizedExecAdjacency(connections []coreExecConnection) map[string][]stri
 	base := make(map[string][]string)
 	indegree := make(map[string]int)
 	for _, connection := range connections {
-		if connection.breakCandidate {
+		if connection.breakCandidate || connection.callbackBoundary {
 			continue
 		}
 		base[connection.Source] = append(base[connection.Source], connection.Target)
@@ -245,7 +253,7 @@ func normalizedExecAdjacency(connections []coreExecConnection) map[string][]stri
 	loopCache := make(map[string]loopReachability)
 	result := cloneCoreAdjacency(base)
 	for _, connection := range connections {
-		if !connection.breakCandidate {
+		if !connection.breakCandidate || connection.callbackBoundary {
 			continue
 		}
 		loopID := connection.Target
@@ -254,7 +262,7 @@ func normalizedExecAdjacency(connections []coreExecConnection) map[string][]stri
 			bodyStarts := make([]string, 0)
 			withoutBody := make(map[string][]string)
 			for _, edge := range connections {
-				if edge.breakCandidate {
+				if edge.breakCandidate || edge.callbackBoundary {
 					continue
 				}
 				if edge.Source == loopID && edge.SourceOutput == "body" {

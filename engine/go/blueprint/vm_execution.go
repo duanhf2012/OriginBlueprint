@@ -81,6 +81,24 @@ func (g *Graph) newVMMachineForEntrance(entranceID int64, args ...any) (*vmMachi
 	return machine, true, nil
 }
 
+func (g *Graph) newVMMachineForTarget(target VMTarget, capture *timerCaptureFrame) (*vmMachine, error) {
+	if g == nil || g.compiled == nil || g.compiled.Program == nil {
+		return nil, fmt.Errorf("blueprint VM program is nil")
+	}
+	if target.PC < 0 || int(target.PC) >= len(g.compiled.Program.Instructions) {
+		return nil, fmt.Errorf("timer callback pc %d out of range", target.PC)
+	}
+	g.initializeVMRun()
+	if capture != nil {
+		g.restoreTimerCapture(capture)
+	}
+	machine := newVMMachine(g, g.compiled.Program)
+	g.vm = machine
+	machine.pc = target.PC
+	machine.inputPortID = target.InputPortID
+	return machine, nil
+}
+
 func (g *Graph) initializeVMRun() {
 	g.resetContext()
 	clear(g.returns)

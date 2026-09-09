@@ -18,6 +18,7 @@ export interface NodeDefinition {
 
 const sockets = {
   exec: new ClassicPreset.Socket('exec'),
+	callback: new ClassicPreset.Socket('callback'),
   integer: new ClassicPreset.Socket('integer'),
   boolean: new ClassicPreset.Socket('boolean'),
   string: new ClassicPreset.Socket('string'),
@@ -124,7 +125,7 @@ function inferKind(schema: NodeSchema): NodeKind {
   const inputs = schema.inputs ?? []
   const outputs = schema.outputs ?? []
   const hasExecInput = inputs.some(port => socketTypeForPort(port) === 'exec')
-  const hasExecOutput = outputs.some(port => socketTypeForPort(port) === 'exec')
+  const hasExecOutput = outputs.some(port => ['exec', 'callback'].includes(socketTypeForPort(port)))
   if (hasExecOutput && !hasExecInput) return 'event'
   if (hasExecInput || hasExecOutput || schema.id.startsWith('origin.flow.')) return 'flow'
   return 'function'

@@ -1,5 +1,6 @@
 export const socketThemes = {
   exec: { color: '#f2f2f2', fill: '#f4f4f4', label: '#f2f2f2' },
+	callback: { color: '#ff9f2f', fill: '#ffb348', label: '#ffc477' },
   integer: { color: '#21c46b' },
   number: { color: '#21c46b' },
   float: { color: '#8aff3d' },

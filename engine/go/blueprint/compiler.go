@@ -55,6 +55,7 @@ type NodeConfig struct {
 	FunctionName        string         `json:"functionName,omitempty"`
 	FunctionInputTypes  []string       `json:"functionInputTypes,omitempty"`
 	FunctionOutputTypes []string       `json:"functionOutputTypes,omitempty"`
+	TimerKey            string         `json:"timerKey,omitempty"`
 }
 
 // EdgeConfig 描述两个节点端口之间的一条连接。
@@ -192,6 +193,7 @@ func compileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error
 	var hasFunctionReturn bool
 	instanceVariableKeys := make(map[instanceVariableKey]string)
 	variableIDs := make(map[string]string)
+	timerKeys := make(map[string]string)
 	for _, variable := range config.Variables {
 		if strings.TrimSpace(variable.Name) == "" {
 			return nil, fmt.Errorf("variable name is empty")
@@ -251,9 +253,6 @@ func compileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error
 			isEntrance = true
 		}
 		definition := registry.Get(nodeName)
-		if nodeConfig.Class == "SetTimerByFunction" {
-			definition = nil
-		}
 		if definition == nil {
 			var dynamicErr error
 			definition, dynamicErr = dynamicDefinition(nodeConfig, variables)
@@ -293,6 +292,34 @@ func compileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error
 		node.FunctionID = nodeConfig.FunctionID
 		node.FunctionName = nodeConfig.FunctionName
 		node.FunctionGraph = resolveFunctionGraph(config.Functions, nodeConfig.FunctionID, nodeConfig.FunctionName)
+		node.TimerKey = strings.TrimSpace(nodeConfig.TimerKey)
+		if node.TimerKey == "" {
+			keyPort := -1
+			if nodeConfig.Class == "CreateTimer" {
+				keyPort = 4
+			}
+			if nodeConfig.Class == "ClearTimerByKey" {
+				keyPort = 1
+			}
+			if value, ok := nodeConfig.PortDefault[keyPort].(string); ok {
+				node.TimerKey = strings.TrimSpace(value)
+			}
+		}
+		if nodeConfig.Class == "CreateTimer" {
+			if config.IsFunction {
+				return nil, fmt.Errorf("node %s CreateTimer cannot be used in a function graph", nodeConfig.ID)
+			}
+			if node.TimerKey == "" {
+				return nil, fmt.Errorf("node %s CreateTimer key is empty", nodeConfig.ID)
+			}
+			if previous, exists := timerKeys[node.TimerKey]; exists {
+				return nil, fmt.Errorf("nodes %s and %s use duplicate timer key %q", previous, nodeConfig.ID, node.TimerKey)
+			}
+			timerKeys[node.TimerKey] = nodeConfig.ID
+		}
+		if nodeConfig.Class == "ClearTimerByKey" && node.TimerKey == "" {
+			return nil, fmt.Errorf("node %s ClearTimer key is empty", nodeConfig.ID)
+		}
 		node.IsEntrance = isEntrance
 		nodes[nodeConfig.ID] = node
 		nodeOrder = append(nodeOrder, node)
@@ -328,6 +355,12 @@ func compileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error
 		if !config.Legacy && sourcePort.IsPortExec() != targetPort.IsPortExec() {
 			return nil, fmt.Errorf("connection %s:%d -> %s:%d mixes exec and data ports", edge.SourceNodeID, edge.SourcePortID, edge.DesNodeID, edge.DesPortID)
 		}
+		if !config.Legacy && portIsCallback(targetPort) {
+			return nil, fmt.Errorf("connection %s:%d -> %s:%d targets a callback output port", edge.SourceNodeID, edge.SourcePortID, edge.DesNodeID, edge.DesPortID)
+		}
+		if !config.Legacy && ((dest.Definition.Name == "CreateTimer" && edge.DesPortID == 4) || (dest.Definition.Name == "ClearTimerByKey" && edge.DesPortID == 1)) {
+			return nil, fmt.Errorf("node %s Timer Key must be a literal input", edge.DesNodeID)
+		}
 		if !config.Legacy && !sourcePort.IsPortExec() && !portsCompatible(sourcePort, targetPort) {
 			return nil, fmt.Errorf("connection %s:%d -> %s:%d has incompatible data ports", edge.SourceNodeID, edge.SourcePortID, edge.DesNodeID, edge.DesPortID)
 		}
@@ -336,7 +369,9 @@ func compileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error
 			if !config.Legacy && edge.SourcePortID < len(source.Next) && source.Next[edge.SourcePortID] != nil {
 				return nil, fmt.Errorf("source node %s exec port %d has multiple targets", edge.SourceNodeID, edge.SourcePortID)
 			}
-			execEdges = append(execEdges, compiledExecEdge{source: source, destination: dest, sourcePortID: edge.SourcePortID, destPortID: edge.DesPortID})
+			if !portIsCallback(sourcePort) {
+				execEdges = append(execEdges, compiledExecEdge{source: source, destination: dest, sourcePortID: edge.SourcePortID, destPortID: edge.DesPortID})
+			}
 			source.ensureNext(edge.SourcePortID)
 			if source.Next[edge.SourcePortID] == nil {
 				source.Next[edge.SourcePortID] = dest
@@ -382,6 +417,9 @@ func compileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error
 		node.DefaultInputs = defaultInputs
 		node.DefaultInputSet = defaultInputSet
 		node.InputBindings = compileInputBindings(node)
+		if node.Definition != nil && node.Definition.Name == "CreateTimer" && (len(node.Next) <= 1 || node.Next[1] == nil) {
+			return nil, fmt.Errorf("node %s CreateTimer callback is not connected", node.ID)
+		}
 	}
 
 	compiled := &CompiledGraph{
@@ -756,8 +794,6 @@ func dynamicDefinition(nodeConfig NodeConfig, variables map[string]VariableConfi
 		return functionReturnDefinition(nodeConfig.FunctionOutputTypes)
 	case "FunctionCall":
 		return functionCallDefinition(nodeConfig.FunctionInputTypes, nodeConfig.FunctionOutputTypes)
-	case "SetTimerByFunction":
-		return setTimerByFunctionDefinition(nodeConfig.FunctionInputTypes)
 	default:
 		if definition, err := dynamicSequenceDefinition(nodeConfig.Class); definition != nil || err != nil {
 			return definition, err

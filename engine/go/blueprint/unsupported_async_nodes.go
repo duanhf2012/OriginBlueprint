@@ -3,11 +3,10 @@ package blueprint
 import (
 	"errors"
 	"fmt"
+	"sync/atomic"
 )
 
-var ErrUnsupportedAsyncNode = errors.New("blueprint Delay/Timer nodes are not provided by the VM core")
-
-// TimerHandle 仅作为旧蓝图文件的数据类型占位；VM Core 不实现 Timer 生命周期。
+// TimerHandle 只用于打开历史文件；新 Timer API 使用静态 Timer Key，不再公开句柄。
 type TimerHandle struct {
 	BlueprintID uint64
 	GraphID     int64
@@ -27,59 +26,75 @@ type SleepNode = DelayNode
 
 func (n *DelayNode) GetName() string { return DelayNodeName }
 func (n *DelayNode) Exec() (int, error) {
-	return -1, fmt.Errorf("%w: %s", ErrUnsupportedAsyncNode, n.GetName())
+	duration, ok := n.GetInPortInt(1)
+	if !ok {
+		return -1, fmt.Errorf("Delay duration is missing")
+	}
+	delay, err := checkedMilliseconds(duration)
+	if err != nil {
+		return -1, fmt.Errorf("%w: %dms", ErrTimerDurationInvalid, duration)
+	}
+	handle, err := n.Yield(0)
+	if err != nil {
+		return -1, err
+	}
+	if n.graph == nil || n.graph.execution == nil || n.graph.execution.blueprint == nil {
+		handle.abandon()
+		return -1, fmt.Errorf("Delay requires Blueprint.Start or Blueprint.DoContext")
+	}
+	execution := n.graph.execution
+	var cancelHook atomic.Uint64
+	scheduled, err := execution.blueprint.scheduler().Schedule(delay, func() {
+		execution.removeCancelHook(cancelHook.Load())
+		if resumeErr := handle.Resume(); errors.Is(resumeErr, ErrExecutionRejected) {
+			execution.finishSubmissionError(resumeErr)
+		}
+	})
+	if err != nil {
+		handle.abandon()
+		return -1, err
+	}
+	cancelHook.Store(execution.addCancelHook(func() { scheduled.Cancel() }))
+	if err := execution.cancellationError(); err != nil {
+		scheduled.Cancel()
+	}
+	return -1, ErrExecutionSuspended
 }
 
 func NewDelayNodeDefinition() *NodeDefinition {
 	return NewNodeDefinition(DelayNodeName, func() IExecNode { return &DelayNode{} }, []IPort{NewPortExec(), NewPortInt()}, []IPort{NewPortExec()})
 }
-
 func NewSleepNodeDefinition() *NodeDefinition {
 	return NewNodeDefinition(SleepNodeName, func() IExecNode { return &DelayNode{} }, []IPort{NewPortExec(), NewPortInt()}, []IPort{NewPortExec()})
 }
 
-type SetTimerByFunctionNode struct{ BaseExecNode }
-type ClearTimerNode struct{ BaseExecNode }
-type PauseTimerNode struct{ BaseExecNode }
-type UnpauseTimerNode struct{ BaseExecNode }
-type IsTimerActiveNode struct{ BaseExecNode }
-type IsTimerPausedNode struct{ BaseExecNode }
-type IsTimerValidNode struct{ BaseExecNode }
-type GetTimerRemainingNode struct{ BaseExecNode }
-type GetTimerElapsedNode struct{ BaseExecNode }
+// CreateTimerNode 的输出 0 是同步 Created，输出 1 是调度器触发的 callback。
+type CreateTimerNode struct{ BaseExecNode }
 
-func (n *SetTimerByFunctionNode) GetName() string { return "SetTimerByFunction" }
-func (n *ClearTimerNode) GetName() string         { return "ClearTimer" }
-func (n *PauseTimerNode) GetName() string         { return "PauseTimer" }
-func (n *UnpauseTimerNode) GetName() string       { return "UnpauseTimer" }
-func (n *IsTimerActiveNode) GetName() string      { return "IsTimerActive" }
-func (n *IsTimerPausedNode) GetName() string      { return "IsTimerPaused" }
-func (n *IsTimerValidNode) GetName() string       { return "IsTimerValid" }
-func (n *GetTimerRemainingNode) GetName() string  { return "GetTimerRemaining" }
-func (n *GetTimerElapsedNode) GetName() string    { return "GetTimerElapsed" }
-
-func unsupportedTimerExec(name string) (int, error) {
-	return -1, fmt.Errorf("%w: %s", ErrUnsupportedAsyncNode, name)
+func (n *CreateTimerNode) GetName() string { return "CreateTimer" }
+func (n *CreateTimerNode) Exec() (int, error) {
+	duration, durationOK := n.GetInPortInt(1)
+	looping, loopingOK := n.GetInPortBool(2)
+	firstDelay, firstDelayOK := n.GetInPortInt(3)
+	if !durationOK || !loopingOK || !firstDelayOK {
+		return -1, fmt.Errorf("CreateTimer inputs are invalid")
+	}
+	if n.graph == nil || n.graph.execution == nil || n.graph.execution.blueprint == nil {
+		return -1, fmt.Errorf("CreateTimer requires Blueprint.Start or Blueprint.DoContext")
+	}
+	if err := n.graph.execution.blueprint.createTimer(n.graph, n.node, duration, looping, firstDelay); err != nil {
+		return -1, err
+	}
+	return 0, nil
 }
 
-func (n *SetTimerByFunctionNode) Exec() (int, error) { return unsupportedTimerExec(n.GetName()) }
-func (n *ClearTimerNode) Exec() (int, error)         { return unsupportedTimerExec(n.GetName()) }
-func (n *PauseTimerNode) Exec() (int, error)         { return unsupportedTimerExec(n.GetName()) }
-func (n *UnpauseTimerNode) Exec() (int, error)       { return unsupportedTimerExec(n.GetName()) }
-func (n *IsTimerActiveNode) Exec() (int, error)      { return unsupportedTimerExec(n.GetName()) }
-func (n *IsTimerPausedNode) Exec() (int, error)      { return unsupportedTimerExec(n.GetName()) }
-func (n *IsTimerValidNode) Exec() (int, error)       { return unsupportedTimerExec(n.GetName()) }
-func (n *GetTimerRemainingNode) Exec() (int, error)  { return unsupportedTimerExec(n.GetName()) }
-func (n *GetTimerElapsedNode) Exec() (int, error)    { return unsupportedTimerExec(n.GetName()) }
+type ClearTimerByKeyNode struct{ BaseExecNode }
 
-func setTimerByFunctionDefinition(inputTypes []string) (*NodeDefinition, error) {
-	inputs := []IPort{NewPortExec(), NewPortInt(), NewPortBool(), NewPortInt()}
-	for _, inputType := range inputTypes {
-		port, err := newPortFromDataType(inputType)
-		if err != nil {
-			return nil, err
-		}
-		inputs = append(inputs, port)
+func (n *ClearTimerByKeyNode) GetName() string { return "ClearTimerByKey" }
+func (n *ClearTimerByKeyNode) Exec() (int, error) {
+	if n.graph == nil || n.graph.instance == nil || n.node == nil {
+		return -1, fmt.Errorf("ClearTimer runtime is unavailable")
 	}
-	return NewNodeDefinition("SetTimerByFunction", func() IExecNode { return &SetTimerByFunctionNode{} }, inputs, []IPort{NewPortExec(), NewPortTimerHandle()}), nil
+	n.SetOutPortBool(1, n.graph.instance.clearTimer(n.node.TimerKey))
+	return 0, nil
 }

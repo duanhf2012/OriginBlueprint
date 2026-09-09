@@ -2,7 +2,7 @@ import type { NodeSchema, PortSchema } from './nodeRegistry'
 import type { DynamicBranchConfig } from './types'
 import type { NodeKind } from './types'
 
-type SocketType = 'exec' | 'integer' | 'boolean' | 'string' | 'float' | 'array' | 'any' | 'timerhandle'
+type SocketType = 'exec' | 'callback' | 'integer' | 'boolean' | 'string' | 'float' | 'array' | 'any' | 'timerhandle'
 
 interface LegacyNodeDefinition {
   name?: string
@@ -72,6 +72,8 @@ const legacyNodeSpecs: Record<string, LegacyNodeSpec> = {
   Entrance_ArrayParam_000002: { typeId: 'origin.event.entry-array', outputs: ['exec', 'objectId', 'params'] },
   Entrance_IntParam_000001: { typeId: 'origin.event.entry-two-integers', outputs: ['exec', 'objectId', 'param1', 'param2'] },
   Delay: { typeId: 'origin.flow.delay', inputs: ['exec', 'duration'], outputs: ['completed'] },
+	CreateTimer: { typeId: 'origin.timer.create', inputs: ['exec', 'duration', 'looping', 'firstDelay', 'timerKey'], outputs: ['created', 'triggered'] },
+	ClearTimerByKey: { typeId: 'origin.timer.clear-by-key', inputs: ['exec', 'timerKey'], outputs: ['then', 'success'] },
   SetTimerByFunction: { typeId: 'origin.timer.set-by-function', inputs: ['exec', 'time', 'looping', 'firstDelay'], outputs: ['then', 'timerHandle'] },
   ClearTimer: { typeId: 'origin.timer.clear', inputs: ['exec', 'timerHandle', 'cancelRunningCallback'], outputs: ['then', 'success'] },
   PauseTimer: { typeId: 'origin.timer.pause', inputs: ['exec', 'timerHandle'], outputs: ['then', 'success'] },
@@ -162,7 +164,7 @@ function convertLegacyPort(port: LegacyPortDefinition, keys: Map<number, string>
     label: String(port.name ?? ''),
     labelEn: String(port.name_en ?? port.name ?? ''),
     type,
-    defaultValue: input && type !== 'exec' && (port.has_input || itemType) ? (port.default_value ?? defaultPortValue(type)) : undefined,
+    defaultValue: input && type !== 'exec' && type !== 'callback' && (port.has_input || itemType) ? (port.default_value ?? defaultPortValue(type)) : undefined,
     arrayItemType: itemType,
     hideIcon: port.hide_icon
   }
@@ -195,7 +197,7 @@ function legacyPortIndex(value: unknown, fallback: number) {
 function inferNodeKind(id: string, inputs: Array<{ type: string }>, outputs: Array<{ type: string }>): NodeKind {
   if (id.startsWith('origin.event.')) return 'event'
   const hasExecInput = inputs.some(port => port.type === 'exec')
-  const hasExecOutput = outputs.some(port => port.type === 'exec')
+  const hasExecOutput = outputs.some(port => port.type === 'exec' || port.type === 'callback')
   if (hasExecOutput && !hasExecInput) return 'event'
   if (hasExecInput || hasExecOutput || id.startsWith('origin.flow.')) return 'flow'
   return 'function'
@@ -203,6 +205,7 @@ function inferNodeKind(id: string, inputs: Array<{ type: string }>, outputs: Arr
 
 function normalizeSocketType(portType?: string, dataType?: string): SocketType {
   if (String(portType ?? '').toLowerCase() === 'exec') return 'exec'
+	if (String(portType ?? '').toLowerCase() === 'callback') return 'callback'
   switch (String(dataType ?? '').trim().toLowerCase()) {
     case 'int':
     case 'integer':

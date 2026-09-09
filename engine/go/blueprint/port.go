@@ -64,6 +64,7 @@ type portKind uint8
 
 const (
 	portKindExec portKind = iota
+	portKindCallback
 	portKindInt
 	portKindFloat
 	portKindString
@@ -117,6 +118,12 @@ type Port struct {
 // NewPortExec 创建执行流端口。
 func NewPortExec() IPort {
 	return &Port{kind: portKindExec}
+}
+
+// NewPortCallback 创建异步回调控制流端口。它可以连接 exec 输入，
+// 但不会作为当前 Execution 的同步后继执行。
+func NewPortCallback() IPort {
+	return &Port{kind: portKindCallback}
 }
 
 // NewPortInt 创建整数端口。
@@ -174,7 +181,12 @@ func clonePortValue(source Port) Port {
 }
 
 func (p *Port) IsPortExec() bool {
-	return p != nil && p.kind == portKindExec
+	return p != nil && (p.kind == portKindExec || p.kind == portKindCallback)
+}
+
+func portIsCallback(port IPort) bool {
+	concrete, ok := port.(*Port)
+	return ok && concrete != nil && concrete.kind == portKindCallback
 }
 
 func (p *Port) SetValue(source IPort) {
@@ -206,7 +218,7 @@ func assignPortValue(target, source IPort) error {
 	if targetPort == nil || sourcePort == nil {
 		return fmt.Errorf("port assignment uses nil port")
 	}
-	if targetPort.kind == portKindExec || sourcePort.kind == portKindExec {
+	if targetPort.IsPortExec() || sourcePort.IsPortExec() {
 		return fmt.Errorf("can not assign exec port")
 	}
 	if targetPort.kind == portKindAny {
@@ -443,7 +455,7 @@ func (p *Port) setAnyValue(value any) error {
 		}
 		p.timerv = handle
 		return nil
-	case portKindExec:
+	case portKindExec, portKindCallback:
 		return fmt.Errorf("can not assign data to exec port")
 	default:
 		return fmt.Errorf("unknown port kind %d", p.kind)

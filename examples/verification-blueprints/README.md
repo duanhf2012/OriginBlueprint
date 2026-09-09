@@ -21,7 +21,7 @@
 - `13_local_state_isolation.obpf` 的变量属于函数局部状态；`05_function_orchestrator.obp` 连续调用它两次，是后续隔离验证的样本入口。
 - `coverage.json` 记录全部当前系统节点的样本位置和阶段覆盖范围。
 - `nodes/MockDelayAsync.json` 和 `nodes/MockRpcAsync.json` 是本目录专用测试节点定义，不属于正式系统节点库；其 Go 实现和结果断言位于 `engine/go/blueprint` 的验证测试中。
-- `MockDelayAsync` 只表达业务异步节点的 `Yield -> Resume` 语义，不重新引入正式 `Delay`、`Timer` 或 `TimerHandle` 节点。
+- `MockDelayAsync` 只表达自定义业务异步节点的 `Yield -> Resume` 语义，与正式 `Delay` 和基于 Key 的回调 Timer 分开验证，也不使用旧 `TimerHandle`。
 - `MockDelayAsync` 和 `MockRpcAsync` 节点同时在文档属性中携带测试专用 fallback 端口；这是因为编辑器只扫描根目录 `nodes/`，fallback 仅用于让示例目录中的外部节点和连线可视化，不会将这些节点加入正式模块库。
 
 ## 第 2 阶段结果契约

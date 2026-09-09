@@ -15,7 +15,8 @@ export function execOutputReplacementIds(
   existing: ConnectionEndpoint[],
   sourceSocketName?: string
 ) {
-  if (normalizeSocketName(sourceSocketName) !== 'exec') return []
+	const sourceType = normalizeSocketName(sourceSocketName)
+  if (sourceType !== 'exec' && sourceType !== 'callback') return []
   return existing
     .filter(item => item.source === candidate.source && String(item.sourceOutput) === String(candidate.sourceOutput))
     .map(item => item.id)

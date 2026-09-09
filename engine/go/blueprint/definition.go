@@ -570,6 +570,8 @@ func newPortFromConfig(config PortDefinition) (IPort, error) {
 	switch strings.ToLower(config.PortType) {
 	case "exec":
 		return NewPortExec(), nil
+	case "callback":
+		return NewPortCallback(), nil
 	case "data":
 		return newPortFromDataType(config.DataType)
 	default:

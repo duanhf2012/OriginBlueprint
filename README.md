@@ -23,11 +23,11 @@ OriginBlueprint 包含两个相互配合、但职责不同的部分：
 当前能力边界：
 
 - 当前执行器是 Go VM，保存每次 Execution 的 PC、流程栈、循环栈和函数调用栈。
-- Core 不提供可执行的内置 Delay/Timer 调度器。
-- RPC、定时器、消息队列等业务异步操作通过自定义节点的 `YieldHandle` 接入。
+- Core 提供可执行的 `Delay`、`Create Timer` 和 `Clear Timer`；宿主也可用 `SetTimerScheduler` 接入自己的时间轮。
+- RPC、消息队列等其他业务异步操作继续通过自定义节点的 `YieldHandle` 接入。
 - Actor 不是 Core 依赖，只是宿主事件循环的一种 Dispatcher 适配方式。
 - File、DataFrame/Table、Dict 运行时类型已经删除。
-- `nodes/Event.json` 中的旧 Delay/Timer 节点仅用于旧文件兼容识别，执行会返回 `ErrUnsupportedAsyncNode`，新业务禁止使用。
+- 旧的 `SetTimerByFunction`、TimerHandle、Pause/Query 等节点已从节点库移除；旧文件中的定义仍按 legacy 内容保留，不会在打开和保存时静默丢失。
 
 ## 2. 架构和核心概念
 
@@ -253,8 +253,8 @@ targetID := returns[1].IntVal
 | 字段 | 说明 |
 | --- | --- |
 | `name/name_en` | 端口显示名称 |
-| `type` | `exec` 或 `data` |
-| `data_type` | `Integer`、`Float`、`Boolean`、`String`、`Array`、`Any`；`TimerHandle` 仅兼容旧文件，不代表 Core 有 Timer |
+| `type` | `exec`、`callback` 或 `data`；`callback` 只能作为异步回调源连接普通 `exec` 输入 |
+| `data_type` | `Integer`、`Float`、`Boolean`、`String`、`Array`、`Any`；`TimerHandle` 仅用于读取旧文件，新 Timer 不再公开句柄 |
 | `has_input` | 输入数据口是否显示默认值控件 |
 | `default_value` | 默认输入值 |
 | `pin_widget` | 数组控件可用 `IntegerArrayWdg`、`StringArrayWdg` |
@@ -779,6 +779,37 @@ default:
 
 重试时必须保证同一时刻只有一个重试者持有该 handle。
 
+### 10.5 内置 Delay 与回调定时器
+
+`Delay` 和 `Create Timer` 的异步语义不同：
+
+| 节点 | 当前 Execution | 到期行为 | 可按 Key 清除 |
+| --- | --- | --- | --- |
+| `Delay` | 仅挂起当前这一次 Execution | 恢复同一 VM、Context、循环和函数栈 | 否，可用 `Execution.Cancel` 取消整次执行 |
+| `Create Timer` | 不挂起；从 `Created` 立即继续并结束原流程 | 从 `On Triggered` 目标创建新的独立 Execution | 是，使用 `Clear Timer` 和静态 Timer Key |
+
+同一蓝图实例可以同时存在多个挂起的 `Delay`；同一个入口被多次触发时，每次都有自己的 VM 和恢复句柄，不会阻塞整个蓝图，也不会覆盖前一次延迟。
+
+`Create Timer` 输入为 `Exec`、`Duration(ms)`、`Looping`、`FirstDelay(ms)`、`Timer Key`，输出为普通执行出口 `Created` 和橙色菱形回调出口 `On Triggered`。`FirstDelay=-1` 表示首次也使用 `Duration`。循环 Timer 要求 `Duration>0`，并在上一次回调 Execution 完成后再等待一个 `Duration`，不会重叠执行同一个循环 Timer 的回调。
+
+Timer Key 是图内静态字面量：
+
+- 同一文档中的两个 `Create Timer` 不允许使用同一个 Key，编辑器校验和编译都会报错。
+- Key 输入不能连接数据线；`Clear Timer` 直接填写要停止的 Key。
+- 同一 `GraphInstance` 中，一个尚未触发或清除的 Key 不能再次创建，动态重复进入会返回 `ErrTimerKeyAlreadyExists`。
+- 不同 `GraphInstance` 的同名 Key 相互隔离。
+- 一次性 Timer 在开始回调前释放 Key；`Clear Timer` 会取消等待中的任务。若循环 Timer 的回调已经开始，Clear 允许当前回调完成，但阻止下一轮。
+
+`On Triggered` 不是普通同步出口。创建 Timer 时，运行时会为它保存独立的捕获帧；触发后把捕获帧恢复到新的 Execution，再沿回调分支执行。因此编辑器允许回调分支像普通蓝图一样连接并读取创建点之前的输出，但语义是“创建时快照”：
+
+- 已经产生的节点输出和 execution-scope 局部变量取创建 Timer 时的值。
+- `Created` 后续流程再修改的局部值，不会反向改变已保存的捕获帧。
+- 每个 Timer 各有一份深复制快照，多入口、多 Timer 不会互相覆盖。
+- 尚未求值的纯数据节点会在回调 Execution 中求值；此时读取 instance-scope 变量可取得触发时的当前值。若该值在创建前已经被上游流程物化，则使用捕获的快照。
+- `On Triggered` 本身不需要额外“回调参数输出”；跨异步边界需要的值由编译连接和捕获帧提供。
+
+`ReleaseGraph` 和 `Close` 会取消实例中所有尚未触发的内置 Delay/Timer 任务。可用 `SetTimerScheduler(TimerScheduler)` 将系统 `time.AfterFunc` 替换成服务器自己的调度轮或测试时钟。
+
 ## 11. 特殊宿主和恢复场景
 
 ### 11.1 通用事件循环/Actor 适配
@@ -933,7 +964,7 @@ engine.SetDiagnosticSink(&DiagnosticSink{})
 - 输入读取和输出设置检查成功状态。
 - 发布后保持入口 ID、函数 ID、端口编号、参数顺序和返回顺序稳定。
 - Yield 成功后立即返回 `ErrExecutionSuspended`。
-- callback 只捕获 handle 和复制后的普通值。
+- 自定义异步节点的 callback 只捕获 handle 和复制后的普通值；内置 Timer 由 Core 创建捕获帧。
 - 所有 `Resume/ResumeTo` 错误都要处理。
 - 事件循环宿主使用能恢复线程归属的 Dispatcher。
 - 实例不用时 `ReleaseGraph`，进程/模块释放时 `Close`。
@@ -951,14 +982,14 @@ engine.SetDiagnosticSink(&DiagnosticSink{})
 | 任意 goroutine 直接修改宿主状态 | 数据竞争或线程归属破坏 | Dispatcher/Enqueue 回宿主 |
 | 可能 Yield 的图使用 `Graph.Do` | 没有 Execution 生命周期 | `Blueprint.Start/DoContext` |
 | 共享一个 `Graph` 并发执行 | VM/Context 状态冲突 | 通过并发安全的 `Blueprint` facade |
-| 新业务使用旧 Delay/Timer 节点 | Core 明确不支持执行 | 自定义 Timer/RPC 异步节点 |
+| 新业务使用旧 SetTimerByFunction/TimerHandle/Pause/Query 节点 | 已从节点库移除，只保留旧文件内容 | `Create Timer` + `On Triggered` + `Clear Timer` |
 | 纯数据节点产生业务副作用 | 按需重算导致副作用重复 | 使用带 Exec 流的节点 |
 | 改旧图端口编号只为调整显示 | 线上连线错位 | 保持 `port_id`，只改显示字段 |
 | 未知旧节点直接删除 | 保存后线上信息丢失 | 保留 legacy hidden/fallback 信息 |
 
 ### 13.3 外部资源生命周期
 
-Core 管理 VM 和 Execution，不自动管理业务 RPC、Timer、订阅或数据库请求。业务节点应明确：
+Core 自动管理内置 Delay/Timer；自定义业务 RPC、Timer、订阅或数据库请求仍需业务节点明确：
 
 - 如何取消底层请求。
 - callback 晚到时如何清理。
@@ -1027,7 +1058,7 @@ npm run build
 - [ ] 新节点 JSON 和 Go 工厂均已部署。
 - [ ] `name/GetName/port_id` 已冻结并记录。
 - [ ] 入口参数和返回契约已与调用方核对。
-- [ ] 未使用内置 Delay/Timer 兼容节点。
+- [ ] 新 Timer 使用静态唯一 Key，`On Triggered` 已连接，且已确认捕获值采用创建时快照语义。
 - [ ] 异步节点没有阻塞等待，没有捕获节点 Context。
 - [ ] 成功、失败、超时、取消和晚到 callback 已测试。
 - [ ] 事件循环/Actor 使用 `Start`，Dispatcher 能投递回正确线程。
@@ -1051,6 +1082,7 @@ npm run build
 | `Start` | 非阻塞启动，异步和事件循环首选 |
 | `Do/DoContext` | 阻塞等待最终结果 |
 | `SetExecutionDispatcher` | 指定执行和恢复调度环境 |
+| `SetTimerScheduler` | 为内置 Delay/Timer 指定宿主时间轮；传 nil 使用系统时钟 |
 | `HotReload` | 重新加载、编译并安全替换图 |
 | `GetGraphName` | 查询实例绑定的图名 |
 | `ReleaseGraph` | 释放实例并取消其 Execution |
@@ -1076,7 +1108,9 @@ npm run build
 | `ErrExecutionSuspended` | Native 节点通知 VM 已成功 Yield；不是业务失败 |
 | `ErrYieldInvalid` | Yield/Resume 协议、对象或目标端口非法 |
 | `ErrYieldResumed` | 一次性 handle 已经恢复 |
-| `ErrUnsupportedAsyncNode` | 执行了 Core 不支持的旧 Delay/Timer 节点 |
+| `ErrTimerKeyEmpty` | Timer Key 为空 |
+| `ErrTimerKeyAlreadyExists` | 同一 GraphInstance 中该 Key 的 Timer 仍存在 |
+| `ErrTimerDurationInvalid` | Duration/FirstDelay 越界，或循环 Timer 的 Duration 不大于零 |
 
 出现错误时优先保留图名、graphID、entranceID、节点 ID、节点名称、Execution ID 和错误链；不要只记录一条没有上下文的字符串。
 

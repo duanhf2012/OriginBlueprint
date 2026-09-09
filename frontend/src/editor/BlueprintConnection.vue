@@ -67,6 +67,7 @@ function remove(event: MouseEvent) {
 .connection-hit-area { stroke: transparent !important; stroke-width: 13px !important; vector-effect: non-scaling-stroke; }
 .connection-line { stroke: var(--connection-color); stroke-width: 1.55px; filter: drop-shadow(0 1px 1px #000); pointer-events: none !important; vector-effect: non-scaling-stroke; }
 .blueprint-connection.socket-exec .connection-line { stroke-width: 2.5px; }
+.blueprint-connection.socket-callback .connection-line { stroke-width: 3px; stroke-dasharray: 7 3; }
 .blueprint-connection:hover .connection-line { stroke: #fff; stroke-width: 4px; }
 .blueprint-connection.selected .connection-line { stroke: #f5b642; stroke-width: 5px; filter: drop-shadow(0 0 4px #f5b642aa); }
 </style>
