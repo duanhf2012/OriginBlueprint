@@ -187,6 +187,34 @@ func (b *Blueprint) ReleaseGraph(graphID int64) {
 
 }
 
+// ResetInstanceState 复位图实例的运行态：取消该实例全部定时器，并将 instance 级变量恢复为编译期默认值。
+// 与 ReleaseGraph 不同，实例不销毁、graphId 保持有效，下一次触发可继续复用；
+// 供宿主在"活动结束"等边界清理跨触发残留（定时器空转、变量跨期残留）。
+// 蓝图为空或已关闭返回 ErrBlueprintClosed；图实例不存在返回 ErrGraphNotFound；已释放实例复位为幂等 no-op。
+func (b *Blueprint) ResetInstanceState(graphID int64) error {
+	if b == nil {
+		return ErrBlueprintClosed
+	}
+	// 步骤1：短锁取实例与编译图，避免与 Create/Release 并发窗口
+	b.mu.RLock()
+	if b.closed {
+		b.mu.RUnlock()
+		return ErrBlueprintClosed
+	}
+	instance := b.instances[graphID]
+	var compiled *CompiledGraph
+	if instance != nil {
+		compiled = b.graphs[instance.name]
+	}
+	b.mu.RUnlock()
+	if instance == nil {
+		return ErrGraphNotFound
+	}
+	// 步骤2：执行运行态复位
+	instance.resetState(compiled)
+	return nil
+}
+
 func (i *GraphInstance) tryAcquireLease() bool {
 	if i == nil {
 		return false
@@ -243,6 +271,31 @@ func (i *GraphInstance) markReleased() {
 	if clearVariables {
 		i.clearVariables()
 	}
+}
+
+// resetState 在不释放实例的前提下清理运行态：取消全部定时器，并把 instance 级变量恢复为编译期默认值。
+// 与 markReleased 不同，实例保持存活（released 不置位），graphId 与后续触发不受影响。
+func (i *GraphInstance) resetState(compiled *CompiledGraph) {
+	if i == nil {
+		return
+	}
+	// 步骤1：定时器先从注册表摘除再 Cancel，在途 fire 因 timers[key] 已不存在被生命周期校验拒绝
+	i.lifecycleMu.Lock()
+	timers := make([]ScheduledTimer, 0, len(i.timers))
+	for _, timer := range i.timers {
+		if timer != nil && timer.scheduled != nil {
+			timers = append(timers, timer.scheduled)
+		}
+	}
+	clear(i.timers)
+	i.timers = nil
+	i.lifecycleMu.Unlock()
+	for _, timer := range timers {
+		timer.Cancel()
+	}
+	// 步骤2：变量清空后按编译期默认值重建，等价于 Create 之后的初始状态
+	i.clearVariables()
+	i.ensureVariableDefaults(compiled)
 }
 
 func (i *GraphInstance) ensureVariableDefaults(compiled *CompiledGraph) {
