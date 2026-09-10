@@ -138,6 +138,10 @@ func (b *Blueprint) createTimer(graph *Graph, node *ExecNode, durationMs PortInt
 	if err != nil || looping && interval <= 0 {
 		return fmt.Errorf("%w: %dms", ErrTimerDurationInvalid, durationMs)
 	}
+	if firstDelayMs < -1 {
+		return fmt.Errorf("%w: first delay %dms", ErrTimerDurationInvalid, firstDelayMs)
+	}
+
 	delay := interval
 	if firstDelayMs >= 0 {
 		delay, err = checkedMilliseconds(firstDelayMs)

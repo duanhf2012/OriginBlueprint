@@ -67,6 +67,19 @@ func (d *manualExecutionDispatcher) runNext(t *testing.T) {
 	task()
 }
 
+func (d *manualExecutionDispatcher) runAt(t *testing.T, index int) {
+	t.Helper()
+	d.mu.Lock()
+	if index < 0 || index >= len(d.tasks) {
+		d.mu.Unlock()
+		t.Fatalf("expected queued execution at index %d, have %d", index, len(d.tasks))
+	}
+	task := d.tasks[index]
+	d.tasks = append(d.tasks[:index], d.tasks[index+1:]...)
+	d.mu.Unlock()
+	task()
+}
+
 func (d *manualExecutionDispatcher) len() int {
 	d.mu.Lock()
 	defer d.mu.Unlock()

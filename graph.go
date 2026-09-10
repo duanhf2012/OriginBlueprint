@@ -193,6 +193,8 @@ func coreIssueBlocksSave(code string) bool {
 		"timer.key-must-be-literal",
 		"timer.callback-missing",
 		"timer.function-unsupported",
+		"timer.duration-invalid",
+		"timer.first-delay-invalid",
 		"flow.exec-fanout",
 		"flow.data-cycle",
 		"flow.exec-cycle",
@@ -274,6 +276,57 @@ func validIntegerDefault(value interface{}) bool {
 	default:
 		return false
 	}
+}
+
+// integerDefaultValue converts the same persisted representations accepted by
+// validIntegerDefault. It is used only for static rules that need a numeric
+// range check in addition to the generic integer-type validation.
+func integerDefaultValue(value interface{}) (int64, bool) {
+	switch number := value.(type) {
+	case int:
+		return int64(number), true
+	case int8:
+		return int64(number), true
+	case int16:
+		return int64(number), true
+	case int32:
+		return int64(number), true
+	case int64:
+		return number, true
+	case uint:
+		if uint64(number) <= uint64(math.MaxInt64) {
+			return int64(number), true
+		}
+	case uint8:
+		return int64(number), true
+	case uint16:
+		return int64(number), true
+	case uint32:
+		return int64(number), true
+	case uint64:
+		if number <= uint64(math.MaxInt64) {
+			return int64(number), true
+		}
+	case string:
+		return parseInt64Decimal(number)
+	case json.Number:
+		if parsed, ok := parseInt64Decimal(number.String()); ok {
+			return parsed, true
+		}
+		if parsed, err := strconv.ParseFloat(number.String(), 64); err == nil && !math.IsNaN(parsed) && !math.IsInf(parsed, 0) && math.Trunc(parsed) == parsed && parsed >= -9223372036854775808.0 && parsed < 9223372036854775808.0 {
+			return int64(parsed), true
+		}
+	case float32:
+		parsed := float64(number)
+		if !math.IsNaN(parsed) && !math.IsInf(parsed, 0) && math.Trunc(parsed) == parsed && parsed >= -9223372036854775808.0 && parsed < 9223372036854775808.0 {
+			return int64(parsed), true
+		}
+	case float64:
+		if !math.IsNaN(number) && !math.IsInf(number, 0) && math.Trunc(number) == number && number >= -9223372036854775808.0 && number < 9223372036854775808.0 {
+			return int64(number), true
+		}
+	}
+	return 0, false
 }
 
 func unsupportedArrayElement(value interface{}) (int, string, bool) {
@@ -725,6 +778,22 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 			}
 			if isFunctionDocument && node.TypeID == "origin.timer.create" {
 				issues = append(issues, ValidationIssue{Severity: "error", Code: "timer.function-unsupported", Message: "函数蓝图中暂不支持创建回调定时器", NodeID: node.ID})
+			}
+			if node.TypeID == "origin.timer.create" {
+				if !connectedInputs[node.ID]["duration"] {
+					if duration, ok := integerDefaultValue(node.Values["duration"]); ok {
+						if duration < 0 {
+							issues = append(issues, ValidationIssue{Severity: "error", Code: "timer.duration-invalid", Message: "Timer Duration 不能小于 0", NodeID: node.ID})
+						} else if looping, _ := node.Values["looping"].(bool); looping && duration == 0 {
+							issues = append(issues, ValidationIssue{Severity: "error", Code: "timer.duration-invalid", Message: "循环 Timer 的 Duration 必须大于 0", NodeID: node.ID})
+						}
+					}
+				}
+				if !connectedInputs[node.ID]["firstDelay"] {
+					if firstDelay, ok := integerDefaultValue(node.Values["firstDelay"]); ok && firstDelay < -1 {
+						issues = append(issues, ValidationIssue{Severity: "error", Code: "timer.first-delay-invalid", Message: "First Delay 只能为 -1 或非负毫秒数", NodeID: node.ID})
+					}
+				}
 			}
 		}
 		definition, known := graphNodePorts[node.TypeID]

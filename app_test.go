@@ -991,6 +991,8 @@ func TestCoreIssueBlocksSaveUsesExplicitLanguageNeutralCodes(t *testing.T) {
 		"timer.key-duplicate",
 		"timer.key-must-be-literal",
 		"timer.callback-missing",
+		"timer.duration-invalid",
+		"timer.first-delay-invalid",
 		"flow.exec-fanout",
 		"flow.data-cycle",
 		"flow.exec-cycle",
@@ -1056,6 +1058,31 @@ func TestValidateGraphRequiresLiteralTimerKeyAndCallback(t *testing.T) {
 	}
 	issues := validateGraph(document)
 	for _, code := range []string{"timer.key-empty", "timer.key-must-be-literal", "timer.callback-missing"} {
+		issue := requireValidationIssue(t, issues, code)
+		if !issue.BlocksSave || !issue.BlocksRun {
+			t.Fatalf("%s must block save and run: %#v", code, issue)
+		}
+	}
+}
+
+func TestValidateGraphRejectsInvalidTimerDurations(t *testing.T) {
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		Nodes: []GraphNode{
+			{ID: "begin", TypeID: "origin.event.begin"},
+			{ID: "negative-first-delay", TypeID: "origin.timer.create", Values: map[string]interface{}{"duration": 1000, "looping": false, "firstDelay": -2, "timerKey": "first-delay"}},
+			{ID: "zero-loop", TypeID: "origin.timer.create", Values: map[string]interface{}{"duration": 0, "looping": true, "firstDelay": -1, "timerKey": "loop"}},
+			{ID: "callback-a", TypeID: "origin.debug.output"},
+			{ID: "callback-b", TypeID: "origin.debug.output"},
+		},
+		Connections: []GraphConnection{
+			{Source: "begin", SourceOutput: "exec", Target: "negative-first-delay", TargetInput: "exec"},
+			{Source: "negative-first-delay", SourceOutput: "triggered", Target: "callback-a", TargetInput: "exec"},
+			{Source: "zero-loop", SourceOutput: "triggered", Target: "callback-b", TargetInput: "exec"},
+		},
+	}
+	issues := validateGraph(document)
+	for _, code := range []string{"timer.duration-invalid", "timer.first-delay-invalid"} {
 		issue := requireValidationIssue(t, issues, code)
 		if !issue.BlocksSave || !issue.BlocksRun {
 			t.Fatalf("%s must block save and run: %#v", code, issue)
