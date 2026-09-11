@@ -1,7 +1,7 @@
 import { ClassicPreset } from 'rete'
 import { ArrayControl, BlueprintNode, type DynamicBranchConfig, type NodeKind } from './types'
 import type { FunctionNodeMetadata, FunctionSignature, FunctionSignaturePort, GraphVariable, NodeProperties } from './document'
-import { entrySourceColor } from './implicitEntryLinks'
+import { assignEntrySourcePalette, entrySourceColor, looksLikeEntryName } from './implicitEntryLinks'
 import { inputAllowsMultipleConnections } from './connectionPolicy'
 
 export interface NodeDefinition {
@@ -13,6 +13,7 @@ export interface NodeDefinition {
   description?: string
   kind: NodeKind
   ordinaryEntry?: boolean
+  entryColorKey?: string
   create(): BlueprintNode
 }
 
@@ -145,6 +146,16 @@ function isLegacyEntryClass(value?: string) {
   return String(value ?? '').trim().toLowerCase().startsWith('entrance_')
 }
 
+// 入口身份色的稳定 key：普通入口用 schema 来源名，中文名等自定义入口用名称或标题。
+// 返回空串表示该 schema 不是入口，不参与调色板分配。
+function entryColorKeyForSchema(schema: NodeSchema, kind: NodeKind): string {
+  if (isOrdinaryEntrySchema(schema, kind)) return String(schema.sourceName || schema.id).trim()
+  if (schema.id.startsWith('origin.custom.') && (looksLikeEntryName(schema.sourceName) || looksLikeEntryName(schema.title))) {
+    return String(schema.sourceName || schema.title).trim()
+  }
+  return ''
+}
+
 function fromSchema(schema: NodeSchema, locale: string): NodeDefinition {
   const english = locale === 'en-US'
   const title = english ? schema.titleEn || schema.title : schema.title
@@ -153,6 +164,9 @@ function fromSchema(schema: NodeSchema, locale: string): NodeDefinition {
   const kind = inferKind(schema)
   const ordinaryEntry = isOrdinaryEntrySchema(schema, kind)
   const legacyClass = schema.custom ? schema.sourceName : undefined
+  // 自定义入口（如中文“…入口”）拿不到 ordinaryEntry 标记，但入口图标和引用徽章必须共享同一身份色。
+  // 只补 entrySourceColor，不设置 entrySourceKey，避免改变入口节点的添加/判重策略。
+  const entryColorKey = entryColorKeyForSchema(schema, kind)
   const dynamicBranch = schema.dynamicBranch ? {
     ...schema.dynamicBranch,
     outputTemplate: schema.dynamicBranch.outputTemplate ? { ...schema.dynamicBranch.outputTemplate } : { type: 'exec', label: '' },
@@ -167,12 +181,15 @@ function fromSchema(schema: NodeSchema, locale: string): NodeDefinition {
     description: subtitle,
     kind,
     ordinaryEntry,
+    entryColorKey,
     create() {
       const result = node(schema.id, title, kind, subtitle ?? category, schema.width ?? 230)
       result.legacyClass = legacyClass
       if (ordinaryEntry) {
-        result.entrySourceKey = schema.sourceName || schema.id
-        result.entrySourceColor = entrySourceColor(schema.sourceName || schema.id)
+        result.entrySourceKey = entryColorKey
+        result.entrySourceColor = entrySourceColor(entryColorKey)
+      } else if (entryColorKey) {
+        result.entrySourceColor = entrySourceColor(entryColorKey)
       }
       result.dynamicOutputs = schema.dynamicOutputs
       result.dynamicBranch = dynamicBranch
@@ -208,6 +225,8 @@ export function registerNodeSchemas(schemas: NodeSchema[], locale = 'zh-CN') {
   }
   allNodeDefinitions = Array.from(byId.values())
   nodeDefinitions = visibleNodeDefinitions()
+  // 入口身份色统一分配：按稳定 key 排序映射到预置调色板，同图内入口颜色两两不同且区分度大。
+  assignEntrySourcePalette(allNodeDefinitions.map(definition => definition.entryColorKey ?? '').filter(Boolean))
 }
 
 export function hasNodeDefinition(typeId: string) {
