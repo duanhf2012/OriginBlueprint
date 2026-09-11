@@ -375,8 +375,8 @@ function handleTimerFunctionKeydown(event: KeyboardEvent) {
 .entry-binding-badge { flex: 0 1 auto; box-sizing: border-box; max-width: 180px; min-width: 0; overflow: hidden; padding: 1px 7px; border: 1px solid color-mix(in srgb, var(--entry-source-color, #33c5e8) 80%, #ffffff); border-radius: 2px; background: linear-gradient(90deg, color-mix(in srgb, var(--entry-source-color, #33c5e8) 22%, #101010), #101b20d9); color: var(--entry-source-color, #bff4ff); font: var(--node-badge-font-size, 10px) "Segoe UI", sans-serif; text-overflow: ellipsis; white-space: nowrap; box-shadow: inset 0 0 0 1px #ffffff10, 0 0 5px color-mix(in srgb, var(--entry-source-color, #33c5e8) 45%, transparent); }
 .port.socket-exec { min-height: 25px; }
 .port.socket-callback { min-height: 28px; font-weight: 650; }
-.port:not(.filled) :deep(.blueprint-socket:not(.exec)) { background: #101010; box-shadow: 0 0 0 1px #000, inset 0 1px #ffffff24; }
-.port.filled :deep(.blueprint-socket:not(.exec)) { background: var(--socket-fill); box-shadow: 0 0 0 1px #000, inset 0 1px #ffffff55, 0 0 4px var(--socket-color); }
+.port:not(.filled) :deep(.blueprint-socket:not(.exec):not(.callback)) { background: #101010; box-shadow: 0 0 0 1px #000, inset 0 1px #ffffff24; }
+.port.filled :deep(.blueprint-socket:not(.exec):not(.callback)) { background: var(--socket-fill); box-shadow: 0 0 0 1px #000, inset 0 1px #ffffff55, 0 0 4px var(--socket-color); }
 .port:not(.filled) :deep(.blueprint-socket.exec path) { fill: #101010; stroke-width: 1.1; }
 .port.filled :deep(.blueprint-socket.exec path) { fill: var(--socket-fill); stroke-width: .75; }
 .port.filled :deep(.blueprint-socket.callback path) { fill: var(--socket-fill); }

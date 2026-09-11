@@ -790,7 +790,7 @@ default:
 
 同一蓝图实例可以同时存在多个挂起的 `Delay`；同一个入口被多次触发时，每次都有自己的 VM 和恢复句柄，不会阻塞整个蓝图，也不会覆盖前一次延迟。
 
-`Create Timer` 输入为 `Exec`、`Duration(ms)`、`Looping`、`Timer Key`，输出为普通执行出口 `Created` 和橙色菱形回调出口 `On Triggered`。`Created` 在创建成功后立即执行；`On Triggered` 首次和后续都等待一个 `Duration`。循环 Timer 要求 `Duration>0`，并在上一次回调 Execution 完成后再等待一个 `Duration`，不会重叠执行同一个循环 Timer 的回调。
+`Create Timer` 输入为 `Exec`、`Duration(ms)`、`Looping`、`Timer Key`，输出为普通执行出口 `Created` 和黄色实线箭头回调出口 `On Triggered`（回调连线为黄色虚线）。`Created` 在创建成功后立即执行；`On Triggered` 首次和后续都等待一个 `Duration`。循环 Timer 要求 `Duration>0`，并在上一次回调 Execution 完成后再等待一个 `Duration`，不会重叠执行同一个循环 Timer 的回调。
 
 Timer Key 是图内静态字面量：
 
