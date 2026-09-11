@@ -410,9 +410,28 @@ func legacyNodeSpec(properties graphDocumentProperties) documentNodeSpec {
 	}
 	outputs := make(map[string]int, len(properties.LegacyOutputs))
 	for index, port := range properties.LegacyOutputs {
-		outputs[port.Key] = index
+		outputs[port.Key] = legacySwitchOutputPortID(properties.LegacyClass, port.Key, index)
 	}
 	return documentNodeSpec{class: properties.LegacyClass, inputs: inputs, outputs: outputs}
+}
+
+// legacySwitchOutputPortId 把 legacy 文档的输出口 key 转换为执行器槽位编号。
+// RangeCompare/EqualSwitch 的 legacy 输出按编辑器紧凑顺序保存（otherwise=0，case_i=i），
+// 而执行器 Exec 按稀疏语义跳转（otherwise=0，case_i=i+1，中间槽位预留给后续 case）；
+// 转换时对这两类结点重映射 case 编号，避免命中分支与编译后继槽位错位（错位时分支永远落空）。
+func legacySwitchOutputPortID(class, key string, index int) int {
+	if class != "RangeCompare" && class != "EqualSwitch" {
+		return index
+	}
+	if key == "otherwise" {
+		return 0
+	}
+	if caseID, ok := strings.CutPrefix(key, "case"); ok {
+		if caseIndex, err := strconv.Atoi(caseID); err == nil {
+			return caseIndex + 1
+		}
+	}
+	return index
 }
 
 func signatureTypes(ports []graphDocumentFuncPort) []string {
