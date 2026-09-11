@@ -9,6 +9,7 @@ import {
 } from '../src/documentSafety'
 import type { GraphDocument, GraphSnapshot, NodeSnapshot, RestoreAlteredNode } from '../src/editor/document'
 import { refreshNodePortStates } from '../src/editor/portVisualState'
+import { entrySourcePalette } from '../src/editor/implicitEntryLinks'
 import { buildRestorePlan, normalizeDynamicOutputCount, type PreparedRestoreNode } from '../src/editor/restorePlan'
 import type { BlueprintNode } from '../src/editor/types'
 
@@ -46,6 +47,36 @@ describe('input port visual state', () => {
     expect(target.portStates?.inputs.count.filled).toBe(true)
     expect(target.portStates?.inputs.label.filled).toBe(true)
     expect(target.portStates?.inputs.enabled.filled).toBe(true)
+  })
+
+  it('propagates the ID-ordered entry color to a bound target input', () => {
+    const laterEntry = {
+      id: 'entry-z',
+      kind: 'event',
+      label: 'Later entry',
+      inputs: {},
+      outputs: { value: { label: 'Value', socket: { name: 'integer' } } },
+    } as unknown as BlueprintNode
+    const earlierEntry = {
+      id: 'entry-a',
+      kind: 'event',
+      label: 'Earlier entry',
+      inputs: {},
+      outputs: { value: { label: 'Value', socket: { name: 'integer' } } },
+    } as unknown as BlueprintNode
+    const target = {
+      id: 'target',
+      label: 'Target',
+      inputs: { value: { label: 'Value', socket: { name: 'integer' } } },
+      outputs: {},
+    } as unknown as BlueprintNode
+    const nodes = [laterEntry, target, earlierEntry]
+
+    refreshNodePortStates(nodes, [{ source: laterEntry.id, sourceOutput: 'value', target: target.id, targetInput: 'value' }], id => nodes.find(node => node.id === id))
+
+    expect(earlierEntry.entrySourceColor).toBe(entrySourcePalette[0])
+    expect(laterEntry.entrySourceColor).toBe(entrySourcePalette[1])
+    expect(target.portStates?.inputs.value.entryBinding?.entrySourceColor).toBe(entrySourcePalette[1])
   })
 })
 

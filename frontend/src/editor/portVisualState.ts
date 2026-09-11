@@ -1,5 +1,5 @@
 import type { BlueprintNode, NodePortVisualStates, Schemes } from './types'
-import { describeEntryBinding, type EntryBindingNode } from './implicitEntryLinks'
+import { describeEntryBinding, entrySourceColorAssignments, type EntryBindingNode } from './implicitEntryLinks'
 
 type PortSide = keyof NodePortVisualStates
 type ConnectionLike = Pick<Schemes['Connection'], 'source' | 'target' | 'sourceOutput' | 'targetInput'>
@@ -36,9 +36,15 @@ function fillPort(node: BlueprintNode | undefined, side: PortSide, key: string) 
 
 function entryBindingNode(node?: BlueprintNode): EntryBindingNode | undefined {
   if (!node) return undefined
-  const inputs = Object.fromEntries(Object.entries(node.inputs).flatMap(([key, port]) => port ? [[key, { label: port.label, socket: port.socket.name }]] : []))
-  const outputs = Object.fromEntries(Object.entries(node.outputs).flatMap(([key, port]) => port ? [[key, { label: port.label, socket: port.socket.name }]] : []))
-  return { id: node.id, typeId: node.typeId, legacyClass: node.legacyClass, label: node.label, entrySourceKey: node.entrySourceKey, entrySourceColor: node.entrySourceColor, inputs, outputs }
+  const inputs = Object.fromEntries(Object.entries(node.inputs).flatMap(([key, port]) => {
+    const socket = port?.socket?.name
+    return port && socket ? [[key, { label: port.label, socket }]] : []
+  }))
+  const outputs = Object.fromEntries(Object.entries(node.outputs).flatMap(([key, port]) => {
+    const socket = port?.socket?.name
+    return port && socket ? [[key, { label: port.label, socket }]] : []
+  }))
+  return { id: node.id, kind: node.kind, typeId: node.typeId, legacyClass: node.legacyClass, label: node.label, entrySourceKey: node.entrySourceKey, entrySourceColor: node.entrySourceColor, inputs, outputs }
 }
 
 export function refreshNodePortStates(
@@ -46,6 +52,14 @@ export function refreshNodePortStates(
   connections: ConnectionLike[],
   getNode: (id: string) => BlueprintNode | undefined
 ) {
+  const colors = entrySourceColorAssignments(nodes.flatMap(node => {
+    const entry = entryBindingNode(node)
+    return entry ? [entry] : []
+  }))
+  for (const node of nodes) {
+    const color = colors.get(node.id)
+    if (color) node.entrySourceColor = color
+  }
   for (const node of nodes) node.portStates = createPortStates(node)
 
   for (const connection of connections) {

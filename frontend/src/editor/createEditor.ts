@@ -10,7 +10,7 @@ import BlueprintSocket from './BlueprintSocket.vue'
 import { applyTimerFunctionMetadata, applyVariableNodePresentation, createFunctionCallNode, createFunctionEntryNode as createFunctionEntryNodeFromSpec, createFunctionReturnNode as createFunctionReturnNodeFromSpec, createLegacyNode, createNode, createSetTimerByFunctionNode, createVariableNode, hasNodeDefinition, nodeTitleWidth, resolveNodeLegacyClass } from './nodeRegistry'
 import { normalizeSocketName } from './socketTheme'
 import { BlueprintNode, type Schemes } from './types'
-import { describeEntryBinding, entryBindingCandidateGroups, isEntryOutputConnection, type EntryBindingNode } from './implicitEntryLinks'
+import { describeEntryBinding, entryBindingCandidateGroups, entryBindingMenuPosition, type EntryBindingNode } from './implicitEntryLinks'
 import { refreshNodePortStates } from './portVisualState'
 import { pathIntersectsRect, rectsIntersect, type Rect } from './selectionGeometry'
 import { execOutputReplacementIds } from './connectionPolicy'
@@ -874,19 +874,31 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     if (!node) return undefined
     const inputs = Object.fromEntries(Object.entries(node.inputs).flatMap(([key, port]) => port ? [[key, { label: port.label, socket: port.socket.name }]] : []))
     const outputs = Object.fromEntries(Object.entries(node.outputs).flatMap(([key, port]) => port ? [[key, { label: port.label, socket: port.socket.name }]] : []))
-    return { id: node.id, typeId: node.typeId, legacyClass: node.legacyClass, label: node.label, inputs, outputs }
+    return {
+      id: node.id,
+      kind: node.kind,
+      typeId: node.typeId,
+      legacyClass: node.legacyClass,
+      label: node.label,
+      entrySourceKey: node.entrySourceKey,
+      entrySourceColor: node.entrySourceColor,
+      inputs,
+      outputs
+    }
   }
 
   function updateConnectionPresentation(item: Schemes['Connection']) {
-    const implicitEntryConnection = isEntryOutputConnection({
+    const entryBinding = describeEntryBinding({
       source: item.source,
       sourceOutput: String(item.sourceOutput),
       target: item.target,
       targetInput: String(item.targetInput)
     }, id => entryBindingNode(editor.getNode(id)))
-    const hidden = implicitEntryConnection && !visibleEntryConnectionIds.has(item.id)
-    const changed = item.hidden !== hidden
+    const hidden = Boolean(entryBinding) && !visibleEntryConnectionIds.has(item.id)
+    const entryColor = entryBinding?.entrySourceColor
+    const changed = item.hidden !== hidden || item.entrySourceColor !== entryColor
     item.hidden = hidden
+    item.entrySourceColor = entryColor
     return changed
   }
 
@@ -921,8 +933,8 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     const nodes = editor.getNodes()
     const nodeIds = onlyNodeIds ? new Set(onlyNodeIds) : undefined
     const connections = editor.getConnections()
-    const changedConnections = connections.filter(updateConnectionPresentation)
     refreshNodePortStates(nodes, connections, id => editor.getNode(id))
+    const changedConnections = connections.filter(updateConnectionPresentation)
     refreshInputControlVisibility(nodeIds)
     if (updateNodes) {
       const updates = nodeIds ? nodes.filter(node => nodeIds.has(node.id)) : nodes
@@ -1632,9 +1644,15 @@ function nodeSize(node: BlueprintNode) {
     }
 
     const rect = container.getBoundingClientRect()
-    entryBindingMenu.style.left = `${Math.max(6, Math.min(detail.clientX - rect.left, rect.width - 250))}px`
-    entryBindingMenu.style.top = `${Math.max(6, Math.min(detail.clientY - rect.top, rect.height - 260))}px`
+    entryBindingMenu.style.maxHeight = `${Math.max(80, Math.min(340, rect.height - 12))}px`
+    entryBindingMenu.style.visibility = 'hidden'
     entryBindingMenu.hidden = false
+    entryBindingMenu.scrollTop = 0
+    const menuRect = entryBindingMenu.getBoundingClientRect()
+    const position = entryBindingMenuPosition(detail.clientX, detail.clientY, rect, menuRect.width, menuRect.height)
+    entryBindingMenu.style.left = `${position.left}px`
+    entryBindingMenu.style.top = `${position.top}px`
+    entryBindingMenu.style.visibility = ''
   }
 
   const entryBindingMenuListener = (event: Event) => {

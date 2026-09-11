@@ -5,7 +5,10 @@ import { socketClassName, socketStyle } from './socketTheme'
 
 const props = defineProps<{ data: BlueprintConnection; path: string }>()
 const socketClass = computed(() => socketClassName(props.data.socketType))
-const styleVariables = computed(() => socketStyle(props.data.socketType))
+const styleVariables = computed(() => ({
+  ...socketStyle(props.data.socketType),
+  ...(props.data.entrySourceColor ? { '--connection-color': props.data.entrySourceColor } : {})
+}))
 const pathBounds = computed(() => {
   const values = props.path.match(/-?\d+(?:\.\d+)?(?:e[-+]?\d+)?/gi)?.map(Number).filter(Number.isFinite) ?? []
   if (values.length < 2) return { x: 0, y: 0, width: 1, height: 1 }

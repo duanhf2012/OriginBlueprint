@@ -110,7 +110,12 @@ function portFilled(side: 'inputs' | 'outputs', key: string) {
 }
 
 function socketPayload(side: 'inputs' | 'outputs', key: string, socket: { name: string }) {
-  return { name: socket.name, filled: portFilled(side, key) }
+  const entrySourceColor = socket.name === 'exec' || socket.name === 'callback'
+    ? undefined
+    : side === 'outputs'
+      ? props.data.entrySourceColor
+      : props.data.portStates?.inputs[key]?.entryBinding?.entrySourceColor
+  return { name: socket.name, filled: portFilled(side, key), entrySourceColor }
 }
 
 function portClass(side: 'inputs' | 'outputs', key: string, socket: { name: string }) {
@@ -128,6 +133,21 @@ function inputEntryBindingTitle(key: string) {
 function inputEntryBindingStyle(key: string) {
   const color = props.data.portStates?.inputs[key]?.entryBinding?.entrySourceColor
   return color ? { '--entry-source-color': color } : undefined
+}
+
+function portStyle(side: 'inputs' | 'outputs', key: string, socket: { name: string }) {
+  const style = socketStyle(socket.name)
+  if (socket.name === 'exec' || socket.name === 'callback') return style
+  const color = side === 'outputs'
+    ? props.data.entrySourceColor
+    : props.data.portStates?.inputs[key]?.entryBinding?.entrySourceColor
+  return color ? {
+    ...style,
+    '--socket-color': color,
+    '--socket-fill': color,
+    '--socket-label-color': color,
+    '--connection-color': color
+  } : style
 }
 
 function openEntryBindingMenu(event: MouseEvent, key: string, socket: { name: string }) {
@@ -271,7 +291,7 @@ function handleTimerFunctionKeydown(event: KeyboardEvent) {
 
     <div v-if="data.dynamicBranch" class="ports">
       <div v-for="index in normalRows" :key="`normal-${index}`" class="port-row">
-        <div v-if="normalInputs[index - 1]" class="port input-port" :class="portClass('inputs', normalInputs[index - 1][0], normalInputs[index - 1][1].socket)" :style="socketStyle(normalInputs[index - 1][1].socket.name)" @contextmenu.stop.prevent="openEntryBindingMenu($event, normalInputs[index - 1][0], normalInputs[index - 1][1].socket)">
+        <div v-if="normalInputs[index - 1]" class="port input-port" :class="portClass('inputs', normalInputs[index - 1][0], normalInputs[index - 1][1].socket)" :style="portStyle('inputs', normalInputs[index - 1][0], normalInputs[index - 1][1].socket)" @contextmenu.stop.prevent="openEntryBindingMenu($event, normalInputs[index - 1][0], normalInputs[index - 1][1].socket)">
           <Ref class="socket-ref" :emit="emit" :data="{ type: 'socket', side: 'input', key: normalInputs[index - 1][0], nodeId: data.id, payload: socketPayload('inputs', normalInputs[index - 1][0], normalInputs[index - 1][1].socket) }" />
           <span class="port-label">{{ normalInputs[index - 1][1].label }}</span>
           <span v-if="inputEntryBindingLabel(normalInputs[index - 1][0])" class="entry-binding-badge" :style="inputEntryBindingStyle(normalInputs[index - 1][0])" :title="inputEntryBindingTitle(normalInputs[index - 1][0])">{{ inputEntryBindingLabel(normalInputs[index - 1][0]) }}</span>
@@ -281,7 +301,7 @@ function handleTimerFunctionKeydown(event: KeyboardEvent) {
 
         <div class="port-spacer middle-spacer"></div>
 
-        <div v-if="normalOutputs[index - 1]" class="port output-port" :class="portClass('outputs', normalOutputs[index - 1][0], normalOutputs[index - 1][1].socket)" :style="socketStyle(normalOutputs[index - 1][1].socket.name)">
+        <div v-if="normalOutputs[index - 1]" class="port output-port" :class="portClass('outputs', normalOutputs[index - 1][0], normalOutputs[index - 1][1].socket)" :style="portStyle('outputs', normalOutputs[index - 1][0], normalOutputs[index - 1][1].socket)">
           <span class="port-label">{{ normalOutputs[index - 1][1].label }}</span>
           <Ref class="socket-ref" :emit="emit" :data="{ type: 'socket', side: 'output', key: normalOutputs[index - 1][0], nodeId: data.id, payload: socketPayload('outputs', normalOutputs[index - 1][0], normalOutputs[index - 1][1].socket) }" />
         </div>
@@ -312,7 +332,7 @@ function handleTimerFunctionKeydown(event: KeyboardEvent) {
 
     <div v-else class="ports">
       <div v-for="index in rows" :key="index" class="port-row">
-        <div v-if="inputs[index - 1]" class="port input-port" :class="portClass('inputs', inputs[index - 1][0], inputs[index - 1][1].socket)" :style="socketStyle(inputs[index - 1][1].socket.name)" @contextmenu.stop.prevent="openEntryBindingMenu($event, inputs[index - 1][0], inputs[index - 1][1].socket)">
+        <div v-if="inputs[index - 1]" class="port input-port" :class="portClass('inputs', inputs[index - 1][0], inputs[index - 1][1].socket)" :style="portStyle('inputs', inputs[index - 1][0], inputs[index - 1][1].socket)" @contextmenu.stop.prevent="openEntryBindingMenu($event, inputs[index - 1][0], inputs[index - 1][1].socket)">
           <Ref class="socket-ref" :emit="emit" :data="{ type: 'socket', side: 'input', key: inputs[index - 1][0], nodeId: data.id, payload: socketPayload('inputs', inputs[index - 1][0], inputs[index - 1][1].socket) }" />
           <span class="port-label">{{ inputs[index - 1][1].label }}</span>
           <span v-if="inputEntryBindingLabel(inputs[index - 1][0])" class="entry-binding-badge" :style="inputEntryBindingStyle(inputs[index - 1][0])" :title="inputEntryBindingTitle(inputs[index - 1][0])">{{ inputEntryBindingLabel(inputs[index - 1][0]) }}</span>
@@ -322,7 +342,7 @@ function handleTimerFunctionKeydown(event: KeyboardEvent) {
 
         <div class="port-spacer middle-spacer"></div>
 
-        <div v-if="outputs[index - 1]" class="port output-port" :class="portClass('outputs', outputs[index - 1][0], outputs[index - 1][1].socket)" :style="socketStyle(outputs[index - 1][1].socket.name)">
+        <div v-if="outputs[index - 1]" class="port output-port" :class="portClass('outputs', outputs[index - 1][0], outputs[index - 1][1].socket)" :style="portStyle('outputs', outputs[index - 1][0], outputs[index - 1][1].socket)">
           <span class="port-label">{{ outputs[index - 1][1].label }}</span>
           <Ref class="socket-ref" :emit="emit" :data="{ type: 'socket', side: 'output', key: outputs[index - 1][0], nodeId: data.id, payload: socketPayload('outputs', outputs[index - 1][0], outputs[index - 1][1].socket) }" />
         </div>

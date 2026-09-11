@@ -78,6 +78,7 @@ export class ArrayControl extends ClassicPreset.Control {
 export type BlueprintConnection = ClassicPreset.Connection<BlueprintNode, BlueprintNode> & {
   selected?: boolean
   socketType?: SocketThemeName
+  entrySourceColor?: string
   hidden?: boolean
   legacyEdgeId?: string
   legacyOrdinal?: number

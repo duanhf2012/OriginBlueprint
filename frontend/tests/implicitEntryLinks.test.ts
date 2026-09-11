@@ -3,7 +3,10 @@ import {
   entryBindingBadgeLabel,
   entryBindingCandidateGroups,
   entryBindingLabel,
+  entryBindingMenuPosition,
   entryBindingTitle,
+  entrySourceColorAssignments,
+  entrySourcePalette,
   isEntryNode,
   isEntryOutputConnection,
   socketsCompatible,
@@ -81,6 +84,40 @@ const functionReturn: EntryBindingNode = {
   }
 }
 
+const activityEntry: EntryBindingNode = {
+  id: 'activity-entry',
+  kind: 'event',
+  typeId: 'origin.custom.entrance-activity-200000',
+  label: 'Activity event',
+  outputs: {
+    exec: { label: '', socket: 'exec' },
+    mapInstanceId: { label: 'Map instance ID', socket: 'integer' }
+  }
+}
+
+const playerEnterMapEntry: EntryBindingNode = {
+  id: 'player-enter-map-entry',
+  kind: 'event',
+  typeId: 'origin.custom.entrance-player-enter-map-200001',
+  label: 'Player enters map',
+  outputs: {
+    exec: { label: '', socket: 'exec' },
+    mapInstanceId: { label: 'Map instance ID', socket: 'integer' }
+  }
+}
+
+const groupCountChangedEntry: EntryBindingNode = {
+  id: 'group-count-changed-entry',
+  kind: 'event',
+  typeId: 'origin.custom.on-group-key-count-changed-200002',
+  legacyClass: 'OnGroupKeyCountChanged_200002',
+  label: 'Group count changed',
+  outputs: {
+    exec: { label: '', socket: 'exec' },
+    mapInstanceId: { label: 'Map instance ID', socket: 'integer' }
+  }
+}
+
 const connection: EntryBindingConnection = {
   source: 'entry',
   sourceOutput: 'objectId',
@@ -114,6 +151,15 @@ assert(functionCandidateGroups.length === 1, 'offers function Entry parameters i
 assert(functionCandidateGroups[0].sourceNodeId === 'function-entry', 'uses the function Entry as the binding source')
 assert(functionCandidateGroups[0].candidates.map(item => item.sourceOutput).join(',') === 'input_value', 'filters function Entry parameters by socket type and excludes exec')
 
+const threeEntryGroups = entryBindingCandidateGroups('target', 'targetId', [
+  target,
+  activityEntry,
+  playerEnterMapEntry,
+  groupCountChangedEntry
+])
+assert(threeEntryGroups.length === 3, 'offers matching parameters from all three event entry nodes')
+assert(threeEntryGroups.map(group => group.sourceNodeId).join(',') === 'activity-entry,player-enter-map-entry,group-count-changed-entry', 'keeps all event entry groups in canvas order')
+
 const functionBinding = describeEntryBinding({
   source: 'function-entry',
   sourceOutput: 'input_value',
@@ -137,5 +183,28 @@ assert(binding?.label === 'ObjectId', 'uses only the field name for the visible 
 assert(entryBindingLabel(binding) === 'ObjectId', 'formats a compact field-only badge label')
 assert(entryBindingBadgeLabel(binding) === 'ObjectId', 'formats the visible field-only badge text')
 assert(entryBindingTitle(binding) === 'Skill Entry/ObjectId', 'formats the tooltip without an entry prefix')
+})
+
+it('keeps the full binding menu inside the canvas near its bottom edge', () => {
+  const position = entryBindingMenuPosition(780, 790, { left: 0, top: 0, width: 912, height: 812 }, 286, 340)
+  assert(position.left === 620, 'clamps the menu to the canvas right edge using its measured width')
+  assert(position.top === 466, 'clamps the menu to the canvas bottom edge using its measured height')
+  assert(position.left + 286 <= 906 && position.top + 340 <= 806, 'leaves the requested margin around the whole menu')
+})
+
+it('assigns a fixed 50-color palette by stable entry node ID order', () => {
+  assert(entrySourcePalette.length === 50, 'provides exactly 50 built-in entry colors')
+  assert(new Set(entrySourcePalette).size === 50, 'does not repeat colors within the built-in palette')
+
+  const assignments = entrySourceColorAssignments([
+    { ...activityEntry, id: 'entry-c' },
+    target,
+    { ...playerEnterMapEntry, id: 'entry-a' },
+    { ...groupCountChangedEntry, id: 'entry-b' }
+  ])
+  assert(assignments.size === 3, 'assigns colors only to entry nodes')
+  assert(assignments.get('entry-a') === entrySourcePalette[0], 'assigns the first palette color to the lowest entry ID')
+  assert(assignments.get('entry-b') === entrySourcePalette[1], 'assigns the second palette color to the next entry ID')
+  assert(assignments.get('entry-c') === entrySourcePalette[2], 'assigns colors independently of canvas enumeration order')
 })
 })
