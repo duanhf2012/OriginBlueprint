@@ -5,7 +5,6 @@ export interface EntryBindingPort {
 
 export interface EntryBindingNode {
   id: string
-  kind?: string
   typeId?: string
   legacyClass?: string
   label: string
@@ -48,29 +47,9 @@ export interface EntryBindingCandidateGroup {
   candidates: EntryBindingCandidate[]
 }
 
-export interface EntryBindingMenuRect {
-  left: number
-  top: number
-  width: number
-  height: number
-}
-
 function cleanLabel(value: string | undefined, fallback: string) {
   return String(value ?? '').trim() || fallback
 }
-
-export const entrySourcePalette = [
-  '#ef5350', '#42a5f5', '#ffee58', '#ab47bc', '#26c6da',
-  '#ec407a', '#9ccc65', '#ff7043', '#5c6bc0', '#d4e157',
-  '#f06292', '#29b6f6', '#ffca28', '#7e57c2', '#26a69a',
-  '#e57373', '#66bb6a', '#ffa726', '#7986cb', '#c0ca33',
-  '#d81b60', '#039be5', '#fdd835', '#8e24aa', '#00acc1',
-  '#e53935', '#43a047', '#fb8c00', '#3949ab', '#7cb342',
-  '#ff8a80', '#80d8ff', '#ffff8d', '#ea80fc', '#84ffff',
-  '#ff80ab', '#b9f6ca', '#ffd180', '#8c9eff', '#ccff90',
-  '#ff5252', '#40c4ff', '#ffea00', '#e040fb', '#18ffff',
-  '#ff4081', '#69f0ae', '#ffab40', '#536dfe', '#b2ff59'
-] as const
 
 function hashText(value: string) {
   let hash = 2166136261
@@ -78,13 +57,40 @@ function hashText(value: string) {
     hash ^= value.charCodeAt(index)
     hash = Math.imul(hash, 16777619)
   }
+  hash ^= hash >>> 16
+  hash = Math.imul(hash, 0x7feb352d)
+  hash ^= hash >>> 15
+  hash = Math.imul(hash, 0x846ca68b)
+  hash ^= hash >>> 16
   return hash >>> 0
+}
+
+function hslToHex(hue: number, saturation: number, lightness: number) {
+  const chroma = (1 - Math.abs(2 * lightness - 1)) * saturation
+  const segment = hue / 60
+  const second = chroma * (1 - Math.abs(segment % 2 - 1))
+  const offset = lightness - chroma / 2
+  const [red, green, blue] =
+    segment < 1 ? [chroma, second, 0] :
+    segment < 2 ? [second, chroma, 0] :
+    segment < 3 ? [0, chroma, second] :
+    segment < 4 ? [0, second, chroma] :
+    segment < 5 ? [second, 0, chroma] :
+    [chroma, 0, second]
+  return [red, green, blue]
+    .map(value => Math.round((value + offset) * 255).toString(16).padStart(2, '0'))
+    .join('')
+    .replace(/^/, '#')
 }
 
 export function entrySourceColor(sourceKey?: string) {
   const key = String(sourceKey ?? '').trim()
   if (!key) return ''
-  return entrySourcePalette[hashText(key) % entrySourcePalette.length]
+  const hash = hashText(key)
+  const hue = hash % 360
+  const saturation = 0.66 + ((hash >>> 9) % 18) / 100
+  const lightness = 0.58 + ((hash >>> 17) % 12) / 100
+  return hslToHex(hue, saturation, lightness)
 }
 
 function looksLikeEntryName(value: string | undefined) {
@@ -95,8 +101,6 @@ function looksLikeEntryName(value: string | undefined) {
 
 export function isEntryNode(node?: EntryBindingNode) {
   return Boolean(
-    node?.kind === 'event' ||
-    node?.entrySourceKey ||
     node?.typeId === 'origin.function.entry' ||
     node?.typeId?.startsWith('origin.event.') ||
     node?.typeId?.startsWith('origin.entry.') ||
@@ -104,29 +108,6 @@ export function isEntryNode(node?: EntryBindingNode) {
     looksLikeEntryName(node?.legacyClass) ||
     looksLikeEntryName(node?.label)
   )
-}
-
-export function entrySourceColorAssignments(nodes: EntryBindingNode[]) {
-  const result = new Map<string, string>()
-  const entries = nodes
-    .filter(isEntryNode)
-    .sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0)
-  entries.forEach((node, index) => result.set(node.id, entrySourcePalette[index % entrySourcePalette.length]))
-  return result
-}
-
-export function entryBindingMenuPosition(
-  clientX: number,
-  clientY: number,
-  container: EntryBindingMenuRect,
-  menuWidth: number,
-  menuHeight: number,
-  margin = 6
-) {
-  return {
-    left: Math.max(margin, Math.min(clientX - container.left, container.width - menuWidth - margin)),
-    top: Math.max(margin, Math.min(clientY - container.top, container.height - menuHeight - margin))
-  }
 }
 
 export function socketsCompatible(sourceSocket: string | undefined, targetSocket: string | undefined) {

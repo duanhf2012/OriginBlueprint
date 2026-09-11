@@ -2,19 +2,11 @@
 import { computed } from 'vue'
 import { socketClassName, socketStyle } from './socketTheme'
 
-const props = defineProps<{ data: { name: string; filled?: boolean; entrySourceColor?: string } }>()
+const props = defineProps<{ data: { name: string; filled?: boolean } }>()
 const isExec = computed(() => props.data.name === 'exec')
 const isCallback = computed(() => props.data.name === 'callback')
 const socketClass = computed(() => socketClassName(props.data.name))
-const styleVariables = computed(() => ({
-  ...socketStyle(props.data.name),
-  ...(props.data.entrySourceColor ? {
-    '--socket-color': props.data.entrySourceColor,
-    '--socket-fill': props.data.entrySourceColor,
-    '--socket-label-color': props.data.entrySourceColor,
-    '--connection-color': props.data.entrySourceColor
-  } : {})
-}))
+const styleVariables = computed(() => socketStyle(props.data.name))
 </script>
 
 <template>
