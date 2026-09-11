@@ -93,6 +93,7 @@ var legacyNodeSpecs = map[string]legacyNodeSpec{
 	"GreaterThanInteger":         {"origin.flow.greater-integer", []string{"exec", "orEqual", "a", "b"}, []string{"false", "true"}},
 	"LessThanInteger":            {"origin.flow.less-integer", []string{"exec", "orEqual", "a", "b"}, []string{"false", "true"}},
 	"EqualInteger":               {"origin.flow.equal-integer", []string{"exec", "a", "b"}, []string{"false", "true"}},
+	"EqualString":                {"origin.flow.equal-string", []string{"exec", "a", "b"}, []string{"false", "true"}},
 	"RangeCompare":               {"origin.flow.range-compare", []string{"exec", "value", "ranges"}, []string{"otherwise", "case0", "case1", "case2", "case3", "case4"}},
 	"EqualSwitch":                {"origin.flow.equal-switch", []string{"exec", "value", "cases"}, []string{"otherwise", "case0", "case1", "case2", "case3", "case4"}},
 	"GetArrayInt":                {"origin.array.get-integer", []string{"array", "index"}, []string{"value"}},

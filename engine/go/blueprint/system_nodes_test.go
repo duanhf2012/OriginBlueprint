@@ -35,7 +35,7 @@ func TestBuiltinFactoriesCoverAllTopLevelNodeDefinitions(t *testing.T) {
 		"Delay", "CreateTimer", "ClearTimerByKey",
 		"AddInt", "SubInt", "MulInt", "DivInt", "ModInt", "RandNumber",
 		"Sequence", "Foreach", "ForeachIntArray", "BoolIf", "GreaterThanInteger",
-		"LessThanInteger", "EqualInteger", "RangeCompare", "EqualSwitch", "Probability",
+		"LessThanInteger", "EqualInteger", "EqualString", "RangeCompare", "EqualSwitch", "Probability",
 		"IntInArray", "DebugOutput",
 	} {
 		if registry.Get(name) == nil {
@@ -68,6 +68,7 @@ func TestTopLevelSystemNodeBehaviorCoverage(t *testing.T) {
 		"GreaterThanInteger":   true,
 		"LessThanInteger":      true,
 		"EqualInteger":         true,
+		"EqualString":          true,
 		"RangeCompare":         true,
 		"EqualSwitch":          true,
 		"Probability":          true,
@@ -297,6 +298,8 @@ func TestBuiltinBranchNodes(t *testing.T) {
 	assertNextIndex(t, &GreaterThanInteger{}, []IPort{NewPortExec(), boolPort(false), intPort(3), intPort(2)}, 1)
 	assertNextIndex(t, &LessThanInteger{}, []IPort{NewPortExec(), boolPort(true), intPort(3), intPort(3)}, 1)
 	assertNextIndex(t, &EqualInteger{}, []IPort{NewPortExec(), intPort(3), intPort(3)}, 1)
+	assertNextIndex(t, &EqualString{}, []IPort{NewPortExec(), strPort("spawn"), strPort("spawn")}, 1)
+	assertNextIndex(t, &EqualString{}, []IPort{NewPortExec(), strPort("spawn"), strPort("despawn")}, 0)
 	assertNextIndexWithOutputs(t, &RangeCompare{}, []IPort{NewPortExec(), intPort(4), arrayPort(2, 5, 8)}, execPorts(6), 3)
 	assertNextIndexWithOutputs(t, &EqualSwitch{}, []IPort{NewPortExec(), intPort(8), arrayPort(2, 5, 8)}, execPorts(6), 4)
 	assertNextIndex(t, &Probability{}, []IPort{NewPortExec(), intPort(10000)}, 1)

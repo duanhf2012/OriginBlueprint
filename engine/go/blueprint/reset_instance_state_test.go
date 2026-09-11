@@ -8,7 +8,7 @@ import (
 // resetStateTestRegistry 组合定时器结点与 VM 入口/返回结点，覆盖"变量复位 + 定时器取消"两条复位路径
 func resetStateTestRegistry(calls chan timerTestCall) *Registry {
 	registry := vmNativeRegistry()
-	registry.Register(NewNodeDefinition("CreateTimer", func() IExecNode { return &CreateTimerNode{} }, []IPort{NewPortExec(), NewPortInt(), NewPortBool(), NewPortInt(), NewPortStr()}, []IPort{NewPortExec(), NewPortCallback()}))
+	registry.Register(NewNodeDefinition("CreateTimer", func() IExecNode { return &CreateTimerNode{} }, []IPort{NewPortExec(), NewPortInt(), NewPortBool(), nil, NewPortStr()}, []IPort{NewPortExec(), NewPortCallback()}))
 	registry.Register(NewNodeDefinition("WaveCapture", func() IExecNode { return &timerTestCapture{label: "wave", calls: calls} }, []IPort{NewPortExec(), NewPortInt()}, nil))
 	return registry
 }
@@ -24,7 +24,7 @@ func addResetStateGraph(t *testing.T, scheduler TimerScheduler) (*Blueprint, int
 			{ID: "entry-timer", Class: "VMEntry_2"},
 			{ID: "entry-get", Class: "VMEntry_3"},
 			{ID: "set", Class: "Set_Count"},
-			{ID: "timer", Class: "CreateTimer", TimerKey: "wave", PortDefault: map[int]any{1: int64(1000), 2: false, 3: int64(-1), 4: "wave"}},
+			{ID: "timer", Class: "CreateTimer", TimerKey: "wave", PortDefault: map[int]any{1: int64(1000), 2: false, 4: "wave"}},
 			{ID: "capture", Class: "WaveCapture"},
 			{ID: "get", Class: "Get_Count"},
 			{ID: "result", Class: "VMReturnPort"},

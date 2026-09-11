@@ -7,6 +7,7 @@ const value = ref<unknown>(Array.isArray(props.data.value) ? [...props.data.valu
 const isArray = computed(() => Array.isArray(value.value))
 const isBoolean = computed(() => typeof value.value === 'boolean')
 const scalarInputType = computed(() => props.data.type === 'number' && !props.data.integer ? 'number' : 'text')
+const isTextScalar = computed(() => !props.data.integer && props.data.type !== 'number')
 const scalarIntegerInvalid = ref(Boolean(props.data.integer && value.value !== '' && !isValidIntegerDefault(value.value)))
 
 function beginEdit() {
@@ -90,11 +91,12 @@ function commitScalarEdit(event: FocusEvent) {
     <div v-for="(item, index) in (value as Array<unknown>)" :key="index" class="array-item"><input :value="item" type="text" :inputmode="data.itemType === 'number' ? 'numeric' : undefined" @focus="beginEdit" @blur="commitEdit" @input="updateItem(index, $event)" /><button @click="removeItem(index)">×</button></div>
     <button class="array-add" @click="addItem">＋ Item</button>
   </div>
-  <input v-else :value="value" :type="scalarInputType" :inputmode="data.integer ? 'numeric' : undefined" :pattern="data.integer ? '[+-]?[0-9]*' : undefined" :aria-invalid="data.integer ? scalarIntegerInvalid : undefined" :title="scalarIntegerInvalid ? '请输入 64 位整数' : undefined" class="node-input" :class="{ 'invalid-integer': scalarIntegerInvalid }" @pointerdown.stop @dblclick.stop @focus="beginScalarEdit" @blur="commitScalarEdit" @beforeinput="guardIntegerBeforeInput" @paste="guardIntegerPaste" @input="updateScalar" />
+  <input v-else :value="value" :type="scalarInputType" :inputmode="data.integer ? 'numeric' : undefined" :pattern="data.integer ? '[+-]?[0-9]*' : undefined" :aria-invalid="data.integer ? scalarIntegerInvalid : undefined" :title="scalarIntegerInvalid ? '请输入 64 位整数' : undefined" class="node-input" :class="{ 'string-input': isTextScalar, 'invalid-integer': scalarIntegerInvalid }" @pointerdown.stop @dblclick.stop @focus="beginScalarEdit" @blur="commitScalarEdit" @beforeinput="guardIntegerBeforeInput" @paste="guardIntegerPaste" @input="updateScalar" />
 </template>
 
 <style scoped>
 .node-input { width: 58px; height: 20px; padding: 1px 5px; border: 1px solid #777; border-radius: 2px; outline: 0; background: #f3f3f3; color: #171717; font: var(--node-control-font-size, 12px) Consolas, monospace; }
+.node-input.string-input { width: 92px; }
 .node-input:focus { border-color: #53a5db; box-shadow: 0 0 0 1px #53a5db; }
 .node-input.invalid-integer { border-color: #e04f5f; box-shadow: 0 0 0 1px #e04f5f; }
 .boolean-control { display: flex; align-items: center; gap: 3px; color: #f45a63; font: var(--node-badge-font-size, 10px) Consolas, monospace; }.boolean-control input { width: 14px; height: 14px; accent-color: #d83440; }

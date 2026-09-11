@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   applyFunctionPersistenceMetadata,
   completeGraphSavePath,
+  defaultGraphSaveFilename,
   documentRequiresNativePersistence,
   filenameStem,
   isFunctionBlueprintPath,
@@ -126,6 +127,15 @@ describe('graph persistence', () => {
     expect(completeGraphSavePath('Blueprints/Timer', false, true)).toBe('Blueprints/Timer.obp')
     expect(completeGraphSavePath('Blueprints/Compatible', false, false)).toBe('Blueprints/Compatible.vgf')
     expect(completeGraphSavePath('Blueprints/Explicit.OBP', false, false)).toBe('Blueprints/Explicit.OBP')
+  })
+
+  it('suggests untitled save filenames that match the default .obp filter', () => {
+    expect(defaultGraphSaveFilename('', false, false)).toBe('Untitled.obp')
+    expect(defaultGraphSaveFilename('', false, true)).toBe('Untitled.obp')
+    expect(defaultGraphSaveFilename('', true, false)).toBe('Untitled.obpf')
+    expect(defaultGraphSaveFilename('C:\\graphs\\spawn.vgf', false, true)).toBe('spawn.obp')
+    expect(defaultGraphSaveFilename('C:\\graphs\\compat.vgf', false, false)).toBe('compat.vgf')
+    expect(defaultGraphSaveFilename('C:\\graphs\\plan', false, false)).toBe('plan')
   })
 
   it('preserves function metadata when the selected final target remains .obpf', () => {

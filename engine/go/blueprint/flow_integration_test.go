@@ -174,6 +174,50 @@ func TestLegacyBlueprintFileBreaksForLoopAndContinuesCompletedFlow(t *testing.T)
 	}
 }
 
+func TestLegacyBlueprintFileRunsStringEqualityBranches(t *testing.T) {
+	root := t.TempDir()
+	graphFile := filepath.Join(root, "string-equal.vgf")
+	writeTestFile(t, graphFile, `{
+		"nodes": [
+			{"id":"entry","class":"Entrance_IntParam_000001"},
+			{"id":"sequence","class":"Sequence"},
+			{"id":"equal_same","class":"EqualString","port_defaultv":{"1":"hello","2":"hello"}},
+			{"id":"same_true","class":"AppendStringReturn","port_defaultv":{"1":"same-true"}},
+			{"id":"same_false","class":"AppendStringReturn","port_defaultv":{"1":"same-false"}},
+			{"id":"equal_diff","class":"EqualString","port_defaultv":{"1":"hello","2":"world"}},
+			{"id":"diff_true","class":"AppendStringReturn","port_defaultv":{"1":"diff-true"}},
+			{"id":"diff_false","class":"AppendStringReturn","port_defaultv":{"1":"diff-false"}}
+		],
+		"edges": [
+			{"source_node_id":"entry","source_port_id":0,"des_node_id":"sequence","des_port_id":0},
+			{"source_node_id":"sequence","source_port_id":0,"des_node_id":"equal_same","des_port_id":0},
+			{"source_node_id":"equal_same","source_port_id":0,"des_node_id":"same_false","des_port_id":0},
+			{"source_node_id":"equal_same","source_port_id":1,"des_node_id":"same_true","des_port_id":0},
+			{"source_node_id":"sequence","source_port_id":1,"des_node_id":"equal_diff","des_port_id":0},
+			{"source_node_id":"equal_diff","source_port_id":0,"des_node_id":"diff_false","des_port_id":0},
+			{"source_node_id":"equal_diff","source_port_id":1,"des_node_id":"diff_true","des_port_id":0}
+		]
+	}`)
+
+	graphs, err := loadGraphDir(testSystemRegistry(t), root)
+	if err != nil {
+		t.Fatalf("loadGraphDir failed: %v", err)
+	}
+	returns, err := NewGraph(graphs["string-equal"]).Do(1)
+	if err != nil {
+		t.Fatalf("Do failed: %v", err)
+	}
+	want := []ArrayData{{StrVal: "same-true"}, {StrVal: "diff-false"}}
+	if len(returns) != len(want) {
+		t.Fatalf("returns = %#v, want %#v", returns, want)
+	}
+	for index := range want {
+		if returns[index] != want[index] {
+			t.Fatalf("returns[%d] = %#v, want %#v; all returns %#v", index, returns[index], want[index], returns)
+		}
+	}
+}
+
 func testSystemRegistry(t *testing.T) *Registry {
 	t.Helper()
 	registry := NewRegistry()

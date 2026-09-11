@@ -218,6 +218,32 @@ func TestCompleteGraphSavePathUsesDocumentKindAndNativeRequirements(t *testing.T
 	}
 }
 
+func TestDefaultGraphSaveFilenameMatchesDefaultOBPFilter(t *testing.T) {
+	tests := []struct {
+		name              string
+		suggestedPath     string
+		functionBlueprint bool
+		requiresNative    bool
+		want              string
+	}{
+		{name: "untitled ordinary graph", suggestedPath: "", want: "Untitled.obp"},
+		{name: "untitled native graph", suggestedPath: "", requiresNative: true, want: "Untitled.obp"},
+		{name: "untitled function graph", suggestedPath: "", functionBlueprint: true, want: "Untitled.obpf"},
+		{name: "native save-as rewrites legacy extension", suggestedPath: `C:\graphs\spawn.vgf`, requiresNative: true, want: "spawn.obp"},
+		{name: "legacy save-as keeps extension", suggestedPath: `C:\graphs\compat.vgf`, want: "compat.vgf"},
+		{name: "named extensionless path left to completion", suggestedPath: `C:\graphs\plan`, want: "plan"},
+		{name: "posix path", suggestedPath: "/graphs/portable.vgf", requiresNative: true, want: "portable.obp"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := defaultGraphSaveFilename(test.suggestedPath, test.functionBlueprint, test.requiresNative); got != test.want {
+				t.Fatalf("defaultGraphSaveFilename() = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
 func TestLegacyVGFMigrationPreservesKnownAndUnknownContent(t *testing.T) {
 	legacy := legacyGraph{
 		GraphName: "Compat Sample",
@@ -992,7 +1018,6 @@ func TestCoreIssueBlocksSaveUsesExplicitLanguageNeutralCodes(t *testing.T) {
 		"timer.key-must-be-literal",
 		"timer.callback-missing",
 		"timer.duration-invalid",
-		"timer.first-delay-invalid",
 		"flow.exec-fanout",
 		"flow.data-cycle",
 		"flow.exec-cycle",
@@ -1021,8 +1046,8 @@ func TestValidateGraphAcceptsCallbackControlEdgeAndRejectsDuplicateTimerKeys(t *
 		SchemaVersion: GraphSchemaVersion,
 		Nodes: []GraphNode{
 			{ID: "begin", TypeID: "origin.event.begin"},
-			{ID: "timer-a", TypeID: "origin.timer.create", Values: map[string]interface{}{"duration": 1000, "looping": false, "firstDelay": -1, "timerKey": "spawn"}},
-			{ID: "timer-b", TypeID: "origin.timer.create", Values: map[string]interface{}{"duration": 2000, "looping": false, "firstDelay": -1, "timerKey": "spawn"}},
+			{ID: "timer-a", TypeID: "origin.timer.create", Values: map[string]interface{}{"duration": 1000, "looping": false, "timerKey": "spawn"}},
+			{ID: "timer-b", TypeID: "origin.timer.create", Values: map[string]interface{}{"duration": 2000, "looping": false, "timerKey": "spawn"}},
 			{ID: "callback-a", TypeID: "origin.debug.output"},
 			{ID: "callback-b", TypeID: "origin.debug.output"},
 		},
@@ -1049,7 +1074,7 @@ func TestValidateGraphRequiresLiteralTimerKeyAndCallback(t *testing.T) {
 		Nodes: []GraphNode{
 			{ID: "begin", TypeID: "origin.event.begin"},
 			{ID: "literal", TypeID: "origin.literal.string", Values: map[string]interface{}{"value": "dynamic"}},
-			{ID: "timer", TypeID: "origin.timer.create", Values: map[string]interface{}{"duration": 1000, "looping": false, "firstDelay": -1, "timerKey": ""}},
+			{ID: "timer", TypeID: "origin.timer.create", Values: map[string]interface{}{"duration": 1000, "looping": false, "timerKey": ""}},
 		},
 		Connections: []GraphConnection{
 			{Source: "begin", SourceOutput: "exec", Target: "timer", TargetInput: "exec"},
@@ -1070,23 +1095,18 @@ func TestValidateGraphRejectsInvalidTimerDurations(t *testing.T) {
 		SchemaVersion: GraphSchemaVersion,
 		Nodes: []GraphNode{
 			{ID: "begin", TypeID: "origin.event.begin"},
-			{ID: "negative-first-delay", TypeID: "origin.timer.create", Values: map[string]interface{}{"duration": 1000, "looping": false, "firstDelay": -2, "timerKey": "first-delay"}},
-			{ID: "zero-loop", TypeID: "origin.timer.create", Values: map[string]interface{}{"duration": 0, "looping": true, "firstDelay": -1, "timerKey": "loop"}},
-			{ID: "callback-a", TypeID: "origin.debug.output"},
+			{ID: "zero-loop", TypeID: "origin.timer.create", Values: map[string]interface{}{"duration": 0, "looping": true, "timerKey": "loop"}},
 			{ID: "callback-b", TypeID: "origin.debug.output"},
 		},
 		Connections: []GraphConnection{
-			{Source: "begin", SourceOutput: "exec", Target: "negative-first-delay", TargetInput: "exec"},
-			{Source: "negative-first-delay", SourceOutput: "triggered", Target: "callback-a", TargetInput: "exec"},
+			{Source: "begin", SourceOutput: "exec", Target: "zero-loop", TargetInput: "exec"},
 			{Source: "zero-loop", SourceOutput: "triggered", Target: "callback-b", TargetInput: "exec"},
 		},
 	}
 	issues := validateGraph(document)
-	for _, code := range []string{"timer.duration-invalid", "timer.first-delay-invalid"} {
-		issue := requireValidationIssue(t, issues, code)
-		if !issue.BlocksSave || !issue.BlocksRun {
-			t.Fatalf("%s must block save and run: %#v", code, issue)
-		}
+	issue := requireValidationIssue(t, issues, "timer.duration-invalid")
+	if !issue.BlocksSave || !issue.BlocksRun {
+		t.Fatalf("timer.duration-invalid must block save and run: %#v", issue)
 	}
 }
 
@@ -1095,7 +1115,7 @@ func TestValidateGraphTreatsCallbackAsAsyncCycleBoundary(t *testing.T) {
 		SchemaVersion: GraphSchemaVersion,
 		Nodes: []GraphNode{
 			{ID: "begin", TypeID: "origin.event.begin"},
-			{ID: "timer", TypeID: "origin.timer.create", Values: map[string]interface{}{"duration": 1000, "looping": false, "firstDelay": -1, "timerKey": "repeat"}},
+			{ID: "timer", TypeID: "origin.timer.create", Values: map[string]interface{}{"duration": 1000, "looping": false, "timerKey": "repeat"}},
 			{ID: "callback", TypeID: "origin.debug.output"},
 		},
 		Connections: []GraphConnection{
@@ -2163,6 +2183,62 @@ func TestExecuteGraphBreaksCurrentForLoop(t *testing.T) {
 	}
 	if len(result.Results) != 3 || result.Results[0] != float64(0) || result.Results[2] != float64(2) {
 		t.Fatalf("results = %#v", result.Results)
+	}
+}
+
+func TestExecuteGraphRunsStringEqualityBranches(t *testing.T) {
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		Nodes: []GraphNode{
+			{ID: "begin", TypeID: "origin.event.begin"},
+			{ID: "branch-sequence", TypeID: "origin.flow.sequence"},
+			{ID: "same", TypeID: "origin.flow.equal-string", Values: map[string]interface{}{"a": "hello", "b": "hello"}},
+			{ID: "same-true", TypeID: "origin.result.append-string", Values: map[string]interface{}{"value": "same-true"}},
+			{ID: "same-false", TypeID: "origin.result.append-string", Values: map[string]interface{}{"value": "same-false"}},
+			{ID: "diff", TypeID: "origin.flow.equal-string", Values: map[string]interface{}{"a": "hello", "b": "world"}},
+			{ID: "diff-true", TypeID: "origin.result.append-string", Values: map[string]interface{}{"value": "diff-true"}},
+			{ID: "diff-false", TypeID: "origin.result.append-string", Values: map[string]interface{}{"value": "diff-false"}},
+		},
+		Connections: []GraphConnection{
+			{Source: "begin", SourceOutput: "exec", Target: "branch-sequence", TargetInput: "exec"},
+			{Source: "branch-sequence", SourceOutput: "then0", Target: "same", TargetInput: "exec"},
+			{Source: "same", SourceOutput: "true", Target: "same-true", TargetInput: "exec"},
+			{Source: "same", SourceOutput: "false", Target: "same-false", TargetInput: "exec"},
+			{Source: "branch-sequence", SourceOutput: "then1", Target: "diff", TargetInput: "exec"},
+			{Source: "diff", SourceOutput: "true", Target: "diff-true", TargetInput: "exec"},
+			{Source: "diff", SourceOutput: "false", Target: "diff-false", TargetInput: "exec"},
+		},
+	}
+	result, err := executeGraph(context.Background(), "test", document, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []interface{}{"same-true", "diff-false"}
+	if len(result.Results) != len(want) {
+		t.Fatalf("results = %#v, want %#v", result.Results, want)
+	}
+	for index := range want {
+		if result.Results[index] != want[index] {
+			t.Fatalf("results[%d] = %#v, want %#v; all results %#v", index, result.Results[index], want[index], result.Results)
+		}
+	}
+}
+
+func TestExecuteGraphRejectsNonStringEqualityInputs(t *testing.T) {
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		Nodes: []GraphNode{
+			{ID: "begin", TypeID: "origin.event.begin"},
+			{ID: "equal", TypeID: "origin.flow.equal-string", Values: map[string]interface{}{"a": 1, "b": "1"}},
+			{ID: "matched", TypeID: "origin.result.append-string", Values: map[string]interface{}{"value": "unexpected"}},
+		},
+		Connections: []GraphConnection{
+			{Source: "begin", SourceOutput: "exec", Target: "equal", TargetInput: "exec"},
+			{Source: "equal", SourceOutput: "true", Target: "matched", TargetInput: "exec"},
+		},
+	}
+	if _, err := executeGraph(context.Background(), "test", document, nil); err == nil || !strings.Contains(err.Error(), "expects string inputs") {
+		t.Fatalf("executeGraph error = %v, want strict string input error", err)
 	}
 }
 

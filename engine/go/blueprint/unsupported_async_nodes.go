@@ -75,14 +75,13 @@ func (n *CreateTimerNode) GetName() string { return "CreateTimer" }
 func (n *CreateTimerNode) Exec() (int, error) {
 	duration, durationOK := n.GetInPortInt(1)
 	looping, loopingOK := n.GetInPortBool(2)
-	firstDelay, firstDelayOK := n.GetInPortInt(3)
-	if !durationOK || !loopingOK || !firstDelayOK {
+	if !durationOK || !loopingOK {
 		return -1, fmt.Errorf("CreateTimer inputs are invalid")
 	}
 	if n.graph == nil || n.graph.execution == nil || n.graph.execution.blueprint == nil {
 		return -1, fmt.Errorf("CreateTimer requires Blueprint.Start or Blueprint.DoContext")
 	}
-	if err := n.graph.execution.blueprint.createTimer(n.graph, n.node, duration, looping, firstDelay); err != nil {
+	if err := n.graph.execution.blueprint.createTimer(n.graph, n.node, duration, looping); err != nil {
 		return -1, err
 	}
 	return 0, nil

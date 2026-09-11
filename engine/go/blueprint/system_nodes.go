@@ -19,7 +19,7 @@ func BuiltinExecNodeFactories() []func() IExecNode {
 	return []func() IExecNode{
 		NewExecNodeFactory[EntranceIntParam, *EntranceIntParam](), NewExecNodeFactory[EntranceArrayParam, *EntranceArrayParam](),
 		NewExecNodeFactory[DebugOutput, *DebugOutput](), NewExecNodeFactory[Sequence, *Sequence](), NewExecNodeFactory[Foreach, *Foreach](), NewExecNodeFactory[ForeachIntArray, *ForeachIntArray](),
-		NewExecNodeFactory[BoolIf, *BoolIf](), NewExecNodeFactory[GreaterThanInteger, *GreaterThanInteger](), NewExecNodeFactory[LessThanInteger, *LessThanInteger](), NewExecNodeFactory[EqualInteger, *EqualInteger](),
+		NewExecNodeFactory[BoolIf, *BoolIf](), NewExecNodeFactory[GreaterThanInteger, *GreaterThanInteger](), NewExecNodeFactory[LessThanInteger, *LessThanInteger](), NewExecNodeFactory[EqualInteger, *EqualInteger](), NewExecNodeFactory[EqualString, *EqualString](),
 		NewExecNodeFactory[RangeCompare, *RangeCompare](), NewExecNodeFactory[EqualSwitch, *EqualSwitch](), NewExecNodeFactory[Probability, *Probability](),
 		NewExecNodeFactory[AddInt, *AddInt](), NewExecNodeFactory[SubInt, *SubInt](), NewExecNodeFactory[MulInt, *MulInt](), NewExecNodeFactory[DivInt, *DivInt](),
 		NewExecNodeFactory[ModInt, *ModInt](), NewExecNodeFactory[RandNumber, *RandNumber](),
@@ -152,6 +152,22 @@ func (n *EqualInteger) Exec() (int, error) {
 	b, bok := n.GetInPortInt(2)
 	if !aok || !bok {
 		return -1, fmt.Errorf("EqualInteger inputs not found")
+	}
+	if a == b {
+		return 1, nil
+	}
+	return 0, nil
+}
+
+type EqualString struct{ BaseExecNode }
+
+func (n *EqualString) GetName() string { return "EqualString" }
+
+func (n *EqualString) Exec() (int, error) {
+	a, aok := n.GetInPortStr(1)
+	b, bok := n.GetInPortStr(2)
+	if !aok || !bok {
+		return -1, fmt.Errorf("EqualString inputs not found")
 	}
 	if a == b {
 		return 1, nil

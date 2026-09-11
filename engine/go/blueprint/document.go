@@ -154,6 +154,7 @@ var documentNodeSpecs = map[string]documentNodeSpec{
 	"origin.flow.greater-integer":       {class: "GreaterThanInteger", inputs: map[string]int{"exec": 0, "orEqual": 1, "a": 2, "b": 3}, outputs: map[string]int{"false": 0, "true": 1}},
 	"origin.flow.less-integer":          {class: "LessThanInteger", inputs: map[string]int{"exec": 0, "orEqual": 1, "a": 2, "b": 3}, outputs: map[string]int{"false": 0, "true": 1}},
 	"origin.flow.equal-integer":         {class: "EqualInteger", inputs: map[string]int{"exec": 0, "a": 1, "b": 2}, outputs: map[string]int{"false": 0, "true": 1}},
+	"origin.flow.equal-string":          {class: "EqualString", inputs: map[string]int{"exec": 0, "a": 1, "b": 2}, outputs: map[string]int{"false": 0, "true": 1}},
 	"origin.flow.foreach-integer-array": {class: "ForeachIntArray", inputs: map[string]int{"exec": 0, "array": 1}, outputs: map[string]int{"body": 0, "completed": 1, "index": 2, "value": 3}},
 	"origin.flow.while":                 {class: "WhileNode", inputs: map[string]int{"exec": 0, "condition": 1}, outputs: map[string]int{"body": 0, "completed": 1}},
 	"origin.flow.for-loop-break":        {class: "ForLoopBreak", inputs: map[string]int{"exec": 0, "start": 1, "end": 2, "break": 3}, outputs: map[string]int{"body": 0, "index": 1, "completed": 2}},
@@ -175,7 +176,7 @@ var documentNodeSpecs = map[string]documentNodeSpec{
 	"origin.result.append-integer":      {class: "AppendIntReturn", inputs: map[string]int{"exec": 0, "value": 1}, outputs: map[string]int{"exec": 0}},
 	"origin.result.append-string":       {class: "AppendStringReturn", inputs: map[string]int{"exec": 0, "value": 1}, outputs: map[string]int{"exec": 0}},
 	"origin.flow.delay":                 {class: "Delay", inputs: map[string]int{"exec": 0, "duration": 1}, outputs: map[string]int{"completed": 0}},
-	"origin.timer.create":               {class: "CreateTimer", inputs: map[string]int{"exec": 0, "duration": 1, "looping": 2, "firstDelay": 3, "timerKey": 4}, outputs: map[string]int{"created": 0, "triggered": 1}},
+	"origin.timer.create":               {class: "CreateTimer", inputs: map[string]int{"exec": 0, "duration": 1, "looping": 2, "timerKey": 4}, outputs: map[string]int{"created": 0, "triggered": 1}},
 	"origin.timer.clear-by-key":         {class: "ClearTimerByKey", inputs: map[string]int{"exec": 0, "timerKey": 1}, outputs: map[string]int{"then": 0, "success": 1}},
 	"origin.timer.clear":                {class: "ClearTimer", inputs: map[string]int{"exec": 0, "timerHandle": 1, "cancelRunningCallback": 2}, outputs: map[string]int{"then": 0, "success": 1}},
 	"origin.timer.pause":                {class: "PauseTimer", inputs: map[string]int{"exec": 0, "timerHandle": 1}, outputs: map[string]int{"then": 0, "success": 1}},
@@ -226,18 +227,24 @@ func graphDocumentToConfig(document graphDocument) (GraphConfig, bool, error) {
 
 	nodes := make([]NodeConfig, 0, len(document.Nodes))
 	specs := make(map[string]documentNodeSpec, len(document.Nodes))
+	nodeTypes := make(map[string]string, len(document.Nodes))
 	for _, node := range document.Nodes {
 		config, spec, err := documentNodeToConfig(node, variableByID)
 		if err != nil {
 			return GraphConfig{}, false, err
 		}
 		for key := range node.Values {
+			// FirstDelay 曾短期出现在新 Timer 中。旧文档可继续加载，但新语义固定按 Duration 首次触发。
+			if node.TypeID == "origin.timer.create" && key == "firstDelay" {
+				continue
+			}
 			if _, ok := spec.inputs[key]; !ok {
 				return GraphConfig{}, false, fmt.Errorf("node %s value %q is not a known input", node.ID, key)
 			}
 		}
 		nodes = append(nodes, config)
 		specs[node.ID] = spec
+		nodeTypes[node.ID] = node.TypeID
 	}
 
 	edges := make([]EdgeConfig, 0, len(document.Connections))
@@ -256,6 +263,10 @@ func graphDocumentToConfig(document graphDocument) (GraphConfig, bool, error) {
 		}
 		destPort, ok := destSpec.inputs[connection.TargetInput]
 		if !ok {
+			// 与上面的 firstDelay 值兼容对应：旧文档可能仍带有指向该已移除端口的连线，加载时跳过而不是整体失败。
+			if nodeTypes[connection.Target] == "origin.timer.create" && connection.TargetInput == "firstDelay" {
+				continue
+			}
 			return GraphConfig{}, false, fmt.Errorf("destination node %s input %s not found", connection.Target, connection.TargetInput)
 		}
 		edges = append(edges, EdgeConfig{

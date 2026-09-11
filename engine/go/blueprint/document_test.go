@@ -134,19 +134,26 @@ func TestGraphDocumentMapsKeyedTimerAndCallbackPorts(t *testing.T) {
 	config, _, err := graphDocumentToConfig(graphDocument{
 		Nodes: []graphDocumentNode{
 			{ID: "entry", TypeID: "origin.event.entry-array", Values: map[string]any{}},
-			{ID: "timer", TypeID: "origin.timer.create", Values: map[string]any{"duration": int64(60000), "looping": false, "firstDelay": int64(-1), "timerKey": "spawn-60"}},
+			// firstDelay 模拟短期旧版本保存的字段；新运行时应兼容读取但忽略它。
+			{ID: "timer", TypeID: "origin.timer.create", Values: map[string]any{"duration": int64(60000), "looping": false, "firstDelay": int64(250), "timerKey": "spawn-60"}},
 			{ID: "callback", TypeID: "origin.debug.output", Values: map[string]any{}},
+			{ID: "literal", TypeID: "origin.literal.string", Values: map[string]any{"value": "stale"}},
 		},
 		Connections: []graphDocumentConnection{
 			{Source: "entry", SourceOutput: "exec", Target: "timer", TargetInput: "exec"},
 			{Source: "timer", SourceOutput: "triggered", Target: "callback", TargetInput: "exec"},
+			// 旧版本可能把字面量连到已移除的 FirstDelay 端口；加载时应丢弃该连线而不是报错。
+			{Source: "literal", SourceOutput: "value", Target: "timer", TargetInput: "firstDelay"},
 		},
 	})
 	if err != nil {
 		t.Fatalf("graphDocumentToConfig failed: %v", err)
 	}
-	if len(config.Nodes) != 3 || config.Nodes[1].Class != "CreateTimer" || config.Nodes[1].TimerKey != "spawn-60" {
+	if len(config.Nodes) != 4 || config.Nodes[1].Class != "CreateTimer" || config.Nodes[1].TimerKey != "spawn-60" {
 		t.Fatalf("timer config = %#v", config.Nodes)
+	}
+	if _, exists := config.Nodes[1].PortDefault[3]; exists {
+		t.Fatalf("removed firstDelay leaked into runtime defaults: %#v", config.Nodes[1].PortDefault)
 	}
 	if len(config.Edges) != 2 || config.Edges[1].SourcePortID != 1 || config.Edges[1].DesPortID != 0 {
 		t.Fatalf("callback edge = %#v", config.Edges)

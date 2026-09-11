@@ -296,7 +296,7 @@ func compileGraph(registry *Registry, config GraphConfig) (*CompiledGraph, error
 		if node.TimerKey == "" {
 			keyPort := -1
 			if nodeConfig.Class == "CreateTimer" {
-				keyPort = 4
+				keyPort = 4 // 保留已发布端口编号；3 是已移除的 FirstDelay。
 			}
 			if nodeConfig.Class == "ClearTimerByKey" {
 				keyPort = 1

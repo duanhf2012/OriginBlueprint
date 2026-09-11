@@ -25,6 +25,13 @@ export function completeGraphSavePath(path: string, functionBlueprint: boolean, 
   return `${path}${extension}`
 }
 
+export function defaultGraphSaveFilename(suggestedPath: string, functionBlueprint: boolean, requiresNative: boolean) {
+  const filename = (suggestedPath.split(/[\\/]/).pop() ?? '').trim()
+  if (!filename || filename === '.') return functionBlueprint ? 'Untitled.obpf' : 'Untitled.obp'
+  if (requiresNative && !functionBlueprint && filename.toLowerCase().endsWith('.vgf')) return `${filename.slice(0, filename.length - 4)}.obp`
+  return filename
+}
+
 export function documentRequiresNativePersistence(document: GraphDocument) {
   const nodes = document.nodes ?? []
   const signature = document.functionSignature ?? { inputs: [], outputs: [] }

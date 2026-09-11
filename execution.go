@@ -274,6 +274,25 @@ func (e *graphExecutor) runNode(nodeID string) error {
 		} else {
 			next = []string{"false"}
 		}
+	case "origin.flow.equal-string":
+		a, err := e.input(node, "a", map[string]bool{})
+		if err != nil {
+			return e.fail(node, err)
+		}
+		b, err := e.input(node, "b", map[string]bool{})
+		if err != nil {
+			return e.fail(node, err)
+		}
+		aString, aOK := a.(string)
+		bString, bOK := b.(string)
+		if !aOK || !bOK {
+			return e.fail(node, fmt.Errorf("EqualString expects string inputs"))
+		}
+		if aString == bString {
+			next = []string{"true"}
+		} else {
+			next = []string{"false"}
+		}
 	case "origin.flow.probability":
 		probability, err := e.input(node, "probability", map[string]bool{})
 		if err != nil {

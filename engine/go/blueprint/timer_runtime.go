@@ -126,7 +126,7 @@ func checkedMilliseconds(value PortInt) (time.Duration, error) {
 	return time.Duration(value) * time.Millisecond, nil
 }
 
-func (b *Blueprint) createTimer(graph *Graph, node *ExecNode, durationMs PortInt, looping bool, firstDelayMs PortInt) error {
+func (b *Blueprint) createTimer(graph *Graph, node *ExecNode, durationMs PortInt, looping bool) error {
 	if b == nil || graph == nil || graph.instance == nil || node == nil {
 		return fmt.Errorf("timer runtime is unavailable")
 	}
@@ -137,17 +137,6 @@ func (b *Blueprint) createTimer(graph *Graph, node *ExecNode, durationMs PortInt
 	interval, err := checkedMilliseconds(durationMs)
 	if err != nil || looping && interval <= 0 {
 		return fmt.Errorf("%w: %dms", ErrTimerDurationInvalid, durationMs)
-	}
-	if firstDelayMs < -1 {
-		return fmt.Errorf("%w: first delay %dms", ErrTimerDurationInvalid, firstDelayMs)
-	}
-
-	delay := interval
-	if firstDelayMs >= 0 {
-		delay, err = checkedMilliseconds(firstDelayMs)
-		if err != nil {
-			return fmt.Errorf("%w: first delay %dms", ErrTimerDurationInvalid, firstDelayMs)
-		}
 	}
 	if len(node.Next) <= 1 || node.Next[1] == nil {
 		return fmt.Errorf("timer %q callback is not connected", key)
@@ -174,7 +163,7 @@ func (b *Blueprint) createTimer(graph *Graph, node *ExecNode, durationMs PortInt
 	timer.generation = instance.timerSeq
 	instance.timers[key] = timer
 	instance.lifecycleMu.Unlock()
-	if err := timer.schedule(delay); err != nil {
+	if err := timer.schedule(interval); err != nil {
 		instance.lifecycleMu.Lock()
 		if instance.timers[key] == timer {
 			delete(instance.timers, key)

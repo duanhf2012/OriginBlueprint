@@ -194,7 +194,6 @@ func coreIssueBlocksSave(code string) bool {
 		"timer.callback-missing",
 		"timer.function-unsupported",
 		"timer.duration-invalid",
-		"timer.first-delay-invalid",
 		"flow.exec-fanout",
 		"flow.data-cycle",
 		"flow.exec-cycle",
@@ -483,6 +482,9 @@ var graphNodePorts = map[string]portDefinition{
 	"origin.flow.equal-integer": {
 		Inputs: map[string]string{"exec": "exec", "a": "integer", "b": "integer"}, Outputs: map[string]string{"false": "exec", "true": "exec"},
 	},
+	"origin.flow.equal-string": {
+		Inputs: map[string]string{"exec": "exec", "a": "string", "b": "string"}, Outputs: map[string]string{"false": "exec", "true": "exec"},
+	},
 	"origin.array.get-integer": {
 		Inputs: map[string]string{"array": "array", "index": "integer"}, Outputs: map[string]string{"value": "integer"},
 	},
@@ -523,7 +525,7 @@ var graphNodePorts = map[string]portDefinition{
 		Outputs: map[string]string{"exec": "exec", "objectId": "integer", "param1": "integer", "param2": "integer"},
 	},
 	"origin.flow.delay":         {Inputs: map[string]string{"exec": "exec", "duration": "integer"}, Outputs: map[string]string{"completed": "exec"}},
-	"origin.timer.create":       {Inputs: map[string]string{"exec": "exec", "duration": "integer", "looping": "boolean", "firstDelay": "integer", "timerKey": "string"}, Outputs: map[string]string{"created": "exec", "triggered": "callback"}},
+	"origin.timer.create":       {Inputs: map[string]string{"exec": "exec", "duration": "integer", "looping": "boolean", "timerKey": "string"}, Outputs: map[string]string{"created": "exec", "triggered": "callback"}},
 	"origin.timer.clear-by-key": {Inputs: map[string]string{"exec": "exec", "timerKey": "string"}, Outputs: map[string]string{"then": "exec", "success": "boolean"}},
 	"origin.timer.clear":        {Inputs: map[string]string{"exec": "exec", "timerHandle": "timerhandle", "cancelRunningCallback": "boolean"}, Outputs: map[string]string{"then": "exec", "success": "boolean"}},
 	"origin.timer.pause":        {Inputs: map[string]string{"exec": "exec", "timerHandle": "timerhandle"}, Outputs: map[string]string{"then": "exec", "success": "boolean"}},
@@ -787,11 +789,6 @@ func validateGraph(document GraphDocument) []ValidationIssue {
 						} else if looping, _ := node.Values["looping"].(bool); looping && duration == 0 {
 							issues = append(issues, ValidationIssue{Severity: "error", Code: "timer.duration-invalid", Message: "循环 Timer 的 Duration 必须大于 0", NodeID: node.ID})
 						}
-					}
-				}
-				if !connectedInputs[node.ID]["firstDelay"] {
-					if firstDelay, ok := integerDefaultValue(node.Values["firstDelay"]); ok && firstDelay < -1 {
-						issues = append(issues, ValidationIssue{Severity: "error", Code: "timer.first-delay-invalid", Message: "First Delay 只能为 -1 或非负毫秒数", NodeID: node.ID})
 					}
 				}
 			}

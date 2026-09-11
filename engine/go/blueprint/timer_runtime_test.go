@@ -133,7 +133,7 @@ func (n *timerTestCapture) Exec() (int, error) {
 func timerTestRegistry(calls chan timerTestCall) *Registry {
 	registry := NewRegistry()
 	registry.Register(NewNodeDefinition("TimerTestEntry", func() IExecNode { return &timerTestEntry{} }, nil, []IPort{NewPortExec(), NewPortInt()}))
-	registry.Register(NewNodeDefinition("CreateTimer", func() IExecNode { return &CreateTimerNode{} }, []IPort{NewPortExec(), NewPortInt(), NewPortBool(), NewPortInt(), NewPortStr()}, []IPort{NewPortExec(), NewPortCallback()}))
+	registry.Register(NewNodeDefinition("CreateTimer", func() IExecNode { return &CreateTimerNode{} }, []IPort{NewPortExec(), NewPortInt(), NewPortBool(), nil, NewPortStr()}, []IPort{NewPortExec(), NewPortCallback()}))
 	registry.Register(NewNodeDefinition("ClearTimerByKey", func() IExecNode { return &ClearTimerByKeyNode{} }, []IPort{NewPortExec(), NewPortStr()}, []IPort{NewPortExec(), NewPortBool()}))
 	registry.Register(NewNodeDefinition("Delay", func() IExecNode { return &DelayNode{} }, []IPort{NewPortExec(), NewPortInt()}, []IPort{NewPortExec()}))
 	registry.Register(NewNodeDefinition("CaptureA", func() IExecNode { return &timerTestCapture{label: "A", calls: calls} }, []IPort{NewPortExec(), NewPortInt()}, nil))
@@ -177,8 +177,8 @@ func TestCreateTimerStartsIndependentCallbacksWithCapturedValues(t *testing.T) {
 		Nodes: []NodeConfig{
 			{ID: "entry-a", Class: "TimerTestEntry_1"},
 			{ID: "entry-b", Class: "TimerTestEntry_2"},
-			{ID: "timer-a", Class: "CreateTimer", TimerKey: "spawn-60", PortDefault: map[int]any{1: int64(60000), 2: false, 3: int64(-1), 4: "spawn-60"}},
-			{ID: "timer-b", Class: "CreateTimer", TimerKey: "spawn-120", PortDefault: map[int]any{1: int64(120000), 2: false, 3: int64(-1), 4: "spawn-120"}},
+			{ID: "timer-a", Class: "CreateTimer", TimerKey: "spawn-60", PortDefault: map[int]any{1: int64(60000), 2: false, 4: "spawn-60"}},
+			{ID: "timer-b", Class: "CreateTimer", TimerKey: "spawn-120", PortDefault: map[int]any{1: int64(120000), 2: false, 4: "spawn-120"}},
 			{ID: "capture-a", Class: "CaptureA"},
 			{ID: "capture-b", Class: "CaptureB"},
 			{ID: "created-a", Class: "CreatedA"},
@@ -234,7 +234,7 @@ func TestCreateTimerRejectsDuplicateRuntimeKeyAndClearCancels(t *testing.T) {
 		Nodes: []NodeConfig{
 			{ID: "create-entry", Class: "TimerTestEntry_1"},
 			{ID: "clear-entry", Class: "TimerTestEntry_2"},
-			{ID: "timer", Class: "CreateTimer", TimerKey: "activity", PortDefault: map[int]any{1: int64(1000), 2: false, 3: int64(-1), 4: "activity"}},
+			{ID: "timer", Class: "CreateTimer", TimerKey: "activity", PortDefault: map[int]any{1: int64(1000), 2: false, 4: "activity"}},
 			{ID: "clear", Class: "ClearTimerByKey", TimerKey: "activity", PortDefault: map[int]any{1: "activity"}},
 			{ID: "capture", Class: "CaptureA"},
 		},
@@ -273,36 +273,13 @@ func TestCreateTimerRejectsDuplicateRuntimeKeyAndClearCancels(t *testing.T) {
 	}
 }
 
-func TestCreateTimerRejectsInvalidFirstDelayAndCleansUpAfterScheduleFailure(t *testing.T) {
+func TestCreateTimerCleansUpAfterScheduleFailure(t *testing.T) {
 	calls := make(chan timerTestCall, 1)
 	registry := timerTestRegistry(calls)
-	invalidFirstDelay, err := CompileGraph(registry, GraphConfig{
-		Nodes: []NodeConfig{
-			{ID: "entry", Class: "TimerTestEntry_1"},
-			{ID: "timer", Class: "CreateTimer", TimerKey: "invalid-first-delay", PortDefault: map[int]any{1: int64(1000), 2: false, 3: int64(-2), 4: "invalid-first-delay"}},
-			{ID: "capture", Class: "CaptureA"},
-		},
-		Edges: []EdgeConfig{
-			{SourceNodeID: "entry", SourcePortID: 0, DesNodeID: "timer", DesPortID: 0},
-			{SourceNodeID: "timer", SourcePortID: 1, DesNodeID: "capture", DesPortID: 0},
-		},
-	})
-	if err != nil {
-		t.Fatalf("CompileGraph invalid-first-delay fixture: %v", err)
-	}
-	blueprint, graphID := addTimerTestGraph(t, invalidFirstDelay, &manualTimerScheduler{})
-	execution, err := blueprint.Start(t.Context(), graphID, 1)
-	if err != nil {
-		t.Fatalf("invalid-first-delay Start: %v", err)
-	}
-	if err := waitTimerTestExecution(t, execution); !errors.Is(err, ErrTimerDurationInvalid) {
-		t.Fatalf("invalid first delay error = %v, want ErrTimerDurationInvalid", err)
-	}
-
 	valid, err := CompileGraph(registry, GraphConfig{
 		Nodes: []NodeConfig{
 			{ID: "entry", Class: "TimerTestEntry_1"},
-			{ID: "timer", Class: "CreateTimer", TimerKey: "schedule-retry", PortDefault: map[int]any{1: int64(1000), 2: false, 3: int64(-1), 4: "schedule-retry"}},
+			{ID: "timer", Class: "CreateTimer", TimerKey: "schedule-retry", PortDefault: map[int]any{1: int64(1000), 2: false, 4: "schedule-retry"}},
 			{ID: "capture", Class: "CaptureA"},
 		},
 		Edges: []EdgeConfig{
@@ -314,8 +291,8 @@ func TestCreateTimerRejectsInvalidFirstDelayAndCleansUpAfterScheduleFailure(t *t
 		t.Fatalf("CompileGraph schedule-retry fixture: %v", err)
 	}
 	failure := errors.New("scheduler unavailable")
-	blueprint, graphID = addTimerTestGraph(t, valid, failingTimerScheduler{err: failure})
-	execution, err = blueprint.Start(t.Context(), graphID, 1)
+	blueprint, graphID := addTimerTestGraph(t, valid, failingTimerScheduler{err: failure})
+	execution, err := blueprint.Start(t.Context(), graphID, 1)
 	if err != nil {
 		t.Fatalf("failed-scheduler Start: %v", err)
 	}
@@ -341,7 +318,7 @@ func TestBlueprintCloseCancelsPendingTimer(t *testing.T) {
 	compiled, err := CompileGraph(timerTestRegistry(calls), GraphConfig{
 		Nodes: []NodeConfig{
 			{ID: "entry", Class: "TimerTestEntry_1"},
-			{ID: "timer", Class: "CreateTimer", TimerKey: "close-pending", PortDefault: map[int]any{1: int64(1000), 2: false, 3: int64(-1), 4: "close-pending"}},
+			{ID: "timer", Class: "CreateTimer", TimerKey: "close-pending", PortDefault: map[int]any{1: int64(1000), 2: false, 4: "close-pending"}},
 			{ID: "capture", Class: "CaptureA"},
 		},
 		Edges: []EdgeConfig{
@@ -371,7 +348,7 @@ func TestLoopingTimerRearmsAfterCallbackAndReleaseCancelsIt(t *testing.T) {
 	compiled, err := CompileGraph(timerTestRegistry(calls), GraphConfig{
 		Nodes: []NodeConfig{
 			{ID: "entry", Class: "TimerTestEntry_1"},
-			{ID: "timer", Class: "CreateTimer", TimerKey: "loop", PortDefault: map[int]any{1: int64(1000), 2: true, 3: int64(250), 4: "loop"}},
+			{ID: "timer", Class: "CreateTimer", TimerKey: "loop", PortDefault: map[int]any{1: int64(1000), 2: true, 4: "loop"}},
 			{ID: "capture", Class: "CaptureA"},
 		},
 		Edges: []EdgeConfig{
@@ -387,8 +364,8 @@ func TestLoopingTimerRearmsAfterCallbackAndReleaseCancelsIt(t *testing.T) {
 	if err != nil || waitTimerTestExecution(t, created) != nil {
 		t.Fatalf("create failed: %v", err)
 	}
-	if delays := scheduler.delays(); len(delays) != 1 || delays[0] != 250*time.Millisecond {
-		t.Fatalf("initial delays = %v, want [250ms]", delays)
+	if delays := scheduler.delays(); len(delays) != 1 || delays[0] != time.Second {
+		t.Fatalf("initial delays = %v, want [1s]", delays)
 	}
 	if !scheduler.fireNext() {
 		t.Fatal("expected first loop callback")
@@ -462,15 +439,15 @@ func TestCompileTimerRequiresUniqueLiteralKeysAndCallback(t *testing.T) {
 	calls := make(chan timerTestCall, 1)
 	registry := timerTestRegistry(calls)
 	_, err := CompileGraph(registry, GraphConfig{Nodes: []NodeConfig{
-		{ID: "first", Class: "CreateTimer", TimerKey: "same", PortDefault: map[int]any{1: int64(1), 2: false, 3: int64(-1), 4: "same"}},
-		{ID: "second", Class: "CreateTimer", TimerKey: "same", PortDefault: map[int]any{1: int64(1), 2: false, 3: int64(-1), 4: "same"}},
+		{ID: "first", Class: "CreateTimer", TimerKey: "same", PortDefault: map[int]any{1: int64(1), 2: false, 4: "same"}},
+		{ID: "second", Class: "CreateTimer", TimerKey: "same", PortDefault: map[int]any{1: int64(1), 2: false, 4: "same"}},
 	}})
 	if err == nil || !errors.Is(err, ErrTimerKeyAlreadyExists) && !containsErrorText(err, "duplicate timer key") {
 		t.Fatalf("duplicate key err = %v", err)
 	}
 
 	_, err = CompileGraph(registry, GraphConfig{Nodes: []NodeConfig{
-		{ID: "timer", Class: "CreateTimer", TimerKey: "missing-callback", PortDefault: map[int]any{1: int64(1), 2: false, 3: int64(-1), 4: "missing-callback"}},
+		{ID: "timer", Class: "CreateTimer", TimerKey: "missing-callback", PortDefault: map[int]any{1: int64(1), 2: false, 4: "missing-callback"}},
 	}})
 	if err == nil || !containsErrorText(err, "callback is not connected") {
 		t.Fatalf("missing callback err = %v", err)
@@ -482,7 +459,7 @@ func TestCompileTimerCallbackIsAnAsyncCycleBoundary(t *testing.T) {
 	_, err := CompileGraph(registry, GraphConfig{
 		Nodes: []NodeConfig{
 			{ID: "entry", Class: "TimerTestEntry_1"},
-			{ID: "timer", Class: "CreateTimer", TimerKey: "repeat", PortDefault: map[int]any{1: int64(1), 2: false, 3: int64(-1), 4: "repeat"}},
+			{ID: "timer", Class: "CreateTimer", TimerKey: "repeat", PortDefault: map[int]any{1: int64(1), 2: false, 4: "repeat"}},
 			{ID: "pass", Class: "TimerPass"},
 		},
 		Edges: []EdgeConfig{
@@ -579,9 +556,9 @@ func TestGeneratedTimerCallbackBlueprintIsolationAndClearByKey(t *testing.T) {
 	addTimerFixtureLegacyNode(author, "clear_a_entry", "TimerFixtureEntry_4", nil, timerFixtureEntryPorts())
 	addTimerFixtureLegacyNode(author, "clear_loop_entry", "TimerFixtureEntry_5", nil, timerFixtureEntryPorts())
 
-	author.AddNode("create_a", "origin.timer.create").SetValue("create_a", "duration", 60000).SetValue("create_a", "looping", false).SetValue("create_a", "firstDelay", -1).SetValue("create_a", "timerKey", "spawn-a")
-	author.AddNode("create_b", "origin.timer.create").SetValue("create_b", "duration", 120000).SetValue("create_b", "looping", false).SetValue("create_b", "firstDelay", -1).SetValue("create_b", "timerKey", "spawn-b")
-	author.AddNode("create_loop", "origin.timer.create").SetValue("create_loop", "duration", 1000).SetValue("create_loop", "looping", true).SetValue("create_loop", "firstDelay", 250).SetValue("create_loop", "timerKey", "spawn-loop")
+	author.AddNode("create_a", "origin.timer.create").SetValue("create_a", "duration", 60000).SetValue("create_a", "looping", false).SetValue("create_a", "timerKey", "spawn-a")
+	author.AddNode("create_b", "origin.timer.create").SetValue("create_b", "duration", 120000).SetValue("create_b", "looping", false).SetValue("create_b", "timerKey", "spawn-b")
+	author.AddNode("create_loop", "origin.timer.create").SetValue("create_loop", "duration", 1000).SetValue("create_loop", "looping", true).SetValue("create_loop", "timerKey", "spawn-loop")
 	author.AddNode("clear_a", "origin.timer.clear-by-key").SetValue("clear_a", "timerKey", "spawn-a")
 	author.AddNode("clear_loop", "origin.timer.clear-by-key").SetValue("clear_loop", "timerKey", "spawn-loop")
 
@@ -670,7 +647,7 @@ func TestGeneratedTimerCallbackBlueprintIsolationAndClearByKey(t *testing.T) {
 			t.Fatalf("%s value = %d, want %d", nodeID, got, want)
 		}
 	}
-	if delays := scheduler.delays(); len(delays) != 3 || delays[0] != time.Minute || delays[1] != 2*time.Minute || delays[2] != 250*time.Millisecond {
+	if delays := scheduler.delays(); len(delays) != 3 || delays[0] != time.Minute || delays[1] != 2*time.Minute || delays[2] != time.Second {
 		t.Fatalf("generated fixture delays = %v", delays)
 	}
 	// 同一 Key 尚在等待时，即使从同一活动入口再次进入，也必须被拒绝且不能覆盖旧快照。

@@ -1,6 +1,6 @@
 import type { NodeSchema } from './editor/nodeRegistry'
 import { parseNodeSchemaDocument } from './editor/runtimeNodeSchemas'
-import { completeGraphSavePath } from './graphPersistence'
+import { completeGraphSavePath, defaultGraphSaveFilename } from './graphPersistence'
 
 export interface FileResult { path: string; content: string }
 export interface ProjectSettingsResult { path: string; content: string }
@@ -159,7 +159,7 @@ export const platform = {
     if (desktop()) {
       return withDesktopLogging('ChooseGraphSavePath', () => desktop()!.ChooseGraphSavePath(suggestedPath, functionBlueprint, requiresNative))
     }
-    const defaultPath = completeGraphSavePath(suggestedPath || 'Untitled', functionBlueprint, requiresNative)
+    const defaultPath = completeGraphSavePath(defaultGraphSaveFilename(suggestedPath, functionBlueprint, requiresNative), functionBlueprint, requiresNative)
     const selectedPath = window.prompt('Output file name', defaultPath) ?? ''
     return selectedPath ? completeGraphSavePath(selectedPath, functionBlueprint, requiresNative) : ''
   },

@@ -149,16 +149,27 @@ func (a *App) OpenGraph(path string) (FileResult, error) {
 	return FileResult{Path: path, Content: string(data)}, nil
 }
 
+// defaultGraphSaveFilename 计算保存对话框的默认文件名。未命名新图固定使用 .obp/.obpf，
+// 与默认筛选器保持一致；原生图从 .vgf 另存时改写扩展名，避免静默降级。
+func defaultGraphSaveFilename(suggestedPath string, functionBlueprint, requiresNative bool) string {
+	// 同时接受 Windows 与 POSIX 分隔符，保证跨平台测试及远程工作区路径行为一致。
+	normalizedPath := strings.ReplaceAll(strings.TrimSpace(suggestedPath), `\`, "/")
+	filename := filepath.Base(normalizedPath)
+	if filename == "." || filename == "" {
+		if functionBlueprint {
+			return "Untitled.obpf"
+		}
+		return "Untitled.obp"
+	}
+	if requiresNative && !functionBlueprint && strings.EqualFold(filepath.Ext(filename), ".vgf") {
+		return strings.TrimSuffix(filename, filepath.Ext(filename)) + ".obp"
+	}
+	return filename
+}
+
 func (a *App) ChooseGraphSavePath(suggestedPath string, functionBlueprint, requiresNative bool) (string, error) {
 	defaultDirectory := a.lastGraphDirectory()
-	defaultFilename := filepath.Base(strings.TrimSpace(suggestedPath))
-	if defaultFilename == "." || defaultFilename == "" {
-		defaultFilename = "Untitled"
-	}
-	if requiresNative && !functionBlueprint && strings.EqualFold(filepath.Ext(defaultFilename), ".vgf") {
-		defaultFilename = strings.TrimSuffix(defaultFilename, filepath.Ext(defaultFilename)) + ".obp"
-	}
-	defaultFilename = completeGraphSavePath(defaultFilename, functionBlueprint, requiresNative)
+	defaultFilename := completeGraphSavePath(defaultGraphSaveFilename(suggestedPath, functionBlueprint, requiresNative), functionBlueprint, requiresNative)
 	if directory := filepath.Dir(strings.TrimSpace(suggestedPath)); directory != "." && directory != "" {
 		defaultDirectory = directory
 	}

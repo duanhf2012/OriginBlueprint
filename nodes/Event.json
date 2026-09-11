@@ -27,7 +27,6 @@
       { "name": "", "name_en": "", "type": "exec", "port_id": 0 },
       { "name": "时间（毫秒）", "name_en": "Duration (ms)", "type": "data", "data_type": "Integer", "has_input": true, "default_value": 1000, "port_id": 1 },
       { "name": "循环", "name_en": "Looping", "type": "data", "data_type": "Boolean", "has_input": true, "default_value": false, "port_id": 2 },
-      { "name": "首次延迟（毫秒，-1 使用时间）", "name_en": "First Delay (ms, -1 uses Duration)", "type": "data", "data_type": "Integer", "has_input": true, "default_value": -1, "port_id": 3 },
       { "name": "定时器 Key", "name_en": "Timer Key", "type": "data", "data_type": "String", "has_input": true, "default_value": "", "port_id": 4 }
     ],
     "outputs": [

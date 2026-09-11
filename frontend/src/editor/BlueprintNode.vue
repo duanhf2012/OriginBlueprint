@@ -50,6 +50,7 @@ const PORT_COLUMN_GAP = 6
 const NODE_HORIZONTAL_PADDING = 20
 const SOCKET_GUTTER_WIDTH = 36
 const DEFAULT_CONTROL_WIDTH = 62
+const STRING_CONTROL_WIDTH = 94
 const DEFAULT_LABEL_MIN_WIDTH = 28
 const ARRAY_CONTROL_WIDTH = 124
 const FILE_CONTROL_WIDTH = 157
@@ -63,11 +64,13 @@ function estimateTextWidth(value: string | undefined, min = 0, max = 220) {
 }
 
 function estimateControlWidth(control: unknown) {
-  const value = (control as { value?: unknown; mode?: string } | undefined)?.value
-  const mode = (control as { mode?: string } | undefined)?.mode
+  const typedControl = control as { value?: unknown; mode?: string; type?: string; integer?: boolean } | undefined
+  const value = typedControl?.value
+  const mode = typedControl?.mode
   if (mode === 'open' || mode === 'save') return FILE_CONTROL_WIDTH
   if (Array.isArray(value)) return ARRAY_CONTROL_WIDTH
   if (typeof value === 'boolean') return 64
+  if (typedControl?.type !== 'number' && !typedControl?.integer) return STRING_CONTROL_WIDTH
   return DEFAULT_CONTROL_WIDTH
 }
 

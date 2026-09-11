@@ -281,6 +281,44 @@
 			}]
 	},
   {
+		"name": "EqualString",
+		"title": "等于(字符串)==",
+		"package": "流程控制",
+		"description": "等于(字符串)",
+		"is_pure": true,
+		"inputs": [{
+				"name": "",
+				"type": "exec",
+				"port_id": 0
+			}
+          ,
+          {
+				"name": "A",
+				"type": "data",
+				"data_type": "String",
+				"has_input": true,
+				"port_id": 1
+			},
+          {
+				"name": "B",
+				"type": "data",
+				"data_type": "String",
+				"has_input": true,
+				"port_id": 2
+			}
+        ],
+		"outputs": [{
+				"name": "假",
+				"type": "exec",
+				"port_id": 0
+			},
+        {
+				"name": "真",
+				"type": "exec",
+				"port_id": 1
+			}]
+	},
+  {
     "id": "origin.flow.range-compare",
     "title": "范围比较<=",
     "category": "流程控制",
