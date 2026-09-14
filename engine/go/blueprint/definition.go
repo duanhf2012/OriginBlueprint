@@ -311,6 +311,18 @@ func normalizePortDefinitions(configs []PortDefinition, keyIndexes map[string]in
 	return result, nil
 }
 
+// ExecutableNameForSchemaID reports the legacy executor name that an id-only
+// schema definition registers as during LoadDefinitionsJSON. Callers that need
+// to predict registration names outside the engine (for example to dedupe
+// merged node sources) use this instead of duplicating the mapping.
+func ExecutableNameForSchemaID(id string) (string, bool) {
+	config, ok := executableConfigForSchemaID(id)
+	if !ok {
+		return "", false
+	}
+	return config.Name, true
+}
+
 func executableConfigForSchemaID(id string) (ExecDefinitionConfig, bool) {
 	switch id {
 	case "origin.flow.range-compare":

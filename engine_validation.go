@@ -75,7 +75,8 @@ func validateGraphWithEngine(content, workspaceRoot, sourcePath string) *Validat
 		first := loadResult.Errors[0]
 		return engineValidationIssue("engine.definition", fmt.Errorf("%s: %s", first.Path, first.Message))
 	}
-	for index, document := range loadResult.Documents {
+	documents := dedupeValidationNodeDocuments(loadResult.Documents)
+	for index, document := range documents {
 		path := filepath.Join(nodesDir, fmt.Sprintf("%05d.json", index))
 		if err := os.WriteFile(path, []byte(document.Content), 0644); err != nil {
 			return engineValidationIssue("engine.prepare", err)
@@ -86,7 +87,7 @@ func validateGraphWithEngine(content, workspaceRoot, sourcePath string) *Validat
 	if err != nil {
 		return engineValidationIssue("engine.prepare", err)
 	}
-	factoryNames := validationFactoryNames(loadResult.Documents)
+	factoryNames := validationFactoryNames(documents)
 	fallbackDefinitions, err := validationDocumentFallbackDefinitions(graphsDir, factoryNames)
 	if err != nil {
 		return engineValidationIssue("engine.definition", err)
@@ -126,17 +127,113 @@ func validateGraphWithEngine(content, workspaceRoot, sourcePath string) *Validat
 func validationFactoryNames(documents []RuntimeNodeSchemaDocument) []string {
 	seen := map[string]bool{}
 	result := make([]string, 0)
+	add := func(name string) {
+		name = validationFactoryName(strings.TrimSpace(name))
+		if name == "" || seen[name] {
+			return
+		}
+		seen[name] = true
+		result = append(result, name)
+	}
 	for _, document := range documents {
 		for _, definition := range parseLegacyRuntimeNodeDefinitions([]byte(document.Content)) {
-			name := validationFactoryName(strings.TrimSpace(definition.Name))
-			if name == "" || seen[name] {
+			// id-only schema definitions still register under their bridged
+			// legacy executor name, so fallbacks must not be generated for it.
+			if name := strings.TrimSpace(definition.Name); name != "" {
+				add(name)
 				continue
 			}
-			seen[name] = true
-			result = append(result, name)
+			if bridged, ok := blueprint.ExecutableNameForSchemaID(strings.TrimSpace(definition.ID)); ok {
+				add(bridged)
+			}
 		}
 	}
 	return result
+}
+
+type validationNodeDocumentEntry struct {
+	document int
+	index    int
+}
+
+// dedupeValidationNodeDocuments drops legacy node names that repeat across the
+// merged node sources. Documents are ordered built-in first and workspace last,
+// so keeping the last occurrence lets a workspace definition override a
+// built-in one and lets identical library copies collapse into a single
+// registration. Repeats inside one document are kept for the engine to report,
+// and documents that are not JSON arrays are passed through unchanged.
+func dedupeValidationNodeDocuments(documents []RuntimeNodeSchemaDocument) []RuntimeNodeSchemaDocument {
+	owners := map[string]validationNodeDocumentEntry{}
+	parsed := make([][]json.RawMessage, len(documents))
+	for documentIndex, document := range documents {
+		var elements []json.RawMessage
+		if err := json.Unmarshal([]byte(document.Content), &elements); err != nil {
+			continue
+		}
+		parsed[documentIndex] = elements
+		for elementIndex, element := range elements {
+			name := validationLegacyElementName(element)
+			if name != "" {
+				owners[name] = validationNodeDocumentEntry{document: documentIndex, index: elementIndex}
+			}
+		}
+	}
+
+	result := make([]RuntimeNodeSchemaDocument, 0, len(documents))
+	for documentIndex, document := range documents {
+		elements := parsed[documentIndex]
+		if elements == nil {
+			result = append(result, document)
+			continue
+		}
+		kept := make([]json.RawMessage, 0, len(elements))
+		overridden := false
+		for _, element := range elements {
+			name := validationLegacyElementName(element)
+			if name != "" {
+				if owner, exists := owners[name]; exists && owner.document != documentIndex {
+					overridden = true
+					continue
+				}
+			}
+			kept = append(kept, element)
+		}
+		if !overridden {
+			result = append(result, document)
+			continue
+		}
+		if len(kept) == 0 {
+			continue
+		}
+		data, err := json.Marshal(kept)
+		if err != nil {
+			result = append(result, document)
+			continue
+		}
+		result = append(result, RuntimeNodeSchemaDocument{Path: document.Path, Content: string(data)})
+	}
+	return result
+}
+
+// validationLegacyElementName returns the registration name the engine would
+// derive from one JSON element of a node definition document: the explicit
+// legacy name when present, otherwise the bridged executor name for known
+// id-only schema definitions. Elements without a resolvable name always stay.
+func validationLegacyElementName(element json.RawMessage) string {
+	var probe struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(element, &probe); err != nil {
+		return ""
+	}
+	if name := validationFactoryName(strings.TrimSpace(probe.Name)); name != "" {
+		return name
+	}
+	if bridged, ok := blueprint.ExecutableNameForSchemaID(strings.TrimSpace(probe.ID)); ok {
+		return validationFactoryName(bridged)
+	}
+	return ""
 }
 
 // validationDocumentFallbackDefinitions turns the executable class and port
