@@ -79,6 +79,57 @@ func TestBlueprintCreateMissingGraphReturnsZero(t *testing.T) {
 	}
 }
 
+func TestBlueprintGraphEntrances(t *testing.T) {
+	var bp Blueprint
+	newEntrance := func() *ExecNode {
+		return NewExecNode("entrance", NewNodeDefinition("TestEntrance", func() IExecNode {
+			return &testEntrance{}
+		}, nil, []IPort{NewPortExec()}))
+	}
+	bp.AddCompiledGraph("test", &CompiledGraph{Entrances: map[int64]*ExecNode{
+		60012: newEntrance(),
+		60011: newEntrance(),
+	}})
+
+	graphID := bp.Create("test")
+	if graphID == 0 {
+		t.Fatalf("Create returned 0")
+	}
+
+	ids, ok := bp.GraphEntrances(graphID)
+	if !ok {
+		t.Fatalf("GraphEntrances ok = false, want true")
+	}
+	// 入口ID按升序返回，与插入顺序无关
+	if len(ids) != 2 || ids[0] != 60011 || ids[1] != 60012 {
+		t.Fatalf("GraphEntrances = %v, want [60011 60012]", ids)
+	}
+}
+
+func TestBlueprintGraphEntrancesInvalidOrReleased(t *testing.T) {
+	var bp Blueprint
+	bp.AddCompiledGraph("test", &CompiledGraph{Entrances: map[int64]*ExecNode{
+		1: NewExecNode("entrance", NewNodeDefinition("TestEntrance", func() IExecNode {
+			return &testEntrance{}
+		}, nil, []IPort{NewPortExec()})),
+	}})
+
+	// 未创建实例的 graphID 返回 false
+	if ids, ok := bp.GraphEntrances(999); ok || ids != nil {
+		t.Fatalf("GraphEntrances(999) = (%v, %v), want (nil, false)", ids, ok)
+	}
+
+	graphID := bp.Create("test")
+	if graphID == 0 {
+		t.Fatalf("Create returned 0")
+	}
+	bp.ReleaseGraph(graphID)
+	// 已释放实例返回 false
+	if ids, ok := bp.GraphEntrances(graphID); ok || ids != nil {
+		t.Fatalf("GraphEntrances(released) = (%v, %v), want (nil, false)", ids, ok)
+	}
+}
+
 func TestBlueprintFacadeMethodsRemainAvailable(t *testing.T) {
 	var bp Blueprint
 

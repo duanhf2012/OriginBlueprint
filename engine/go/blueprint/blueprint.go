@@ -3,6 +3,7 @@ package blueprint
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"sync/atomic"
 )
@@ -412,6 +413,29 @@ func (b *Blueprint) GetGraphName(graphID int64) string {
 		return ""
 	}
 	return instance.name
+}
+
+// GraphEntrances 返回实例对应蓝图的全部入口ID，按升序排列的只读快照。
+//
+// 实例经名称关联图池，热加载替换图池后本方法自然返回新快照的入口集合。
+// graphID 无效或实例已释放时返回 nil, false。
+func (b *Blueprint) GraphEntrances(graphID int64) ([]int64, bool) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	instance := b.instances[graphID]
+	if instance == nil {
+		return nil, false
+	}
+	compiled := b.graphs[instance.name]
+	if compiled == nil {
+		return nil, false
+	}
+	ids := make([]int64, 0, len(compiled.Entrances))
+	for id := range compiled.Entrances {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	return ids, true
 }
 
 func (b *Blueprint) ensure() {
