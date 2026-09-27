@@ -34,7 +34,10 @@ button { font: inherit; color: inherit; }
 .panel { min-height: 112px; border-bottom: 2px solid #171717; }
 .panel.grow { flex: 1; }
 .panel-title { height: 30px; display: flex; align-items: center; gap: 7px; padding: 0 10px; background: #242424; color: #dedede; font-size: var(--panel-font-size); font-weight: 600; }
-.chevron { color: #aaa; font-size: 16px; }
+.panel-title.collapsible { cursor: pointer; user-select: none; }
+.panel-title.collapsible:hover { background: #2a2a2a; }
+.chevron { color: #aaa; font-size: 16px; display: inline-block; transition: transform 0.12s ease; }
+.chevron.closed { transform: rotate(-90deg); }
 .tree-row { margin: 7px 8px; padding: 6px 8px; color: #d0d0d0; font-size: var(--panel-font-size); }
 .empty-panel { padding: 12px; color: #707070; font-size: var(--small-ui-font-size); }
 .variable-panel { overflow: auto; }

@@ -82,10 +82,14 @@ const functionCategoryByPath = ref<Record<string, string>>({})
 const leftToolsDefaultWidth = 280
 const leftToolsMinWidth = 240
 const leftToolsMaxWidth = 520
-const fileBrowserWidth = ref(savedPanelWidth('origin-blueprint-file-browser-width', 210))
+const fileBrowserMinWidth = 140
+const fileBrowserMaxWidth = 720
+const fileBrowserWidth = ref(savedPanelWidth('origin-blueprint-file-browser-width', 210, fileBrowserMinWidth, fileBrowserMaxWidth))
 const leftToolsWidth = ref(savedPanelWidth('origin-blueprint-left-tools-width', leftToolsDefaultWidth, leftToolsMinWidth, leftToolsMaxWidth))
 const rightSidebarWidth = ref(savedPanelWidth('origin-blueprint-right-sidebar-width', 230, 160, 460))
 const variablePanelHeight = ref(savedPanelSize('origin-blueprint-variable-panel-height', 300, 130, 520))
+const variablePanelCollapsed = ref(false)
+const detailPanelCollapsed = ref(false)
 const showTools = ref(true)
 const showRight = ref(true)
 const showLogger = ref(false)
@@ -262,7 +266,12 @@ const groupedValidationIssues = computed(() => {
 })
 const referencePanelStyle = computed(() => ({ height: `${referencePanelCollapsed.value ? 34 : referencePanelHeight.value}px` }))
 const testPanelStyle = computed(() => ({ height: `${testPanelCollapsed.value ? 34 : testPanelHeight.value}px` }))
-const variablePanelStyle = computed(() => ({ flex: `0 0 ${variablePanelHeight.value}px` }))
+const collapsedPanelStyle = { flex: '0 0 30px', minHeight: '0px', overflow: 'hidden' }
+const variablePanelStyle = computed(() => {
+  if (variablePanelCollapsed.value) return collapsedPanelStyle
+  return detailPanelCollapsed.value ? { flex: `1 1 ${variablePanelHeight.value}px` } : { flex: `0 0 ${variablePanelHeight.value}px` }
+})
+const detailPanelStyle = computed(() => (detailPanelCollapsed.value ? collapsedPanelStyle : undefined))
 const visibleWorkspaceNodes = computed(() => {
   const search = workspaceSearch.value.trim().toLowerCase()
   return flattenWorkspaceNodes(workspaceTree.value, 0, search)
@@ -373,7 +382,7 @@ function normalizeProjectSettings(value: unknown): ProjectSettings {
     appearance: { locale, uiScale, nodeScale, moduleScale },
     layout: {
       panels: {
-        files: clampNumber(panels.files, fallback.layout.panels.files, 140, 360),
+        files: clampNumber(panels.files, fallback.layout.panels.files, fileBrowserMinWidth, fileBrowserMaxWidth),
         tools: clampNumber(panels.tools, fallback.layout.panels.tools, leftToolsMinWidth, leftToolsMaxWidth),
         library: clampNumber(panels.library, fallback.layout.panels.library, 160, 460),
         variables: clampNumber(panels.variables, fallback.layout.panels.variables, 130, 520),
@@ -2407,14 +2416,14 @@ function beginLeftSidebarResize(event: PointerEvent) {
   const startFileWidth = fileBrowserWidth.value
   const startToolsWidth = leftToolsWidth.value
   const totalWidth = startFileWidth + startToolsWidth
-  const minFileWidth = 140
+  const minFileWidth = fileBrowserMinWidth
   const minToolsWidth = leftToolsMinWidth
 
   const move = (next: PointerEvent) => {
-    const maxFileWidth = Math.max(minFileWidth, totalWidth - minToolsWidth)
+    const maxFileWidth = Math.min(fileBrowserMaxWidth, Math.max(minFileWidth, (totalWidth - minToolsWidth) * 2))
     const fileWidth = Math.min(maxFileWidth, Math.max(minFileWidth, startFileWidth + next.clientX - startX))
     fileBrowserWidth.value = Math.round(fileWidth)
-    leftToolsWidth.value = Math.round(totalWidth - fileWidth)
+    leftToolsWidth.value = Math.max(minToolsWidth, Math.round(totalWidth - fileWidth))
   }
   const up = () => {
     localStorage.setItem('origin-blueprint-file-browser-width', String(fileBrowserWidth.value))
@@ -3034,7 +3043,7 @@ function toggleModuleCategory(category: string) {
       </aside>
       <div v-show="showTools" class="sidebar-splitter" @pointerdown="beginLeftSidebarResize"></div>
       <aside v-show="showTools" class="sidebar sidebar-left">
-        <div class="panel grow variable-panel" :style="variablePanelStyle"><div class="panel-title"><span class="chevron">⌄</span> 变量</div>
+        <div class="panel grow variable-panel" :style="variablePanelStyle"><div class="panel-title collapsible" :title="variablePanelCollapsed ? '展开变量面板' : '折叠变量面板'" @click="variablePanelCollapsed = !variablePanelCollapsed"><span class="chevron" :class="{ closed: variablePanelCollapsed }">⌄</span> 变量</div>
           <section v-for="scopeEntry in variableScopeSections" :key="scopeEntry.scope" class="variable-scope-section" :class="`scope-${scopeEntry.scope}`">
             <header class="variable-scope-header" :class="variableDropClass(`scope-${scopeEntry.scope}-default`)" :data-drop-hint="variableDropHint(`scope-${scopeEntry.scope}-default`)" @dragenter="showVariableGroupDrop($event, `scope-${scopeEntry.scope}-default`, 'default', scopeEntry.scope)" @dragover="showVariableGroupDrop($event, `scope-${scopeEntry.scope}-default`, 'default', scopeEntry.scope)" @dragleave="leaveVariableGroupDrop($event, `scope-${scopeEntry.scope}-default`)" @drop="dropVariableIntoGroup($event, `scope-${scopeEntry.scope}-default`, 'default', scopeEntry.scope)">
               <span class="variable-scope-icon">{{ scopeEntry.scope === 'instance' ? 'G' : 'L' }}</span>
@@ -3065,8 +3074,8 @@ function toggleModuleCategory(category: string) {
           </section>
         </div>
         <div class="panel-height-splitter" @pointerdown="beginVariablePanelHeightResize"></div>
-        <div class="panel grow detail-panel sidebar-detail-panel">
-          <div class="panel-title"><span class="chevron">⌄</span> 详情</div>
+        <div class="panel grow detail-panel sidebar-detail-panel" :style="detailPanelStyle">
+          <div class="panel-title collapsible" :title="detailPanelCollapsed ? '展开详情面板' : '折叠详情面板'" @click="detailPanelCollapsed = !detailPanelCollapsed"><span class="chevron" :class="{ closed: detailPanelCollapsed }">⌄</span> 详情</div>
           <div v-if="isFunctionBlueprintTab && !selectedNode && !selectedVariable" class="node-detail function-signature-editor">
             <label>{{ menuText.detail.functionTitle }}<input v-model="functionTitle" :placeholder="menuText.detail.functionTitlePlaceholder" :title="menuText.detail.functionTitleLockedHint" readonly @change="syncFunctionTitleToGraph" /></label>
             <label>{{ menuText.detail.functionCategory }}
