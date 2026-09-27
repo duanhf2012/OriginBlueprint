@@ -152,6 +152,7 @@ targetID := returns[1].IntVal
 - 变量拖到画布创建 Getter，`Alt+拖拽` 创建 Setter。
 - 修改 `nodes/*.json` 后使用“文件 → 刷新节点库”，并检查状态栏是否报告 JSON 错误。
 - 使用 `.obp` 保存普通图，使用 `.obpf` 保存函数图；旧 `.vgf` 打开和导出需要保留兼容信息。
+- 节点“说明”和输入口悬停提示统一在模块库中维护：右键节点选择“编辑节点说明”，保存后写入 `nodes/*.json` 节点定义（需先打开工作区），对所有蓝图全局生效。悬停节点标题显示说明，悬停输入口显示对应提示；选中节点时详情面板只读展示说明。若定义来自内建文件，保存时会在工作区 `nodes/` 下生成覆盖副本。输入口提示对应 JSON 输入口对象的 `tip` 字段；节点说明对应 `description` 字段。模块库中右键函数占位项选“编辑函数”可打开对应函数蓝图；右键工程函数（来自工作区 .obpf）选“编辑函数说明”可维护函数用途说明和输入/输出参数说明，说明保存在函数蓝图的 `functionDescription` 与 `functionSignature.*.description` 字段中，悬停函数调用/入口/返回节点及其参数端口即可查看。图内函数（当前蓝图自带）没有独立文件，不提供该入口。
 
 ### 4.2 连线规则
 
@@ -257,6 +258,7 @@ targetID := returns[1].IntVal
 | `data_type` | `Integer`、`Float`、`Boolean`、`String`、`Array`、`Any`；`TimerHandle` 仅用于读取旧文件，新 Timer 不再公开句柄 |
 | `has_input` | 输入数据口是否显示默认值控件 |
 | `default_value` | 默认输入值 |
+| `tip` | 输入口悬停提示（编辑器内可编辑，全局生效） |
 | `pin_widget` | 数组控件可用 `IntegerArrayWdg`、`StringArrayWdg` |
 | `hide_icon` | 是否隐藏端口图标 |
 | `port_id` | 稳定的端口下标；输入和输出分别从 0 编号，发布后禁止重排 |

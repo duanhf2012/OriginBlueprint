@@ -65,3 +65,5 @@ export function SaveRecoverySnapshot(arg1:string,arg2:string,arg3:string,arg4:st
 export function ValidateGraph(arg1:string):Promise<Array<main.ValidationIssue>>;
 
 export function ValidateGraphForWorkspace(arg1:string,arg2:string,arg3:string):Promise<Array<main.ValidationIssue>>;
+
+export function WriteNodeSchemaDocument(arg1:string,arg2:string,arg3:string):Promise<string>;

@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -21,6 +22,7 @@ type RuntimeNodeSchemaDocumentLoadResult struct {
 
 type RuntimeNodeSchemaDocument struct {
 	Path    string `json:"path"`
+	Key     string `json:"key"`
 	Content string `json:"content"`
 }
 
@@ -154,7 +156,7 @@ func loadEmbeddedNodeSchemaDocuments(result *RuntimeNodeSchemaDocumentLoadResult
 			return nil
 		}
 		key := filepath.ToSlash(path)
-		byPath[key] = RuntimeNodeSchemaDocument{Path: "embedded:" + key, Content: string(data)}
+		byPath[key] = RuntimeNodeSchemaDocument{Path: "embedded:" + key, Key: key, Content: string(data)}
 		return nil
 	})
 }
@@ -177,7 +179,7 @@ func loadDirectoryNodeSchemaDocuments(dir string, result *RuntimeNodeSchemaDocum
 			return nil
 		}
 		key, displayPath := runtimeNodeDocumentPath(dir, path)
-		byPath[key] = RuntimeNodeSchemaDocument{Path: displayPath, Content: string(data)}
+		byPath[key] = RuntimeNodeSchemaDocument{Path: displayPath, Key: key, Content: string(data)}
 		return nil
 	})
 }
@@ -189,4 +191,36 @@ func runtimeNodeDocumentPath(root, path string) (string, string) {
 	}
 	key = filepath.ToSlash(filepath.Join("nodes", key))
 	return key, filepath.ToSlash(path)
+}
+
+// WriteNodeSchemaDocument 把编辑后的节点定义文档写回工作区。
+// key 是加载时返回的稳定文档键（nodes/<相对路径>）。当定义来自内建或程序目录时，
+// 会以覆盖副本的形式落到工作区 nodes/ 下，工作区来源的优先级最高，因此全局生效。
+func (a *App) WriteNodeSchemaDocument(workspaceRoot, key, content string) (string, error) {
+	workspaceRoot = strings.TrimSpace(workspaceRoot)
+	if workspaceRoot == "" {
+		return "", errors.New("writing node definitions requires an open workspace")
+	}
+	absoluteRoot, err := filepath.Abs(workspaceRoot)
+	if err != nil {
+		return "", fmt.Errorf("resolve workspace %q: %w", workspaceRoot, err)
+	}
+	if info, err := os.Stat(absoluteRoot); err != nil || !info.IsDir() {
+		return "", fmt.Errorf("workspace %q is not a directory", absoluteRoot)
+	}
+	key = strings.TrimSpace(filepath.ToSlash(key))
+	if !strings.HasPrefix(key, "nodes/") || strings.Contains(key, "..") {
+		return "", fmt.Errorf("invalid node document key %q", key)
+	}
+	if !strings.EqualFold(filepath.Ext(key), ".json") {
+		return "", fmt.Errorf("node document key must end with .json: %q", key)
+	}
+	target := filepath.Join(absoluteRoot, filepath.FromSlash(key))
+	if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+		return "", err
+	}
+	if err := a.writeAtomically(target, []byte(content), 0644); err != nil {
+		return "", err
+	}
+	return target, nil
 }

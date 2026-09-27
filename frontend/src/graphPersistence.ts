@@ -6,6 +6,7 @@ export interface FunctionPersistenceMetadata {
   functionId: string
   functionCategory: string
   functionSignature: FunctionSignature
+  functionDescription?: string
 }
 
 export function isFunctionBlueprintPath(path: string) {
@@ -60,6 +61,8 @@ export function applyFunctionPersistenceMetadata(path: string, document: GraphDo
   document.functionId = metadata.functionId
   document.functionCategory = metadata.functionCategory
   document.functionSignature = metadata.functionSignature
+  if (metadata.functionDescription?.trim()) document.functionDescription = metadata.functionDescription.trim()
+  else delete document.functionDescription
   return document
 }
 

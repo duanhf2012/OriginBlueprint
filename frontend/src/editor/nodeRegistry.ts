@@ -4,9 +4,11 @@ import type { FunctionNodeMetadata, FunctionSignature, FunctionSignaturePort, Gr
 import { assignEntrySourcePalette, entrySourceColor, looksLikeEntryName } from './implicitEntryLinks'
 import { inputAllowsMultipleConnections } from './connectionPolicy'
 
+export interface NodeDefinitionInputPort { key: string; label: string; tip?: string; portId?: number }
 export interface NodeDefinition {
   id: string
   sourceName?: string
+  sourceKey?: string
   legacyClass?: string
   title: string
   category: string
@@ -14,6 +16,7 @@ export interface NodeDefinition {
   kind: NodeKind
   ordinaryEntry?: boolean
   entryColorKey?: string
+  inputPorts?: NodeDefinitionInputPort[]
   create(): BlueprintNode
 }
 
@@ -31,10 +34,11 @@ const sockets = {
 
 type SocketType = keyof typeof sockets
 type PortKind = SocketType | 'data'
-export interface PortSchema { key: string; label: string; labelEn?: string; type: PortKind; data_type?: string; defaultValue?: unknown; arrayItemType?: 'string' | 'number'; hideIcon?: boolean }
+export interface PortSchema { key: string; label: string; labelEn?: string; type: PortKind; data_type?: string; defaultValue?: unknown; arrayItemType?: 'string' | 'number'; hideIcon?: boolean; tip?: string; portId?: number }
 export interface NodeSchema {
   id: string
   sourceName?: string
+  sourceKey?: string
   title: string
   titleEn?: string
   category: string
@@ -156,6 +160,22 @@ function entryColorKeyForSchema(schema: NodeSchema, kind: NodeKind): string {
   return ''
 }
 
+function inputTipsFromPorts(ports: NodeDefinitionInputPort[]): Record<string, string> | undefined {
+  const tips: Record<string, string> = {}
+  for (const port of ports) {
+    if (port.tip) tips[port.key] = port.tip
+  }
+  return Object.keys(tips).length ? tips : undefined
+}
+
+function inputPortIdsFromPorts(ports: NodeDefinitionInputPort[]): Record<string, number> | undefined {
+  const ids: Record<string, number> = {}
+  for (const port of ports) {
+    if (typeof port.portId === 'number') ids[port.key] = port.portId
+  }
+  return Object.keys(ids).length ? ids : undefined
+}
+
 function fromSchema(schema: NodeSchema, locale: string): NodeDefinition {
   const english = locale === 'en-US'
   const title = english ? schema.titleEn || schema.title : schema.title
@@ -167,6 +187,12 @@ function fromSchema(schema: NodeSchema, locale: string): NodeDefinition {
   // 自定义入口（如中文“…入口”）拿不到 ordinaryEntry 标记，但入口图标和引用徽章必须共享同一身份色。
   // 只补 entrySourceColor，不设置 entrySourceKey，避免改变入口节点的添加/判重策略。
   const entryColorKey = entryColorKeyForSchema(schema, kind)
+  const inputPorts = (schema.inputs ?? []).map(port => ({
+    key: port.key,
+    label: english ? port.labelEn || port.label : port.label,
+    tip: port.tip,
+    portId: typeof port.portId === 'number' ? port.portId : undefined
+  }))
   const dynamicBranch = schema.dynamicBranch ? {
     ...schema.dynamicBranch,
     outputTemplate: schema.dynamicBranch.outputTemplate ? { ...schema.dynamicBranch.outputTemplate } : { type: 'exec', label: '' },
@@ -175,6 +201,7 @@ function fromSchema(schema: NodeSchema, locale: string): NodeDefinition {
   return {
     id: schema.id,
     sourceName: schema.sourceName,
+    sourceKey: schema.sourceKey,
     legacyClass,
     title,
     category,
@@ -182,9 +209,12 @@ function fromSchema(schema: NodeSchema, locale: string): NodeDefinition {
     kind,
     ordinaryEntry,
     entryColorKey,
+    inputPorts,
     create() {
       const result = node(schema.id, title, kind, subtitle ?? category, schema.width ?? 230)
       result.legacyClass = legacyClass
+      result.inputTips = inputTipsFromPorts(inputPorts)
+      result.inputPortIds = inputPortIdsFromPorts(inputPorts)
       if (ordinaryEntry) {
         result.entrySourceKey = entryColorKey
         result.entrySourceColor = entrySourceColor(entryColorKey)
@@ -229,8 +259,12 @@ export function registerNodeSchemas(schemas: NodeSchema[], locale = 'zh-CN') {
   assignEntrySourcePalette(allNodeDefinitions.map(definition => definition.entryColorKey ?? '').filter(Boolean))
 }
 
+export function findNodeDefinition(typeId: string): NodeDefinition | undefined {
+  return allNodeDefinitions.find(item => item.id === typeId)
+}
+
 export function hasNodeDefinition(typeId: string) {
-  return allNodeDefinitions.some(item => item.id === typeId)
+  return Boolean(findNodeDefinition(typeId))
 }
 
 export function createNode(typeId: string) {
@@ -303,9 +337,21 @@ function normalizedFunctionMetadata(metadata: FunctionNodeMetadata): FunctionNod
   }
 }
 
+export function signaturePortTips(signature: FunctionSignature | undefined) {
+  const tips: Record<string, string> = {}
+  for (const [index, port] of signature?.inputs.entries() ?? []) {
+    if (port.description) tips[functionPortKey('input', port, index)] = port.description
+  }
+  for (const [index, port] of signature?.outputs.entries() ?? []) {
+    if (port.description) tips[functionPortKey('output', port, index)] = port.description
+  }
+  return Object.keys(tips).length ? tips : undefined
+}
+
 export function createFunctionCallNode(metadata: FunctionNodeMetadata) {
   const spec = normalizedFunctionMetadata({ ...metadata, functionRole: 'call' })
-  const result = node('origin.function.call', spec.functionName, 'function', 'Function call', 245)
+  const result = node('origin.function.call', spec.functionName, 'function', spec.functionDescription || 'Function call', 245)
+  result.inputTips = signaturePortTips(spec.functionSignature)
   result.addInput('exec', input(sockets.exec, ''))
   for (const [index, port] of spec.functionSignature?.inputs.entries() ?? []) {
     result.addInput(functionPortKey('input', port, index), input(functionSocket(port.type), port.name, functionDefaultValue(port.type), functionArrayItemType(port.type)))
@@ -356,7 +402,8 @@ export function createSetTimerByFunctionNode(options: FunctionNodeMetadata[], se
 
 export function createFunctionEntryNode(metadata: FunctionNodeMetadata) {
   const spec = normalizedFunctionMetadata({ ...metadata, functionRole: 'entry' })
-  const result = node('origin.function.entry', `${spec.functionName} Entry`, 'event', 'Function entry', 245)
+  const result = node('origin.function.entry', `${spec.functionName} Entry`, 'event', spec.functionDescription || 'Function entry', 245)
+  result.inputTips = signaturePortTips(spec.functionSignature)
   result.entrySourceKey = spec.functionId
   result.entrySourceColor = entrySourceColor(spec.functionId)
   result.addOutput('exec', new ClassicPreset.Output(sockets.exec, ''))
@@ -369,7 +416,8 @@ export function createFunctionEntryNode(metadata: FunctionNodeMetadata) {
 
 export function createFunctionReturnNode(metadata: FunctionNodeMetadata) {
   const spec = normalizedFunctionMetadata({ ...metadata, functionRole: 'return' })
-  const result = node('origin.function.return', `${spec.functionName} Return`, 'flow', 'Function return', 245)
+  const result = node('origin.function.return', `${spec.functionName} Return`, 'flow', spec.functionDescription || 'Function return', 245)
+  result.inputTips = signaturePortTips(spec.functionSignature)
   result.addInput('exec', input(sockets.exec, ''))
   for (const [index, port] of spec.functionSignature?.outputs.entries() ?? []) {
     result.addInput(functionPortKey('output', port, index), input(functionSocket(port.type), port.name))

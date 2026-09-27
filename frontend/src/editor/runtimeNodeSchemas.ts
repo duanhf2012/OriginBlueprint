@@ -27,6 +27,7 @@ interface LegacyPortDefinition {
   port_id?: number | string
   hide_icon?: boolean
   default_value?: unknown
+  tip?: string
 }
 
 interface LegacyNodeSpec {
@@ -160,6 +161,7 @@ function convertLegacyPort(port: LegacyPortDefinition, keys: Map<number, string>
   const index = legacyPortIndex(port.port_id, fallbackIndex)
   const type = normalizeSocketType(port.type, port.data_type)
   const itemType = arrayItemType(port.pin_widget)
+  const tip = String(port.tip ?? '').trim()
   return {
     key: keys.get(index) || `${prefix}${index}`,
     label: String(port.name ?? ''),
@@ -167,7 +169,9 @@ function convertLegacyPort(port: LegacyPortDefinition, keys: Map<number, string>
     type,
     defaultValue: input && type !== 'exec' && type !== 'callback' && (port.has_input || itemType) ? (port.default_value ?? defaultPortValue(type)) : undefined,
     arrayItemType: itemType,
-    hideIcon: port.hide_icon
+    hideIcon: port.hide_icon,
+    portId: index,
+    tip: tip || undefined
   }
 }
 

@@ -24,6 +24,8 @@ export class BlueprintNode extends ClassicPreset.Node {
   typeId?: string
   kind?: NodeKind
   subtitle?: string
+  inputTips?: Record<string, string>
+  inputPortIds?: Record<string, number>
   width?: number
   compact?: boolean
   variableId?: string

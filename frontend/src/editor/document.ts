@@ -35,6 +35,7 @@ export interface FunctionSignaturePort {
   id: string
   name: string
   type: VariableType
+  description?: string
 }
 
 export interface FunctionSignature {
@@ -51,6 +52,7 @@ export interface FunctionNodeMetadata {
   functionName: string
   functionSource?: FunctionNodeSource
   functionSignature?: FunctionSignature
+  functionDescription?: string
 }
 
 export interface NodeProperties {
@@ -175,6 +177,7 @@ export interface GraphDocument extends GraphSnapshot {
   graphName: string
   functionId?: string
   functionCategory?: string
+  functionDescription?: string
   variables: GraphVariable[]
   variableGroups: GraphVariableGroup[]
   functionSignature?: FunctionSignature

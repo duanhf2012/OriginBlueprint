@@ -8,8 +8,8 @@ export interface WorkspaceEntry { name: string; path: string; isDir: boolean }
 export interface NodeReferenceResult { name: string; path: string; count: number }
 export interface ValidationIssue { severity: 'error' | 'warning'; code: string; message: string; nodeId?: string; nodeIds?: string[]; sourcePath?: string; blocksSave?: boolean; blocksRun?: boolean; target?: string }
 export interface RecoverySnapshotResult { path: string; sourcePath?: string; tabId?: string; createdAt: string }
-export interface NodeSchemaLoadResult { nodes: NodeSchema[]; errors: Array<{ path: string; message: string }>; documentCount: number }
-interface NodeSchemaDocument { path: string; content: string }
+export interface NodeSchemaLoadResult { nodes: NodeSchema[]; errors: Array<{ path: string; message: string }>; documentCount: number; documents?: Array<{ path: string; key?: string; content: string }> }
+interface NodeSchemaDocument { path: string; key?: string; content: string }
 interface NodeSchemaDocumentLoadResult { documents: NodeSchemaDocument[]; errors: Array<{ path: string; message: string }> }
 type RawNodeSchemaDocumentLoadResult = NodeSchemaDocumentLoadResult & {
   Documents?: NodeSchemaDocument[]
@@ -46,6 +46,7 @@ type DesktopApp = {
   MigrateLegacyGraph(content: string): Promise<string>
   ExportLegacyGraph(content: string): Promise<string>
   LoadNodeSchemaDocuments(): Promise<RawNodeSchemaDocumentLoadResult>
+  WriteNodeSchemaDocument(workspaceRoot: string, key: string, content: string): Promise<string>
   LoadNodeSchemaDocumentsForWorkspace(workspaceRoot: string): Promise<RawNodeSchemaDocumentLoadResult>
   LogClientError(level: string, message: string, stack: string, context: string): Promise<void>
 }
@@ -88,16 +89,21 @@ function download(name: string, content: string, type: string) {
 function parseNodeSchemaDocuments(documents: NodeSchemaDocument[], errors: Array<{ path: string; message: string }> = []): NodeSchemaLoadResult {
   const result: NodeSchemaLoadResult = { nodes: [], errors: [...errors], documentCount: documents.length }
   const byId = new Map<string, NodeSchema>()
+  const bySourceKey = new Map<string, NodeSchemaDocument>()
   for (const document of documents) {
+    if (document.key) bySourceKey.set(document.key, document)
     try {
       for (const node of parseNodeSchemaDocument(JSON.parse(document.content))) {
-        if (node.id) byId.set(node.id, node)
+        if (!node.id) continue
+        node.sourceKey = document.key
+        byId.set(node.id, node)
       }
     } catch (error) {
       result.errors.push({ path: document.path, message: error instanceof Error ? error.message : String(error) })
     }
   }
   result.nodes = Array.from(byId.values()).sort((a, b) => a.id.localeCompare(b.id))
+  result.documents = Array.from(bySourceKey.values())
   return result
 }
 
@@ -226,6 +232,10 @@ export const platform = {
       : await loadBrowserNodeSchemaDocuments()
     const result = normalizeNodeSchemaDocumentLoadResult(documents)
     return parseNodeSchemaDocuments(result.documents, result.errors)
+  },
+  async writeNodeSchemaDocument(workspaceRoot: string, key: string, content: string): Promise<string> {
+    if (!desktop()) throw new Error('编辑节点定义备注需要桌面环境')
+    return withDesktopLogging('WriteNodeSchemaDocument', () => desktop()!.WriteNodeSchemaDocument(workspaceRoot, key, content))
   },
   onCloseRequest(callback: () => void) {
     const runtime = (window as unknown as { runtime?: WailsRuntime }).runtime

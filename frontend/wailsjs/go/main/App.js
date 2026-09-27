@@ -129,3 +129,7 @@ export function ValidateGraph(arg1) {
 export function ValidateGraphForWorkspace(arg1, arg2, arg3) {
   return window['go']['main']['App']['ValidateGraphForWorkspace'](arg1, arg2, arg3);
 }
+
+export function WriteNodeSchemaDocument(arg1, arg2, arg3) {
+  return window['go']['main']['App']['WriteNodeSchemaDocument'](arg1, arg2, arg3);
+}

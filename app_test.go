@@ -169,6 +169,55 @@ func TestGraphContentRejectsNativeTimerDocumentAtVGFPath(t *testing.T) {
 	}
 }
 
+func TestWriteNodeSchemaDocumentWritesWorkspaceOverride(t *testing.T) {
+	t.Setenv("ORIGIN_BLUEPRINT_CONFIG_PATH", filepath.Join(t.TempDir(), "config.json"))
+	app := NewApp()
+	workspace := filepath.Join(t.TempDir(), "project")
+	if err := os.MkdirAll(workspace, 0755); err != nil {
+		t.Fatal(err)
+	}
+	content := "[\n\t{\n\t\t\"name\": \"DebugOutput\",\n\t\t\"description\": \"打印值\"\n\t}\n]"
+	written, err := app.WriteNodeSchemaDocument(workspace, "nodes/Test.json", content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.ToSlash(written) != filepath.ToSlash(filepath.Join(workspace, "nodes", "Test.json")) {
+		t.Fatalf("written path = %q", written)
+	}
+	data, err := os.ReadFile(written)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != content {
+		t.Fatalf("content = %q", data)
+	}
+	loaded := loadRuntimeNodeSchemaDocumentsForWorkspace(workspace)
+	var overridden *RuntimeNodeSchemaDocument
+	for index := range loaded.Documents {
+		if loaded.Documents[index].Key == "nodes/Test.json" {
+			overridden = &loaded.Documents[index]
+		}
+	}
+	if overridden == nil || !strings.Contains(overridden.Content, "打印值") {
+		t.Fatalf("workspace override should win over embedded definitions: %#v", overridden)
+	}
+}
+
+func TestWriteNodeSchemaDocumentRejectsInvalidInput(t *testing.T) {
+	t.Setenv("ORIGIN_BLUEPRINT_CONFIG_PATH", filepath.Join(t.TempDir(), "config.json"))
+	app := NewApp()
+	workspace := t.TempDir()
+	if _, err := app.WriteNodeSchemaDocument("", "nodes/Test.json", "[]"); err == nil {
+		t.Fatal("missing workspace should be rejected")
+	}
+	if _, err := app.WriteNodeSchemaDocument(workspace, "../nodes/Test.json", "[]"); err == nil {
+		t.Fatal("path traversal should be rejected")
+	}
+	if _, err := app.WriteNodeSchemaDocument(workspace, "nodes/Test.txt", "[]"); err == nil {
+		t.Fatal("non-json key should be rejected")
+	}
+}
+
 func TestSaveGraphAddsOBPExtensionForNativeTimerDocument(t *testing.T) {
 	t.Setenv("ORIGIN_BLUEPRINT_CONFIG_PATH", filepath.Join(t.TempDir(), "config.json"))
 	app := NewApp()

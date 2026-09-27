@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import { Ref } from 'rete-vue-plugin'
 import type { BlueprintNode } from './types'
 import { entryBindingBadgeLabel, entryBindingTitle } from './implicitEntryLinks'
@@ -45,6 +45,47 @@ const branchOutputRows = computed(() => {
 })
 const rows = computed(() => Math.max(inputs.value.length, outputs.value.length))
 const normalRows = computed(() => Math.max(normalInputs.value.length, normalOutputs.value.length))
+
+function inputTipTitle(key: string) {
+  const tip = props.data.inputTips?.[key]
+  return tip ? tip : undefined
+}
+
+interface HoverTooltipState { x: number; y: number; title: string; text: string }
+const hoverTooltip = ref<HoverTooltipState | null>(null)
+let hoverTooltipTimer = 0
+
+function openHoverTooltip(event: PointerEvent, title: string | undefined, text?: string) {
+  cancelHoverTooltip()
+  if (!text) return
+  const x = event.clientX
+  const y = event.clientY
+  hoverTooltipTimer = window.setTimeout(() => {
+    hoverTooltip.value = { x, y, title: title ?? '', text }
+  }, 450)
+}
+
+function moveHoverTooltip(event: PointerEvent) {
+  if (!hoverTooltip.value) return
+  hoverTooltip.value = { ...hoverTooltip.value, x: event.clientX, y: event.clientY }
+}
+
+function cancelHoverTooltip() {
+  if (hoverTooltipTimer) window.clearTimeout(hoverTooltipTimer)
+  hoverTooltipTimer = 0
+  hoverTooltip.value = null
+}
+
+onBeforeUnmount(cancelHoverTooltip)
+
+const hoverTooltipStyle = computed(() => {
+  const tooltip = hoverTooltip.value
+  if (!tooltip) return undefined
+  const width = 300
+  const left = Math.max(8, Math.min(tooltip.x + 16, window.innerWidth - width - 12))
+  const top = Math.max(8, Math.min(tooltip.y + 18, window.innerHeight - 110))
+  return { left: `${left}px`, top: `${top}px` }
+})
 const hasEntryBinding = computed(() => Object.values(props.data.portStates?.inputs ?? {}).some(state => Boolean(state?.entryBinding)))
 const PORT_COLUMN_GAP = 6
 const NODE_HORIZONTAL_PADDING = 20
@@ -237,7 +278,7 @@ function handleTimerFunctionKeydown(event: KeyboardEvent) {
 
 <template>
   <article class="blueprint-node" :class="[`kind-${data.kind ?? 'function'}`, { selected: data.selected, compact: data.compact, legacy: Boolean(data.legacyStyle), 'variable-instance': data.variableScope === 'instance', 'has-entry-binding': hasEntryBinding, 'reference-highlighted': data.referenceHighlighted, 'issue-highlighted': data.issueHighlighted, 'missing-reference': data.functionReferenceMissing }]" :style="nodeStyle">
-    <header class="blueprint-title">
+    <header class="blueprint-title" @pointerenter="openHoverTooltip($event, data.label, data.subtitle)" @pointermove="moveHoverTooltip" @pointerleave="cancelHoverTooltip" @pointerdown="cancelHoverTooltip">
       <span class="node-icon">&#9670;</span>
       <span class="title-text">{{ data.label }}</span>
       <span v-if="data.variableId" class="variable-scope-badge">{{ data.variableScope === 'instance' ? '全局' : '局部' }}</span>
@@ -271,7 +312,7 @@ function handleTimerFunctionKeydown(event: KeyboardEvent) {
 
     <div v-if="data.dynamicBranch" class="ports">
       <div v-for="index in normalRows" :key="`normal-${index}`" class="port-row">
-        <div v-if="normalInputs[index - 1]" class="port input-port" :class="portClass('inputs', normalInputs[index - 1][0], normalInputs[index - 1][1].socket)" :style="socketStyle(normalInputs[index - 1][1].socket.name)" @contextmenu.stop.prevent="openEntryBindingMenu($event, normalInputs[index - 1][0], normalInputs[index - 1][1].socket)">
+        <div v-if="normalInputs[index - 1]" class="port input-port" :class="portClass('inputs', normalInputs[index - 1][0], normalInputs[index - 1][1].socket)" :style="socketStyle(normalInputs[index - 1][1].socket.name)" @pointerenter="openHoverTooltip($event, normalInputs[index - 1][1].label, inputTipTitle(normalInputs[index - 1][0]))" @pointermove="moveHoverTooltip" @pointerleave="cancelHoverTooltip" @pointerdown="cancelHoverTooltip" @contextmenu.stop.prevent="openEntryBindingMenu($event, normalInputs[index - 1][0], normalInputs[index - 1][1].socket)">
           <Ref class="socket-ref" :emit="emit" :data="{ type: 'socket', side: 'input', key: normalInputs[index - 1][0], nodeId: data.id, payload: socketPayload('inputs', normalInputs[index - 1][0], normalInputs[index - 1][1].socket) }" />
           <span class="port-label">{{ normalInputs[index - 1][1].label }}</span>
           <span v-if="inputEntryBindingLabel(normalInputs[index - 1][0])" class="entry-binding-badge" :style="inputEntryBindingStyle(normalInputs[index - 1][0])" :title="inputEntryBindingTitle(normalInputs[index - 1][0])">{{ inputEntryBindingLabel(normalInputs[index - 1][0]) }}</span>
@@ -281,14 +322,14 @@ function handleTimerFunctionKeydown(event: KeyboardEvent) {
 
         <div class="port-spacer middle-spacer"></div>
 
-        <div v-if="normalOutputs[index - 1]" class="port output-port" :class="portClass('outputs', normalOutputs[index - 1][0], normalOutputs[index - 1][1].socket)" :style="socketStyle(normalOutputs[index - 1][1].socket.name)">
+        <div v-if="normalOutputs[index - 1]" class="port output-port" :class="portClass('outputs', normalOutputs[index - 1][0], normalOutputs[index - 1][1].socket)" :style="socketStyle(normalOutputs[index - 1][1].socket.name)" @pointerenter="openHoverTooltip($event, normalOutputs[index - 1][1].label, inputTipTitle(normalOutputs[index - 1][0]))" @pointermove="moveHoverTooltip" @pointerleave="cancelHoverTooltip" @pointerdown="cancelHoverTooltip">
           <span class="port-label">{{ normalOutputs[index - 1][1].label }}</span>
           <Ref class="socket-ref" :emit="emit" :data="{ type: 'socket', side: 'output', key: normalOutputs[index - 1][0], nodeId: data.id, payload: socketPayload('outputs', normalOutputs[index - 1][0], normalOutputs[index - 1][1].socket) }" />
         </div>
         <div v-else class="port-spacer"></div>
       </div>
       <div v-for="row in branchRows" :key="`branch-${row.index}`" class="port-row branch-row" @pointerdown.stop @dblclick.stop.prevent>
-        <div class="port input-port branch-input" :class="data.inputs[data.dynamicBranch.controlInput] ? portClass('inputs', data.dynamicBranch.controlInput, data.inputs[data.dynamicBranch.controlInput]!.socket) : []" :style="data.inputs[data.dynamicBranch.controlInput] ? socketStyle(data.inputs[data.dynamicBranch.controlInput]!.socket.name) : undefined" @contextmenu.stop.prevent="data.inputs[data.dynamicBranch.controlInput] && openEntryBindingMenu($event, data.dynamicBranch.controlInput, data.inputs[data.dynamicBranch.controlInput]!.socket)">
+        <div class="port input-port branch-input" :class="data.inputs[data.dynamicBranch.controlInput] ? portClass('inputs', data.dynamicBranch.controlInput, data.inputs[data.dynamicBranch.controlInput]!.socket) : []" :style="data.inputs[data.dynamicBranch.controlInput] ? socketStyle(data.inputs[data.dynamicBranch.controlInput]!.socket.name) : undefined" @pointerenter="data.inputs[data.dynamicBranch.controlInput] && openHoverTooltip($event, data.inputs[data.dynamicBranch.controlInput]!.label, inputTipTitle(data.dynamicBranch.controlInput))" @pointermove="moveHoverTooltip" @pointerleave="cancelHoverTooltip" @pointerdown="cancelHoverTooltip" @contextmenu.stop.prevent="data.inputs[data.dynamicBranch.controlInput] && openEntryBindingMenu($event, data.dynamicBranch.controlInput, data.inputs[data.dynamicBranch.controlInput]!.socket)">
           <Ref v-if="row.index === 0 && data.inputs[data.dynamicBranch.controlInput]" class="socket-ref" :emit="emit" :data="{ type: 'socket', side: 'input', key: data.dynamicBranch.controlInput, nodeId: data.id, payload: socketPayload('inputs', data.dynamicBranch.controlInput, data.inputs[data.dynamicBranch.controlInput]!.socket) }" />
           <span v-else class="socket-ref branch-socket-spacer"></span>
           <span v-if="row.index === 0 && data.inputs[data.dynamicBranch.controlInput]" class="port-label">{{ data.inputs[data.dynamicBranch.controlInput]!.label }}</span>
@@ -297,7 +338,7 @@ function handleTimerFunctionKeydown(event: KeyboardEvent) {
           <button class="branch-remove" title="Remove branch" @pointerdown.stop.prevent="removeBranch(row.index)">-</button>
         </div>
         <div class="port-spacer middle-spacer"></div>
-        <div v-if="branchOutputRows[row.index] && data.outputs[branchOutputRows[row.index].outputKey]" class="port output-port branch-output" :class="portClass('outputs', branchOutputRows[row.index].outputKey, data.outputs[branchOutputRows[row.index].outputKey]!.socket)" :style="socketStyle(data.outputs[branchOutputRows[row.index].outputKey]!.socket.name)">
+        <div v-if="branchOutputRows[row.index] && data.outputs[branchOutputRows[row.index].outputKey]" class="port output-port branch-output" :class="portClass('outputs', branchOutputRows[row.index].outputKey, data.outputs[branchOutputRows[row.index].outputKey]!.socket)" :style="socketStyle(data.outputs[branchOutputRows[row.index].outputKey]!.socket.name)" @pointerenter="openHoverTooltip($event, data.outputs[branchOutputRows[row.index].outputKey]!.label, inputTipTitle(branchOutputRows[row.index].outputKey))" @pointermove="moveHoverTooltip" @pointerleave="cancelHoverTooltip" @pointerdown="cancelHoverTooltip">
           <span class="port-label"></span>
           <Ref class="socket-ref" :emit="emit" :data="{ type: 'socket', side: 'output', key: branchOutputRows[row.index].outputKey, nodeId: data.id, payload: socketPayload('outputs', branchOutputRows[row.index].outputKey, data.outputs[branchOutputRows[row.index].outputKey]!.socket) }" />
         </div>
@@ -312,7 +353,7 @@ function handleTimerFunctionKeydown(event: KeyboardEvent) {
 
     <div v-else class="ports">
       <div v-for="index in rows" :key="index" class="port-row">
-        <div v-if="inputs[index - 1]" class="port input-port" :class="portClass('inputs', inputs[index - 1][0], inputs[index - 1][1].socket)" :style="socketStyle(inputs[index - 1][1].socket.name)" @contextmenu.stop.prevent="openEntryBindingMenu($event, inputs[index - 1][0], inputs[index - 1][1].socket)">
+        <div v-if="inputs[index - 1]" class="port input-port" :class="portClass('inputs', inputs[index - 1][0], inputs[index - 1][1].socket)" :style="socketStyle(inputs[index - 1][1].socket.name)" @pointerenter="openHoverTooltip($event, inputs[index - 1][1].label, inputTipTitle(inputs[index - 1][0]))" @pointermove="moveHoverTooltip" @pointerleave="cancelHoverTooltip" @pointerdown="cancelHoverTooltip" @contextmenu.stop.prevent="openEntryBindingMenu($event, inputs[index - 1][0], inputs[index - 1][1].socket)">
           <Ref class="socket-ref" :emit="emit" :data="{ type: 'socket', side: 'input', key: inputs[index - 1][0], nodeId: data.id, payload: socketPayload('inputs', inputs[index - 1][0], inputs[index - 1][1].socket) }" />
           <span class="port-label">{{ inputs[index - 1][1].label }}</span>
           <span v-if="inputEntryBindingLabel(inputs[index - 1][0])" class="entry-binding-badge" :style="inputEntryBindingStyle(inputs[index - 1][0])" :title="inputEntryBindingTitle(inputs[index - 1][0])">{{ inputEntryBindingLabel(inputs[index - 1][0]) }}</span>
@@ -322,17 +363,27 @@ function handleTimerFunctionKeydown(event: KeyboardEvent) {
 
         <div class="port-spacer middle-spacer"></div>
 
-        <div v-if="outputs[index - 1]" class="port output-port" :class="portClass('outputs', outputs[index - 1][0], outputs[index - 1][1].socket)" :style="socketStyle(outputs[index - 1][1].socket.name)">
+        <div v-if="outputs[index - 1]" class="port output-port" :class="portClass('outputs', outputs[index - 1][0], outputs[index - 1][1].socket)" :style="socketStyle(outputs[index - 1][1].socket.name)" @pointerenter="openHoverTooltip($event, outputs[index - 1][1].label, inputTipTitle(outputs[index - 1][0]))" @pointermove="moveHoverTooltip" @pointerleave="cancelHoverTooltip" @pointerdown="cancelHoverTooltip">
           <span class="port-label">{{ outputs[index - 1][1].label }}</span>
           <Ref class="socket-ref" :emit="emit" :data="{ type: 'socket', side: 'output', key: outputs[index - 1][0], nodeId: data.id, payload: socketPayload('outputs', outputs[index - 1][0], outputs[index - 1][1].socket) }" />
         </div>
         <div v-else class="port-spacer"></div>
       </div>
     </div>
+
+    <Teleport to="body">
+      <div v-if="hoverTooltip" class="bp-hover-tooltip" :style="hoverTooltipStyle">
+        <div class="bp-hover-tooltip-title">{{ hoverTooltip.title }}</div>
+        <div class="bp-hover-tooltip-text">{{ hoverTooltip.text }}</div>
+      </div>
+    </Teleport>
   </article>
 </template>
 
 <style scoped>
+.bp-hover-tooltip { position: fixed; z-index: 2147483000; box-sizing: border-box; max-width: 300px; padding: 7px 10px 8px; border: 1px solid #3a5268; border-radius: 5px; background: rgba(23, 29, 36, 0.97); box-shadow: 0 5px 16px rgba(0, 0, 0, 0.5); pointer-events: none; white-space: pre-wrap; word-break: break-word; }
+.bp-hover-tooltip-title { margin-bottom: 3px; color: #8fc1e3; font: 600 12px/1.4 Arial, sans-serif; }
+.bp-hover-tooltip-text { color: #d3dae1; font: 12px/1.5 Consolas, monospace; }
 .blueprint-node { --accent: #4474bf; position: relative; overflow: visible; border: 1px solid color-mix(in srgb, var(--accent) 64%, transparent); border-radius: 4px; background: linear-gradient(145deg, #ffffff14, transparent 42%), linear-gradient(100deg, #191919ee, #101010eb); box-shadow: 0 5px 13px #0009, inset 0 1px #ffffff18; color: #ddd; cursor: default; user-select: none; }
 .function-selector { display: grid; grid-template-columns: auto minmax(120px, 1fr); align-items: center; gap: 8px; min-height: 30px; padding: 4px 12px; border-bottom: 1px solid #ffffff14; color: #d8d8d8; font-size: var(--node-control-font-size, 12px); }
 .function-selector-combo { position: relative; min-width: 0; }

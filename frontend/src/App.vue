@@ -120,6 +120,8 @@ const functionSignature = ref<FunctionSignature>(emptyFunctionSignature())
 const functionTitle = ref('')
 const functionId = ref('')
 const functionCategory = ref('')
+const functionDescription = ref('')
+const functionDescriptionByPath = ref<Record<string, string>>({})
 const functionCategoryDropdownOpen = ref(false)
 const functionSignatureTypeOptions: Array<{ value: VariableType; label: string }> = [
   { value: 'boolean', label: 'Boolean' },
@@ -133,6 +135,205 @@ const blueprintFunctions = ref<BlueprintFunction[]>([])
 const selectedFunctionId = ref('')
 const selectedVariableId = ref<string | null>(null)
 const selectedNode = ref<SelectedNodeInfo | null>(null)
+const nodeSchemaDocuments = ref<Array<{ path: string; key?: string; content: string }>>([])
+const nodeAnnotationDraft = ref({
+  description: '',
+  tips: {} as Record<string, string>,
+  functionParams: [] as Array<{ id: string; name: string; direction: 'input' | 'output'; tip: string }>
+})
+const nodeAnnotationDialog = ref<{ visible: boolean; typeId?: string; functionPath?: string; title: string } | null>(null)
+
+function nodeDefinitionById(typeId: string) {
+  return getNodeDefinitions().find(definition => definition.id === typeId)
+}
+
+function labeledInputPorts(ports: Array<{ key: string; label: string; tip?: string; portId?: number }> | undefined) {
+  return (ports ?? []).filter(port => port.label)
+}
+
+function loadNodeAnnotationDraft(typeId: string) {
+  const definition = nodeDefinitionById(typeId)
+  nodeAnnotationDraft.value = {
+    description: definition?.description ?? '',
+    tips: Object.fromEntries(labeledInputPorts(definition?.inputPorts).map(port => [port.key, port.tip ?? ''])),
+    functionParams: []
+  }
+}
+
+function openNodeAnnotationDialog(typeId: string) {
+  const definition = nodeDefinitionById(typeId)
+  if (!definition) return
+  loadNodeAnnotationDraft(typeId)
+  nodeAnnotationDialog.value = { visible: true, typeId, title: definition.title }
+  moduleNodeMenu.value.visible = false
+}
+
+async function openFunctionAnnotationDialog(item: ModuleLibraryItem) {
+  const path = item.functionItem?.path
+  if (!path) return
+  const signature = await loadFunctionSignatureForModuleItem(item)
+  nodeAnnotationDraft.value = {
+    description: functionDescriptionByPath.value[path] ?? '',
+    tips: {},
+    functionParams: [
+      ...signature.inputs.map(port => ({ id: port.id, name: port.name, direction: 'input' as const, tip: port.description ?? '' })),
+      ...signature.outputs.map(port => ({ id: port.id, name: port.name, direction: 'output' as const, tip: port.description ?? '' }))
+    ]
+  }
+  nodeAnnotationDialog.value = { visible: true, functionPath: path, title: item.title }
+  moduleNodeMenu.value.visible = false
+}
+
+function closeNodeAnnotationDialog() {
+  nodeAnnotationDialog.value = null
+}
+
+async function applyNodeAnnotationsFromDialog() {
+  const dialog = nodeAnnotationDialog.value
+  if (!dialog) return
+  const saved = dialog.functionPath
+    ? await saveFunctionAnnotation(dialog.functionPath)
+    : dialog.typeId
+      ? await saveNodeDefinitionAnnotations(dialog.typeId)
+      : false
+  if (saved) closeNodeAnnotationDialog()
+}
+
+function functionAnnotationPortTips() {
+  const tips = new Map<string, string>()
+  for (const param of nodeAnnotationDraft.value.functionParams) tips.set(param.id, param.tip)
+  return tips
+}
+
+function applySignaturePortTips(signature: { inputs: FunctionSignaturePort[]; outputs: FunctionSignaturePort[] } | undefined, tipsById: Map<string, string>) {
+  if (!signature) return
+  for (const port of [...signature.inputs, ...signature.outputs]) {
+    const tip = tipsById.get(port.id)
+    if (tip === undefined) continue
+    if (tip.trim()) port.description = tip.trim()
+    else delete port.description
+  }
+}
+
+async function saveFunctionAnnotation(path: string) {
+  const description = nodeAnnotationDraft.value.description.trim()
+  const portTips = functionAnnotationPortTips()
+  const openTab = tabs.value.find(tab => tab.path === path)
+  if (openTab) {
+    if (openTab.id === activeTabId.value) {
+      functionDescription.value = description
+      applySignaturePortTips(functionSignature.value, portTips)
+    }
+    if (openTab.document) {
+      if (description) openTab.document.functionDescription = description
+      else delete openTab.document.functionDescription
+      applySignaturePortTips(openTab.document.functionSignature, portTips)
+    }
+    openTab.dirty = true
+    functionDescriptionByPath.value = { ...functionDescriptionByPath.value, [path]: description }
+    await syncCallableFunctionsToEditor()
+    const functionId = openTab.id === activeTabId.value ? activeFunctionId() : functionIdFromDocument(openTab.document)
+    if (functionId) await editor?.refreshFunctionNodeAnnotations(functionId, description, portTips)
+    status.value = `已在打开的函数蓝图“${openTab.title}”中更新说明，保存后生效`
+    return true
+  }
+  try {
+    const file = await platform.openGraph(path)
+    if (!file) {
+      status.value = '未找到函数蓝图文件'
+      return false
+    }
+    const parsed = parseGraphJSON(file.content) as Partial<GraphDocument>
+    if (description) parsed.functionDescription = description
+    else delete parsed.functionDescription
+    applySignaturePortTips(parsed.functionSignature, portTips)
+    const content = serializeGraphDocument(path, parsed as GraphDocument, 2)
+    await platform.saveGraph(path, content)
+  } catch (error) {
+    status.value = `函数说明保存失败：${error instanceof Error ? error.message : String(error)}`
+    return false
+  }
+  functionDescriptionByPath.value = { ...functionDescriptionByPath.value, [path]: description }
+  await syncCallableFunctionsToEditor()
+  const functionId = functionIdByPath.value[path]
+  if (functionId) await editor?.refreshFunctionNodeAnnotations(functionId, description, portTips)
+  status.value = '函数说明已保存，悬停对应的函数节点可见'
+  return true
+}
+
+function applyNodeDefinitionEdits(parsed: unknown, sourceName: string, description: string, tipsByPortId: Map<number, string>) {
+  const container = Array.isArray(parsed)
+    ? parsed
+    : parsed && typeof parsed === 'object' && Array.isArray((parsed as { nodes?: unknown[] }).nodes)
+      ? (parsed as { nodes: unknown[] }).nodes
+      : null
+  if (!container) return false
+  const entry = container.find(item => item && typeof item === 'object' && (item as { name?: unknown }).name === sourceName)
+  if (!entry) return false
+  const record = entry as Record<string, unknown>
+  const descriptionText = description.trim()
+  if (descriptionText) record.description = descriptionText
+  else delete record.description
+  if (Array.isArray(record.inputs)) {
+    for (const input of record.inputs) {
+      if (!input || typeof input !== 'object' || typeof (input as { port_id?: unknown }).port_id !== 'number') continue
+      const portId = (input as { port_id: number }).port_id
+      if (!tipsByPortId.has(portId)) continue
+      const inputRecord = input as Record<string, unknown>
+      const tip = String(tipsByPortId.get(portId) ?? '').trim()
+      if (tip) inputRecord.tip = tip
+      else delete inputRecord.tip
+    }
+  }
+  return true
+}
+
+async function saveNodeDefinitionAnnotations(typeId: string) {
+  const definition = nodeDefinitionById(typeId)
+  if (!definition) {
+    status.value = '未找到节点定义'
+    return false
+  }
+  if (!definition.sourceKey || !definition.sourceName) {
+    status.value = '该节点类型没有可编辑的 JSON 定义来源'
+    return false
+  }
+  if (!workspaceRoot.value) {
+    status.value = '编辑节点说明需要先打开工作区（文件 → 打开目录）'
+    return false
+  }
+  const document = nodeSchemaDocuments.value.find(item => item.key === definition.sourceKey)
+  if (!document) {
+    status.value = `未找到节点定义文档 ${definition.sourceKey}`
+    return false
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(document.content)
+  } catch (error) {
+    status.value = `节点定义 JSON 解析失败：${error instanceof Error ? error.message : String(error)}`
+    return false
+  }
+  const tipsByPortId = new Map<number, string>()
+  for (const port of labeledInputPorts(definition.inputPorts)) {
+    if (typeof port.portId === 'number') tipsByPortId.set(port.portId, String(nodeAnnotationDraft.value.tips[port.key] ?? ''))
+  }
+  if (!applyNodeDefinitionEdits(parsed, definition.sourceName, nodeAnnotationDraft.value.description, tipsByPortId)) {
+    status.value = `节点定义文档中未找到 ${definition.sourceName}`
+    return false
+  }
+  const content = JSON.stringify(parsed, null, '\t')
+  try {
+    await platform.writeNodeSchemaDocument(workspaceRoot.value, definition.sourceKey, content)
+  } catch (error) {
+    status.value = `节点定义保存失败：${error instanceof Error ? error.message : String(error)}`
+    return false
+  }
+  await loadRuntimeNodeLibrary()
+  const refreshed = await editor?.refreshNodeTypeAnnotations(typeId)
+  status.value = `节点备注已保存到 ${definition.sourceKey}，所有蓝图生效${refreshed ? `，已刷新 ${refreshed} 个画布节点` : ''}`
+  return true
+}
 const validationIssues = ref<ValidationIssue[]>([])
 const selectedValidationIssueKey = ref('')
 const unsavedCloseDialog = ref<{ visible: boolean; names: string[]; resolve?: (action: UnsavedCloseAction) => void }>({ visible: false, names: [] })
@@ -565,6 +766,7 @@ async function loadRuntimeNodeLibrary(requestedWorkspace = workspaceRoot.value) 
     return `Node library load failed: ${error instanceof Error ? error.message : String(error)}`
   }
   if (token !== nodeSchemaLoadToken) return ''
+  nodeSchemaDocuments.value = result.documents ?? []
   if (result.nodes.length) {
     registerNodeSchemas(result.nodes, currentLocale.value)
     nodeLibrary.value = getNodeDefinitions()
@@ -649,7 +851,7 @@ function persistActive() { if (editor && activeTab.value) activeTab.value.docume
 async function newGraph() {
   persistActive(); untitledCount++
   const tab: GraphTab = { id: crypto.randomUUID(), title: `Untitled-${untitledCount} Graph`, path: '', dirty: false, document: null }
-  tabs.value.push(tab); activeTabId.value = tab.id; selectedVariableId.value = null; functionSignature.value = emptyFunctionSignature(); functionTitle.value = ''; functionId.value = ''; functionCategory.value = ''; await editor?.newDocument()
+  tabs.value.push(tab); activeTabId.value = tab.id; selectedVariableId.value = null; functionSignature.value = emptyFunctionSignature(); functionTitle.value = ''; functionId.value = ''; functionCategory.value = ''; functionDescription.value = ''; await editor?.newDocument()
 }
 
 async function switchTab(id: string) {
@@ -668,6 +870,7 @@ async function switchTab(id: string) {
   functionTitle.value = isFunctionBlueprintPath(tab.path || tab.title) ? functionTitleFromDocument(tab.document, tab.path || tab.title, tab.title) : ''
   functionId.value = isFunctionBlueprintPath(tab.path || tab.title) ? functionIdFromDocument(tab.document) : ''
   functionCategory.value = isFunctionBlueprintPath(tab.path || tab.title) ? functionCategoryFromDocument(tab.document, tab.path || tab.title) : ''
+  functionDescription.value = isFunctionBlueprintPath(tab.path || tab.title) ? String(tab.document?.functionDescription ?? '') : ''
   nextTick(() => scrollActiveTabIntoView())
 }
 
@@ -685,6 +888,7 @@ async function closeTab(id: string, event: MouseEvent) {
     functionTitle.value = isFunctionBlueprintPath(tabs.value[0].path || tabs.value[0].title) ? functionTitleFromDocument(tabs.value[0].document, tabs.value[0].path || tabs.value[0].title, tabs.value[0].title) : ''
     functionId.value = isFunctionBlueprintPath(tabs.value[0].path || tabs.value[0].title) ? functionIdFromDocument(tabs.value[0].document) : ''
     functionCategory.value = isFunctionBlueprintPath(tabs.value[0].path || tabs.value[0].title) ? functionCategoryFromDocument(tabs.value[0].document, tabs.value[0].path || tabs.value[0].title) : ''
+    functionDescription.value = isFunctionBlueprintPath(tabs.value[0].path || tabs.value[0].title) ? String(tabs.value[0].document?.functionDescription ?? '') : ''
     await syncCallableFunctionsToEditor(); await editor?.loadDocument(tabs.value[0].document ?? blankDocument(tabs.value[0].title))
   }
 }
@@ -812,7 +1016,8 @@ function normalizeFunctionSignaturePorts(value: unknown) {
     return {
       id: String(item.id ?? crypto.randomUUID()),
       name: String(item.name ?? `Param${index + 1}`).trim() || `Param${index + 1}`,
-      type: normalizeFunctionSignaturePortType(item.type)
+      type: normalizeFunctionSignaturePortType(item.type),
+      description: item.description ? String(item.description) : undefined
     }
   })
 }
@@ -972,6 +1177,7 @@ function documentWithFunctionSignature(document: GraphDocument, tab = activeTab.
     functionId: activeFunctionId(),
     functionCategory: activeFunctionCategory(),
     functionSignature: normalizeFunctionSignature(functionSignature.value),
+    functionDescription: functionDescription.value,
   })
 }
 
@@ -1775,9 +1981,11 @@ async function openGraph(path = '', highlightTypeId = '') {
   functionTitle.value = isFunctionBlueprintPath(file.path) ? functionTitleFromDocument(document, file.path, title) : ''
   functionId.value = isFunctionBlueprintPath(file.path) ? functionIdFromDocument(document) : ''
   functionCategory.value = isFunctionBlueprintPath(file.path) ? functionCategoryFromDocument(document, file.path) : ''
+  functionDescription.value = isFunctionBlueprintPath(file.path) ? String(document.functionDescription ?? '') : ''
   if (isFunctionBlueprintPath(file.path)) functionTitleByPath.value = { ...functionTitleByPath.value, [file.path]: functionTitle.value }
   if (isFunctionBlueprintPath(file.path) && functionId.value) functionIdByPath.value = { ...functionIdByPath.value, [file.path]: functionId.value }
   if (isFunctionBlueprintPath(file.path)) functionCategoryByPath.value = { ...functionCategoryByPath.value, [file.path]: functionCategory.value }
+  if (isFunctionBlueprintPath(file.path) && functionDescription.value) functionDescriptionByPath.value = { ...functionDescriptionByPath.value, [file.path]: functionDescription.value }
   await syncCallableFunctionsToEditor()
   try {
     const report = await editor?.loadDocument(document)
@@ -2210,9 +2418,11 @@ async function loadFunctionLibraryTitles(items: FunctionLibraryItem[]) {
       const title = String(opened.document.graphName ?? '').trim()
       const id = functionIdFromDocument(opened.document)
       const category = functionCategoryFromDocument(opened.document, item.path)
+      const description = String(opened.document.functionDescription ?? '').trim()
       if (title) functionTitleByPath.value = { ...functionTitleByPath.value, [item.path]: title }
       if (id) functionIdByPath.value = { ...functionIdByPath.value, [item.path]: id }
       functionCategoryByPath.value = { ...functionCategoryByPath.value, [item.path]: category }
+      functionDescriptionByPath.value = { ...functionDescriptionByPath.value, [item.path]: description }
       continue
     }
     loadingFunctionTitles.add(item.path)
@@ -2223,9 +2433,11 @@ async function loadFunctionLibraryTitles(items: FunctionLibraryItem[]) {
       const title = String(parsed.graphName ?? '').trim()
       const id = String(parsed.functionId ?? '').trim()
       const category = functionCategoryFromDocument(parsed, item.path)
+      const description = String(parsed.functionDescription ?? '').trim()
       if (title) functionTitleByPath.value = { ...functionTitleByPath.value, [item.path]: title }
       if (id) functionIdByPath.value = { ...functionIdByPath.value, [item.path]: id }
       functionCategoryByPath.value = { ...functionCategoryByPath.value, [item.path]: category }
+      functionDescriptionByPath.value = { ...functionDescriptionByPath.value, [item.path]: description }
     } catch {
       // Function title loading is best-effort; fall back to the file name.
     } finally {
@@ -2633,7 +2845,8 @@ async function functionMetadataForModuleItem(item: ModuleLibraryItem): Promise<F
     functionId: id,
     functionName: item.title,
     functionSource: source,
-    functionSignature: source === 'current' ? normalizeFunctionSignature(functionSignature.value) : await loadFunctionSignatureForModuleItem(item)
+    functionSignature: source === 'current' ? normalizeFunctionSignature(functionSignature.value) : await loadFunctionSignatureForModuleItem(item),
+    functionDescription: source === 'workspace' ? functionDescriptionByPath.value[item.path ?? ''] || undefined : undefined
   }
 }
 
@@ -3199,9 +3412,13 @@ function toggleModuleCategory(category: string) {
     </section>
     <div v-if="moduleNodeMenu.visible" class="module-node-menu" :style="{ left: `${moduleNodeMenu.x}px`, top: `${moduleNodeMenu.y}px` }" @pointerdown.stop>
       <div class="module-node-menu-title">{{ moduleNodeMenu.node?.title }}</div>
-      <button v-if="moduleNodeMenu.node?.functionPlaceholder" @click="openFunctionModuleItem()">打开函数</button>
+      <button v-if="moduleNodeMenu.node?.functionPlaceholder" @click="openFunctionModuleItem()">编辑函数</button>
+      <button v-if="moduleNodeMenu.node?.functionPlaceholder && moduleNodeMenu.node.functionSource === 'workspace'" @click="moduleNodeMenu.node && openFunctionAnnotationDialog(moduleNodeMenu.node)">编辑函数说明</button>
       <button v-if="moduleNodeMenu.node?.functionPlaceholder" @click="findModuleFunctionReferences()">查找所有引用</button>
-      <button v-else @click="findModuleNodeReferences()">查找所有引用</button>
+      <template v-else>
+        <button @click="findModuleNodeReferences()">查找所有引用</button>
+        <button @click="moduleNodeMenu.node && openNodeAnnotationDialog(moduleNodeMenu.node.id)">编辑节点说明</button>
+      </template>
     </div>
     <div v-if="fileContextMenu.visible" class="file-context-menu" :style="{ left: `${fileContextMenu.x}px`, top: `${fileContextMenu.y}px` }" @pointerdown.stop>
       <button v-if="!fileContextMenu.isDir" @click="openFileContextGraph">{{ fileContextMenu.isFunction ? '打开函数' : '打开蓝图' }}</button>
@@ -3273,6 +3490,32 @@ function toggleModuleCategory(category: string) {
         </footer>
       </section>
     </div>
+    <div v-if="nodeAnnotationDialog?.visible" class="about-backdrop" @click.self="closeNodeAnnotationDialog"><section class="about-dialog node-annotation-dialog">
+      <header><strong>{{ nodeAnnotationDialog.functionPath ? '编辑函数说明' : '编辑节点说明' }} — {{ nodeAnnotationDialog.title }}</strong><button @click="closeNodeAnnotationDialog">×</button></header>
+      <div class="node-detail annotation-detail">
+        <div class="detail-section-title">说明</div>
+        <textarea v-model="nodeAnnotationDraft.description" rows="4" placeholder="用途说明"></textarea>
+        <template v-if="nodeAnnotationDialog.functionPath">
+          <template v-if="nodeAnnotationDraft.functionParams.some(param => param.direction === 'input')">
+            <div class="detail-section-title">输入参数说明</div>
+            <label v-for="param in nodeAnnotationDraft.functionParams.filter(item => item.direction === 'input')" :key="param.id">{{ param.name }}<input v-model="param.tip" placeholder="悬停该参数端口时显示" /></label>
+          </template>
+          <template v-if="nodeAnnotationDraft.functionParams.some(param => param.direction === 'output')">
+            <div class="detail-section-title">输出参数说明</div>
+            <label v-for="param in nodeAnnotationDraft.functionParams.filter(item => item.direction === 'output')" :key="param.id">{{ param.name }}<input v-model="param.tip" placeholder="悬停该参数端口时显示" /></label>
+          </template>
+          <small class="variable-scope-hint">保存到函数蓝图文件（.obpf），悬停函数节点和参数端口可见。</small>
+        </template>
+        <template v-else>
+          <template v-if="labeledInputPorts(nodeDefinitionById(nodeAnnotationDialog.typeId ?? '')?.inputPorts).length">
+            <div class="detail-section-title">输入口提示</div>
+            <label v-for="port in labeledInputPorts(nodeDefinitionById(nodeAnnotationDialog.typeId ?? '')?.inputPorts)" :key="port.key">{{ port.label }}<input v-model="nodeAnnotationDraft.tips[port.key]" placeholder="悬停该输入口时显示" /></label>
+          </template>
+          <small class="variable-scope-hint">保存后写入 nodes/*.json 节点定义，对所有蓝图生效。</small>
+        </template>
+      </div>
+      <footer class="dialog-footer-actions"><button class="dialog-button primary" @click="applyNodeAnnotationsFromDialog">保存</button><button class="dialog-button ghost" @click="closeNodeAnnotationDialog">取消</button></footer>
+    </section></div>
     <div v-if="showShortcuts" class="about-backdrop" @click.self="showShortcuts = false"><section class="about-dialog shortcut-dialog"><header><strong>{{ menuText.shortcuts.title }}</strong><button @click="showShortcuts = false">×</button></header><p>{{ menuText.shortcuts.intro }}</p><dl><dt>{{ menuText.shortcuts.fileTitle }}</dt><dd>{{ menuText.shortcuts.fileBody }}</dd><dt>{{ menuText.shortcuts.canvasTitle }}</dt><dd>{{ menuText.shortcuts.canvasBody }}</dd><dt>{{ menuText.shortcuts.selectionTitle }}</dt><dd>{{ menuText.shortcuts.selectionBody }}</dd><dt>{{ menuText.shortcuts.groupTitle }}</dt><dd>{{ menuText.shortcuts.groupBody }}</dd><dt>{{ menuText.shortcuts.validateTitle }}</dt><dd>{{ menuText.shortcuts.validateBody }}</dd><dt>{{ menuText.shortcuts.exportTitle }}</dt><dd>{{ menuText.shortcuts.exportBody }}</dd></dl><footer><button @click="showShortcuts = false">{{ menuText.shortcuts.close }}</button></footer></section></div>
     <div v-if="showAbout" class="about-backdrop" @click.self="showAbout = false"><section class="about-dialog"><header><strong>{{ menuText.about.title }}</strong><button @click="showAbout = false">×</button></header><p>{{ menuText.about.description }}</p><dl><dt>{{ menuText.about.version }}</dt><dd>{{ appVersion }}</dd><dt>{{ menuText.about.runtime }}</dt><dd>Go + Wails v2 / Vue 3 / Rete.js</dd></dl><footer><button :disabled="updateState.checking" @click="checkForUpdates(true)">{{ updateState.checking ? menuText.update.checking : menuText.about.checkUpdates }}</button><button @click="showAbout = false">{{ menuText.about.close }}</button></footer></section></div>
   </main>

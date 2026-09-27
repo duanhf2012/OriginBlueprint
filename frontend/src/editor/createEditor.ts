@@ -7,7 +7,7 @@ import BlueprintControl from './BlueprintControl.vue'
 import BlueprintConnectionComponent from './BlueprintConnection.vue'
 import BlueprintNodeComponent from './BlueprintNode.vue'
 import BlueprintSocket from './BlueprintSocket.vue'
-import { applyTimerFunctionMetadata, applyVariableNodePresentation, createFunctionCallNode, createFunctionEntryNode as createFunctionEntryNodeFromSpec, createFunctionReturnNode as createFunctionReturnNodeFromSpec, createLegacyNode, createNode, createSetTimerByFunctionNode, createVariableNode, hasNodeDefinition, nodeTitleWidth, resolveNodeLegacyClass } from './nodeRegistry'
+import { applyTimerFunctionMetadata, applyVariableNodePresentation, createFunctionCallNode, createFunctionEntryNode as createFunctionEntryNodeFromSpec, createFunctionReturnNode as createFunctionReturnNodeFromSpec, createLegacyNode, createNode, createSetTimerByFunctionNode, createVariableNode, findNodeDefinition, hasNodeDefinition, nodeTitleWidth, resolveNodeLegacyClass, signaturePortTips } from './nodeRegistry'
 import { normalizeSocketName } from './socketTheme'
 import { BlueprintNode, type Schemes } from './types'
 import { describeEntryBinding, entryBindingCandidateGroups, isEntryOutputConnection, type EntryBindingNode } from './implicitEntryLinks'
@@ -97,6 +97,7 @@ export interface SelectedNodeInfo {
   description?: string
   values: Record<string, unknown>
   variableId?: string
+  inputs?: Array<{ key: string; label: string; tip?: string; portId?: number }>
 }
 
 interface EditorHistorySnapshot {
@@ -116,6 +117,8 @@ export interface BlueprintEditorHandle {
   addFunctionEntryNode(spec: FunctionNodeMetadata, clientPosition?: Position): Promise<void>
   addFunctionReturnNode(spec: FunctionNodeMetadata, clientPosition?: Position): Promise<void>
   syncFunctionSignature(spec: FunctionNodeMetadata): Promise<void>
+  refreshNodeTypeAnnotations(typeId: string): Promise<number>
+  refreshFunctionNodeAnnotations(functionId: string, description?: string, portTipsById?: Map<string, string>): Promise<number>
   addVariableNode(variable: GraphVariable, access: 'get' | 'set', clientPosition?: Position): Promise<void>
   deleteSelected(): Promise<void>
   selectAll(): Promise<void>
@@ -1477,7 +1480,66 @@ function nodeSize(node: BlueprintNode) {
   }
 
   function selectedNodeInfo(node: BlueprintNode): SelectedNodeInfo {
-    return { id: node.id, typeId: node.typeId ?? '', label: node.label, description: node.subtitle, values: controlValues(node), variableId: node.variableId }
+    const inputs = Object.entries(node.inputs)
+      .filter((entry): entry is [string, NonNullable<typeof entry[1]>] => Boolean(entry[1]?.label))
+      .map(([key, port]) => ({ key, label: port.label ?? key, tip: node.inputTips?.[key], portId: node.inputPortIds?.[key] }))
+    return { id: node.id, typeId: node.typeId ?? '', label: node.label, description: node.subtitle, values: controlValues(node), variableId: node.variableId, inputs }
+  }
+
+  async function refreshNodeTypeAnnotations(typeId: string) {
+    const definition = findNodeDefinition(typeId)
+    const affected: BlueprintNode[] = []
+    for (const node of editor.getNodes()) {
+      if (node.typeId !== typeId) continue
+      affected.push(node)
+      if (definition) {
+        node.subtitle = definition.description
+        node.inputPortIds = definition.inputPorts ? inputPortIdsFromDefinition(definition.inputPorts) : undefined
+        node.inputTips = definition.inputPorts ? inputTipsFromDefinition(definition.inputPorts) : undefined
+      }
+      await area.update('node', node.id)
+    }
+    const selected = affected.find(node => node.selected)
+    if (selected) callbacks.onSelection(selectedNodeInfo(selected))
+    return affected.length
+  }
+
+  function inputTipsFromDefinition(ports: Array<{ key: string; tip?: string }>) {
+    const tips: Record<string, string> = {}
+    for (const port of ports) {
+      if (port.tip) tips[port.key] = port.tip
+    }
+    return Object.keys(tips).length ? tips : undefined
+  }
+
+  function inputPortIdsFromDefinition(ports: Array<{ key: string; portId?: number }>) {
+    const ids: Record<string, number> = {}
+    for (const port of ports) {
+      if (typeof port.portId === 'number') ids[port.key] = port.portId
+    }
+    return Object.keys(ids).length ? ids : undefined
+  }
+
+  async function refreshFunctionNodeAnnotations(functionId: string, description?: string, portTipsById?: Map<string, string>) {
+    const text = description?.trim()
+    let updated = 0
+    for (const node of editor.getNodes()) {
+      if (node.functionId !== functionId) continue
+      const fallback = node.typeId === 'origin.function.entry' ? 'Function entry' : node.typeId === 'origin.function.return' ? 'Function return' : 'Function call'
+      node.subtitle = text || fallback
+      if (portTipsById && node.functionSignature) {
+        for (const port of [...node.functionSignature.inputs, ...node.functionSignature.outputs]) {
+          const tip = portTipsById.get(port.id)
+          if (tip === undefined) continue
+          if (tip.trim()) port.description = tip.trim()
+          else delete port.description
+        }
+        node.inputTips = signaturePortTips(node.functionSignature)
+      }
+      await area.update('node', node.id)
+      updated++
+    }
+    return updated
   }
 
   function setDynamicOutputCount(node: BlueprintNode, requested: number) {
@@ -2059,6 +2121,8 @@ function nodeSize(node: BlueprintNode) {
     addFunctionEntryNode,
     addFunctionReturnNode,
     syncFunctionSignature,
+    refreshNodeTypeAnnotations,
+    refreshFunctionNodeAnnotations,
     addVariableNode,
     deleteSelected,
     selectAll,
