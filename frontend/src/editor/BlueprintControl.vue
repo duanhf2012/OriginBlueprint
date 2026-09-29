@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import { isIntegerInputDraft, isValidIntegerDefault, normalizeIntegerInput, parseIntegerInput } from './valueValidation'
-import { lookupConfigName, searchConfigEntries, configTableLabel } from './configTables'
+import { configTableByKey, lookupConfigName, searchConfigEntries, configTableLabel } from './configTables'
 import { estimateTextWidth, refStaticDisplay } from './textWidth'
 
 const props = defineProps<{ data: { value?: unknown; type?: 'text' | 'number'; integer?: boolean; itemType?: 'string' | 'number'; tableKey?: string; setValue: (value: unknown) => void } }>()
@@ -34,6 +34,8 @@ const refMatches = computed(() => {
 })
 const refResolvedName = computed(() => (isRefSelect.value ? lookupConfigName(props.data.tableKey ?? '', value.value) : undefined))
 const refUnknown = computed(() => isRefSelect.value && String(value.value ?? '') !== '' && !refResolvedName.value)
+// 数据集缺失（已被删除或来源文件找不到）时下拉给出明确空态，而不是静默无内容。
+const refDatasetMissing = computed(() => isRefSelect.value && !configTableByKey(props.data.tableKey ?? ''))
 // 显示：解析成功常显「id:备注名」（id 前置便于对表，同 Unreal 行引用的可读行名）；未命中或表未加载回退显示数字 id。
 // 文档存档始终是原始 id，显示仅用于阅读。
 const refClosedDisplay = computed(() => refStaticDisplay(props.data.tableKey ?? '', value.value))
@@ -263,6 +265,7 @@ function commitScalarEdit(event: FocusEvent) {
   <div v-else-if="isRefSelect" class="ref-select-control" :class="{ unknown: refUnknown }" @pointerdown.stop @dblclick.stop>
     <input class="node-input ref-input" :class="{ seeded: refOpen && !refEdited(), resolved: !refOpen && !!refResolvedName }" :style="refInputWidthStyle" :value="refDisplay" :title="refTitle" type="text" placeholder="搜索/ID范围" @focus="focusRef" @input="inputRef" @keydown="keydownRef" @blur="blurRef" />
     <div v-if="refOpen" ref="refOptionsEl" class="ref-options">
+      <div v-if="!refMatches.length" class="ref-options-cap">{{ refDatasetMissing ? '数据集未加载（已删除或来源文件缺失）' : '无匹配行（检查表头识别或筛选）' }}</div>
       <button v-for="(entry, entryIndex) in refMatches" :key="entry.id" type="button" class="ref-option" :class="{ selected: entry.id === String(value), active: entryIndex === refActiveIndex }" @pointerdown.prevent @click="pickRef(entry.id)"><span class="ref-option-id">{{ entry.id }}</span><span class="ref-option-name">{{ entry.name }}</span></button>
       <div v-if="refMatches.length >= REF_DROPDOWN_LIMIT" class="ref-options-cap">仅显示前 {{ REF_DROPDOWN_LIMIT }} 条，输入文字可筛选</div>
       <button type="button" class="ref-option ref-apply-raw" @pointerdown.prevent @click="commitRef(refEdited() ? refQuery : refRawId)"><span class="ref-option-id">{{ (refEdited() ? refQuery : refRawId) || '（空）' }}</span><span class="ref-option-name">使用输入的原始 ID</span></button>
@@ -288,6 +291,7 @@ function commitScalarEdit(event: FocusEvent) {
 .ref-select-control.unknown .ref-input { border-color: #e04f5f; box-shadow: 0 0 0 1px #e04f5f; }
 .ref-options { position: absolute; z-index: 12; top: calc(100% + 2px); right: 0; width: 190px; display: grid; max-height: 168px; overflow: auto; border: 1px solid #52636e; border-radius: 3px; background: #1d2326; box-shadow: 0 6px 16px #000a; }
 .ref-options-cap { padding: 3px 7px; color: #7c8b96; font-size: var(--node-badge-font-size, 10px); }
+.ref-options-cap:only-child { padding: 6px 7px; color: #b58a4a; }
 .ref-option { display: flex; gap: 6px; align-items: baseline; min-height: 24px; padding: 3px 7px; overflow: hidden; border: 0; background: transparent; color: #dce6eb; text-align: left; cursor: pointer; }
 .ref-option:hover, .ref-option.selected, .ref-option.active { background: #31566b; }
 .ref-option-id { flex: 0 0 auto; color: #8fc1e3; font: 600 var(--node-control-font-size, 11px) Consolas, monospace; }
