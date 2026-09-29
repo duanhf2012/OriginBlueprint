@@ -1,10 +1,10 @@
 import { ClassicPreset } from 'rete'
-import { ArrayControl, BlueprintNode, type DynamicBranchConfig, type NodeKind } from './types'
+import { ArrayControl, BlueprintNode, RefSelectControl, type DynamicBranchConfig, type NodeKind } from './types'
 import type { FunctionNodeMetadata, FunctionSignature, FunctionSignaturePort, GraphVariable, NodeProperties } from './document'
 import { assignEntrySourcePalette, entrySourceColor, looksLikeEntryName } from './implicitEntryLinks'
 import { inputAllowsMultipleConnections } from './connectionPolicy'
 
-export interface NodeDefinitionInputPort { key: string; label: string; tip?: string; portId?: number }
+export interface NodeDefinitionInputPort { key: string; label: string; tip?: string; portId?: number; refTable?: string; type?: string }
 export interface NodeDefinition {
   id: string
   sourceName?: string
@@ -34,7 +34,7 @@ const sockets = {
 
 type SocketType = keyof typeof sockets
 type PortKind = SocketType | 'data'
-export interface PortSchema { key: string; label: string; labelEn?: string; type: PortKind; data_type?: string; defaultValue?: unknown; arrayItemType?: 'string' | 'number'; hideIcon?: boolean; tip?: string; portId?: number }
+export interface PortSchema { key: string; label: string; labelEn?: string; type: PortKind; data_type?: string; defaultValue?: unknown; arrayItemType?: 'string' | 'number'; hideIcon?: boolean; tip?: string; portId?: number; refTable?: string }
 export interface NodeSchema {
   id: string
   sourceName?: string
@@ -58,9 +58,13 @@ let allNodeDefinitions: NodeDefinition[] = []
 const hiddenNodeTypes = new Set<string>()
 export let nodeDefinitions: NodeDefinition[] = []
 
-function input(socket: ClassicPreset.Socket, label: string, value?: unknown, arrayItemType: 'string' | 'number' = 'string') {
+function input(socket: ClassicPreset.Socket, label: string, value?: unknown, arrayItemType: 'string' | 'number' = 'string', refTable?: string) {
   const port = new ClassicPreset.Input(socket, label, inputAllowsMultipleConnections(socket.name))
 	if (socket.name === 'timerhandle') return port
+  if (refTable) {
+    port.addControl(new RefSelectControl(refTable, socket.name === 'integer', value === undefined ? '' : value as string | number))
+    return port
+  }
   if (Array.isArray(value)) {
     port.addControl(new ArrayControl(arrayItemType, value))
   } else if (value !== undefined) {
@@ -191,7 +195,9 @@ function fromSchema(schema: NodeSchema, locale: string): NodeDefinition {
     key: port.key,
     label: english ? port.labelEn || port.label : port.label,
     tip: port.tip,
-    portId: typeof port.portId === 'number' ? port.portId : undefined
+    portId: typeof port.portId === 'number' ? port.portId : undefined,
+    refTable: port.refTable,
+    type: port.type
   }))
   const dynamicBranch = schema.dynamicBranch ? {
     ...schema.dynamicBranch,
@@ -227,7 +233,7 @@ function fromSchema(schema: NodeSchema, locale: string): NodeDefinition {
       for (const port of schema.inputs ?? []) {
         const socketType = socketTypeForPort(port)
         const defaultValue = dynamicBranch?.controlInput === port.key && port.defaultValue === undefined ? [] : port.defaultValue
-        result.addInput(port.key, input(sockets[socketType] ?? sockets.any, english ? port.labelEn || port.label : port.label, defaultValue, port.arrayItemType))
+        result.addInput(port.key, input(sockets[socketType] ?? sockets.any, english ? port.labelEn || port.label : port.label, defaultValue, port.arrayItemType, port.refTable))
       }
       for (const port of schema.outputs ?? []) {
         if (dynamicBranch && port.key.startsWith(dynamicBranch.outputPrefix)) continue
@@ -354,7 +360,7 @@ export function createFunctionCallNode(metadata: FunctionNodeMetadata) {
   result.inputTips = signaturePortTips(spec.functionSignature)
   result.addInput('exec', input(sockets.exec, ''))
   for (const [index, port] of spec.functionSignature?.inputs.entries() ?? []) {
-    result.addInput(functionPortKey('input', port, index), input(functionSocket(port.type), port.name, functionDefaultValue(port.type), functionArrayItemType(port.type)))
+    result.addInput(functionPortKey('input', port, index), input(functionSocket(port.type), port.name, functionDefaultValue(port.type), functionArrayItemType(port.type), port.ref))
   }
   result.addOutput('exec', new ClassicPreset.Output(sockets.exec, ''))
   for (const [index, port] of spec.functionSignature?.outputs.entries() ?? []) {
@@ -420,7 +426,7 @@ export function createFunctionReturnNode(metadata: FunctionNodeMetadata) {
   result.inputTips = signaturePortTips(spec.functionSignature)
   result.addInput('exec', input(sockets.exec, ''))
   for (const [index, port] of spec.functionSignature?.outputs.entries() ?? []) {
-    result.addInput(functionPortKey('output', port, index), input(functionSocket(port.type), port.name))
+    result.addInput(functionPortKey('output', port, index), input(functionSocket(port.type), port.name, undefined, undefined, port.ref))
   }
   applyFunctionMetadata(result, spec)
   return result

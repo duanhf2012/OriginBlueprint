@@ -526,7 +526,7 @@ func TestProjectSettingsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantPath := filepath.Join(dir, "originblueprint.project")
+	wantPath := filepath.Join(dir, "originblueprint.obproj")
 	if saved != wantPath {
 		t.Fatalf("project settings path = %q, want %q", saved, wantPath)
 	}
@@ -553,7 +553,7 @@ func TestLoadProjectSettingsCreatesDefaultWhenMissing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Path != filepath.Join(dir, "originblueprint.project") {
+	if loaded.Path != filepath.Join(dir, "originblueprint.obproj") {
 		t.Fatalf("project settings path = %q", loaded.Path)
 	}
 	if !strings.Contains(loaded.Content, `"version": 1`) || !strings.Contains(loaded.Content, `"appearance"`) {
@@ -2990,5 +2990,22 @@ func TestRevealInFolderRejectsMissingFile(t *testing.T) {
 	err := app.RevealInFolder(filepath.Join(t.TempDir(), "missing.vgf"))
 	if err == nil {
 		t.Fatal("expected missing file to return an error")
+	}
+}
+
+func TestStartupWorkspaceFromArgs(t *testing.T) {
+	workspace := t.TempDir()
+	projectFile := filepath.Join(workspace, "originblueprint.obproj")
+	if err := os.WriteFile(projectFile, []byte(`{"version":1}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if got := startupWorkspaceFromArgs([]string{"OriginBlueprint.exe"}); got != "" {
+		t.Fatalf("no-arg startup = %q, want empty", got)
+	}
+	if got := startupWorkspaceFromArgs([]string{"OriginBlueprint.exe", filepath.Join(workspace, "missing.obproj")}); got != "" {
+		t.Fatalf("missing project startup = %q, want empty", got)
+	}
+	if got := startupWorkspaceFromArgs([]string{"OriginBlueprint.exe", "--flag", strings.ToUpper(projectFile)}); !strings.EqualFold(got, workspace) {
+		t.Fatalf("obproj startup = %q, want %q", got, workspace)
 	}
 }

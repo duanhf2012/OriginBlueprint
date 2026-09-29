@@ -36,6 +36,7 @@ export interface FunctionSignaturePort {
   name: string
   type: VariableType
   description?: string
+  ref?: string
 }
 
 export interface FunctionSignature {

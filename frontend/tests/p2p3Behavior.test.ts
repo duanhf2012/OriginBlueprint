@@ -5,8 +5,67 @@ import { pushBoundedHistory } from '../src/editor/history'
 import { saveGateDecision } from '../src/saveGate'
 import { variableScope } from '../src/editor/document'
 import { applyVariableNodePresentation, createVariableNode } from '../src/editor/nodeRegistry'
+import { configTableByKey, configTableStatusLine, filterConfigEntries, lookupConfigName, searchConfigEntries, setConfigTables } from '../src/editor/configTables'
 import { applyVariableGroupDrop, matchingVariableGroupId, moveVariablesToDefaultGroup, normalizeVariableGroups, planVariableGroupDrop, variableGroupNameExists, variableGroupRemovalMessage, variableGroupUsage, variableGroupsForScope } from '../src/editor/variableGroups'
 import { isValidIntegerDefault } from '../src/editor/valueValidation'
+
+describe('config table reference index', () => {
+  const tables = [{
+    key: 'skills',
+    file: 'skills.xlsx',
+    sheet: 'skills',
+    rowCount: 4,
+    idColumn: 'A',
+    nameColumn: 'B',
+    entries: [
+      { id: '100233', name: '火球术' },
+      { id: '100234', name: '冰霜箭' },
+      { id: '200001', name: '雷霆一击' }
+    ]
+  }]
+
+  it('resolves ids to names and reports unknown ids', () => {
+    setConfigTables(tables)
+    expect(lookupConfigName('skills', '100233')).toBe('火球术')
+    expect(lookupConfigName('skills', '999999')).toBeUndefined()
+    expect(lookupConfigName('missing', '100233')).toBeUndefined()
+  })
+
+  it('searches by id or name', () => {
+    setConfigTables(tables)
+    expect(searchConfigEntries('skills', '100')).toHaveLength(2)
+    expect(searchConfigEntries('skills', '火')).toHaveLength(1)
+    expect(searchConfigEntries('skills', '')[0].id).toBe('100233')
+  })
+
+  it('searches a custom extra column and includes it in all-columns search', () => {
+    setConfigTables([{
+      key: 'skills', file: 'skills.xlsx', sheet: 'skills', rowCount: 4, idColumn: 'A', nameColumn: 'B',
+      entries: [
+        { id: '100233', name: '火球术', extra: '主动' },
+        { id: '100234', name: '冰霜箭', extra: '被动' }
+      ]
+    }])
+    expect(filterConfigEntries(configTableByKey('skills')!.entries, '主动', { columns: 'custom' })).toHaveLength(1)
+    expect(filterConfigEntries(configTableByKey('skills')!.entries, '主动', { columns: 'custom' })[0].id).toBe('100233')
+    expect(filterConfigEntries(configTableByKey('skills')!.entries, '被动', { columns: 'name' })).toHaveLength(0)
+    expect(filterConfigEntries(configTableByKey('skills')!.entries, '被', {})).toHaveLength(1)
+  })
+
+  it('filters by id range and numeric comparison', () => {
+    setConfigTables(tables)
+    expect(searchConfigEntries('skills', '100233-100234')).toHaveLength(2)
+    expect(searchConfigEntries('skills', '200000~300000').map(entry => entry.id)).toEqual(['200001'])
+    expect(searchConfigEntries('skills', '>100234').map(entry => entry.id)).toEqual(['200001'])
+    expect(searchConfigEntries('skills', '<=100233').map(entry => entry.id)).toEqual(['100233'])
+  })
+
+  it('summarizes identified and warned tables', () => {
+    setConfigTables([...tables, { key: 'items', file: 'items.csv', rowCount: 2, idColumn: '', nameColumn: '', warning: '第 1 行未识别出 id 列', entries: [] }])
+    expect(configTableByKey('skills')?.entries).toHaveLength(3)
+    expect(configTableStatusLine([configTableByKey('skills')!])).toContain('配置表 1/1 个数据集，共 3 条')
+  })
+})
 
 describe('integer default validation', () => {
   it('accepts safe integers and rejects fractional or unsafe values', () => {

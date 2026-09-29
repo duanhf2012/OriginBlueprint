@@ -9,7 +9,7 @@ import BlueprintNodeComponent from './BlueprintNode.vue'
 import BlueprintSocket from './BlueprintSocket.vue'
 import { applyTimerFunctionMetadata, applyVariableNodePresentation, createFunctionCallNode, createFunctionEntryNode as createFunctionEntryNodeFromSpec, createFunctionReturnNode as createFunctionReturnNodeFromSpec, createLegacyNode, createNode, createSetTimerByFunctionNode, createVariableNode, findNodeDefinition, hasNodeDefinition, nodeTitleWidth, resolveNodeLegacyClass, signaturePortTips } from './nodeRegistry'
 import { normalizeSocketName } from './socketTheme'
-import { BlueprintNode, type Schemes } from './types'
+import { BlueprintNode, RefSelectControl, type Schemes } from './types'
 import { describeEntryBinding, entryBindingCandidateGroups, isEntryOutputConnection, type EntryBindingNode } from './implicitEntryLinks'
 import { refreshNodePortStates } from './portVisualState'
 import { pathIntersectsRect, rectsIntersect, type Rect } from './selectionGeometry'
@@ -118,7 +118,7 @@ export interface BlueprintEditorHandle {
   addFunctionReturnNode(spec: FunctionNodeMetadata, clientPosition?: Position): Promise<void>
   syncFunctionSignature(spec: FunctionNodeMetadata): Promise<void>
   refreshNodeTypeAnnotations(typeId: string): Promise<number>
-  refreshFunctionNodeAnnotations(functionId: string, description?: string, portTipsById?: Map<string, string>): Promise<number>
+  refreshFunctionNodeAnnotations(functionId: string, description?: string, portTipsById?: Map<string, string>, refsById?: Map<string, string>): Promise<number>
   addVariableNode(variable: GraphVariable, access: 'get' | 'set', clientPosition?: Position): Promise<void>
   deleteSelected(): Promise<void>
   selectAll(): Promise<void>
@@ -1496,6 +1496,7 @@ function nodeSize(node: BlueprintNode) {
         node.subtitle = definition.description
         node.inputPortIds = definition.inputPorts ? inputPortIdsFromDefinition(definition.inputPorts) : undefined
         node.inputTips = definition.inputPorts ? inputTipsFromDefinition(definition.inputPorts) : undefined
+        for (const port of definition.inputPorts ?? []) ensureInputControl(node, port.key, port.refTable)
       }
       await area.update('node', node.id)
     }
@@ -1512,6 +1513,28 @@ function nodeSize(node: BlueprintNode) {
     return Object.keys(tips).length ? tips : undefined
   }
 
+  // 按定义刷新输入控件：带 ref 的端口换成引用选择控件，去掉 ref 的换回普通整数控件。
+  // 只替换控件、不重建端口对象，连线保持不变；值原样迁移。
+  function ensureInputControl(node: BlueprintNode, key: string, refTable: string | undefined) {
+    const port = node.inputs[key]
+    if (!port) return
+    const current = (port as unknown as { control?: { tableKey?: string; value?: unknown; integer?: boolean } }).control
+    const wantRef = Boolean(refTable)
+    const hasRef = typeof current?.tableKey === 'string' && current.tableKey !== ''
+    if (wantRef === hasRef && (!wantRef || current?.tableKey === refTable)) return
+    const previousValue = current?.value
+    port.removeControl()
+    if (wantRef) {
+      port.addControl(new RefSelectControl(refTable!, true, (previousValue ?? '') as string | number))
+      return
+    }
+    if (previousValue !== undefined) {
+      const control = new ClassicPreset.InputControl('text', { initial: previousValue as never }) as ClassicPreset.InputControl<'text'> & { integer?: boolean }
+      control.integer = true
+      port.addControl(control)
+    }
+  }
+
   function inputPortIdsFromDefinition(ports: Array<{ key: string; portId?: number }>) {
     const ids: Record<string, number> = {}
     for (const port of ports) {
@@ -1520,21 +1543,38 @@ function nodeSize(node: BlueprintNode) {
     return Object.keys(ids).length ? ids : undefined
   }
 
-  async function refreshFunctionNodeAnnotations(functionId: string, description?: string, portTipsById?: Map<string, string>) {
+  async function refreshFunctionNodeAnnotations(functionId: string, description?: string, portTipsById?: Map<string, string>, refsById?: Map<string, string>) {
     const text = description?.trim()
     let updated = 0
     for (const node of editor.getNodes()) {
       if (node.functionId !== functionId) continue
       const fallback = node.typeId === 'origin.function.entry' ? 'Function entry' : node.typeId === 'origin.function.return' ? 'Function return' : 'Function call'
       node.subtitle = text || fallback
-      if (portTipsById && node.functionSignature) {
+      if (node.functionSignature) {
         for (const port of [...node.functionSignature.inputs, ...node.functionSignature.outputs]) {
-          const tip = portTipsById.get(port.id)
-          if (tip === undefined) continue
-          if (tip.trim()) port.description = tip.trim()
-          else delete port.description
+          if (portTipsById) {
+            const tip = portTipsById.get(port.id)
+            if (tip !== undefined) {
+              if (tip.trim()) port.description = tip.trim()
+              else delete port.description
+            }
+          }
+          if (refsById) {
+            const ref = refsById.get(port.id)
+            if (ref !== undefined) {
+              if (ref.trim()) port.ref = ref.trim()
+              else delete port.ref
+            }
+          }
         }
         node.inputTips = signaturePortTips(node.functionSignature)
+        // 签名端口的 ref 决定输入端口是否用引用选择控件（调用节点 input_*，返回节点 output_*）。
+        node.functionSignature.inputs.forEach((port, index) => {
+          ensureInputControl(node, functionPortKey('input', port, index), port.ref)
+        })
+        node.functionSignature.outputs.forEach((port, index) => {
+          ensureInputControl(node, functionPortKey('output', port, index), port.ref)
+        })
       }
       await area.update('node', node.id)
       updated++

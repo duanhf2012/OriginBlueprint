@@ -19,10 +19,11 @@ import (
 )
 
 type App struct {
-	ctx         context.Context
-	closeMu     sync.Mutex
-	allowClose  bool
-	atomicWrite func(path string, data []byte, mode os.FileMode) error
+	ctx              context.Context
+	closeMu          sync.Mutex
+	allowClose       bool
+	startupWorkspace string
+	atomicWrite      func(path string, data []byte, mode os.FileMode) error
 }
 
 type FileResult struct {
@@ -53,7 +54,8 @@ type appConfig struct {
 	LastExportDirectory string   `json:"lastExportDirectory"`
 }
 
-const projectSettingsFileName = "originblueprint.project"
+const projectSettingsFileName = "originblueprint.obproj"
+const legacyProjectSettingsFileName = "originblueprint.project"
 const functionReferenceQueryPrefix = "function:"
 
 const defaultProjectSettingsContent = `{
@@ -91,12 +93,56 @@ const defaultProjectSettingsContent = `{
   "export": {
     "imageScale": 2,
     "showGrid": true
+  },
+  "configTables": {
+    "directories": ["configs"],
+    "defaults": {
+      "idMatchRow": 1,
+      "nameMatchRow": 1,
+      "idKeyword": "id",
+      "nameKeywords": ["name", "名称"]
+    },
+    "datasets": []
   }
 }`
 
-func NewApp() *App { return &App{} }
+func NewApp() *App {
+	return &App{startupWorkspace: startupWorkspaceFromArgs(os.Args)}
+}
 
-func (a *App) startup(ctx context.Context) { a.ctx = ctx }
+// startupWorkspaceFromArgs 从启动参数里找 .obproj 工程文件并返回其所在目录；
+// 在资源管理器双击工程文件启动时，Explorer 会把文件路径作为第一个参数传入。
+func startupWorkspaceFromArgs(args []string) string {
+	for _, arg := range args[1:] {
+		cleaned := strings.TrimSpace(arg)
+		if cleaned == "" || !strings.EqualFold(filepath.Ext(cleaned), ".obproj") {
+			continue
+		}
+		absolute, err := filepath.Abs(cleaned)
+		if err != nil {
+			continue
+		}
+		if info, statErr := os.Stat(absolute); statErr != nil || info.IsDir() {
+			continue
+		}
+		return filepath.Dir(absolute)
+	}
+	return ""
+}
+
+func (a *App) startup(ctx context.Context) {
+	a.ctx = ctx
+	if err := registerObprojFileAssociation(); err != nil {
+		a.reportNonFatalError("register .obproj file association", err)
+		return
+	}
+	notifyAssociationChanged()
+}
+
+// StartupWorkspace 返回通过启动参数指定的工程目录（双击 .obproj 启动时非空）。
+func (a *App) StartupWorkspace() string {
+	return a.startupWorkspace
+}
 
 func (a *App) beforeClose(ctx context.Context) bool {
 	a.closeMu.Lock()
@@ -182,6 +228,20 @@ func (a *App) ChooseGraphSavePath(suggestedPath string, functionBlueprint, requi
 		return "", err
 	}
 	return completeGraphSavePath(path, functionBlueprint, requiresNative), nil
+}
+
+// ChooseConfigTableDirectory 打开系统目录选择框，默认定位到工程根目录；
+// 用于配置表管理界面挑选表目录，前端负责把结果换算成相对工程根目录的路径。
+func (a *App) ChooseConfigTableDirectory(workspaceRoot string) (string, error) {
+	options := runtime.OpenDialogOptions{Title: "Select Config Table Directory"}
+	if root := strings.TrimSpace(workspaceRoot); root != "" {
+		if absolute, err := filepath.Abs(root); err == nil {
+			if info, statErr := os.Stat(absolute); statErr == nil && info.IsDir() {
+				options.DefaultDirectory = absolute
+			}
+		}
+	}
+	return runtime.OpenDirectoryDialog(a.ctx, options)
 }
 
 func (a *App) SaveGraph(path, content string) (string, error) {
@@ -363,6 +423,14 @@ func (a *App) LoadProjectSettings(root string) (ProjectSettingsResult, error) {
 	}
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
+		// 旧扩展名 .project 迁移到 .obproj：内容原样搬迁，团队升级后旧文件不再使用。
+		legacyData, legacyErr := os.ReadFile(filepath.Join(strings.TrimSpace(root), legacyProjectSettingsFileName))
+		if legacyErr == nil {
+			if err := a.writeAtomically(path, legacyData, 0644); err != nil {
+				return ProjectSettingsResult{}, err
+			}
+			return ProjectSettingsResult{Path: path, Content: string(legacyData)}, nil
+		}
 		if err := a.writeAtomically(path, []byte(defaultProjectSettingsContent), 0644); err != nil {
 			return ProjectSettingsResult{}, err
 		}

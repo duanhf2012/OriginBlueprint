@@ -67,6 +67,7 @@ type GraphFunctionSignaturePort struct {
 	Name        string `json:"name"`
 	Type        string `json:"type"`
 	Description string `json:"description,omitempty"`
+	Ref         string `json:"ref,omitempty"`
 }
 
 type GraphLegacyState struct {

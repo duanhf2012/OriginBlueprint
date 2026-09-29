@@ -77,6 +77,27 @@ export class ArrayControl extends ClassicPreset.Control {
   }
 }
 
+// 配置表引用控件：值仍是原始 ID（integer 端口为数字），
+// 显示层按 configTables 存储解析名称；表里查不到时标红但值保留。
+export class RefSelectControl extends ClassicPreset.Control {
+  value: string | number
+  tableKey: string
+  integer: boolean
+
+  constructor(tableKey: string, integer: boolean, initial: string | number = '') {
+    super()
+    this.tableKey = tableKey
+    this.integer = integer
+    this.value = initial
+  }
+
+  setValue(value?: unknown) {
+    if (typeof value === 'number') this.value = value
+    else if (value === undefined || value === null) this.value = ''
+    else this.value = String(value)
+  }
+}
+
 export type BlueprintConnection = ClassicPreset.Connection<BlueprintNode, BlueprintNode> & {
   selected?: boolean
   socketType?: SocketThemeName

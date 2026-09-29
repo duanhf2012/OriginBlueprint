@@ -39,7 +39,7 @@ assert(propertyValue(inputPort, 'overflow') !== 'hidden', 'input ports must not 
 assert(propertyValue(entryBindingBadge, 'min-width') === '0', 'entry binding badges must be allowed to shrink')
 assert(propertyValue(entryBindingBadge, 'flex') === '0 1 auto', 'entry binding badges should size to their content')
 assert(component.includes('const nodeWidth = computed'), 'node width must be content-aware')
-assert(component.includes('function estimateTextWidth'), 'node width must estimate visible text widths')
+assert(component.includes('estimateTextWidth'), 'node width must estimate visible text widths (local or shared helper)')
 assert(component.includes('function inputContentWidth'), 'node width must include input labels and controls')
 assert(component.includes('function outputContentWidth'), 'node width must include output labels')
 assert(component.includes('DEFAULT_CONTROL_WIDTH = 62'), 'default input controls should be estimated near their rendered width')

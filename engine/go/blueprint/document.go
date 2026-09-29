@@ -60,6 +60,9 @@ type graphDocumentFuncPort struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 	Type string `json:"type"`
+	// Ref 是编辑器写入的关联数据集 key，仅用于画布引用选择控件，引擎不消费；
+	// 声明字段是为了严格 JSON 解析能接受编辑器保存的函数文档。
+	Ref string `json:"ref,omitempty"`
 }
 
 type graphDocumentVariable struct {

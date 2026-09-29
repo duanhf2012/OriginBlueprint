@@ -5,6 +5,7 @@ import { createBlueprintEditor, type BlueprintEditorHandle, type EditorMetrics, 
 import { variableScope, type FunctionNodeMetadata, type NodeSnapshot, type RestoreLossReport, type VariableScope } from './editor/document'
 import { applyVariableGroupDrop, matchingVariableGroupId, moveVariablesToDefaultGroup, normalizeVariableGroups, planVariableGroupDrop, variableGroupNameExists, variableGroupRemovalMessage, variableGroupsForScope, variableGroupScope, variableGroupUsage, type VariableGroupDropPlan } from './editor/variableGroups'
 import { getNodeDefinitions, registerNodeSchemas, type NodeDefinition } from './editor/nodeRegistry'
+import { configTableStatusLine, filterConfigEntries, setConfigTables, type ConfigTable, type ConfigTableEntry } from './editor/configTables'
 import { menuLocales, normalizeLocale, type LocaleId } from './i18n'
 import { platform, type NodeReferenceResult, type RecoverySnapshotResult, type WorkspaceEntry } from './platform'
 import { compatibilitySaveOptions, findOpenTab, hasRestoreLoss, resolveCompatibilitySaveAction as resolveCompatibilityPersistenceAction, sourceRequiresProtection, type CompatibilitySaveAction } from './documentSafety'
@@ -29,6 +30,32 @@ interface ModuleLibraryItem extends NodeDefinition { functionPlaceholder?: boole
 type UiScale = 'small' | 'normal' | 'large'
 type NodeScale = 'normal' | 'large'
 type ImageExportScale = 1 | 2 | 4
+interface ConfigTableFilterSetting {
+  mode: 'text' | 'range' | 'compare'
+  column: 'all' | 'id' | 'name' | 'custom'
+  text: string
+  rangeMin: string
+  rangeMax: string
+  compareOp: string
+  compareValue: string
+  extraMatchRow: number
+  extraKeyword: string
+}
+
+// 数据集是节点引用绑定的单元：key 是稳定标识（nodes/*.json 与 .obpf 的 ref 存的值，
+// 创建后不变），name 是可随时修改的显示名；一张物理表（file+sheet）可派生多个数据集。
+interface ConfigTableDatasetSetting {
+  key: string
+  name: string
+  file: string
+  sheet: string
+  idMatchRow: number
+  nameMatchRow: number
+  idKeyword: string
+  nameKeyword: string
+  filter: ConfigTableFilterSetting
+}
+
 interface ProjectSettings {
   version: number
   appearance: { locale: LocaleId; uiScale: UiScale; nodeScale: NodeScale; moduleScale: UiScale }
@@ -39,6 +66,11 @@ interface ProjectSettings {
   explorer: { expanded: string[]; selected: string; revealActiveFile: boolean; hideBuildFolders: boolean }
   editor: { autoSave: AutoSaveMode; validateBeforeSave: boolean }
   export: { imageScale: ImageExportScale; showGrid: boolean }
+  configTables: {
+    directories: string[]
+    defaults: { idMatchRow: number; nameMatchRow: number; idKeyword: string; nameKeywords: string[] }
+    datasets: ConfigTableDatasetSetting[]
+  }
 }
 interface UpdateCheckState {
   autoCheck: boolean
@@ -139,7 +171,8 @@ const nodeSchemaDocuments = ref<Array<{ path: string; key?: string; content: str
 const nodeAnnotationDraft = ref({
   description: '',
   tips: {} as Record<string, string>,
-  functionParams: [] as Array<{ id: string; name: string; direction: 'input' | 'output'; tip: string }>
+  refs: {} as Record<string, string>,
+  functionParams: [] as Array<{ id: string; name: string; direction: 'input' | 'output'; tip: string; type: string; ref: string }>
 })
 const nodeAnnotationDialog = ref<{ visible: boolean; typeId?: string; functionPath?: string; title: string } | null>(null)
 
@@ -147,17 +180,62 @@ function nodeDefinitionById(typeId: string) {
   return getNodeDefinitions().find(definition => definition.id === typeId)
 }
 
-function labeledInputPorts(ports: Array<{ key: string; label: string; tip?: string; portId?: number }> | undefined) {
+function labeledInputPorts(ports: Array<{ key: string; label: string; tip?: string; portId?: number; refTable?: string; type?: string }> | undefined) {
   return (ports ?? []).filter(port => port.label)
 }
+
+const importedConfigTableOptions = computed(() => configTables.value.map(table => ({ key: table.key, name: table.name || table.key, entries: table.entries.length })))
 
 function loadNodeAnnotationDraft(typeId: string) {
   const definition = nodeDefinitionById(typeId)
   nodeAnnotationDraft.value = {
     description: definition?.description ?? '',
     tips: Object.fromEntries(labeledInputPorts(definition?.inputPorts).map(port => [port.key, port.tip ?? ''])),
+    refs: Object.fromEntries(labeledInputPorts(definition?.inputPorts).map(port => [port.key, port.refTable ?? ''])),
     functionParams: []
   }
+}
+
+// 点住对话框标题栏拖动窗口；偏移记录在 data 属性上，重开对话框由 v-if 重建自然复位。
+function beginDialogDrag(event: PointerEvent) {
+  if (event.button !== 0) return
+  if ((event.target as HTMLElement).closest('button, input, select, textarea')) return
+  const dialog = (event.currentTarget as HTMLElement).closest('.about-dialog') as HTMLElement | null
+  if (!dialog) return
+  const baseX = Number(dialog.dataset.dragX || 0)
+  const baseY = Number(dialog.dataset.dragY || 0)
+  const startX = event.clientX
+  const startY = event.clientY
+  const move = (next: PointerEvent) => {
+    dialog.dataset.dragX = String(baseX + next.clientX - startX)
+    dialog.dataset.dragY = String(baseY + next.clientY - startY)
+    dialog.style.transform = `translate(${dialog.dataset.dragX}px, ${dialog.dataset.dragY}px)`
+  }
+  const up = () => window.removeEventListener('pointermove', move)
+  window.addEventListener('pointermove', move)
+  window.addEventListener('pointerup', up, { once: true })
+  window.addEventListener('pointercancel', up, { once: true })
+}
+
+// 拖动对话框右下角缩放：宽度/高度记录在 style 上，重开对话框由 v-if 重建自然复位。
+function beginDialogResize(event: PointerEvent) {
+  if (event.button !== 0) return
+  const dialog = (event.currentTarget as HTMLElement).closest('.about-dialog') as HTMLElement | null
+  if (!dialog) return
+  const startWidth = dialog.offsetWidth
+  const startHeight = dialog.offsetHeight
+  const startX = event.clientX
+  const startY = event.clientY
+  const move = (next: PointerEvent) => {
+    const width = Math.max(560, Math.min(startWidth + next.clientX - startX, window.innerWidth - 40))
+    const height = Math.max(420, Math.min(startHeight + next.clientY - startY, window.innerHeight - 40))
+    dialog.style.width = `${width}px`
+    dialog.style.height = `${height}px`
+  }
+  const up = () => window.removeEventListener('pointermove', move)
+  window.addEventListener('pointermove', move)
+  window.addEventListener('pointerup', up, { once: true })
+  window.addEventListener('pointercancel', up, { once: true })
 }
 
 function openNodeAnnotationDialog(typeId: string) {
@@ -175,9 +253,10 @@ async function openFunctionAnnotationDialog(item: ModuleLibraryItem) {
   nodeAnnotationDraft.value = {
     description: functionDescriptionByPath.value[path] ?? '',
     tips: {},
+    refs: {},
     functionParams: [
-      ...signature.inputs.map(port => ({ id: port.id, name: port.name, direction: 'input' as const, tip: port.description ?? '' })),
-      ...signature.outputs.map(port => ({ id: port.id, name: port.name, direction: 'output' as const, tip: port.description ?? '' }))
+      ...signature.inputs.map(port => ({ id: port.id, name: port.name, direction: 'input' as const, tip: port.description ?? '', type: port.type, ref: port.ref ?? '' })),
+      ...signature.outputs.map(port => ({ id: port.id, name: port.name, direction: 'output' as const, tip: port.description ?? '', type: port.type, ref: port.ref ?? '' }))
     ]
   }
   nodeAnnotationDialog.value = { visible: true, functionPath: path, title: item.title }
@@ -205,14 +284,28 @@ function functionAnnotationPortTips() {
   return tips
 }
 
-function applySignaturePortTips(signature: { inputs: FunctionSignaturePort[]; outputs: FunctionSignaturePort[] } | undefined, tipsById: Map<string, string>) {
+function applySignaturePortTips(signature: { inputs: FunctionSignaturePort[]; outputs: FunctionSignaturePort[] } | undefined, tipsById: Map<string, string>, refsById?: Map<string, string>) {
   if (!signature) return
   for (const port of [...signature.inputs, ...signature.outputs]) {
     const tip = tipsById.get(port.id)
-    if (tip === undefined) continue
-    if (tip.trim()) port.description = tip.trim()
-    else delete port.description
+    if (tip !== undefined) {
+      if (tip.trim()) port.description = tip.trim()
+      else delete port.description
+    }
+    if (refsById) {
+      const ref = refsById.get(port.id)
+      if (ref !== undefined) {
+        if (ref.trim()) port.ref = ref.trim()
+        else delete port.ref
+      }
+    }
   }
+}
+
+function functionAnnotationRefs() {
+  const refs = new Map<string, string>()
+  for (const param of nodeAnnotationDraft.value.functionParams) refs.set(param.id, param.ref)
+  return refs
 }
 
 async function saveFunctionAnnotation(path: string) {
@@ -222,18 +315,18 @@ async function saveFunctionAnnotation(path: string) {
   if (openTab) {
     if (openTab.id === activeTabId.value) {
       functionDescription.value = description
-      applySignaturePortTips(functionSignature.value, portTips)
+      applySignaturePortTips(functionSignature.value, portTips, functionAnnotationRefs())
     }
     if (openTab.document) {
       if (description) openTab.document.functionDescription = description
       else delete openTab.document.functionDescription
-      applySignaturePortTips(openTab.document.functionSignature, portTips)
+      applySignaturePortTips(openTab.document.functionSignature, portTips, functionAnnotationRefs())
     }
     openTab.dirty = true
     functionDescriptionByPath.value = { ...functionDescriptionByPath.value, [path]: description }
     await syncCallableFunctionsToEditor()
     const functionId = openTab.id === activeTabId.value ? activeFunctionId() : functionIdFromDocument(openTab.document)
-    if (functionId) await editor?.refreshFunctionNodeAnnotations(functionId, description, portTips)
+    if (functionId) await editor?.refreshFunctionNodeAnnotations(functionId, description, portTips, functionAnnotationRefs())
     status.value = `已在打开的函数蓝图“${openTab.title}”中更新说明，保存后生效`
     return true
   }
@@ -246,7 +339,7 @@ async function saveFunctionAnnotation(path: string) {
     const parsed = parseGraphJSON(file.content) as Partial<GraphDocument>
     if (description) parsed.functionDescription = description
     else delete parsed.functionDescription
-    applySignaturePortTips(parsed.functionSignature, portTips)
+    applySignaturePortTips(parsed.functionSignature, portTips, functionAnnotationRefs())
     const content = serializeGraphDocument(path, parsed as GraphDocument, 2)
     await platform.saveGraph(path, content)
   } catch (error) {
@@ -256,12 +349,12 @@ async function saveFunctionAnnotation(path: string) {
   functionDescriptionByPath.value = { ...functionDescriptionByPath.value, [path]: description }
   await syncCallableFunctionsToEditor()
   const functionId = functionIdByPath.value[path]
-  if (functionId) await editor?.refreshFunctionNodeAnnotations(functionId, description, portTips)
+  if (functionId) await editor?.refreshFunctionNodeAnnotations(functionId, description, portTips, functionAnnotationRefs())
   status.value = '函数说明已保存，悬停对应的函数节点可见'
   return true
 }
 
-function applyNodeDefinitionEdits(parsed: unknown, sourceName: string, description: string, tipsByPortId: Map<number, string>) {
+function applyNodeDefinitionEdits(parsed: unknown, sourceName: string, description: string, tipsByPortId: Map<number, string>, refsByPortId: Map<number, string>) {
   const container = Array.isArray(parsed)
     ? parsed
     : parsed && typeof parsed === 'object' && Array.isArray((parsed as { nodes?: unknown[] }).nodes)
@@ -283,6 +376,11 @@ function applyNodeDefinitionEdits(parsed: unknown, sourceName: string, descripti
       const tip = String(tipsByPortId.get(portId) ?? '').trim()
       if (tip) inputRecord.tip = tip
       else delete inputRecord.tip
+      if (refsByPortId.has(portId)) {
+        const ref = String(refsByPortId.get(portId) ?? '').trim()
+        if (ref) inputRecord.ref = ref
+        else delete inputRecord.ref
+      }
     }
   }
   return true
@@ -315,10 +413,13 @@ async function saveNodeDefinitionAnnotations(typeId: string) {
     return false
   }
   const tipsByPortId = new Map<number, string>()
+  const refsByPortId = new Map<number, string>()
   for (const port of labeledInputPorts(definition.inputPorts)) {
-    if (typeof port.portId === 'number') tipsByPortId.set(port.portId, String(nodeAnnotationDraft.value.tips[port.key] ?? ''))
+    if (typeof port.portId !== 'number') continue
+    tipsByPortId.set(port.portId, String(nodeAnnotationDraft.value.tips[port.key] ?? ''))
+    if (port.type === 'integer') refsByPortId.set(port.portId, String(nodeAnnotationDraft.value.refs[port.key] ?? ''))
   }
-  if (!applyNodeDefinitionEdits(parsed, definition.sourceName, nodeAnnotationDraft.value.description, tipsByPortId)) {
+  if (!applyNodeDefinitionEdits(parsed, definition.sourceName, nodeAnnotationDraft.value.description, tipsByPortId, refsByPortId)) {
     status.value = `节点定义文档中未找到 ${definition.sourceName}`
     return false
   }
@@ -501,7 +602,7 @@ onMounted(async () => {
   await editor.newDocument()
   if (nodeLoadStatus) status.value = nodeLoadStatus
   recentFiles.value = await platform.recentFiles()
-  const initialWorkspace = await platform.currentWorkingDirectory()
+  const initialWorkspace = (await platform.startupWorkspace()) || (await platform.currentWorkingDirectory())
   if (initialWorkspace) await loadWorkspace(initialWorkspace)
   await loadRecoverySnapshotPrompts()
   unsubscribeCloseRequest = platform.onCloseRequest(() => { void handleCloseRequest() })
@@ -558,7 +659,12 @@ function defaultProjectSettings(): ProjectSettings {
       hideBuildFolders: false
     },
     editor: { autoSave: 'off', validateBeforeSave: false },
-    export: { imageScale: 2, showGrid: true }
+    export: { imageScale: 2, showGrid: true },
+    configTables: {
+      directories: ['configs'],
+      defaults: { idMatchRow: 1, nameMatchRow: 1, idKeyword: 'id', nameKeywords: ['name', '名称'] },
+      datasets: []
+    }
   }
 }
 
@@ -606,7 +712,66 @@ function normalizeProjectSettings(value: unknown): ProjectSettings {
     export: {
       imageScale,
       showGrid: typeof exportSettings.showGrid === 'boolean' ? exportSettings.showGrid : true
+    },
+    configTables: normalizeConfigTablesSettings(source.configTables, fallback.configTables)
+  }
+}
+
+function normalizeConfigTablesSettings(value: unknown, fallback: ProjectSettings['configTables']): ProjectSettings['configTables'] {
+  const source = (value && typeof value === 'object' ? value : {}) as Partial<ProjectSettings['configTables']> & { rootDirectory?: string; tables?: unknown }
+  const rawDirectories = Array.isArray(source.directories)
+    ? source.directories
+    : (typeof source.rootDirectory === 'string' && source.rootDirectory.trim() ? [source.rootDirectory] : [])
+  const directories = rawDirectories.map(item => String(item ?? '').trim()).filter(Boolean).slice(0, 16)
+  const legacy = source as { matchRow?: unknown }
+  const defaultsSource = (source.defaults && typeof source.defaults === 'object' ? source.defaults : {}) as Partial<ProjectSettings['configTables']['defaults']> & { matchRow?: unknown }
+  const legacyMatchRow = clampNumber((defaultsSource as { matchRow?: unknown }).matchRow ?? legacy.matchRow, 0, 0, 50)
+  const fallbackMatchRow = legacyMatchRow > 0 ? legacyMatchRow : fallback.defaults.idMatchRow
+  const idMatchRow = clampNumber(defaultsSource.idMatchRow ?? fallbackMatchRow, fallbackMatchRow, 1, 50)
+  const nameMatchRow = clampNumber(defaultsSource.nameMatchRow ?? idMatchRow, idMatchRow, 1, 50)
+  const defaults = {
+    idMatchRow,
+    nameMatchRow,
+    idKeyword: String(defaultsSource.idKeyword ?? '').trim() || fallback.defaults.idKeyword,
+    nameKeywords: Array.isArray(defaultsSource.nameKeywords)
+      ? defaultsSource.nameKeywords.map(item => String(item ?? '').trim()).filter(Boolean).slice(0, 8)
+      : fallback.defaults.nameKeywords
+  }
+  // 旧版 tables 清单（一项=一张表）自动迁移为数据集：key 沿用旧表键，已有节点 ref 不受影响。
+  const datasetSource = Array.isArray((source as { datasets?: unknown }).datasets)
+    ? (source as { datasets: unknown[] }).datasets
+    : (Array.isArray(source.tables) ? source.tables : [])
+  const datasets = datasetSource.map(item => {
+    const dataset = (item && typeof item === 'object' ? item : {}) as Partial<ConfigTableDatasetSetting> & { matchRow?: unknown }
+    const legacyMatchRow = clampNumber((dataset as { matchRow?: unknown }).matchRow, 0, 0, 50)
+    const key = String(dataset.key ?? '').trim()
+    return {
+      key,
+      name: String(dataset.name ?? '').trim() || key,
+      file: String(dataset.file ?? '').trim(),
+      sheet: String(dataset.sheet ?? '').trim(),
+      idMatchRow: clampNumber(dataset.idMatchRow ?? legacyMatchRow, 0, 0, 50),
+      nameMatchRow: clampNumber(dataset.nameMatchRow ?? legacyMatchRow, 0, 0, 50),
+      idKeyword: String(dataset.idKeyword ?? '').trim(),
+      nameKeyword: String(dataset.nameKeyword ?? '').trim(),
+      filter: normalizeConfigTableFilter(dataset.filter)
     }
+  }).filter(dataset => dataset.key || dataset.file)
+  return { directories: directories.length ? directories : fallback.directories, defaults, datasets }
+}
+
+function normalizeConfigTableFilter(value: unknown): ConfigTableFilterSetting {
+  const source = (value && typeof value === 'object' ? value : {}) as Partial<ConfigTableFilterSetting>
+  return {
+    mode: source.mode === 'range' || source.mode === 'compare' ? source.mode : 'text',
+    column: source.column === 'id' || source.column === 'name' || source.column === 'custom' ? source.column : 'all',
+    text: String(source.text ?? ''),
+    rangeMin: String(source.rangeMin ?? ''),
+    rangeMax: String(source.rangeMax ?? ''),
+    compareOp: ['>', '>=', '<', '<='].includes(String(source.compareOp)) ? String(source.compareOp) : '>',
+    compareValue: String(source.compareValue ?? ''),
+    extraMatchRow: clampNumber(source.extraMatchRow, 0, 0, 50),
+    extraKeyword: String(source.extraKeyword ?? '').trim()
   }
 }
 
@@ -624,6 +789,7 @@ function currentProjectSettings() {
   current.layout.visible = { tools: showTools.value, library: showRight.value, test: showLogger.value }
   current.explorer.expanded = Array.from(expandedWorkspacePaths.value)
   current.explorer.selected = selectedWorkspacePath.value
+  current.configTables = projectSettingsContent.value.configTables
   return current
 }
 
@@ -2240,7 +2406,30 @@ async function handleCloseRequest() {
 }
 
 async function chooseWorkspace() {
-  const path = await platform.chooseWorkspace(); if (path) await loadWorkspace(path)
+  const path = await platform.chooseWorkspace()
+  if (!path) return
+  if (!isSameWorkspacePath(path, workspaceRoot.value) && !(await closeAllGraphTabsForWorkspaceSwitch())) return
+  await loadWorkspace(path)
+}
+
+function isSameWorkspacePath(left: string, right: string) {
+  if (!left || !right) return false
+  return left.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase() === right.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+}
+
+// 切换工程目录会替换整份节点定义，旧蓝图里的节点类型可能在新目录下不存在，
+// 因此默认关闭所有已打开的蓝图；有未保存修改时先让用户确认。
+async function closeAllGraphTabsForWorkspaceSwitch() {
+  const dirtyTabs = tabs.value.filter(tab => tab.dirty)
+  if (dirtyTabs.length) {
+    const names = dirtyTabs.map(tab => tab.title).join('、')
+    if (!window.confirm(`切换工程目录会关闭所有已打开的蓝图，以下蓝图有未保存的修改：\n${names}\n\n确定继续？`)) return false
+  }
+  tabs.value = []
+  activeTabId.value = ''
+  selectedNode.value = null
+  await newGraph()
+  return true
 }
 
 async function refreshWorkspace() {
@@ -2251,7 +2440,565 @@ async function refreshWorkspace() {
 
 async function refreshNodeLibrary() {
   const nodeLoadStatus = await loadRuntimeNodeLibrary()
+  void loadConfigTables()
   status.value = nodeLoadStatus || `Node library refreshed (${nodeLibrary.value.length} node template(s))`
+}
+
+const configTables = ref<ConfigTable[]>([])
+
+async function loadConfigTables() {
+  if (!workspaceRoot.value) {
+    configTables.value = []
+    setConfigTables([])
+    return
+  }
+  try {
+    const tables = await platform.loadConfigTables(workspaceRoot.value, projectSettingsContent.value.configTables)
+    configTables.value = tables
+    setConfigTables(tables)
+    const missing = tables.filter(table => table.missing).length
+    status.value = configTableStatusLine(tables) + (missing > 0 ? `，${missing} 个数据集未找到来源文件（配置已保留）` : '')
+  } catch (error) {
+    configTables.value = []
+    setConfigTables([])
+    status.value = `配置表加载失败：${error instanceof Error ? error.message : String(error)}`
+  }
+}
+
+const configTableImportDialog = ref(false)
+const configTableSaveFeedback = ref('')
+const configTableScan = ref<ConfigTable[]>([])
+const configTableImportDraft = ref<ProjectSettings['configTables']>({ directories: ['configs'], defaults: { idMatchRow: 1, nameMatchRow: 1, idKeyword: 'id', nameKeywords: ['name', '名称'] }, datasets: [] })
+// 批量导入只做“新增”：勾选尚未导入的表，保存时为它们各建一个默认数据集。
+// 已有数据集的表不提供勾选（删除/改名在“数据集管理”里做，避免误删）。
+const configTablePendingPicks = ref<Set<string>>(new Set())
+
+async function refreshConfigTableScan() {
+  if (!workspaceRoot.value) {
+    configTableScan.value = []
+    return
+  }
+  configTableScan.value = await platform.scanConfigTables(workspaceRoot.value, projectSettingsContent.value.configTables)
+}
+
+const configTableDirectoriesDialog = ref(false)
+const configTableDirectoriesDraft = ref<string[]>([])
+
+function openConfigTableDirectoriesDialog() {
+  configTableDirectoriesDraft.value = [...projectSettingsContent.value.configTables.directories]
+  if (!configTableDirectoriesDraft.value.length) configTableDirectoriesDraft.value = ['configs']
+  configTableDirectoriesDialog.value = true
+}
+
+function addConfigTableDirectory() {
+  configTableDirectoriesDraft.value.push('')
+}
+
+async function browseConfigTableDirectory(index: number) {
+  if (!workspaceRoot.value) return
+  try {
+    const picked = await platform.chooseConfigTableDirectory(workspaceRoot.value)
+    if (!picked) return
+    configTableDirectoriesDraft.value[index] = relativeWorkspaceDirectory(picked)
+  } catch (error) {
+    status.value = `选择目录失败：${error instanceof Error ? error.message : String(error)}`
+  }
+}
+
+async function saveConfigTableDirectories() {
+  const directories = configTableDirectoriesDraft.value.map(item => item.trim()).filter(Boolean)
+  if (!directories.length) {
+    status.value = '至少保留一个表元目录'
+    return
+  }
+  projectSettingsContent.value = {
+    ...projectSettingsContent.value,
+    configTables: normalizeConfigTablesSettings({ ...projectSettingsContent.value.configTables, directories }, projectSettingsContent.value.configTables)
+  }
+  configTableDirectoriesDialog.value = false
+  await saveProjectSettings()
+  await loadConfigTables()
+  if (configTableImportDialog.value) await refreshConfigTableScan()
+  status.value = `表元目录已保存（${directories.length} 个），可用“导入配置表”勾选要导入的表`
+}
+
+function relativeWorkspaceDirectory(absolute: string) {
+  const root = String(workspaceRoot.value ?? '').replace(/\\/g, '/').replace(/\/+$/, '')
+  const target = String(absolute ?? '').replace(/\\/g, '/').replace(/\/+$/, '')
+  if (root && target.toLowerCase().startsWith(`${root.toLowerCase()}/`)) return target.slice(root.length + 1)
+  return target || '.'
+}
+
+async function openConfigTableImportDialog() {
+  configTableSaveFeedback.value = ''
+  configTableListView.value = 'all'
+  configTableImportDraft.value = JSON.parse(JSON.stringify(projectSettingsContent.value.configTables)) as ProjectSettings['configTables']
+  configTablePendingPicks.value = new Set()
+  configTablePendingDrafts.value = {}
+  configTablePendingExpanded.value = new Set()
+  configTablePreview.value = {}
+  configTableSearch.value = ''
+  configTableImportDialog.value = true
+  await refreshConfigTableScan()
+}
+
+const configTableSearch = ref('')
+const configTableListView = ref<'all' | 'imported' | 'pending'>('all')
+
+type ConfigTableListView = 'all' | 'imported' | 'pending'
+
+function setConfigTableListView(view: ConfigTableListView) {
+  configTableListView.value = view
+}
+
+// 数据集与物理表按“文件名 + sheet 名”对应。
+function datasetsForScanTable(table: ConfigTable) {
+  return configTableImportDraft.value.datasets.filter(dataset =>
+    dataset.file === table.file && (dataset.sheet ?? '') === (table.sheet ?? ''))
+}
+
+function hasDatasetForTable(table: ConfigTable) {
+  return datasetsForScanTable(table).length > 0
+}
+
+// 勾选的表可展开“识别设置”单独配置表头识别与筛选（不配置则沿用通用默认，保存后仍可在数据集管理里改）。
+const configTablePendingDrafts = ref<Record<string, ConfigTableDatasetSetting>>({})
+const configTablePendingExpanded = ref<Set<string>>(new Set())
+
+function pendingDatasetDraft(table: ConfigTable): ConfigTableDatasetSetting {
+  const existing = configTablePendingDrafts.value[table.key]
+  if (existing) return existing
+  const created: ConfigTableDatasetSetting = {
+    key: '', name: '', file: table.file, sheet: table.sheet ?? '',
+    idMatchRow: 0, nameMatchRow: 0, idKeyword: '', nameKeyword: '',
+    filter: normalizeConfigTableFilter(undefined)
+  }
+  configTablePendingDrafts.value = { ...configTablePendingDrafts.value, [table.key]: created }
+  return created
+}
+
+function togglePendingPick(table: ConfigTable, checked: boolean) {
+  const picks = new Set(configTablePendingPicks.value)
+  if (checked) {
+    picks.add(table.key)
+    pendingDatasetDraft(table)
+  } else {
+    picks.delete(table.key)
+    const expanded = new Set(configTablePendingExpanded.value)
+    expanded.delete(table.key)
+    configTablePendingExpanded.value = expanded
+  }
+  configTablePendingPicks.value = picks
+}
+
+async function togglePendingExpanded(table: ConfigTable) {
+  const expanded = new Set(configTablePendingExpanded.value)
+  if (expanded.has(table.key)) {
+    expanded.delete(table.key)
+  } else {
+    pendingDatasetDraft(table)
+    expanded.add(table.key)
+  }
+  configTablePendingExpanded.value = expanded
+  await loadPendingTablePreview(table)
+}
+
+// 全选/全不选只作用于当前搜索结果里尚未导入的表（已导入的表不可勾选）。
+function setAllPendingPicks(imported: boolean) {
+  const picks = new Set(configTablePendingPicks.value)
+  for (const table of filteredConfigTableScan()) {
+    if (hasDatasetForTable(table)) continue
+    if (imported) {
+      picks.add(table.key)
+      pendingDatasetDraft(table)
+    } else {
+      picks.delete(table.key)
+    }
+  }
+  configTablePendingPicks.value = picks
+}
+
+// 预览勾选表按其识别设置解析的全量数据（用临时数据集 key 组合草稿，避免与已有数据集冲突）。
+async function loadPendingTablePreview(table: ConfigTable) {
+  const pick = configTablePendingDrafts.value[table.key]
+  if (!pick || !workspaceRoot.value || configTablePreviewLoading.value.has(table.key)) return
+  const loading = new Set(configTablePreviewLoading.value)
+  loading.add(table.key)
+  configTablePreviewLoading.value = loading
+  try {
+    const previewKey = `${table.key}__pick`
+    const composed = JSON.parse(JSON.stringify({
+      ...configTableImportDraft.value,
+      datasets: [...configTableImportDraft.value.datasets, { ...pick, key: previewKey }]
+    })) as ProjectSettings['configTables']
+    const result = await platform.previewConfigTable(workspaceRoot.value, composed, previewKey, pick.filter.extraKeyword, pick.filter.extraMatchRow)
+    configTablePreview.value = { ...configTablePreview.value, [table.key]: result?.entries ?? [] }
+  } finally {
+    const done = new Set(configTablePreviewLoading.value)
+    done.delete(table.key)
+    configTablePreviewLoading.value = done
+  }
+}
+
+// 勾选表预览：全量条目按该表草稿筛选即时套用（与数据集管理的预览语义一致）。
+function pendingPreviewEntries(table: ConfigTable) {
+  const pick = configTablePendingDrafts.value[table.key]
+  const entries = configTablePreview.value[table.key] ?? []
+  if (!pick) return { matched: 0, total: 0, shown: [] as ConfigTableEntry[] }
+  const filter = pick.filter
+  let filtered: ConfigTableEntry[]
+  if (filter.mode === 'range') {
+    filtered = filter.rangeMin && filter.rangeMax ? filterConfigEntries(entries, `${filter.rangeMin}-${filter.rangeMax}`) : entries
+  } else if (filter.mode === 'compare') {
+    filtered = filter.compareValue ? filterConfigEntries(entries, `${filter.compareOp}${filter.compareValue}`) : entries
+  } else {
+    filtered = filterConfigEntries(entries, filter.text, { columns: filter.column })
+  }
+  return { matched: filtered.length, total: entries.length, shown: filtered.slice(0, 30) }
+}
+
+// 表太多时的模糊搜索（表键/文件名/sheet 名包含、不区分大小写）+ 视图筛选（全部/已导入/未导入）。
+function filteredConfigTableScan() {
+  const query = configTableSearch.value.trim().toLowerCase()
+  return configTableScan.value.filter(table => {
+    const imported = hasDatasetForTable(table)
+    if (configTableListView.value === 'imported' && !imported) return false
+    if (configTableListView.value === 'pending' && imported) return false
+    if (!query) return true
+    return table.key.toLowerCase().includes(query)
+      || table.file.toLowerCase().includes(query)
+      || (table.sheet ?? '').toLowerCase().includes(query)
+  })
+}
+
+function pendingConfigTableCount() {
+  return configTableScan.value.filter(table => !hasDatasetForTable(table)).length
+}
+
+// 数据集清单里存在、但当前表元目录中找不到来源文件的表（文件被移动/改名，或他人工程目录不同）。
+// 配置原样保留、绝不自动删除；换到包含对应文件的目录后自动恢复。
+function missingImportedConfigTables(): ConfigTable[] {
+  return configTableImportDraft.value.datasets
+    .filter(dataset => dataset.key && !configTableScan.value.some(table =>
+      table.file === dataset.file && (table.sheet ?? '') === (dataset.sheet ?? '')))
+    .map(dataset => ({
+      key: dataset.key,
+      name: dataset.name,
+      file: dataset.file,
+      sheet: dataset.sheet,
+      rowCount: 0,
+      idColumn: '',
+      nameColumn: '',
+      imported: true,
+      missing: true,
+      warning: '未找到来源文件（配置已保留，可在“数据集管理”中删除）',
+      entries: []
+    }))
+}
+
+function displayConfigTableScan() {
+  return [...filteredConfigTableScan(), ...missingImportedConfigTables().filter(table => {
+    if (configTableListView.value === 'pending') return false
+    const query = configTableSearch.value.trim().toLowerCase()
+    if (!query) return true
+    return table.key.toLowerCase().includes(query) || table.file.toLowerCase().includes(query)
+  })]
+}
+
+// 列表行摘要：识别结果 + 该表已派生的数据集数。
+function configTableSummary(table: ConfigTable) {
+  if (table.warning) return `⚠ ${table.warning}`
+  const base = `${table.rowCount} 行 · id 列 ${table.idColumn} · 名称列 ${table.nameColumn}`
+  const datasets = datasetsForScanTable(table).length
+  return datasets > 1 ? `${base} · 已有 ${datasets} 个数据集` : base
+}
+
+// 数据集管理的预览数据：key 为数据集 key，条目为来源表全量数据（不应用筛选，
+// 筛选在界面上按当前编辑中的 dataset.filter 即时套用，便于调整后看到完整命中情况）。
+const configTablePreview = ref<Record<string, ConfigTableEntry[]>>({})
+const configTablePreviewLoading = ref<Set<string>>(new Set())
+
+// 按草稿数据集规则重新解析来源表并加载全量条目；extraKeyword/extraMatchRow 来自该数据集的筛选列设置。
+async function loadConfigTablePreview(key: string, draft: ProjectSettings['configTables']) {
+  if (!workspaceRoot.value || configTablePreviewLoading.value.has(key)) return
+  const dataset = draft.datasets.find(item => item.key === key)
+  if (!dataset) return
+  configTablePreviewLoading.value = new Set([...configTablePreviewLoading.value, key])
+  try {
+    const draftCopy = JSON.parse(JSON.stringify(draft)) as ProjectSettings['configTables']
+    const table = await platform.previewConfigTable(workspaceRoot.value, draftCopy, key, dataset.filter.extraKeyword, dataset.filter.extraMatchRow)
+    configTablePreview.value = { ...configTablePreview.value, [key]: table?.entries ?? [] }
+  } finally {
+    const loading = new Set(configTablePreviewLoading.value)
+    loading.delete(key)
+    configTablePreviewLoading.value = loading
+  }
+}
+
+// 给新建数据集生成不冲突的稳定 key：沿用表键；冲突时追加 _2、_3…
+function uniqueDatasetKey(base: string) {
+  const used = new Set<string>([
+    ...configTableImportDraft.value.datasets.map(dataset => dataset.key),
+    ...configTableManageDraft.value.datasets.map(dataset => dataset.key)
+  ])
+  let candidate = base || 'dataset'
+  let index = 2
+  while (used.has(candidate)) candidate = `${base}_${index++}`
+  return candidate
+}
+
+async function saveConfigTableImport() {
+  // 为每个勾选的未导入表创建数据集；展开“识别设置”配置过的表头识别/筛选随数据集一起保存。
+  let added = 0
+  for (const key of configTablePendingPicks.value) {
+    const table = configTableScan.value.find(item => item.key === key)
+    if (!table || hasDatasetForTable(table)) continue
+    const pick = configTablePendingDrafts.value[key]
+    configTableImportDraft.value.datasets.push({
+      ...(pick ?? {
+        key: '', name: '', file: table.file, sheet: table.sheet ?? '',
+        idMatchRow: 0, nameMatchRow: 0, idKeyword: '', nameKeyword: '',
+        filter: normalizeConfigTableFilter(undefined)
+      }),
+      key: uniqueDatasetKey(table.key),
+      name: table.key,
+      file: table.file,
+      sheet: table.sheet ?? ''
+    })
+    added++
+  }
+  configTablePendingPicks.value = new Set()
+  configTablePendingDrafts.value = {}
+  configTablePendingExpanded.value = new Set()
+  configTablePreview.value = {}
+  const normalized = normalizeConfigTablesSettings(configTableImportDraft.value, projectSettingsContent.value.configTables)
+  projectSettingsContent.value = { ...projectSettingsContent.value, configTables: normalized }
+  configTableImportDraft.value = JSON.parse(JSON.stringify(normalized)) as ProjectSettings['configTables']
+  await saveProjectSettings()
+  await loadConfigTables()
+  await refreshConfigTableScan()
+  const datasets = configTableImportDraft.value.datasets.length
+  const entries = configTables.value.reduce((total, table) => total + table.entries.length, 0)
+  const missing = configTables.value.filter(table => table.missing).length
+  configTableSaveFeedback.value = added
+    ? `新增 ${added} 个数据集，共 ${datasets} 个（${entries} 条 id·名称${missing ? `，${missing} 个未找到来源文件` : ''}）`
+    : `未勾选新表；当前共 ${datasets} 个数据集`
+  status.value = `配置表：${datasets} 个数据集，共 ${entries} 条 id·名称`
+}
+
+// ── 数据集管理 ────────────────────────────────────────────────────────────────
+// 列表（左）+ 详情（右）：改名、表头识别、筛选、预览、新增/复制/删除。
+// 一表多集的入口是“复制”：复制当前数据集后改显示名、改筛选即可切出同表的另一段枚举。
+const configTableManageDialog = ref(false)
+const configTableManageDraft = ref<ProjectSettings['configTables']>({ directories: ['configs'], defaults: { idMatchRow: 1, nameMatchRow: 1, idKeyword: 'id', nameKeywords: ['name', '名称'] }, datasets: [] })
+const configTableManageSelected = ref('')
+const configTableManageSearch = ref('')
+const configTableManageView = ref<'all' | 'missing'>('all')
+const configTableManageAddKey = ref('')
+const configTableManageFeedback = ref('')
+const configTableManageError = ref('')
+// 打开/保存时的数据集快照：用于标记“哪些数据集改了还没保存”。
+const configTableManageSnapshot = ref('')
+
+// 未保存统计：draft 与快照逐项对比（新增/修改的数据集 + 已删除的数量）。
+const manageDirtyInfo = computed(() => {
+  let saved: ConfigTableDatasetSetting[] = []
+  try { saved = JSON.parse(configTableManageSnapshot.value) as ConfigTableDatasetSetting[] } catch { saved = [] }
+  const savedByKey = new Map(saved.map(dataset => [dataset.key, JSON.stringify(dataset)]))
+  const draft = configTableManageDraft.value.datasets
+  const dirtyKeys = draft.filter(dataset => savedByKey.get(dataset.key) !== JSON.stringify(dataset)).map(dataset => dataset.key)
+  const removed = saved.filter(dataset => !draft.some(item => item.key === dataset.key)).length
+  return { dirtyKeys, removed, total: dirtyKeys.length + (removed > 0 ? 1 : 0) }
+})
+
+function manageDatasetDirty(key: string) {
+  return manageDirtyInfo.value.dirtyKeys.includes(key)
+}
+
+async function openConfigTableManageDialog() {
+  configTableManageFeedback.value = ''
+  configTableManageError.value = ''
+  configTableManageSearch.value = ''
+  configTableManageView.value = 'all'
+  configTableManageAddKey.value = ''
+  const normalized = normalizeConfigTablesSettings(projectSettingsContent.value.configTables, projectSettingsContent.value.configTables)
+  configTableManageDraft.value = JSON.parse(JSON.stringify(normalized)) as ProjectSettings['configTables']
+  configTableManageSnapshot.value = JSON.stringify(configTableManageDraft.value.datasets)
+  configTablePreview.value = {}
+  configTableManageSelected.value = configTableManageDraft.value.datasets[0]?.key ?? ''
+  configTableManageDialog.value = true
+  if (configTableManageSelected.value) void loadConfigTablePreview(configTableManageSelected.value, configTableManageDraft.value)
+  await refreshConfigTableScan()
+}
+
+// 显示名校验：非空且两两不重复（trim 后比较）；返回错误描述，通过返回空串。
+function validateManageDatasetNames(): string {
+  const seen = new Map<string, string>()
+  for (const dataset of configTableManageDraft.value.datasets) {
+    const name = dataset.name.trim()
+    if (!name) return `数据集 ${dataset.key} 的显示名为空，请填写后再保存`
+    const prior = seen.get(name)
+    if (prior) return `显示名「${name}」重复：${prior} 与 ${dataset.key} 都在用它，显示名必须唯一`
+    seen.set(name, dataset.key)
+  }
+  return ''
+}
+
+// 有未保存修改时关闭需确认，避免切走丢失整批修改。
+function closeConfigTableManage() {
+  const dirty = manageDirtyInfo.value.total
+  if (dirty > 0 && !window.confirm(`数据集管理有 ${dirty} 处修改尚未保存。\n\n确定不保存直接关闭？`)) return
+  configTableManageDialog.value = false
+}
+
+function selectedManageDataset() {
+  return configTableManageDraft.value.datasets.find(dataset => dataset.key === configTableManageSelected.value)
+}
+
+// 模板绑定统一走这个 computed（v-model 直接绑定函数调用结果在部分编译路径下会丢 setter，导致输入无效）。
+const manageSelected = computed(() => configTableManageDraft.value.datasets.find(dataset => dataset.key === configTableManageSelected.value))
+
+// 来源表重新绑定：下拉值用扫描表 key（file+sheet 唯一）；当前来源不在扫描结果里（文件缺失）时补一个占位项。
+function manageSourceValue() {
+  const dataset = manageSelected.value
+  if (!dataset) return ''
+  const scan = configTableScan.value.find(table => table.file === dataset.file && (table.sheet ?? '') === (dataset.sheet ?? ''))
+  return scan?.key ?? '__missing__'
+}
+
+function setManageSource(event: Event) {
+  const dataset = manageSelected.value
+  const value = (event.target as HTMLSelectElement).value
+  if (!dataset || !value || value === '__missing__') return
+  const table = configTableScan.value.find(item => item.key === value)
+  if (!table) return
+  dataset.file = table.file
+  dataset.sheet = table.sheet ?? ''
+  void loadConfigTablePreview(dataset.key, configTableManageDraft.value)
+}
+
+// 左侧列表：搜索（显示名/key/来源文件）+ 全部/缺失视图（缺失来自已加载索引的 missing 标记）。
+function configTableManageDatasetList() {
+  const query = configTableManageSearch.value.trim().toLowerCase()
+  return configTableManageDraft.value.datasets.filter(dataset => {
+    if (configTableManageView.value === 'missing') {
+      const loaded = configTables.value.find(table => table.key === dataset.key)
+      if (!loaded?.missing) return false
+    }
+    if (!query) return true
+    return dataset.name.toLowerCase().includes(query)
+      || dataset.key.toLowerCase().includes(query)
+      || dataset.file.toLowerCase().includes(query)
+  })
+}
+
+// 列表行的状态摘要：已加载条数 / 未保存 / 缺失警告（来自已加载索引，保存后才刷新）。
+function manageDatasetMeta(key: string) {
+  const loaded = configTables.value.find(table => table.key === key)
+  if (loaded?.missing) return `⚠ ${loaded.warning ?? '未找到来源文件'}`
+  if (loaded) return `${loaded.entries.length} 条`
+  return '未保存/未加载'
+}
+
+function selectManageDataset(key: string) {
+  configTableManageSelected.value = key
+  configTableManageError.value = ''
+  void loadConfigTablePreview(key, configTableManageDraft.value)
+}
+
+function reloadManagePreview() {
+  const dataset = selectedManageDataset()
+  if (dataset) void loadConfigTablePreview(dataset.key, configTableManageDraft.value)
+}
+
+// 详情区预览：全量条目按当前编辑中的 dataset.filter 即时套用（与加载内存时的筛选语义一致）。
+function managePreviewEntries() {
+  const dataset = selectedManageDataset()
+  if (!dataset) return { matched: 0, total: 0, shown: [] as ConfigTableEntry[] }
+  const entries = configTablePreview.value[dataset.key] ?? []
+  const filter = dataset.filter
+  let filtered: ConfigTableEntry[]
+  if (filter.mode === 'range') {
+    filtered = filter.rangeMin && filter.rangeMax ? filterConfigEntries(entries, `${filter.rangeMin}-${filter.rangeMax}`) : entries
+  } else if (filter.mode === 'compare') {
+    filtered = filter.compareValue ? filterConfigEntries(entries, `${filter.compareOp}${filter.compareValue}`) : entries
+  } else {
+    filtered = filterConfigEntries(entries, filter.text, { columns: filter.column })
+  }
+  return { matched: filtered.length, total: entries.length, shown: filtered.slice(0, 30) }
+}
+
+// 新增候选：表元目录扫描到的物理表（含未导入的；同一表可多次新建数据集）。
+function manageAddCandidates() {
+  return configTableScan.value
+}
+
+function addManageDatasetFromScan(scanKey: string) {
+  const table = configTableScan.value.find(item => item.key === scanKey)
+  if (!table) return
+  configTableManageDraft.value.datasets.push({
+    key: uniqueDatasetKey(table.key),
+    name: table.key,
+    file: table.file,
+    sheet: table.sheet ?? '',
+    idMatchRow: 0,
+    nameMatchRow: 0,
+    idKeyword: '',
+    nameKeyword: '',
+    filter: normalizeConfigTableFilter(undefined)
+  })
+  configTableManageAddKey.value = ''
+  selectManageDataset(configTableManageDraft.value.datasets[configTableManageDraft.value.datasets.length - 1].key)
+}
+
+// 一表多集核心操作：复制当前数据集（同来源、同识别规则），改显示名和筛选后另存一段。
+function duplicateManageDataset() {
+  const dataset = selectedManageDataset()
+  if (!dataset) return
+  const copy = JSON.parse(JSON.stringify(dataset)) as ConfigTableDatasetSetting
+  copy.key = uniqueDatasetKey(dataset.key)
+  copy.name = `${dataset.name} 副本`
+  configTableManageDraft.value.datasets.push(copy)
+  selectManageDataset(copy.key)
+}
+
+function removeManageDataset() {
+  const dataset = selectedManageDataset()
+  if (!dataset) return
+  const datasets = configTableManageDraft.value.datasets.filter(item => item.key !== dataset.key)
+  configTableManageDraft.value = { ...configTableManageDraft.value, datasets }
+  configTableManageSelected.value = datasets[0]?.key ?? ''
+  if (configTableManageSelected.value) selectManageDataset(configTableManageSelected.value)
+}
+
+async function saveConfigTableManage() {
+  // 保存前校验显示名：非空、不重复；不通过时定位到出问题的数据集并中止保存。
+  const nameError = validateManageDatasetNames()
+  if (nameError) {
+    configTableManageError.value = nameError
+    configTableManageFeedback.value = ''
+    const offender = configTableManageDraft.value.datasets.find(dataset => !dataset.name.trim())
+      ?? configTableManageDraft.value.datasets.find(dataset =>
+        configTableManageDraft.value.datasets.filter(item => item.name.trim() === dataset.name.trim()).length > 1)
+    if (offender) configTableManageSelected.value = offender.key
+    return
+  }
+  configTableManageError.value = ''
+  const normalized = normalizeConfigTablesSettings(configTableManageDraft.value, projectSettingsContent.value.configTables)
+  projectSettingsContent.value = { ...projectSettingsContent.value, configTables: normalized }
+  configTableManageDraft.value = JSON.parse(JSON.stringify(normalized)) as ProjectSettings['configTables']
+  configTableManageSnapshot.value = JSON.stringify(configTableManageDraft.value.datasets)
+  if (!configTableManageDraft.value.datasets.some(dataset => dataset.key === configTableManageSelected.value)) {
+    configTableManageSelected.value = configTableManageDraft.value.datasets[0]?.key ?? ''
+  }
+  await saveProjectSettings()
+  await loadConfigTables()
+  await refreshConfigTableScan()
+  const datasets = configTableManageDraft.value.datasets.length
+  const entries = configTables.value.reduce((total, table) => total + table.entries.length, 0)
+  const missing = configTables.value.filter(table => table.missing).length
+  configTableManageFeedback.value = `已保存 ${datasets} 个数据集（${entries} 条 id·名称${missing ? `，${missing} 个未找到来源文件` : ''}）`
+  status.value = `配置表：${datasets} 个数据集，共 ${entries} 条 id·名称`
 }
 
 async function clearRecentFiles() {
@@ -2270,12 +3017,13 @@ async function loadWorkspace(path: string, refreshNodeSchemas = true) {
   workspaceTree.value = []
   await loadProjectSettings(path)
   if (token !== workspaceLoadToken) return
+  void loadConfigTables()
   const nodeLoadStatus = refreshNodeSchemas ? await loadRuntimeNodeLibrary(path) : ''
   if (token !== workspaceLoadToken) return
   workspaceTree.value = await loadWorkspaceTree(path)
   if (token !== workspaceLoadToken) return
   void hydrateWorkspaceTree(workspaceTree.value, 1, token)
-  if (projectSettingsContent.value.explorer.revealActiveFile) void revealActiveWorkspaceFile()
+  if (projectSettingsContent.value.explorer.revealActiveFile) void revealActiveWorkspaceFile(false)
   if (nodeLoadStatus) status.value = nodeLoadStatus
 }
 
@@ -3220,6 +3968,12 @@ function toggleModuleCategory(category: string) {
           <button @click="run(() => exportImage(false))">{{ menuText.menu.file.exportGraphImage }} <kbd>Ctrl+Shift+R</kbd></button>
           <template v-if="platform.isDesktop()"><div class="menu-separator"></div><button @click="run(quitApplication)">{{ menuText.menu.file.quit }} <kbd>Alt+F4</kbd></button></template>
         </div></div>
+        <div class="menu-root"><button @click.stop="toggleMenu('configTables')">{{ menuText.menu.configTables.title }}</button><div v-if="activeMenu === 'configTables'" class="dropdown-menu">
+          <button :disabled="!workspaceRoot" @click="openConfigTableManageDialog(); activeMenu = null">{{ menuText.menu.configTables.manageDatasets }}</button>
+          <button :disabled="!workspaceRoot" @click="openConfigTableImportDialog(); activeMenu = null">{{ menuText.menu.configTables.importTables }}</button>
+          <button :disabled="!workspaceRoot" @click="openConfigTableDirectoriesDialog(); activeMenu = null">{{ menuText.menu.configTables.setRootDirectory }}</button>
+          <button :disabled="!workspaceRoot" @click="run(loadConfigTables)">{{ menuText.menu.configTables.refresh }}</button>
+        </div></div>
         <div class="menu-root"><button @click.stop="toggleMenu('edit')">{{ menuText.menu.edit.title }}</button><div v-if="activeMenu === 'edit'" class="dropdown-menu">
           <button @click="run(() => editor?.undo())">{{ menuText.menu.edit.undo }} <kbd>Ctrl+Z</kbd></button><button @click="run(() => editor?.redo())">{{ menuText.menu.edit.redo }} <kbd>Ctrl+Y</kbd></button><div class="menu-separator"></div>
           <button @click="run(() => editor?.cut())">{{ menuText.menu.edit.cut }} <kbd>Ctrl+X</kbd></button><button @click="run(() => editor?.copy())">{{ menuText.menu.edit.copy }} <kbd>Ctrl+C</kbd></button><button @click="run(() => editor?.paste())">{{ menuText.menu.edit.paste }} <kbd>Ctrl+V</kbd></button><button @click="run(() => editor?.deleteSelected())">{{ menuText.menu.edit.delete }} <kbd>Delete</kbd></button>
@@ -3427,7 +4181,7 @@ function toggleModuleCategory(category: string) {
       <button v-if="fileContextMenu.isDir" @click="createFunctionInFileContext">新建函数</button>
       <button @click="revealFileContextInFolder">在资源管理器中定位</button>
     </div>
-    <div v-if="showSettings" class="settings-backdrop" @click.self="showSettings = false">
+    <div v-if="showSettings" class="settings-backdrop" @pointerdown.self="showSettings = false">
       <section class="settings-dialog">
         <header><strong>{{ menuText.settings.title }}</strong><button @click="showSettings = false">×</button></header>
         <div class="settings-body">
@@ -3445,7 +4199,7 @@ function toggleModuleCategory(category: string) {
         <footer><small>{{ projectSettingsPath || 'originblueprint.project' }}</small><button @click="showSettings = false">{{ menuText.settings.close }}</button></footer>
       </section>
     </div>
-    <div v-if="updateState.visible" class="update-backdrop" @click.self="closeUpdateDialog">
+    <div v-if="updateState.visible" class="update-backdrop" @pointerdown.self="closeUpdateDialog">
       <section class="update-dialog">
         <header><strong>{{ menuText.update.title }}</strong><button @click="closeUpdateDialog">×</button></header>
         <p>{{ menuText.update.available.replace('{version}', updateState.latestVersion) }}</p>
@@ -3490,33 +4244,262 @@ function toggleModuleCategory(category: string) {
         </footer>
       </section>
     </div>
-    <div v-if="nodeAnnotationDialog?.visible" class="about-backdrop" @click.self="closeNodeAnnotationDialog"><section class="about-dialog node-annotation-dialog">
-      <header><strong>{{ nodeAnnotationDialog.functionPath ? '编辑函数说明' : '编辑节点说明' }} — {{ nodeAnnotationDialog.title }}</strong><button @click="closeNodeAnnotationDialog">×</button></header>
+    <div v-if="configTableDirectoriesDialog" class="about-backdrop"><section class="about-dialog config-directory-dialog">
+      <header @pointerdown="beginDialogDrag"><strong>设置表元目录</strong><button @click="configTableDirectoriesDialog = false">×</button></header>
+      <div class="node-detail annotation-detail">
+        <div class="detail-section-title">表元目录（所有可导入的配置表只从这些目录获取）</div>
+        <div v-for="(directory, index) in configTableDirectoriesDraft" :key="index" class="config-dir-row">
+          <input v-model="configTableDirectoriesDraft[index]" placeholder="如 configs" />
+          <button class="dialog-button ghost small" title="浏览选择目录" @click="browseConfigTableDirectory(index)">…</button>
+          <button class="dialog-button ghost small danger" title="移除目录" @click="configTableDirectoriesDraft.splice(index, 1)">×</button>
+        </div>
+        <button class="dialog-button ghost small config-add-dir" @click="addConfigTableDirectory">＋ 添加目录</button>
+        <small class="variable-scope-hint">工程内目录保存为相对路径（随 .obproj 共享）；至少保留一个目录。</small>
+      </div>
+      <footer class="dialog-footer-actions"><button class="dialog-button primary" @click="saveConfigTableDirectories">保存</button><button class="dialog-button ghost" @click="configTableDirectoriesDialog = false">取消</button></footer>
+    </section></div>
+    <div v-if="configTableImportDialog" class="about-backdrop"><section class="about-dialog config-table-dialog">
+      <header @pointerdown="beginDialogDrag"><strong>批量导入配置表</strong><button @click="configTableImportDialog = false">×</button></header>
+      <div class="node-detail annotation-detail">
+        <div class="detail-section-title">通用默认表头识别规则（新导入的表按此识别）</div>
+        <div class="config-defaults-grid">
+          <label>id 表头所在行<input v-model.number="configTableImportDraft.defaults.idMatchRow" type="number" min="1" /></label>
+          <label>名称表头所在行<input v-model.number="configTableImportDraft.defaults.nameMatchRow" type="number" min="1" /></label>
+          <label>id 表头列所含关键字<input v-model="configTableImportDraft.defaults.idKeyword" placeholder="表头包含的字，如 id" /></label>
+          <label>名称表头列所含关键字<input :value="configTableImportDraft.defaults.nameKeywords.join(', ')" placeholder="如 name, 名称（逗号分隔，任一命中）" @change="configTableImportDraft.defaults.nameKeywords = ($event.target as HTMLInputElement).value.split(/[,，]/).map(item => item.trim()).filter(Boolean)" /></label>
+        </div>
+
+        <div class="detail-section-title config-table-list-title">
+          <span>发现的表（已有数据集 {{ configTableImportDraft.datasets.length }} / 共 {{ configTableScan.length }}）</span>
+          <span class="config-table-bulk">
+            <span class="config-preview-mode">
+              <button type="button" class="dialog-button small" :class="configTableListView === 'all' ? 'primary' : 'ghost'" @click="setConfigTableListView('all')">全部</button>
+              <button type="button" class="dialog-button small" :class="configTableListView === 'imported' ? 'primary' : 'ghost'" @click="setConfigTableListView('imported')">已导入</button>
+              <button type="button" class="dialog-button small" :class="configTableListView === 'pending' ? 'primary' : 'ghost'" @click="setConfigTableListView('pending')">未导入 {{ pendingConfigTableCount() }}</button>
+            </span>
+            <input v-model="configTableSearch" class="config-table-search" placeholder="🔍 搜索表名" />
+            <button class="dialog-button ghost small" @click="setAllPendingPicks(true)">全选</button>
+            <button class="dialog-button ghost small" @click="setAllPendingPicks(false)">全不选</button>
+          </span>
+        </div>
+        <div class="config-table-scroll">
+          <div v-if="!displayConfigTableScan().length" class="empty-panel">{{ configTableSearch ? '没有匹配的表' : configTableListView === 'imported' ? '还没有任何数据集；切换到“全部”或“未导入”勾选要导入的表。' : configTableListView === 'pending' ? '表元目录中的表都已建立数据集。' : '表元目录中没有 xlsx/csv 文件；可在“设置表元目录”中换目录或放入文件后重新打开本对话框。' }}</div>
+          <div v-for="table in displayConfigTableScan()" :key="table.key" class="config-table-row" :class="{ warned: table.warning }">
+            <div class="config-table-head">
+              <label class="config-table-check" :title="hasDatasetForTable(table) ? '已有数据集的表在这里只读；删除/改名/筛选请用“配置表 → 数据集管理”' : ''"><input type="checkbox" :disabled="hasDatasetForTable(table)" :checked="hasDatasetForTable(table) || configTablePendingPicks.has(table.key)" @change="togglePendingPick(table, ($event.target as HTMLInputElement).checked)" /></label>
+              <strong class="config-table-key">{{ table.key }}</strong>
+              <small class="config-table-summary">{{ configTableSummary(table) }}</small>
+              <button v-if="configTablePendingPicks.has(table.key) && !hasDatasetForTable(table)" class="dialog-button small" :class="configTablePendingExpanded.has(table.key) ? 'primary' : 'ghost'" @click="togglePendingExpanded(table)">识别设置</button>
+              <small v-if="hasDatasetForTable(table) && !table.missing" class="config-table-imported-hint">已导入（在“数据集管理”中编辑）</small>
+            </div>
+            <div v-if="configTablePendingExpanded.has(table.key) && configTablePendingDrafts[table.key]" class="config-table-override">
+              <div class="dataset-field-grid dataset-rule-grid">
+                <label title="在第几行里找 id 表头">id 表头所在行<input v-model.number="configTablePendingDrafts[table.key]!.idMatchRow" type="number" min="0" placeholder="默认" @change="loadPendingTablePreview(table)" /></label>
+                <label title="该行的哪一列算 id 列：表头包含该字">id 表头关键字<input v-model="configTablePendingDrafts[table.key]!.idKeyword" placeholder="默认" @change="loadPendingTablePreview(table)" /></label>
+                <label title="在第几行里找名称表头">名称表头所在行<input v-model.number="configTablePendingDrafts[table.key]!.nameMatchRow" type="number" min="0" placeholder="默认" @change="loadPendingTablePreview(table)" /></label>
+                <label title="该行的哪一列算名称列：表头包含该字，逗号分隔多个">名称表头关键字<input v-model="configTablePendingDrafts[table.key]!.nameKeyword" placeholder="默认，逗号分隔" @change="loadPendingTablePreview(table)" /></label>
+              </div>
+              <div class="dataset-filter-row">
+                <span class="config-preview-mode">
+                  <button type="button" class="dialog-button small" :class="configTablePendingDrafts[table.key]!.filter.mode === 'text' ? 'primary' : 'ghost'" @click="configTablePendingDrafts[table.key]!.filter.mode = 'text'">内容筛选</button>
+                  <button type="button" class="dialog-button small" :class="configTablePendingDrafts[table.key]!.filter.mode === 'range' ? 'primary' : 'ghost'" @click="configTablePendingDrafts[table.key]!.filter.mode = 'range'">ID范围</button>
+                  <button type="button" class="dialog-button small" :class="configTablePendingDrafts[table.key]!.filter.mode === 'compare' ? 'primary' : 'ghost'" @click="configTablePendingDrafts[table.key]!.filter.mode = 'compare'">ID比较</button>
+                </span>
+                <template v-if="configTablePendingDrafts[table.key]!.filter.mode === 'text'">
+                  <input type="text" class="dataset-filter-text" v-model="configTablePendingDrafts[table.key]!.filter.text" placeholder="筛选内容（该列包含的文字）" />
+                  <select v-model="configTablePendingDrafts[table.key]!.filter.column">
+                    <option value="all">全部列</option>
+                    <option value="id">仅 id 列</option>
+                    <option value="name">仅名称列</option>
+                    <option value="custom">指定列…</option>
+                  </select>
+                </template>
+                <template v-else-if="configTablePendingDrafts[table.key]!.filter.mode === 'range'">
+                  <input type="text" class="dataset-filter-number" v-model="configTablePendingDrafts[table.key]!.filter.rangeMin" placeholder="起始 ID" />
+                  <span class="config-preview-sep">至</span>
+                  <input type="text" class="dataset-filter-number" v-model="configTablePendingDrafts[table.key]!.filter.rangeMax" placeholder="结束 ID" />
+                </template>
+                <template v-else>
+                  <select v-model="configTablePendingDrafts[table.key]!.filter.compareOp">
+                    <option>&gt;</option>
+                    <option>&gt;=</option>
+                    <option>&lt;</option>
+                    <option>&lt;=</option>
+                  </select>
+                  <input type="text" class="dataset-filter-number" v-model="configTablePendingDrafts[table.key]!.filter.compareValue" placeholder="数值" />
+                </template>
+                <small>{{ configTablePreviewLoading.has(table.key) ? '加载中…' : `匹配 ${pendingPreviewEntries(table).matched}/${pendingPreviewEntries(table).total} 条` }}</small>
+              </div>
+              <div v-if="configTablePendingDrafts[table.key]!.filter.mode === 'text' && configTablePendingDrafts[table.key]!.filter.column === 'custom'" class="dataset-filter-row dataset-filter-extra">
+                <span class="config-preview-sep">筛选列定位</span>
+                <label>表头所在行<input type="number" min="0" v-model.number="configTablePendingDrafts[table.key]!.filter.extraMatchRow" placeholder="默认" @change="loadPendingTablePreview(table)" /></label>
+                <label>表头关键字<input type="text" v-model="configTablePendingDrafts[table.key]!.filter.extraKeyword" placeholder="如 备注、EnumName" @change="loadPendingTablePreview(table)" /></label>
+              </div>
+              <div class="config-preview-list">
+                <div v-for="(entry, entryIndex) in pendingPreviewEntries(table).shown" :key="entryIndex + ':' + entry.id" class="config-preview-row"><span class="config-preview-id">{{ entry.id }}</span><span class="config-preview-name">{{ entry.name }}</span><span v-if="entry.extra" class="config-preview-extra">{{ entry.extra }}</span></div>
+                <div v-if="!pendingPreviewEntries(table).matched && !configTablePreviewLoading.has(table.key) && (table.key in configTablePreview)" class="config-preview-empty">无匹配数据</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="config-table-hint">勾选未导入的表后可展开<b>识别设置</b>，单独配置该表的表头行号/关键字与筛选（留空沿用上面的通用默认），保存时随数据集一起生效。改名、把一张表拆成多个数据集（同一枚举表切出多段）请用“配置表 → 数据集管理”的“复制”。</div>
+      </div>
+      <footer class="dialog-footer-actions config-table-footer">
+        <span v-if="configTableSaveFeedback" class="config-save-feedback">✓ {{ configTableSaveFeedback }}</span>
+        <span class="dialog-footer-spacer"></span>
+        <button class="dialog-button primary" @click="saveConfigTableImport">导入勾选（新增 {{ configTablePendingPicks.size }} 个数据集）</button>
+        <button class="dialog-button ghost" @click="configTableImportDialog = false">关闭</button>
+      </footer>
+      <div class="dialog-resize" title="拖动缩放窗口" @pointerdown.stop.prevent="beginDialogResize"></div>
+    </section></div>
+    <div v-if="configTableManageDialog" class="about-backdrop"><section class="about-dialog config-table-dialog config-manage-dialog">
+      <header @pointerdown="beginDialogDrag"><strong>数据集管理</strong><button @click="closeConfigTableManage">×</button></header>
+      <div class="config-manage-body">
+        <aside class="config-dataset-list">
+          <div class="config-list-toolbar">
+            <input v-model="configTableManageSearch" class="config-table-search" placeholder="🔍 搜索数据集" />
+            <span class="config-preview-mode">
+              <button type="button" class="dialog-button small" :class="configTableManageView === 'all' ? 'primary' : 'ghost'" @click="configTableManageView = 'all'">全部</button>
+              <button type="button" class="dialog-button small" :class="configTableManageView === 'missing' ? 'primary' : 'ghost'" @click="configTableManageView = 'missing'">缺失</button>
+            </span>
+          </div>
+          <div class="config-dataset-items">
+            <button v-for="dataset in configTableManageDatasetList()" :key="dataset.key" type="button" class="config-dataset-item" :class="{ active: dataset.key === configTableManageSelected, warned: configTables.some(item => item.key === dataset.key && item.missing) }" @click="selectManageDataset(dataset.key)">
+              <strong class="config-dataset-name">{{ dataset.name }}<span v-if="manageDatasetDirty(dataset.key)" class="config-dataset-dirty" title="有未保存的修改">●</span></strong>
+              <small class="config-dataset-source">{{ dataset.file }}{{ dataset.sheet ? ' · ' + dataset.sheet : '' }}</small>
+              <small class="config-dataset-meta">{{ manageDatasetMeta(dataset.key) }}</small>
+            </button>
+            <div v-if="!configTableManageDatasetList().length" class="empty-panel">还没有数据集；用下方“从表新增”，或先到“批量导入”勾选表。</div>
+          </div>
+          <div class="config-dataset-actions">
+            <select v-model="configTableManageAddKey" title="从表元目录的表新建一个数据集" @change="configTableManageAddKey && addManageDatasetFromScan(configTableManageAddKey)">
+              <option value="">＋ 从表新增…</option>
+              <option v-for="table in manageAddCandidates()" :key="table.key" :value="table.key">{{ table.key }}（{{ table.rowCount }} 行）</option>
+            </select>
+            <button class="dialog-button ghost small" :disabled="!manageSelected" title="复制当前数据集：改显示名和筛选后即可切出同一张表的另一段数据" @click="duplicateManageDataset">复制</button>
+            <button class="dialog-button ghost small danger" :disabled="!manageSelected" @click="removeManageDataset">删除</button>
+          </div>
+        </aside>
+        <div v-if="manageSelected" class="config-dataset-detail">
+          <div class="dataset-field-grid dataset-info-grid">
+            <label>显示名<input v-model="manageSelected.name" placeholder="如 行为限制枚举" /></label>
+            <label title="节点 ref 的绑定值（nodes/*.json 与 .obpf 保存它），创建后不可改">数据集 ID<input :value="manageSelected.key" disabled /></label>
+            <label title="数据来源的物理表，可重新选择（文件改名/移动后在这里重绑）">来源表<select :value="manageSourceValue()" @change="setManageSource($event)">
+              <option v-if="manageSourceValue() === '__missing__'" value="__missing__">{{ manageSelected.file }}{{ manageSelected.sheet ? ' · ' + manageSelected.sheet : '' }}（未找到）</option>
+              <option v-for="table in manageAddCandidates()" :key="table.key" :value="table.key">{{ table.file }}{{ table.sheet ? ' · ' + table.sheet : '' }}</option>
+            </select></label>
+          </div>
+          <div class="detail-section-title"><span>表头识别</span><small class="dataset-section-note">0 或留空 = 沿用通用默认</small></div>
+          <div class="dataset-field-grid dataset-rule-grid">
+            <label title="在第几行里找 id 表头">id 表头所在行<input v-model.number="manageSelected.idMatchRow" type="number" min="0" placeholder="默认" @change="reloadManagePreview()" /></label>
+            <label title="该行的哪一列算 id 列：表头包含该字">id 表头关键字<input v-model="manageSelected.idKeyword" placeholder="默认" @change="reloadManagePreview()" /></label>
+            <label title="在第几行里找名称表头">名称表头所在行<input v-model.number="manageSelected.nameMatchRow" type="number" min="0" placeholder="默认" @change="reloadManagePreview()" /></label>
+            <label title="该行的哪一列算名称列：表头包含该字，逗号分隔多个">名称表头关键字<input v-model="manageSelected.nameKeyword" placeholder="默认，逗号分隔" @change="reloadManagePreview()" /></label>
+          </div>
+          <div class="detail-section-title"><span>筛选</span><small class="dataset-section-note">保存后加载内存时生效；同表拆多段用“复制”</small></div>
+          <div class="dataset-filter-row">
+            <span class="config-preview-mode">
+              <button type="button" class="dialog-button small" :class="manageSelected.filter.mode === 'text' ? 'primary' : 'ghost'" @click="manageSelected.filter.mode = 'text'">内容筛选</button>
+              <button type="button" class="dialog-button small" :class="manageSelected.filter.mode === 'range' ? 'primary' : 'ghost'" @click="manageSelected.filter.mode = 'range'">ID范围</button>
+              <button type="button" class="dialog-button small" :class="manageSelected.filter.mode === 'compare' ? 'primary' : 'ghost'" @click="manageSelected.filter.mode = 'compare'">ID比较</button>
+            </span>
+            <template v-if="manageSelected.filter.mode === 'text'">
+              <input type="text" class="dataset-filter-text" v-model="manageSelected.filter.text" placeholder="筛选内容（该列包含的文字）" />
+              <select v-model="manageSelected.filter.column">
+                <option value="all">全部列</option>
+                <option value="id">仅 id 列</option>
+                <option value="name">仅名称列</option>
+                <option value="custom">指定列…</option>
+              </select>
+            </template>
+            <template v-else-if="manageSelected.filter.mode === 'range'">
+              <input type="text" class="dataset-filter-number" v-model="manageSelected.filter.rangeMin" placeholder="起始 ID" />
+              <span class="config-preview-sep">至</span>
+              <input type="text" class="dataset-filter-number" v-model="manageSelected.filter.rangeMax" placeholder="结束 ID" />
+            </template>
+            <template v-else>
+              <select v-model="manageSelected.filter.compareOp">
+                <option>&gt;</option>
+                <option>&gt;=</option>
+                <option>&lt;</option>
+                <option>&lt;=</option>
+              </select>
+              <input type="text" class="dataset-filter-number" v-model="manageSelected.filter.compareValue" placeholder="数值" />
+            </template>
+          </div>
+          <div v-if="manageSelected.filter.mode === 'text' && manageSelected.filter.column === 'custom'" class="dataset-filter-row dataset-filter-extra">
+            <span class="config-preview-sep">筛选列定位</span>
+            <label>表头所在行<input type="number" min="0" v-model.number="manageSelected.filter.extraMatchRow" placeholder="默认" @change="reloadManagePreview()" /></label>
+            <label>表头关键字<input type="text" v-model="manageSelected.filter.extraKeyword" placeholder="如 备注、EnumName" @change="reloadManagePreview()" /></label>
+          </div>
+          <div class="detail-section-title dataset-preview-title"><span>数据预览</span><small class="dataset-section-note">{{ configTablePreviewLoading.has(manageSelected.key) ? '加载中…' : `匹配 ${managePreviewEntries().matched}/${managePreviewEntries().total} 条 · 保存后按筛选加载` }}</small></div>
+          <div class="config-preview-list dataset-preview-list">
+            <div v-for="(entry, entryIndex) in managePreviewEntries().shown" :key="entryIndex + ':' + entry.id" class="config-preview-row"><span class="config-preview-id">{{ entry.id }}</span><span class="config-preview-name">{{ entry.name }}</span><span v-if="entry.extra" class="config-preview-extra">{{ entry.extra }}</span></div>
+            <div v-if="!managePreviewEntries().matched && !configTablePreviewLoading.has(manageSelected.key) && (manageSelected.key in configTablePreview)" class="config-preview-empty">无匹配数据</div>
+          </div>
+        </div>
+        <div v-else class="empty-panel">选择左侧数据集查看详情，或“从表新增”。</div>
+      </div>
+      <footer class="dialog-footer-actions config-table-footer">
+        <span v-if="configTableManageError" class="config-save-error">✗ {{ configTableManageError }}</span>
+        <span v-else-if="configTableManageFeedback" class="config-save-feedback">✓ {{ configTableManageFeedback }}</span>
+        <span class="dialog-footer-spacer"></span>
+        <button class="dialog-button primary" @click="saveConfigTableManage">保存（{{ configTableManageDraft.datasets.length }} 个数据集{{ manageDirtyInfo.total ? `，${manageDirtyInfo.total} 处未保存` : '' }}）</button>
+        <button class="dialog-button ghost" @click="closeConfigTableManage">关闭</button>
+      </footer>
+      <div class="dialog-resize" title="拖动缩放窗口" @pointerdown.stop.prevent="beginDialogResize"></div>
+    </section></div>
+    <div v-if="nodeAnnotationDialog?.visible" class="about-backdrop" @pointerdown.self="closeNodeAnnotationDialog"><section class="about-dialog node-annotation-dialog">
+      <header @pointerdown="beginDialogDrag"><strong>{{ nodeAnnotationDialog.functionPath ? '编辑函数说明' : '编辑节点说明' }} — {{ nodeAnnotationDialog.title }}</strong><button @click="closeNodeAnnotationDialog">×</button></header>
       <div class="node-detail annotation-detail">
         <div class="detail-section-title">说明</div>
         <textarea v-model="nodeAnnotationDraft.description" rows="4" placeholder="用途说明"></textarea>
         <template v-if="nodeAnnotationDialog.functionPath">
           <template v-if="nodeAnnotationDraft.functionParams.some(param => param.direction === 'input')">
             <div class="detail-section-title">输入参数说明</div>
-            <label v-for="param in nodeAnnotationDraft.functionParams.filter(item => item.direction === 'input')" :key="param.id">{{ param.name }}<input v-model="param.tip" placeholder="悬停该参数端口时显示" /></label>
+            <template v-for="param in nodeAnnotationDraft.functionParams.filter(item => item.direction === 'input')" :key="param.id">
+              <label>{{ param.name }}<input v-model="param.tip" placeholder="悬停该参数端口时显示" /></label>
+              <label v-if="param.type === 'integer'" class="annotation-ref-row">{{ param.name }} 关联数据集
+                <select v-model="param.ref">
+                  <option value="">（无）</option>
+                  <option v-for="option in importedConfigTableOptions" :key="option.key" :value="option.key">{{ option.name }}（{{ option.entries }} 条）</option>
+                </select>
+              </label>
+            </template>
           </template>
           <template v-if="nodeAnnotationDraft.functionParams.some(param => param.direction === 'output')">
             <div class="detail-section-title">输出参数说明</div>
-            <label v-for="param in nodeAnnotationDraft.functionParams.filter(item => item.direction === 'output')" :key="param.id">{{ param.name }}<input v-model="param.tip" placeholder="悬停该参数端口时显示" /></label>
+            <template v-for="param in nodeAnnotationDraft.functionParams.filter(item => item.direction === 'output')" :key="param.id">
+              <label>{{ param.name }}<input v-model="param.tip" placeholder="悬停该参数端口时显示" /></label>
+              <label v-if="param.type === 'integer'" class="annotation-ref-row">{{ param.name }} 关联数据集
+                <select v-model="param.ref">
+                  <option value="">（无）</option>
+                  <option v-for="option in importedConfigTableOptions" :key="option.key" :value="option.key">{{ option.name }}（{{ option.entries }} 条）</option>
+                </select>
+              </label>
+            </template>
           </template>
           <small class="variable-scope-hint">保存到函数蓝图文件（.obpf），悬停函数节点和参数端口可见。</small>
         </template>
         <template v-else>
           <template v-if="labeledInputPorts(nodeDefinitionById(nodeAnnotationDialog.typeId ?? '')?.inputPorts).length">
             <div class="detail-section-title">输入口提示</div>
-            <label v-for="port in labeledInputPorts(nodeDefinitionById(nodeAnnotationDialog.typeId ?? '')?.inputPorts)" :key="port.key">{{ port.label }}<input v-model="nodeAnnotationDraft.tips[port.key]" placeholder="悬停该输入口时显示" /></label>
+            <template v-for="port in labeledInputPorts(nodeDefinitionById(nodeAnnotationDialog.typeId ?? '')?.inputPorts)" :key="port.key">
+              <label>{{ port.label }}<input v-model="nodeAnnotationDraft.tips[port.key]" placeholder="悬停该输入口时显示" /></label>
+              <label v-if="port.type === 'integer'" class="annotation-ref-row">{{ port.label }} 关联数据集
+                <select v-model="nodeAnnotationDraft.refs[port.key]">
+                  <option value="">（无）</option>
+                  <option v-for="option in importedConfigTableOptions" :key="option.key" :value="option.key">{{ option.name }}（{{ option.entries }} 条）</option>
+                </select>
+              </label>
+            </template>
           </template>
           <small class="variable-scope-hint">保存后写入 nodes/*.json 节点定义，对所有蓝图生效。</small>
         </template>
       </div>
       <footer class="dialog-footer-actions"><button class="dialog-button primary" @click="applyNodeAnnotationsFromDialog">保存</button><button class="dialog-button ghost" @click="closeNodeAnnotationDialog">取消</button></footer>
     </section></div>
-    <div v-if="showShortcuts" class="about-backdrop" @click.self="showShortcuts = false"><section class="about-dialog shortcut-dialog"><header><strong>{{ menuText.shortcuts.title }}</strong><button @click="showShortcuts = false">×</button></header><p>{{ menuText.shortcuts.intro }}</p><dl><dt>{{ menuText.shortcuts.fileTitle }}</dt><dd>{{ menuText.shortcuts.fileBody }}</dd><dt>{{ menuText.shortcuts.canvasTitle }}</dt><dd>{{ menuText.shortcuts.canvasBody }}</dd><dt>{{ menuText.shortcuts.selectionTitle }}</dt><dd>{{ menuText.shortcuts.selectionBody }}</dd><dt>{{ menuText.shortcuts.groupTitle }}</dt><dd>{{ menuText.shortcuts.groupBody }}</dd><dt>{{ menuText.shortcuts.validateTitle }}</dt><dd>{{ menuText.shortcuts.validateBody }}</dd><dt>{{ menuText.shortcuts.exportTitle }}</dt><dd>{{ menuText.shortcuts.exportBody }}</dd></dl><footer><button @click="showShortcuts = false">{{ menuText.shortcuts.close }}</button></footer></section></div>
-    <div v-if="showAbout" class="about-backdrop" @click.self="showAbout = false"><section class="about-dialog"><header><strong>{{ menuText.about.title }}</strong><button @click="showAbout = false">×</button></header><p>{{ menuText.about.description }}</p><dl><dt>{{ menuText.about.version }}</dt><dd>{{ appVersion }}</dd><dt>{{ menuText.about.runtime }}</dt><dd>Go + Wails v2 / Vue 3 / Rete.js</dd></dl><footer><button :disabled="updateState.checking" @click="checkForUpdates(true)">{{ updateState.checking ? menuText.update.checking : menuText.about.checkUpdates }}</button><button @click="showAbout = false">{{ menuText.about.close }}</button></footer></section></div>
+    <div v-if="showShortcuts" class="about-backdrop" @pointerdown.self="showShortcuts = false"><section class="about-dialog shortcut-dialog"><header @pointerdown="beginDialogDrag"><strong>{{ menuText.shortcuts.title }}</strong><button @click="showShortcuts = false">×</button></header><p>{{ menuText.shortcuts.intro }}</p><dl><dt>{{ menuText.shortcuts.fileTitle }}</dt><dd>{{ menuText.shortcuts.fileBody }}</dd><dt>{{ menuText.shortcuts.canvasTitle }}</dt><dd>{{ menuText.shortcuts.canvasBody }}</dd><dt>{{ menuText.shortcuts.selectionTitle }}</dt><dd>{{ menuText.shortcuts.selectionBody }}</dd><dt>{{ menuText.shortcuts.groupTitle }}</dt><dd>{{ menuText.shortcuts.groupBody }}</dd><dt>{{ menuText.shortcuts.validateTitle }}</dt><dd>{{ menuText.shortcuts.validateBody }}</dd><dt>{{ menuText.shortcuts.exportTitle }}</dt><dd>{{ menuText.shortcuts.exportBody }}</dd></dl><footer><button @click="showShortcuts = false">{{ menuText.shortcuts.close }}</button></footer></section></div>
+    <div v-if="showAbout" class="about-backdrop" @pointerdown.self="showAbout = false"><section class="about-dialog"><header @pointerdown="beginDialogDrag"><strong>{{ menuText.about.title }}</strong><button @click="showAbout = false">×</button></header><p>{{ menuText.about.description }}</p><dl><dt>{{ menuText.about.version }}</dt><dd>{{ appVersion }}</dd><dt>{{ menuText.about.runtime }}</dt><dd>Go + Wails v2 / Vue 3 / Rete.js</dd></dl><footer><button :disabled="updateState.checking" @click="checkForUpdates(true)">{{ updateState.checking ? menuText.update.checking : menuText.about.checkUpdates }}</button><button @click="showAbout = false">{{ menuText.about.close }}</button></footer></section></div>
   </main>
 </template>

@@ -1,4 +1,5 @@
 import type { NodeSchema } from './editor/nodeRegistry'
+import type { ConfigTable } from './editor/configTables'
 import { parseNodeSchemaDocument } from './editor/runtimeNodeSchemas'
 import { completeGraphSavePath, defaultGraphSaveFilename } from './graphPersistence'
 
@@ -21,6 +22,7 @@ type DesktopApp = {
   SaveGraph(path: string, content: string): Promise<string>
   ForceSaveGraph(path: string, content: string): Promise<string>
   CurrentWorkingDirectory(): Promise<string>
+  StartupWorkspace(): Promise<string>
   ChooseWorkspace(): Promise<string>
   LoadProjectSettings(root: string): Promise<ProjectSettingsResult>
   SaveProjectSettings(root: string, content: string): Promise<string>
@@ -46,6 +48,10 @@ type DesktopApp = {
   MigrateLegacyGraph(content: string): Promise<string>
   ExportLegacyGraph(content: string): Promise<string>
   LoadNodeSchemaDocuments(): Promise<RawNodeSchemaDocumentLoadResult>
+  LoadConfigTables(workspaceRoot: string, settings: unknown): Promise<ConfigTable[]>
+  ScanConfigTables(workspaceRoot: string, settings: unknown): Promise<ConfigTable[]>
+  PreviewConfigTable(workspaceRoot: string, settings: unknown, key: string, extraKeyword: string, extraMatchRow: number): Promise<ConfigTable>
+  ChooseConfigTableDirectory(workspaceRoot: string): Promise<string>
   WriteNodeSchemaDocument(workspaceRoot: string, key: string, content: string): Promise<string>
   LoadNodeSchemaDocumentsForWorkspace(workspaceRoot: string): Promise<RawNodeSchemaDocumentLoadResult>
   LogClientError(level: string, message: string, stack: string, context: string): Promise<void>
@@ -174,6 +180,7 @@ export const platform = {
     return withDesktopLogging('ForceSaveGraph', () => desktop()!.ForceSaveGraph(path, content))
   },
   async currentWorkingDirectory() { return desktop() ? withDesktopLogging('CurrentWorkingDirectory', () => desktop()!.CurrentWorkingDirectory()) : '' },
+  async startupWorkspace() { return desktop() ? withDesktopLogging('StartupWorkspace', () => desktop()!.StartupWorkspace()) : '' },
   async chooseWorkspace() { return desktop() ? withDesktopLogging('ChooseWorkspace', () => desktop()!.ChooseWorkspace()) : '' },
   async loadProjectSettings(root: string): Promise<ProjectSettingsResult | null> {
     return desktop() ? withDesktopLogging('LoadProjectSettings', () => desktop()!.LoadProjectSettings(root)) : null
@@ -236,6 +243,26 @@ export const platform = {
   async writeNodeSchemaDocument(workspaceRoot: string, key: string, content: string): Promise<string> {
     if (!desktop()) throw new Error('编辑节点定义备注需要桌面环境')
     return withDesktopLogging('WriteNodeSchemaDocument', () => desktop()!.WriteNodeSchemaDocument(workspaceRoot, key, content))
+  },
+  async loadConfigTables(workspaceRoot: string, settings: unknown): Promise<ConfigTable[]> {
+    if (!desktop()) return []
+    return withDesktopLogging('LoadConfigTables', () => desktop()!.LoadConfigTables(workspaceRoot, settings))
+  },
+  async scanConfigTables(workspaceRoot: string, settings: unknown): Promise<ConfigTable[]> {
+    if (!desktop()) return []
+    return withDesktopLogging('ScanConfigTables', () => desktop()!.ScanConfigTables(workspaceRoot, settings))
+  },
+  async previewConfigTable(workspaceRoot: string, settings: unknown, key: string, extraKeyword = '', extraMatchRow = 0): Promise<ConfigTable | null> {
+    if (!desktop()) return null
+    try {
+      return await withDesktopLogging('PreviewConfigTable', () => desktop()!.PreviewConfigTable(workspaceRoot, settings, key, extraKeyword, extraMatchRow))
+    } catch {
+      return null
+    }
+  },
+  async chooseConfigTableDirectory(workspaceRoot: string): Promise<string> {
+    if (!desktop()) return ''
+    return withDesktopLogging('ChooseConfigTableDirectory', () => desktop()!.ChooseConfigTableDirectory(workspaceRoot))
   },
   onCloseRequest(callback: () => void) {
     const runtime = (window as unknown as { runtime?: WailsRuntime }).runtime

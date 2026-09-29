@@ -22,6 +22,13 @@ export const enUS: MenuLocaleText = {
       exportGraphImage: 'Whole Graph Image',
       quit: 'Quit'
     },
+    configTables: {
+      title: 'Config Tables',
+      refresh: 'Refresh Config Tables',
+      setRootDirectory: 'Set Table Root Directory…',
+      importTables: 'Batch Import…',
+      manageDatasets: 'Manage Datasets…'
+    },
     edit: {
       title: 'Edit',
       undo: 'Undo',

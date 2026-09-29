@@ -20,6 +20,13 @@ export interface MenuLocaleText {
       exportGraphImage: string
       quit: string
     }
+    configTables: {
+      title: string
+      refresh: string
+      setRootDirectory: string
+      importTables: string
+      manageDatasets: string
+    }
     edit: {
       title: string
       undo: string
@@ -186,6 +193,13 @@ export const zhCN: MenuLocaleText = {
       exportSelectedImage: '选中节点图片',
       exportGraphImage: '整张蓝图图片',
       quit: '退出'
+    },
+    configTables: {
+      title: '配置表',
+      refresh: '刷新配置表',
+      setRootDirectory: '设置表元目录…',
+      importTables: '批量导入…',
+      manageDatasets: '数据集管理…'
     },
     edit: {
       title: '编辑',

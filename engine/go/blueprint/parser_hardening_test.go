@@ -84,6 +84,42 @@ func TestParseGraphDocumentAllowsKnownEditorMetadata(t *testing.T) {
 	}
 }
 
+// 编辑器会给函数签名端口写入 ref（关联数据集 key）供画布引用选择控件使用；
+// 引擎不消费该字段，但严格 JSON 解析必须接受它，否则带数据集绑定的函数文档无法编译。
+func TestParseGraphDocumentAllowsSignaturePortRef(t *testing.T) {
+	data := []byte(`{
+		"schemaVersion":1,
+		"graphName":"RefBinding",
+		"functionSignature":{
+			"inputs":[{"id":"base","name":"基础分","type":"integer","ref":"数据集/key"}],
+			"outputs":[{"id":"out","name":"结果","type":"integer"}]
+		},
+		"nodes":[{
+			"id":"entry",
+			"typeId":"origin.function.entry",
+			"position":{"x":1,"y":2},
+			"values":{},
+			"properties":{
+				"label":"Entry",
+				"functionRole":"entry",
+				"functionSignature":{
+					"inputs":[{"id":"base","name":"基础分","type":"integer","ref":"数据集/key"}],
+					"outputs":[{"id":"out","name":"结果","type":"integer"}]
+				}
+			}
+		}],
+		"connections":[],
+		"groups":[],
+		"variables":[],
+		"variableGroups":[],
+		"view":{"x":0,"y":0,"zoom":1}
+	}`)
+
+	if _, err := ParseGraphConfigJSON(data); err != nil {
+		t.Fatalf("ParseGraphConfigJSON rejected signature port ref: %v", err)
+	}
+}
+
 func TestParseGraphDocumentRejectsUnknownNodeValue(t *testing.T) {
 	data := []byte(`{
 		"schemaVersion":1,

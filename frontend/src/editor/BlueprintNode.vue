@@ -5,6 +5,7 @@ import type { BlueprintNode } from './types'
 import { entryBindingBadgeLabel, entryBindingTitle } from './implicitEntryLinks'
 import { socketClassName, socketStyle } from './socketTheme'
 import { normalizeIntegerInput } from './valueValidation'
+import { estimateTextWidth, refStaticDisplay } from './textWidth'
 
 const props = defineProps<{ data: BlueprintNode; emit: (signal: unknown) => void }>()
 const branchRevision = ref(0)
@@ -95,19 +96,16 @@ const STRING_CONTROL_WIDTH = 94
 const DEFAULT_LABEL_MIN_WIDTH = 28
 const ARRAY_CONTROL_WIDTH = 124
 const FILE_CONTROL_WIDTH = 157
+const REF_CONTROL_WIDTH = 108
+const REF_CONTROL_MAX_WIDTH = 180
 const ENTRY_BADGE_MIN_WIDTH = 56
 const BRANCH_ACTION_WIDTH = 96
 
-function estimateTextWidth(value: string | undefined, min = 0, max = 220) {
-  let width = 0
-  for (const char of String(value ?? '')) width += /[\u4e00-\u9fff\uff00-\uffef]/.test(char) ? 12 : 7
-  return Math.max(min, Math.min(max, Math.ceil(width)))
-}
-
 function estimateControlWidth(control: unknown) {
-  const typedControl = control as { value?: unknown; mode?: string; type?: string; integer?: boolean } | undefined
+  const typedControl = control as { value?: unknown; mode?: string; type?: string; integer?: boolean; tableKey?: string } | undefined
   const value = typedControl?.value
   const mode = typedControl?.mode
+  if (typeof typedControl?.tableKey === 'string' && typedControl.tableKey !== '') return estimateTextWidth(refStaticDisplay(typedControl.tableKey, value), REF_CONTROL_WIDTH, REF_CONTROL_MAX_WIDTH)
   if (mode === 'open' || mode === 'save') return FILE_CONTROL_WIDTH
   if (Array.isArray(value)) return ARRAY_CONTROL_WIDTH
   if (typeof value === 'boolean') return 64

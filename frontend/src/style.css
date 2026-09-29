@@ -267,10 +267,133 @@ button { font: inherit; color: inherit; }
 }
 .node-annotation-dialog .annotation-detail { padding: 12px 14px; overflow: visible; }
 .node-annotation-dialog .annotation-detail textarea { min-height: 58px; }
-.node-annotation-dialog footer.dialog-footer-actions { display: flex; justify-content: flex-end; gap: 8px; }
-.node-annotation-dialog footer .dialog-button { min-width: 78px; height: 28px; padding: 0 16px; border-radius: 5px; font-size: 12px; font-weight: 600; letter-spacing: 0.3px; cursor: pointer; transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease; }
-.node-annotation-dialog footer .dialog-button.primary { border: 1px solid #4d86aa; background: #3d7ab0; color: #eef6fc; }
-.node-annotation-dialog footer .dialog-button.primary:hover { background: #4787c0; border-color: #58a0d6; }
-.node-annotation-dialog footer .dialog-button.primary:active { background: #33689a; }
-.node-annotation-dialog footer .dialog-button.ghost { border: 1px solid #4a545c; background: transparent; color: #b8c3cb; }
-.node-annotation-dialog footer .dialog-button.ghost:hover { background: #2c363d; border-color: #5c6871; color: #d5dde3; }
+.about-dialog footer.dialog-footer-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.dialog-button { min-width: 78px; height: 28px; padding: 0 16px; border-radius: 5px; font-size: 12px; font-weight: 600; letter-spacing: 0.3px; cursor: pointer; transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease; }
+.dialog-button.primary { border: 1px solid #4d86aa; background: #3d7ab0; color: #eef6fc; }
+.dialog-button.primary:hover { background: #4787c0; border-color: #58a0d6; }
+.dialog-button.primary:active { background: #33689a; }
+.dialog-button.ghost { border: 1px solid #4a545c; background: transparent; color: #b8c3cb; }
+.dialog-button.ghost:hover { background: #2c363d; border-color: #5c6871; color: #d5dde3; }
+.dialog-button.small { min-width: 0; height: 24px; padding: 0 12px; font-size: 11px; }
+.dialog-button.ghost.danger { border-color: #5c4444; color: #d8a4a4; }
+.dialog-button.ghost.danger:hover { background: #3a2a2a; border-color: #745353; }
+.config-table-dialog { width: 560px; }
+.config-table-dialog .annotation-detail { max-height: calc(100vh - 220px); overflow: auto; }
+.config-dir-row { display: flex; gap: 6px; margin-bottom: 5px; }
+.config-dir-row input { flex: 1; min-width: 0; height: 23px; padding: 0 5px; border: 1px solid #444; background: #1e1e1e; color: #ddd; font: var(--detail-font-size) Consolas, monospace; }
+.config-dir-row button { width: 23px; height: 23px; border: 1px solid #5c4444; background: #432e2e; color: #d8a4a4; cursor: pointer; }
+.config-add-dir { width: 100%; height: 23px; margin-bottom: 6px; border: 1px dashed #4a545c; background: transparent; color: #8fa3b0; cursor: pointer; }
+.config-defaults-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; }
+.config-defaults-grid label { display: block; margin-bottom: 0; color: #888; }
+.config-defaults-grid input { width: 100%; height: 23px; margin-top: 3px; padding: 0 5px; border: 1px solid #444; background: #1e1e1e; color: #ddd; font: var(--detail-font-size) Consolas, monospace; }
+.config-table-row { margin-bottom: 6px; padding: 6px 8px; border: 1px solid #3b3b3b; border-radius: 3px; background: #272727; }
+.config-table-row.warned { border-color: #6d5a26; }
+.config-table-head { display: flex; align-items: center; gap: 8px; }
+.config-table-key { flex: 0 0 auto; color: #8fc1e3; font: 600 var(--detail-font-size) Consolas, monospace; }
+.config-table-summary { flex: 1; min-width: 0; overflow: hidden; color: #909090; font-size: var(--small-ui-font-size); text-overflow: ellipsis; white-space: nowrap; }
+.config-override-toggle { flex: 0 0 auto; height: 21px; padding: 0 8px; border: 1px solid #4a545c; background: transparent; color: #9aa8b2; font-size: var(--small-ui-font-size); cursor: pointer; }
+.config-override-toggle.active { border-color: #4d86aa; background: #2c4a5e; color: #bcd9ec; }
+.config-table-override { margin-top: 6px; padding-top: 6px; border-top: 1px dashed #3b3b3b; }
+.config-dir-row .dir-browse { border-color: #4d6a80; background: #2c4152; color: #b9d2e2; }
+.config-table-list-title { display: flex; align-items: center; justify-content: space-between; }
+.config-table-bulk { display: flex; gap: 5px; }
+.config-table-bulk button { height: 20px; padding: 0 8px; border: 1px solid #4a545c; background: transparent; color: #9aa8b2; font-size: var(--small-ui-font-size); cursor: pointer; }
+.config-table-bulk button:hover { background: #2c363d; }
+.config-table-check { flex: 0 0 auto; display: flex; align-items: center; }
+.config-table-check input { width: 14px; height: 14px; accent-color: #4d86aa; }
+.config-directory-dialog { width: 480px; }
+.config-table-scroll { max-height: 46vh; overflow: auto; padding-right: 4px; border: 1px solid #333; border-radius: 3px; background: #222; }
+.config-table-scroll .config-table-row { margin: 6px; }
+.config-table-scroll .empty-panel { margin: 10px; }
+.config-dir-row .dialog-button { flex: 0 0 auto; }
+.config-add-dir { width: 100%; margin-bottom: 6px; }
+/* 全局统一滚动条：细圆角深色，悬停提亮 */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #3f4a53; border: 2px solid transparent; border-radius: 6px; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background-color: #57687a; }
+::-webkit-scrollbar-corner { background: transparent; }
+.config-preview { margin-top: 6px; }
+.config-preview-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.config-preview-bar input { flex: 1; min-width: 0; height: 23px; padding: 0 5px; border: 1px solid #444; background: #1e1e1e; color: #ddd; font: var(--detail-font-size) Consolas, monospace; }
+.config-preview-bar small { flex: 0 0 auto; color: #909090; font-size: var(--small-ui-font-size); white-space: nowrap; }
+.config-preview-list { max-height: 132px; margin-top: 4px; overflow: auto; border: 1px solid #333; border-radius: 3px; background: #1d2225; }
+.config-preview-row { display: flex; gap: 8px; align-items: baseline; padding: 2px 7px; border-bottom: 1px solid #262c30; }
+.config-preview-row:last-child { border-bottom: 0; }
+.config-preview-id { flex: 0 0 auto; color: #8fc1e3; font: 600 var(--node-control-font-size, 11px) Consolas, monospace; }
+.config-preview-name { min-width: 0; overflow: hidden; color: #c3ccd3; font-size: var(--node-control-font-size, 11px); text-overflow: ellipsis; white-space: nowrap; }
+.config-preview-empty { padding: 8px 10px; color: #707070; font-size: var(--small-ui-font-size); }
+.config-preview-bar select { flex: 0 0 auto; height: 23px; padding: 0 4px; border: 1px solid #444; background: #1e1e1e; color: #ddd; font: var(--detail-font-size) Consolas, monospace; }
+.config-preview-bar input { width: 110px; flex: 1 1 110px; min-width: 0; }
+.config-preview-bar .config-preview-sep { flex: 0 0 auto; color: #909090; font-size: var(--small-ui-font-size); }
+.about-dialog header { cursor: move; user-select: none; }
+.config-table-dialog { width: 760px; max-width: calc(100vw - 40px); height: min(680px, calc(100vh - 48px)); }
+.config-preview-list { max-height: 180px; }
+.config-table-search { width: 150px; height: 24px; padding: 0 8px; border: 1px solid #4a545c; border-radius: 5px; background: #1e1e1e; color: #ddd; font-size: var(--detail-font-size); outline: 0; }
+.config-table-search:focus { border-color: #4d86aa; }
+.about-dialog { position: relative; }
+/* 隐藏数字输入框的原生增减箭头（行号等直接键入更顺手） */
+.about-dialog input[type="number"]::-webkit-outer-spin-button,
+.about-dialog input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.config-table-dialog { display: flex; flex-direction: column; }
+.config-table-dialog .annotation-detail { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; max-height: none; }
+.config-table-dialog .config-table-scroll { flex: 1 1 0; min-height: 0; max-height: none; }
+.config-table-dialog .variable-scope-hint { flex: 0 0 auto; }
+.dialog-resize { position: absolute; right: 0; bottom: 0; width: 16px; height: 16px; cursor: nwse-resize; background: linear-gradient(135deg, transparent 45%, #4a545c 46%); border-bottom-right-radius: 4px; }
+.config-preview-mode { display: flex; gap: 4px; flex: 0 0 auto; }
+.config-preview-bar select { flex: 0 0 auto; }
+.config-table-footer { width: 100%; }
+.dialog-footer-spacer { flex: 1; }
+.config-save-feedback { color: #7fc98a; font-size: 12px; line-height: 1.4; }
+.config-save-error { color: #e08c8c; font-size: 12px; line-height: 1.4; }
+.config-dataset-dirty { margin-left: 5px; color: #d9a441; font-size: 10px; vertical-align: 1px; }
+.config-table-hint { flex: 0 0 auto; margin-top: 8px; color: #9aa5ad; font-size: 12px; line-height: 1.5; }
+.config-table-hint code { padding: 0 3px; border: 1px solid #3d464e; border-radius: 3px; background: #1c2125; color: #8fc1e3; }
+.config-preview-extra { flex: 0 1 auto; overflow: hidden; color: #c79b4e; font-size: var(--node-control-font-size, 11px); text-overflow: ellipsis; white-space: nowrap; }
+.config-preview-extra-row { width: 60px !important; flex: 0 0 60px !important; }
+.config-preview-extra-keyword { width: 120px !important; flex: 0 1 120px !important; }
+.config-table-imported-hint { flex: 0 0 auto; color: #6fa3c7; font-size: var(--small-ui-font-size); white-space: nowrap; }
+/* 数据集管理：左侧数据集列表 + 右侧详情（表头识别/筛选/预览）；默认尽量宽但不超过主窗口 */
+.config-manage-dialog { width: min(1150px, calc(100vw - 40px)); }
+.config-manage-dialog .config-manage-body { flex: 1 1 0; min-height: 0; display: flex; gap: 14px; padding: 12px 16px; overflow: hidden; }
+.config-dataset-list { flex: 0 0 256px; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.config-list-toolbar { flex: 0 0 auto; display: flex; gap: 6px; align-items: center; }
+.config-list-toolbar .config-table-search { flex: 1 1 0; min-width: 0; width: auto; }
+.config-dataset-items { flex: 1 1 0; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 6px; padding: 6px; border: 1px solid #333; border-radius: 3px; background: #1d2225; }
+.config-dataset-item { text-align: left; display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; border: 1px solid #333; border-radius: 5px; background: #222; color: #ccc; cursor: pointer; }
+.config-dataset-item:hover { border-color: #4a545c; }
+.config-dataset-item.active { border-color: #3d7ab0; background: #233038; color: #fff; }
+.config-dataset-name { font-size: var(--detail-font-size); color: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.config-dataset-source { color: #909090; font-size: var(--small-ui-font-size); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.config-dataset-meta { color: #707070; font-size: var(--small-ui-font-size); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.config-dataset-item.warned .config-dataset-meta { color: #d9a441; }
+.config-dataset-actions { flex: 0 0 auto; display: flex; gap: 6px; }
+.config-dataset-actions select { flex: 1 1 0; min-width: 0; height: 26px; padding: 0 4px; border: 1px solid #4a545c; border-radius: 5px; background: #1e1e1e; color: #ddd; font-size: var(--detail-font-size); outline: 0; }
+.config-dataset-detail { flex: 1 1 0; min-width: 0; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 8px; }
+.config-dataset-detail .detail-section-title { flex: 0 0 auto; display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 8px 0 4px; }
+.dataset-field-grid { display: grid; gap: 6px 12px; }
+/* 标签不能加 nowrap/overflow:hidden：输入框在 label 内部，会被整体裁剪导致不可见 */
+.dataset-field-grid label { display: block; margin: 0; color: #8a949c; font-size: var(--small-ui-font-size); }
+.dataset-field-grid input, .dataset-field-grid select { width: 100%; height: 24px; margin-top: 3px; padding: 0 6px; border: 1px solid #444; background: #1e1e1e; color: #ddd; font: var(--detail-font-size) Consolas, monospace; }
+.dataset-field-grid input:focus, .dataset-field-grid select:focus { border-color: #4d86aa; outline: 0; }
+.dataset-field-grid input:disabled { border-color: #333; background: #181d21; color: #93a0a8; cursor: default; }
+.dataset-field-grid select { text-overflow: ellipsis; }
+.dataset-info-grid { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) minmax(0, 1fr); }
+.dataset-rule-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.dataset-filter-row { flex: 0 0 auto; display: flex; align-items: center; gap: 6px 8px; flex-wrap: wrap; }
+.dataset-filter-row input, .dataset-filter-row select { height: 24px; padding: 0 6px; border: 1px solid #444; background: #1e1e1e; color: #ddd; font: var(--detail-font-size) Consolas, monospace; }
+.dataset-filter-row input:focus, .dataset-filter-row select:focus { border-color: #4d86aa; outline: 0; }
+.dataset-filter-text { flex: 1 1 200px; min-width: 0; width: auto; }
+.dataset-filter-number { flex: 0 0 110px; width: 110px; }
+.dataset-filter-extra { padding: 4px 0 4px 10px; border-left: 2px solid #3a444c; }
+.dataset-filter-extra label { display: flex; align-items: center; gap: 6px; margin: 0; color: #8a949c; font-size: var(--small-ui-font-size); white-space: nowrap; }
+.dataset-filter-extra input { flex: 0 0 150px; width: 150px; margin: 0; }
+.dataset-preview-title small.dataset-section-note { color: #7fc98a; }
+.dataset-section-note { flex: 0 0 auto; color: #7d8790; font-size: var(--small-ui-font-size); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dataset-preview-list { flex: 1 1 0; min-height: 120px; max-height: none; }
+.config-manage-body .empty-panel { flex: 1 1 0; align-self: stretch; display: flex; align-items: center; justify-content: center; }
+.dialog-button { white-space: nowrap; }
+.dialog-button.small { flex-shrink: 0; }
+.config-table-search { width: auto; flex: 0 1 150px; min-width: 70px; }
+.annotation-ref-row select { width: 100%; height: 23px; margin-top: 3px; padding: 0 4px; border: 1px solid #444; background: #1e1e1e; color: #ddd; font: var(--detail-font-size) Consolas, monospace; }
+.annotation-ref-row { color: #7d9db8; }
