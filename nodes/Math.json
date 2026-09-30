@@ -11,16 +11,14 @@
 				"type": "data",
 				"data_type": "Integer",
 				"has_input": true,
-				"port_id": 0,
-				"ref": "Buff被动枚举定义/中文备注#EnumBuff"
+				"port_id": 0
 			},
 			{
 				"name": "B",
 				"type": "data",
 				"data_type": "Integer",
 				"has_input": true,
-				"port_id": 1,
-				"ref": "Buff被动枚举定义/中文备注#EnumBuff_2"
+				"port_id": 1
 			}
 		],
 		"outputs": [
