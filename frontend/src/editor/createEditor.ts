@@ -303,13 +303,15 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
       const socketEl = (event.target as HTMLElement).closest<HTMLElement>('.blueprint-socket')
       const nodeId = socketEl?.dataset.nodeId
       const portKey = socketEl?.dataset.portKey
-      const side = socketEl?.dataset.side
+      // socket 渲染的 side 是 inputs/outputs（复数容器参数），归一化为单数方向。
+      const rawSide = socketEl?.dataset.side ?? ''
+      const side = rawSide === 'output' || rawSide === 'outputs' ? 'output' : rawSide === 'input' || rawSide === 'inputs' ? 'input' : ''
       const socketName = socketEl?.dataset.socket
-      if (!socketEl || !nodeId || !portKey || (side !== 'input' && side !== 'output') || !socketName) {
+      if (!socketEl || !nodeId || !portKey || !side || !socketName) {
         dropMenuSource = null
         return
       }
-      dropMenuSource = { nodeId, side, key: portKey, socketName }
+      dropMenuSource = { nodeId, side: side as 'input' | 'output', key: portKey, socketName }
       dropMenuStart = { x: event.clientX, y: event.clientY }
       dropMenuMoved = false
       dropMenuConnected = false
@@ -330,16 +332,17 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
       openNodeDropMenu(source, event.clientX, event.clientY)
     }
     container.addEventListener('pointerdown', onSocketPointerDown, true)
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp)
+    // 用捕获阶段监听：连线插件会在冒泡阶段 stopPropagation，冒泡监听收不到拖拽过程中的 move/up。
+    window.addEventListener('pointermove', onMove, true)
+    window.addEventListener('pointerup', onUp, true)
     editor.addPipe(async context => {
       if (context.type === 'connectioncreated') dropMenuConnected = true
       return context
     })
     return () => {
       container.removeEventListener('pointerdown', onSocketPointerDown, true)
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointermove', onMove, true)
+      window.removeEventListener('pointerup', onUp, true)
     }
   }
 
