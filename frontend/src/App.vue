@@ -397,7 +397,7 @@ async function saveNodeDefinitionAnnotations(typeId: string) {
     return false
   }
   if (!workspaceRoot.value) {
-    status.value = '编辑节点说明需要先打开工作区（文件 → 打开目录）'
+    status.value = '编辑节点注解需要先打开工作区（文件 → 打开目录）'
     return false
   }
   const document = nodeSchemaDocuments.value.find(item => item.key === definition.sourceKey)
@@ -4167,11 +4167,11 @@ function toggleModuleCategory(category: string) {
     <div v-if="moduleNodeMenu.visible" class="module-node-menu" :style="{ left: `${moduleNodeMenu.x}px`, top: `${moduleNodeMenu.y}px` }" @pointerdown.stop>
       <div class="module-node-menu-title">{{ moduleNodeMenu.node?.title }}</div>
       <button v-if="moduleNodeMenu.node?.functionPlaceholder" @click="openFunctionModuleItem()">编辑函数</button>
-      <button v-if="moduleNodeMenu.node?.functionPlaceholder && moduleNodeMenu.node.functionSource === 'workspace'" @click="moduleNodeMenu.node && openFunctionAnnotationDialog(moduleNodeMenu.node)">编辑函数说明</button>
+      <button v-if="moduleNodeMenu.node?.functionPlaceholder && moduleNodeMenu.node.functionSource === 'workspace'" @click="moduleNodeMenu.node && openFunctionAnnotationDialog(moduleNodeMenu.node)">编辑函数注解</button>
       <button v-if="moduleNodeMenu.node?.functionPlaceholder" @click="findModuleFunctionReferences()">查找所有引用</button>
       <template v-else>
         <button @click="findModuleNodeReferences()">查找所有引用</button>
-        <button @click="moduleNodeMenu.node && openNodeAnnotationDialog(moduleNodeMenu.node.id)">编辑节点说明</button>
+        <button @click="moduleNodeMenu.node && openNodeAnnotationDialog(moduleNodeMenu.node.id)">编辑节点注解</button>
       </template>
     </div>
     <div v-if="fileContextMenu.visible" class="file-context-menu" :style="{ left: `${fileContextMenu.x}px`, top: `${fileContextMenu.y}px` }" @pointerdown.stop>
@@ -4450,7 +4450,7 @@ function toggleModuleCategory(category: string) {
       <div class="dialog-resize" title="拖动缩放窗口" @pointerdown.stop.prevent="beginDialogResize"></div>
     </section></div>
     <div v-if="nodeAnnotationDialog?.visible" class="about-backdrop" @pointerdown.self="closeNodeAnnotationDialog"><section class="about-dialog node-annotation-dialog">
-      <header @pointerdown="beginDialogDrag"><strong>{{ nodeAnnotationDialog.functionPath ? '编辑函数说明' : '编辑节点说明' }} — {{ nodeAnnotationDialog.title }}</strong><button @click="closeNodeAnnotationDialog">×</button></header>
+      <header @pointerdown="beginDialogDrag"><strong>{{ nodeAnnotationDialog.functionPath ? '编辑函数注解' : '编辑节点注解' }} — {{ nodeAnnotationDialog.title }}</strong><button @click="closeNodeAnnotationDialog">×</button></header>
       <div class="node-detail annotation-detail">
         <div class="detail-section-title">说明</div>
         <textarea v-model="nodeAnnotationDraft.description" rows="4" placeholder="用途说明"></textarea>
@@ -4458,25 +4458,29 @@ function toggleModuleCategory(category: string) {
           <template v-if="nodeAnnotationDraft.functionParams.some(param => param.direction === 'input')">
             <div class="detail-section-title">输入参数说明</div>
             <template v-for="param in nodeAnnotationDraft.functionParams.filter(item => item.direction === 'input')" :key="param.id">
-              <label>{{ param.name }}<input v-model="param.tip" placeholder="悬停该参数端口时显示" /></label>
-              <label v-if="param.type === 'integer'" class="annotation-ref-row">{{ param.name }} 关联数据集
-                <select v-model="param.ref">
-                  <option value="">（无）</option>
-                  <option v-for="option in importedConfigTableOptions" :key="option.key" :value="option.key">{{ option.name }}（{{ option.entries }} 条）</option>
-                </select>
-              </label>
+              <div class="annotation-port-group">
+                <label>{{ param.name }}<input v-model="param.tip" placeholder="悬停该参数端口时显示" /></label>
+                <label v-if="param.type === 'integer'" class="annotation-ref-row">{{ param.name }} 关联数据集
+                  <select v-model="param.ref">
+                    <option value="">（无）</option>
+                    <option v-for="option in importedConfigTableOptions" :key="option.key" :value="option.key">{{ option.name }}（{{ option.entries }} 条）</option>
+                  </select>
+                </label>
+              </div>
             </template>
           </template>
           <template v-if="nodeAnnotationDraft.functionParams.some(param => param.direction === 'output')">
             <div class="detail-section-title">输出参数说明</div>
             <template v-for="param in nodeAnnotationDraft.functionParams.filter(item => item.direction === 'output')" :key="param.id">
-              <label>{{ param.name }}<input v-model="param.tip" placeholder="悬停该参数端口时显示" /></label>
-              <label v-if="param.type === 'integer'" class="annotation-ref-row">{{ param.name }} 关联数据集
-                <select v-model="param.ref">
-                  <option value="">（无）</option>
-                  <option v-for="option in importedConfigTableOptions" :key="option.key" :value="option.key">{{ option.name }}（{{ option.entries }} 条）</option>
-                </select>
-              </label>
+              <div class="annotation-port-group">
+                <label>{{ param.name }}<input v-model="param.tip" placeholder="悬停该参数端口时显示" /></label>
+                <label v-if="param.type === 'integer'" class="annotation-ref-row">{{ param.name }} 关联数据集
+                  <select v-model="param.ref">
+                    <option value="">（无）</option>
+                    <option v-for="option in importedConfigTableOptions" :key="option.key" :value="option.key">{{ option.name }}（{{ option.entries }} 条）</option>
+                  </select>
+                </label>
+              </div>
             </template>
           </template>
           <small class="variable-scope-hint">保存到函数蓝图文件（.obpf），悬停函数节点和参数端口可见。</small>
@@ -4485,13 +4489,15 @@ function toggleModuleCategory(category: string) {
           <template v-if="labeledInputPorts(nodeDefinitionById(nodeAnnotationDialog.typeId ?? '')?.inputPorts).length">
             <div class="detail-section-title">输入口提示</div>
             <template v-for="port in labeledInputPorts(nodeDefinitionById(nodeAnnotationDialog.typeId ?? '')?.inputPorts)" :key="port.key">
-              <label>{{ port.label }}<input v-model="nodeAnnotationDraft.tips[port.key]" placeholder="悬停该输入口时显示" /></label>
-              <label v-if="port.type === 'integer'" class="annotation-ref-row">{{ port.label }} 关联数据集
-                <select v-model="nodeAnnotationDraft.refs[port.key]">
-                  <option value="">（无）</option>
-                  <option v-for="option in importedConfigTableOptions" :key="option.key" :value="option.key">{{ option.name }}（{{ option.entries }} 条）</option>
-                </select>
-              </label>
+              <div class="annotation-port-group">
+                <label>{{ port.label }}<input v-model="nodeAnnotationDraft.tips[port.key]" placeholder="悬停该输入口时显示" /></label>
+                <label v-if="port.type === 'integer'" class="annotation-ref-row">{{ port.label }} 关联数据集
+                  <select v-model="nodeAnnotationDraft.refs[port.key]">
+                    <option value="">（无）</option>
+                    <option v-for="option in importedConfigTableOptions" :key="option.key" :value="option.key">{{ option.name }}（{{ option.entries }} 条）</option>
+                  </select>
+                </label>
+              </div>
             </template>
           </template>
           <small class="variable-scope-hint">保存后写入 nodes/*.json 节点定义，对所有蓝图生效。</small>
