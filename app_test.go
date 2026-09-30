@@ -3009,3 +3009,26 @@ func TestStartupWorkspaceFromArgs(t *testing.T) {
 		t.Fatalf("obproj startup = %q, want %q", got, workspace)
 	}
 }
+
+func TestGraphDocumentCommentsRoundTrip(t *testing.T) {
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		Comments: []GraphComment{
+			{ID: "c1", Text: "先判沉默再判冰冻", X: -120.5, Y: 88, Width: 220, Height: 110},
+		},
+	}
+	data, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "\"comments\"") {
+		t.Fatalf("serialized document missing comments field: %s", data)
+	}
+	var restored GraphDocument
+	if err := json.Unmarshal(data, &restored); err != nil {
+		t.Fatal(err)
+	}
+	if len(restored.Comments) != 1 || restored.Comments[0].ID != "c1" || restored.Comments[0].Text != "先判沉默再判冰冻" || restored.Comments[0].X != -120.5 {
+		t.Fatalf("comments round-trip lost data: %+v", restored.Comments)
+	}
+}

@@ -20,17 +20,28 @@ const (
 )
 
 type GraphDocument struct {
-	SchemaVersion     int                    `json:"schemaVersion"`
-	GraphName         string                 `json:"graphName"`
-	FunctionID        string                 `json:"functionId,omitempty"`
-	Nodes             []GraphNode            `json:"nodes"`
-	Connections       []GraphConnection      `json:"connections"`
-	Groups            []GraphGroup           `json:"groups"`
+	SchemaVersion int               `json:"schemaVersion"`
+	GraphName     string            `json:"graphName"`
+	FunctionID    string            `json:"functionId,omitempty"`
+	Nodes         []GraphNode       `json:"nodes"`
+	Connections   []GraphConnection `json:"connections"`
+	Groups        []GraphGroup      `json:"groups"`
+	// Comments 是画布注释便签，纯编辑器元数据，校验与运行时不消费。
+	Comments          []GraphComment         `json:"comments,omitempty"`
 	Variables         []GraphVariable        `json:"variables"`
 	VariableGroups    []GraphVariableGroup   `json:"variableGroups"`
 	FunctionSignature GraphFunctionSignature `json:"functionSignature,omitempty"`
 	View              GraphView              `json:"view"`
 	Legacy            *GraphLegacyState      `json:"legacy,omitempty"`
+}
+
+type GraphComment struct {
+	ID     string  `json:"id"`
+	Text   string  `json:"text"`
+	X      float64 `json:"x"`
+	Y      float64 `json:"y"`
+	Width  float64 `json:"width"`
+	Height float64 `json:"height"`
 }
 
 type GraphNode struct {

@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { socketClassName, socketStyle } from './socketTheme'
 
-const props = defineProps<{ data: { name: string; filled?: boolean } }>()
+const props = defineProps<{ data: { name: string; filled?: boolean; nodeId?: string; side?: string; portKey?: string } }>()
 const isExec = computed(() => props.data.name === 'exec')
 const isCallback = computed(() => props.data.name === 'callback')
 const socketClass = computed(() => socketClassName(props.data.name))
@@ -10,7 +10,7 @@ const styleVariables = computed(() => socketStyle(props.data.name))
 </script>
 
 <template>
-  <div class="blueprint-socket" :class="[socketClass, { exec: isExec, callback: isCallback, filled: data.filled }]" :style="styleVariables" :title="data.name">
+  <div class="blueprint-socket" :class="[socketClass, { exec: isExec, callback: isCallback, filled: data.filled }]" :style="styleVariables" :title="data.name" :data-node-id="data.nodeId" :data-side="data.side" :data-port-key="data.portKey" :data-socket="data.name">
     <svg v-if="isExec" viewBox="0 0 16 16" aria-hidden="true">
       <path d="M2.6 2.2H7.2L13.6 8L7.2 13.8H2.6Z" />
     </svg>

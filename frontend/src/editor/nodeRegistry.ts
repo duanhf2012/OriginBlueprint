@@ -17,6 +17,7 @@ export interface NodeDefinition {
   ordinaryEntry?: boolean
   entryColorKey?: string
   inputPorts?: NodeDefinitionInputPort[]
+  outputPorts?: NodeDefinitionInputPort[]
   create(): BlueprintNode
 }
 
@@ -199,6 +200,11 @@ function fromSchema(schema: NodeSchema, locale: string): NodeDefinition {
     refTable: port.refTable,
     type: port.type
   }))
+  const outputPorts = (schema.outputs ?? []).map(port => ({
+    key: port.key,
+    label: english ? port.labelEn || port.label : port.label,
+    type: port.type
+  }))
   const dynamicBranch = schema.dynamicBranch ? {
     ...schema.dynamicBranch,
     outputTemplate: schema.dynamicBranch.outputTemplate ? { ...schema.dynamicBranch.outputTemplate } : { type: 'exec', label: '' },
@@ -216,6 +222,7 @@ function fromSchema(schema: NodeSchema, locale: string): NodeDefinition {
     ordinaryEntry,
     entryColorKey,
     inputPorts,
+    outputPorts,
     create() {
       const result = node(schema.id, title, kind, subtitle ?? category, schema.width ?? 230)
       result.legacyClass = legacyClass

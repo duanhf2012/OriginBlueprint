@@ -7,14 +7,14 @@ import BlueprintControl from './BlueprintControl.vue'
 import BlueprintConnectionComponent from './BlueprintConnection.vue'
 import BlueprintNodeComponent from './BlueprintNode.vue'
 import BlueprintSocket from './BlueprintSocket.vue'
-import { applyTimerFunctionMetadata, applyVariableNodePresentation, createFunctionCallNode, createFunctionEntryNode as createFunctionEntryNodeFromSpec, createFunctionReturnNode as createFunctionReturnNodeFromSpec, createLegacyNode, createNode, createSetTimerByFunctionNode, createVariableNode, findNodeDefinition, hasNodeDefinition, nodeTitleWidth, resolveNodeLegacyClass, signaturePortTips } from './nodeRegistry'
+import { applyTimerFunctionMetadata, applyVariableNodePresentation, createFunctionCallNode, createFunctionEntryNode as createFunctionEntryNodeFromSpec, createFunctionReturnNode as createFunctionReturnNodeFromSpec, createLegacyNode, createNode, createSetTimerByFunctionNode, createVariableNode, findNodeDefinition, hasNodeDefinition, nodeDefinitions, nodeTitleWidth, resolveNodeLegacyClass, signaturePortTips } from './nodeRegistry'
 import { normalizeSocketName } from './socketTheme'
 import { BlueprintNode, RefSelectControl, type Schemes } from './types'
 import { describeEntryBinding, entryBindingCandidateGroups, isEntryOutputConnection, type EntryBindingNode } from './implicitEntryLinks'
 import { refreshNodePortStates } from './portVisualState'
 import { pathIntersectsRect, rectsIntersect, type Rect } from './selectionGeometry'
 import { execOutputReplacementIds } from './connectionPolicy'
-import { normalizeNodeInputDefault, type ConnectionSnapshot, type FunctionNodeMetadata, type FunctionSignature, type GraphDocument, type GraphSnapshot, type GraphVariable, type GraphVariableGroup, type GroupSnapshot, type LegacyGraphState, type NodeProperties, type NodeSnapshot, type RestoreLossReport } from './document'
+import { normalizeNodeInputDefault, type ConnectionSnapshot, type FunctionNodeMetadata, type FunctionSignature, type GraphDocument, type GraphSnapshot, type GraphVariable, type GraphVariableGroup, type GroupSnapshot, type CommentSnapshot, type LegacyGraphState, type NodeProperties, type NodeSnapshot, type RestoreLossReport } from './document'
 import { buildRestorePlan, normalizeDynamicOutputCount } from './restorePlan'
 import { pushBoundedHistory } from './history'
 import { functionEntryTypeId, functionReturnTypeId, isCopyableFunctionNode, isPasteableFunctionNode, planFunctionTerminalDeletion } from './functionTerminalPolicy'
@@ -135,6 +135,10 @@ export interface BlueprintEditorHandle {
   groupSelected(): Promise<void>
   ungroupSelected(): Promise<void>
   toggleGroupSelected(): Promise<void>
+  addCommentAt(position?: { x: number; y: number }): Promise<void>
+  searchNodes(query: string): Array<{ nodeId: string; title: string; typeId: string; detail: string }>
+  focusComment(id: string): Promise<void>
+  commentCount(): number
   fitSelected(): Promise<void>
   setVariables(variables: GraphVariable[], variableGroups?: GraphVariableGroup[], refreshNodes?: boolean): Promise<void>
   refreshVariableNodePresentation(variable: GraphVariable): Promise<void>
@@ -223,6 +227,10 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   const redoStack: EditorHistorySnapshot[] = []
   const groups: GroupSnapshot[] = []
   const groupElements = new Map<string, HTMLElement>()
+  const comments: CommentSnapshot[] = []
+  const commentElements = new Map<string, HTMLElement>()
+  let selectedCommentId: string | null = null
+  let editingCommentId: string | null = null
   const selectedConnectionIds = new Set<string>()
   let selectedGroupId: string | null = null
   let editingGroupId: string | null = null
@@ -279,6 +287,161 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   function setInteractionClass(name: string, active: boolean) {
     container.classList.toggle(name, active)
     container.classList.toggle('is-interacting', container.classList.contains('is-panning') || container.classList.contains('is-dragging-node'))
+  }
+
+  // === 拖线到空白弹出兼容节点菜单（同虚幻：从端口拖线到画布空白松手，菜单只列类型兼容节点，选中即建即连） ===
+  type DropMenuSource = { nodeId: string; side: 'input' | 'output'; key: string; socketName: string }
+  let dropMenuSource: DropMenuSource | null = null
+  let dropMenuStart: { x: number; y: number } | null = null
+  let dropMenuMoved = false
+  let dropMenuConnected = false
+  let dropMenuEl: HTMLElement | null = null
+
+  function setupConnectionDropMenu() {
+    const onSocketPointerDown = (event: PointerEvent) => {
+      if (event.button !== 0) return
+      const socketEl = (event.target as HTMLElement).closest<HTMLElement>('.blueprint-socket')
+      const nodeId = socketEl?.dataset.nodeId
+      const portKey = socketEl?.dataset.portKey
+      const side = socketEl?.dataset.side
+      const socketName = socketEl?.dataset.socket
+      if (!socketEl || !nodeId || !portKey || (side !== 'input' && side !== 'output') || !socketName) {
+        dropMenuSource = null
+        return
+      }
+      dropMenuSource = { nodeId, side, key: portKey, socketName }
+      dropMenuStart = { x: event.clientX, y: event.clientY }
+      dropMenuMoved = false
+      dropMenuConnected = false
+    }
+    const onMove = (event: PointerEvent) => {
+      if (!dropMenuSource || !dropMenuStart) return
+      if (Math.hypot(event.clientX - dropMenuStart.x, event.clientY - dropMenuStart.y) > 6) dropMenuMoved = true
+    }
+    const onUp = (event: PointerEvent) => {
+      const source = dropMenuSource
+      dropMenuSource = null
+      dropMenuStart = null
+      if (!source || !dropMenuMoved || dropMenuConnected) return
+      const target = event.target as HTMLElement
+      // 仅在画布空白处弹出；落在节点/端口/分组/输入框上交给原有交互。
+      if (target.closest('.blueprint-socket, .blueprint-node, .node-group, .node-comment, .node-drop-menu, input, textarea, select, button')) return
+      if (!container.contains(target)) return
+      openNodeDropMenu(source, event.clientX, event.clientY)
+    }
+    container.addEventListener('pointerdown', onSocketPointerDown, true)
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    editor.addPipe(async context => {
+      if (context.type === 'connectioncreated') dropMenuConnected = true
+      return context
+    })
+    return () => {
+      container.removeEventListener('pointerdown', onSocketPointerDown, true)
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+    }
+  }
+
+  function compatibleDefinitionsFor(source: DropMenuSource) {
+    return nodeDefinitions.filter(definition => {
+      const ports = source.side === 'output' ? definition.inputPorts : definition.outputPorts
+      return (ports ?? []).some(port => port.type === source.socketName)
+    })
+  }
+
+  function closeNodeDropMenu() {
+    dropMenuEl?.remove()
+    dropMenuEl = null
+  }
+
+  function openNodeDropMenu(source: DropMenuSource, clientX: number, clientY: number) {
+    closeNodeDropMenu()
+    const definitions = compatibleDefinitionsFor(source)
+    const menu = document.createElement('div')
+    menu.className = 'node-drop-menu'
+    const search = document.createElement('input')
+    search.type = 'text'
+    search.placeholder = '搜索兼容节点...'
+    const list = document.createElement('div')
+    list.className = 'node-drop-menu-list'
+    const hint = document.createElement('div')
+    hint.className = 'node-drop-menu-hint'
+    hint.textContent = definitions.length ? `拖自 ${source.socketName} ${source.side === 'output' ? '输出' : '输入'}口` : '没有类型兼容的节点'
+    const renderList = () => {
+      const query = search.value.trim().toLowerCase()
+      list.innerHTML = ''
+      for (const definition of definitions) {
+        const haystack = `${definition.title} ${definition.id} ${definition.sourceName ?? ''}`.toLowerCase()
+        if (query && !haystack.includes(query)) continue
+        const item = document.createElement('button')
+        item.type = 'button'
+        item.className = 'node-drop-menu-item'
+        item.innerHTML = `<span class="node-drop-menu-icon">◇</span><span class="node-drop-menu-title"></span>`
+        item.querySelector<HTMLElement>('.node-drop-menu-title')!.textContent = definition.title
+        item.addEventListener('click', () => {
+          closeNodeDropMenu()
+          void placeDroppedNode(source, definition.id, clientX, clientY)
+        })
+        list.appendChild(item)
+      }
+      if (!list.childElementCount) {
+        const empty = document.createElement('div')
+        empty.className = 'node-drop-menu-hint'
+        empty.textContent = '无匹配'
+        list.appendChild(empty)
+      }
+    }
+    search.addEventListener('input', renderList)
+    search.addEventListener('keydown', event => {
+      if (event.key === 'Enter') {
+        const first = list.querySelector<HTMLElement>('.node-drop-menu-item')
+        first?.click()
+      } else if (event.key === 'Escape') {
+        closeNodeDropMenu()
+      }
+      event.stopPropagation()
+    })
+    renderList()
+    menu.append(hint, search, list)
+    const rect = container.getBoundingClientRect()
+    container.appendChild(menu)
+    const menuRect = menu.getBoundingClientRect()
+    menu.style.left = `${Math.min(Math.max(clientX - rect.left + 12, 8), Math.max(rect.width - menuRect.width - 8, 8))}px`
+    menu.style.top = `${Math.min(Math.max(clientY - rect.top + 12, 8), Math.max(rect.height - menuRect.height - 8, 8))}px`
+    dropMenuEl = menu
+    const dismiss = (event: PointerEvent) => {
+      if (!dropMenuEl) return
+      if (event.target instanceof Node && dropMenuEl.contains(event.target)) return
+      closeNodeDropMenu()
+      window.removeEventListener('pointerdown', dismiss, true)
+    }
+    window.addEventListener('pointerdown', dismiss, true)
+    search.focus()
+  }
+
+  async function placeDroppedNode(source: DropMenuSource, typeId: string, clientX: number, clientY: number) {
+    const sourceNode = (() => { try { return editor.getNode(source.nodeId) } catch { return undefined } })()
+    if (!sourceNode) return
+    await mutate(`Drop created ${typeId}`, async () => {
+      const node = createNode(typeId)
+      await editor.addNode(node)
+      await area.translate(node.id, graphPosition({ x: clientX, y: clientY }))
+      if (source.side === 'output') {
+        for (const [key, port] of Object.entries(node.inputs)) {
+          if (!port || port.socket.name !== source.socketName) continue
+          await editor.addConnection(createConnection(sourceNode, source.key, node, key))
+          break
+        }
+      } else {
+        for (const [key, port] of Object.entries(node.outputs)) {
+          if (!port || port.socket.name !== source.socketName) continue
+          await editor.addConnection(createConnection(node, key, sourceNode, source.key))
+          break
+        }
+      }
+      await selector.pick(node)
+    })
   }
 
   function setupCanvasPanFeedback() {
@@ -383,6 +546,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   async function clearGroupSelection() {
     if (!selectedGroupId) return
     selectedGroupId = null
+    selectedCommentId = null
     updateGroupSelectionClasses()
   }
 
@@ -390,8 +554,157 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     await clearConnectionSelection()
     await selector.unselectAll()
     selectedGroupId = id
+    selectedCommentId = null
     updateGroupSelectionClasses()
+    updateCommentSelectionClasses()
     callbacks.onSelection(null)
+  }
+
+  // === 画布注释便签：多行文本 + 拖动/缩放，双击编辑，Delete 删除，随文档保存。 ===
+  function renderComments() {
+    for (const element of commentElements.values()) element.remove()
+    commentElements.clear()
+    for (const comment of comments) {
+      const element = document.createElement('div')
+      element.className = `node-comment${selectedCommentId === comment.id ? ' selected' : ''}`
+      element.style.width = `${comment.width}px`
+      element.style.height = `${comment.height}px`
+      element.style.transform = `translate(${comment.x}px, ${comment.y}px)`
+      const text = document.createElement('div')
+      text.className = 'node-comment-text'
+      const grip = document.createElement('div')
+      grip.className = 'node-comment-resize'
+      element.append(text, grip)
+      area.area.content.holder.prepend(element)
+      commentElements.set(comment.id, element)
+      element.addEventListener('pointerdown', event => {
+        void selectComment(comment.id)
+        event.stopPropagation()
+      })
+      if (editingCommentId === comment.id) {
+        const input = document.createElement('textarea')
+        input.className = 'node-comment-input'
+        input.value = comment.text
+        text.replaceChildren(input)
+        const finish = (save: boolean) => {
+          if (save) {
+            comment.text = input.value
+            callbacks.onDirty()
+          }
+          editingCommentId = null
+          renderComments()
+        }
+        input.onkeydown = event => {
+          event.stopPropagation()
+          if (event.key === 'Escape') finish(false)
+        }
+        input.onblur = () => finish(true)
+        requestAnimationFrame(() => input.focus())
+      } else {
+        text.textContent = comment.text
+      }
+      text.ondblclick = event => {
+        event.stopPropagation()
+        editingCommentId = comment.id
+        renderComments()
+      }
+      grip.onpointerdown = event => beginCommentDrag(event, comment, true)
+      element.onpointerdown = event => beginCommentDrag(event, comment, false)
+    }
+  }
+
+  function updateCommentSelectionClasses() {
+    for (const [id, element] of commentElements) element.classList.toggle('selected', selectedCommentId === id)
+  }
+
+  async function selectComment(id: string) {
+    await clearConnectionSelection()
+    await selector.unselectAll()
+    selectedGroupId = null
+    selectedCommentId = null
+    selectedCommentId = id
+    updateGroupSelectionClasses()
+    updateCommentSelectionClasses()
+    callbacks.onSelection(null)
+  }
+
+  function beginCommentDrag(event: PointerEvent, comment: CommentSnapshot, resize: boolean) {
+    void selectComment(comment.id)
+    event.stopPropagation(); event.preventDefault()
+    const before = historySnapshot()
+    const start = { x: event.clientX, y: event.clientY, gx: comment.x, gy: comment.y, width: comment.width, height: comment.height }
+    const move = (next: PointerEvent) => {
+      const dx = (next.clientX - start.x) / area.area.transform.k
+      const dy = (next.clientY - start.y) / area.area.transform.k
+      if (resize) {
+        comment.width = Math.max(120, start.width + dx); comment.height = Math.max(60, start.height + dy)
+      } else {
+        comment.x = start.gx + dx; comment.y = start.gy + dy
+      }
+      const element = commentElements.get(comment.id)
+      if (element) { element.style.width = `${comment.width}px`; element.style.height = `${comment.height}px`; element.style.transform = `translate(${comment.x}px, ${comment.y}px)` }
+    }
+    const up = () => {
+      window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up)
+      pushUndoHistory(before); redoStack.length = 0; callbacks.onDirty(); callbacks.onStatus(resize ? 'Comment resized' : 'Comment moved')
+    }
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up)
+  }
+
+  // 画布内搜索：节点标题/类型/副标题/参数值 + 注释文本；命中后可居中定位。
+  function searchNodes(query: string): Array<{ nodeId: string; title: string; typeId: string; detail: string }> {
+    const text = query.trim().toLowerCase()
+    if (!text) return []
+    const results: Array<{ nodeId: string; title: string; typeId: string; detail: string }> = []
+    for (const node of editor.getNodes()) {
+      const title = node.label || node.typeId || ''
+      const haystack = [
+        title,
+        node.typeId ?? '',
+        node.subtitle ?? '',
+        node.functionId ?? '',
+        ...Object.values(controlValues(node)).map(value => String(value ?? ''))
+      ].join('\n').toLowerCase()
+      if (!haystack.includes(text)) continue
+      const detail = node.typeId ?? title
+      results.push({ nodeId: node.id, title, typeId: node.typeId ?? '', detail })
+      if (results.length >= 50) break
+    }
+    for (const comment of comments) {
+      if (!comment.text.toLowerCase().includes(text)) continue
+      results.push({ nodeId: `comment:${comment.id}`, title: comment.text.split('\n')[0] ?? '注释', typeId: '注释', detail: '注释便签' })
+      if (results.length >= 50) break
+    }
+    return results
+  }
+
+  async function focusComment(id: string) {
+    const comment = comments.find(item => item.id === id)
+    if (!comment) return
+    await selector.unselectAll()
+    selectedCommentId = comment.id
+    updateCommentSelectionClasses()
+    const centerX = comment.x + comment.width / 2
+    const centerY = comment.y + comment.height / 2
+    const rect = container.getBoundingClientRect()
+    const transform = area.area.transform
+    await area.area.translate(-centerX * transform.k + rect.width / 2, -centerY * transform.k + rect.height / 2)
+  }
+
+  function commentCount() {
+    return comments.length
+  }
+
+  async function addCommentAt(position?: { x: number; y: number }) {
+    const view = position ?? (() => {
+      const rect = container.getBoundingClientRect()
+      return graphPosition({ x: rect.left + rect.width * 0.42, y: rect.top + rect.height * 0.36 })
+    })()
+    await mutate('Comment added', async () => {
+      comments.push({ id: crypto.randomUUID(), text: '', x: view.x - 90, y: view.y - 40, width: 200, height: 110 })
+      editingCommentId = comments[comments.length - 1]!.id
+      renderComments()
+    })
   }
 
   async function selectConnection(id: string, additive: boolean) {
@@ -698,7 +1011,8 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
         legacyOrdinal: item.legacyOrdinal,
         ...(visibleEntryConnectionIds.has(item.id) ? { entryConnectionVisible: true } : {})
       })),
-      groups: groups.map(item => ({ ...item, nodeIds: [...item.nodeIds] }))
+      groups: groups.map(item => ({ ...item, nodeIds: [...item.nodeIds] })),
+      comments: comments.map(item => ({ ...item }))
     }
   }
 
@@ -790,6 +1104,9 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
       await selector.unselectAll()
       await editor.clear()
       groups.splice(0, groups.length, ...(data.groups ?? []).map(item => ({ ...item, nodeIds: [...item.nodeIds] })))
+      comments.splice(0, comments.length, ...(data.comments ?? []).map(item => ({ ...item })))
+      selectedCommentId = null
+      editingCommentId = null
       const plan = buildRestorePlan(data, (item, typeId) => {
         const node = createRestoredNode(item, typeId)
         if (!node) return null
@@ -1205,6 +1522,16 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   }
 
   async function deleteSelected() {
+    if (selectedCommentId) {
+      const commentId = selectedCommentId
+      await mutate('Comment deleted', async () => {
+        const index = comments.findIndex(item => item.id === commentId)
+        if (index >= 0) comments.splice(index, 1)
+        selectedCommentId = null
+        renderComments()
+      })
+      return
+    }
     const selected = selectedNodes()
     const selectedConnections = new Set(selectedConnectionIds)
     if (!selected.length && !selectedConnections.size) return
@@ -1349,7 +1676,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     currentLegacy = cloneLegacyState(document.legacy)
     callbacks.onVariables(currentVariables.map(item => ({ ...item })))
     callbacks.onVariableGroups(currentVariableGroups.map(item => ({ ...item })))
-    const report = await restore({ nodes: document.nodes ?? [], connections: document.connections ?? [], groups: document.groups ?? [] })
+    const report = await restore({ nodes: document.nodes ?? [], connections: document.connections ?? [], groups: document.groups ?? [], comments: document.comments ?? [] })
     if (document.nodes?.length) await fitGraphAfterRender()
     else if (document.view) {
       await area.area.translate(document.view.x, document.view.y)
@@ -1369,7 +1696,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     undoStack.length = 0; redoStack.length = 0; controlEditSnapshot = null; controlEditChanged = false; groups.length = 0; selectedGroupId = null
     visibleEntryConnectionIds.clear()
     currentVariables = []; currentVariableGroups = [{ id: 'default', name: 'Default' }]; currentLegacy = undefined; insertionOffset = 0; callbacks.onVariables([]); callbacks.onVariableGroups(currentVariableGroups.map(item => ({ ...item }))); callbacks.onSelection(null)
-    restoring = true; await selector.unselectAll(); await editor.clear(); restoring = false; renderGroups(); updateMetrics()
+    restoring = true; await selector.unselectAll(); await editor.clear(); restoring = false; comments.length = 0; renderGroups(); renderComments(); updateMetrics()
     await area.area.translate(0, 0); await area.area.zoom(1)
   callbacks.onStatus('New graph')
 }
@@ -1808,6 +2135,7 @@ function nodeSize(node: BlueprintNode) {
   window.addEventListener('pointerdown', hideEntryBindingMenu)
   const destroyPanFeedback = setupCanvasPanFeedback()
   const destroyMultiSelectionDragPreserver = setupMultiSelectionDragPreserver()
+  const destroyConnectionDropMenu = setupConnectionDropMenu()
 
   async function setVariables(variables: GraphVariable[], variableGroups?: GraphVariableGroup[], refreshNodes = false) {
     const before = snapshot()
@@ -2179,6 +2507,10 @@ function nodeSize(node: BlueprintNode) {
     groupSelected,
     ungroupSelected,
     toggleGroupSelected,
+    addCommentAt,
+    searchNodes,
+    focusComment,
+    commentCount,
     fitSelected,
     setVariables,
     refreshVariableNodePresentation,

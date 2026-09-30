@@ -139,10 +139,20 @@ export interface GroupSnapshot {
   nodeIds: string[]
 }
 
+export interface CommentSnapshot {
+  id: string
+  text: string
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 export interface GraphSnapshot {
   nodes: NodeSnapshot[]
   connections: ConnectionSnapshot[]
   groups: GroupSnapshot[]
+  comments: CommentSnapshot[]
 }
 
 export interface RestoreDroppedNode {

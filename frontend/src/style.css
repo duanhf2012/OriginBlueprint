@@ -401,3 +401,30 @@ button { font: inherit; color: inherit; }
 .annotation-port-group { display: grid; gap: 6px; margin: 2px 0 8px; padding: 8px 10px 9px; border: 1px solid #3a444c; border-radius: 6px; background: #232a2f; }
 .annotation-port-group > label { display: block; margin: 0; }
 .annotation-port-group > .annotation-ref-row { padding-top: 2px; }
+
+/* 拖线到空白弹出的兼容节点菜单（同虚幻拖线建节点） */
+.node-drop-menu { position: absolute; z-index: 30; width: 250px; display: grid; gap: 4px; padding: 7px; border: 1px solid #52636e; border-radius: 6px; background: #1d2326; box-shadow: 0 8px 20px #000a; }
+.node-drop-menu input { width: 100%; height: 24px; padding: 0 6px; border: 1px solid #444; background: #14181b; color: #e7edf0; outline: none; }
+.node-drop-menu input:focus { border-color: #53a5db; }
+.node-drop-menu-list { display: grid; max-height: 220px; overflow: auto; }
+.node-drop-menu-item { display: flex; align-items: center; gap: 7px; min-height: 26px; padding: 3px 7px; border: 0; background: transparent; color: #dce6eb; text-align: left; cursor: pointer; }
+.node-drop-menu-item:hover { background: #31566b; }
+.node-drop-menu-icon { color: #8fc1e3; }
+.node-drop-menu-hint { padding: 3px 7px; color: #7c8b96; font-size: 10px; }
+
+/* 画布注释便签（同虚幻 Comment：多行文本、拖动、右下角缩放、双击编辑） */
+.node-comment { position: absolute; z-index: 0; box-sizing: border-box; padding: 8px 10px 14px; border: 1px solid #d9c36a; border-radius: 4px; background: rgba(226, 205, 110, 0.16); backdrop-filter: blur(1px); pointer-events: auto; }
+.node-comment.selected { border-color: #f0d772; box-shadow: 0 0 0 1px #f0d772, 0 4px 12px #0008; background: rgba(226, 205, 110, 0.24); }
+.node-comment-text { width: 100%; height: 100%; overflow: hidden; color: #efe3ad; font-size: var(--node-control-font-size, 12px); line-height: 1.45; white-space: pre-wrap; word-break: break-word; cursor: move; user-select: none; }
+.node-comment-input { width: 100%; height: 100%; box-sizing: border-box; padding: 2px 4px; border: 1px solid #6b6230; background: #23211a; color: #efe3ad; font: inherit; line-height: 1.45; outline: none; resize: none; }
+.node-comment-resize { position: absolute; right: 0; bottom: 0; width: 14px; height: 14px; cursor: nwse-resize; background: linear-gradient(135deg, transparent 50%, #d9c36a 50%); border-bottom-right-radius: 3px; }
+/* 画布内搜索浮层（Ctrl+F） */
+.canvas-search { position: absolute; z-index: 25; top: 10px; right: 12px; width: 320px; display: grid; gap: 4px; }
+.canvas-search input { width: 100%; height: 26px; box-sizing: border-box; padding: 0 26px 0 8px; border: 1px solid #52636e; border-radius: 4px; background: #1d2326; color: #e7edf0; outline: none; }
+.canvas-search input:focus { border-color: #53a5db; }
+.canvas-search-close { position: absolute; top: 4px; right: 5px; width: 18px; height: 18px; padding: 0; border: 0; background: transparent; color: #8a949c; cursor: pointer; }
+.canvas-search-results { display: grid; max-height: 260px; overflow: auto; border: 1px solid #52636e; border-radius: 4px; background: #1d2326; box-shadow: 0 8px 20px #000a; }
+.canvas-search-results button { display: flex; align-items: baseline; gap: 8px; padding: 4px 8px; border: 0; background: transparent; color: #dce6eb; text-align: left; cursor: pointer; }
+.canvas-search-results button:hover { background: #31566b; }
+.canvas-search-title { flex: 0 0 auto; max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.canvas-search-detail { color: #7c8b96; font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

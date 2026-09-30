@@ -13,14 +13,16 @@ import (
 //
 // 它会在加载阶段转换为兼容旧编译器的 GraphConfig。
 type graphDocument struct {
-	SchemaVersion     int                        `json:"schemaVersion"`
-	GraphName         string                     `json:"graphName"`
-	FunctionID        string                     `json:"functionId,omitempty"`
-	FunctionCategory  string                     `json:"functionCategory,omitempty"`
-	Nodes             []graphDocumentNode        `json:"nodes"`
-	Connections       []graphDocumentConnection  `json:"connections"`
-	Variables         []graphDocumentVariable    `json:"variables"`
-	Groups            json.RawMessage            `json:"groups,omitempty"`
+	SchemaVersion    int                       `json:"schemaVersion"`
+	GraphName        string                    `json:"graphName"`
+	FunctionID       string                    `json:"functionId,omitempty"`
+	FunctionCategory string                    `json:"functionCategory,omitempty"`
+	Nodes            []graphDocumentNode       `json:"nodes"`
+	Connections      []graphDocumentConnection `json:"connections"`
+	Variables        []graphDocumentVariable   `json:"variables"`
+	Groups           json.RawMessage           `json:"groups,omitempty"`
+	// Comments 是编辑器写入的画布注释便签，引擎不消费；声明字段是为了严格 JSON 解析能接受。
+	Comments          json.RawMessage            `json:"comments,omitempty"`
 	VariableGroups    json.RawMessage            `json:"variableGroups,omitempty"`
 	View              json.RawMessage            `json:"view,omitempty"`
 	Legacy            json.RawMessage            `json:"legacy,omitempty"`

@@ -125,6 +125,20 @@ const detailPanelCollapsed = ref(false)
 const showTools = ref(true)
 const showRight = ref(true)
 const showLogger = ref(false)
+const canvasSearchVisible = ref(false)
+const canvasSearchRef = ref<HTMLInputElement | null>(null)
+const canvasSearchQuery = ref('')
+const canvasSearchResults = computed(() => (canvasSearchVisible.value && canvasSearchQuery.value.trim() ? (editor?.searchNodes(canvasSearchQuery.value) ?? []) : []))
+
+function jumpToCanvasSearchResult(nodeId: string) {
+  if (nodeId.startsWith('comment:')) void editor?.focusComment(nodeId.slice('comment:'.length))
+  else void editor?.focusNode(nodeId)
+}
+
+function closeCanvasSearch() {
+  canvasSearchVisible.value = false
+  canvasSearchQuery.value = ''
+}
 const showAbout = ref(false)
 const showShortcuts = ref(false)
 const showSettings = ref(false)
@@ -995,6 +1009,7 @@ function onKeyDown(event: KeyboardEvent) {
   else if (ctrl && key === 'z') run(() => editor?.undo(), event)
   else if (ctrl && key === 'y') run(() => editor?.redo(), event)
   else if (ctrl && key === 'g') run(() => editor?.toggleGroupSelected(), event)
+  else if (ctrl && key === 'f') { canvasSearchVisible.value = true; event.preventDefault(); requestAnimationFrame(() => canvasSearchRef.value?.focus()) }
   else if (event.key === 'F5') run(testGraph, event)
   else if (event.altKey && event.shiftKey && key === 'b') { showLogger.value = !showLogger.value; event.preventDefault() }
   else if (event.altKey && event.shiftKey && key === 'l') { showTools.value = !showTools.value; event.preventDefault() }
@@ -1117,7 +1132,7 @@ function onTabDragEnd() {
 }
 
 function blankDocument(name: string): GraphDocument {
-  return { schemaVersion: 1, graphName: name, nodes: [], connections: [], groups: [], variables: [], variableGroups: [{ id: 'default', name: 'Default' }], view: { x: 0, y: 0, zoom: 1 } }
+  return { schemaVersion: 1, graphName: name, nodes: [], connections: [], groups: [], comments: [], variables: [], variableGroups: [{ id: 'default', name: 'Default' }], view: { x: 0, y: 0, zoom: 1 } }
 }
 
 function newFunctionId() {
@@ -1952,6 +1967,7 @@ function normalizeDocument(value: any): GraphDocument {
     nodes: Array.isArray(value.nodes) ? value.nodes : [],
     connections: Array.isArray(value.connections) ? value.connections : [],
     groups: Array.isArray(value.groups) ? value.groups : [],
+    comments: Array.isArray(value.comments) ? value.comments : [],
     variables,
     variableGroups: groupNormalization.groups,
     functionSignature: normalizeFunctionSignature(value.functionSignature),
@@ -4094,7 +4110,7 @@ function toggleModuleCategory(category: string) {
            </div>
            <button class="tab-scroll-arrow right" @click="scrollTabStrip(1)">▶</button>
          </div>
-        <div class="canvas-wrap" @contextmenu.prevent @dragenter="allowNodeDrop" @dragover="allowNodeDrop" @drop.prevent="dropNode"><div ref="canvas" class="rete-canvas"></div><div v-if="canvasToast.visible" class="canvas-toast" :style="{ left: `${canvasToast.x}px`, top: `${canvasToast.y}px` }">{{ canvasToast.message }}</div><div class="canvas-toolbar"><button title="Select">⌖</button><button title="Reset view" @click="editor?.resetView()">⌂</button></div><div class="canvas-hint">{{ menuText.canvas.hint }}</div></div>
+        <div class="canvas-wrap" @contextmenu.prevent @dragenter="allowNodeDrop" @dragover="allowNodeDrop" @drop.prevent="dropNode"><div ref="canvas" class="rete-canvas"></div><div v-if="canvasToast.visible" class="canvas-toast" :style="{ left: `${canvasToast.x}px`, top: `${canvasToast.y}px` }">{{ canvasToast.message }}</div><div class="canvas-toolbar"><button title="添加注释便签" @click="editor?.addCommentAt()">🗒＋</button><button title="Select">⌖</button><button title="Reset view" @click="editor?.resetView()">⌂</button></div><div v-if="canvasSearchVisible" class="canvas-search"><input ref="canvasSearchRef" v-model="canvasSearchQuery" type="text" placeholder="搜索画布内容...（节点/注释/参数值）" @keydown.esc.stop="closeCanvasSearch" @keydown.enter.prevent="canvasSearchResults[0] && jumpToCanvasSearchResult(canvasSearchResults[0].nodeId)" /><button class="canvas-search-close" @click="closeCanvasSearch">×</button><div v-if="canvasSearchResults.length" class="canvas-search-results"><button v-for="result in canvasSearchResults" :key="result.nodeId" @click="jumpToCanvasSearchResult(result.nodeId)"><span class="canvas-search-title">{{ result.title }}</span><span class="canvas-search-detail">{{ result.detail }}</span></button></div></div><div class="canvas-hint">{{ menuText.canvas.hint }}</div></div>
         <div v-show="showLogger" class="logger-panel bottom-panel" :class="{ collapsed: testPanelCollapsed }" :style="testPanelStyle">
           <div class="bottom-panel-resizer" @pointerdown="beginTestPanelResize"></div>
           <div class="bottom-panel-title">

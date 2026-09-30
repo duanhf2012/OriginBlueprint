@@ -94,6 +94,7 @@ func TestParseGraphDocumentAllowsSignaturePortRef(t *testing.T) {
 			"inputs":[{"id":"base","name":"基础分","type":"integer","ref":"数据集/key"}],
 			"outputs":[{"id":"out","name":"结果","type":"integer"}]
 		},
+		"comments":[{"id":"c1","text":"备注","x":1,"y":2,"width":100,"height":50}],
 		"nodes":[{
 			"id":"entry",
 			"typeId":"origin.function.entry",
