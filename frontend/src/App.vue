@@ -1009,6 +1009,7 @@ function onKeyDown(event: KeyboardEvent) {
   else if (ctrl && key === 'z') run(() => editor?.undo(), event)
   else if (ctrl && key === 'y') run(() => editor?.redo(), event)
   else if (ctrl && key === 'g') run(() => editor?.toggleGroupSelected(), event)
+  else if (key === 'c') run(() => editor?.commentAroundSelection(), event)
   else if (ctrl && key === 'f') { canvasSearchVisible.value = true; event.preventDefault(); requestAnimationFrame(() => canvasSearchRef.value?.focus()) }
   else if (event.key === 'F5') run(testGraph, event)
   else if (event.altKey && event.shiftKey && key === 'b') { showLogger.value = !showLogger.value; event.preventDefault() }

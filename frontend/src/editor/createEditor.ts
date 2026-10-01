@@ -136,6 +136,7 @@ export interface BlueprintEditorHandle {
   ungroupSelected(): Promise<void>
   toggleGroupSelected(): Promise<void>
   addCommentAt(position?: { x: number; y: number }): Promise<void>
+  commentAroundSelection(): Promise<void>
   searchNodes(query: string): Array<{ nodeId: string; title: string; typeId: string; detail: string }>
   focusComment(id: string): Promise<void>
   commentCount(): number
@@ -478,6 +479,15 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     event.stopPropagation(); event.preventDefault()
     const before = historySnapshot()
     const start = { x: event.clientX, y: event.clientY, gx: comment.x, gy: comment.y, width: comment.width, height: comment.height }
+    // 同虚幻：拖动注释框时，完全在框内的节点跟随移动。
+    const containedNodes = resize ? [] : editor.getNodes().filter(node => {
+      const position = area.nodeViews.get(node.id)?.position ?? { x: 0, y: 0 }
+      const size = nodeSize(node)
+      return position.x >= comment.x && position.y >= comment.y
+        && position.x + size.width <= comment.x + comment.width
+        && position.y + size.height <= comment.y + comment.height
+    })
+    const nodeStarts = new Map(containedNodes.map(node => [node.id, { ...(area.nodeViews.get(node.id)?.position ?? { x: 0, y: 0 }) }]))
     const move = (next: PointerEvent) => {
       const dx = (next.clientX - start.x) / area.area.transform.k
       const dy = (next.clientY - start.y) / area.area.transform.k
@@ -485,6 +495,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
         comment.width = Math.max(120, start.width + dx); comment.height = Math.max(60, start.height + dy)
       } else {
         comment.x = start.gx + dx; comment.y = start.gy + dy
+        for (const [id, position] of nodeStarts) void area.translate(id, { x: position.x + dx, y: position.y + dy })
       }
       const element = commentElements.get(comment.id)
       if (element) { element.style.width = `${comment.width}px`; element.style.height = `${comment.height}px`; element.style.transform = `translate(${comment.x}px, ${comment.y}px)` }
@@ -538,6 +549,19 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
 
   function commentCount() {
     return comments.length
+  }
+
+  async function commentAroundSelection() {
+    const nodes = selectedNodes()
+    if (!nodes.length) return addCommentAt()
+    const entries = nodes.map(node => ({ position: area.nodeViews.get(node.id)?.position ?? { x: 0, y: 0 }, size: nodeSize(node) }))
+    const minX = Math.min(...entries.map(e => e.position.x)), minY = Math.min(...entries.map(e => e.position.y))
+    const maxX = Math.max(...entries.map(e => e.position.x + e.size.width)), maxY = Math.max(...entries.map(e => e.position.y + e.size.height))
+    await mutate('Comment added', async () => {
+      comments.push({ id: crypto.randomUUID(), text: '', x: minX - 24, y: minY - 34, width: maxX - minX + 48, height: maxY - minY + 62 })
+      editingCommentId = comments[comments.length - 1]!.id
+      renderComments()
+    })
   }
 
   async function addCommentAt(position?: { x: number; y: number }) {
@@ -1367,6 +1391,10 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   }
 
   async function deleteSelected() {
+    if (selectedGroupId) {
+      await ungroupSelected()
+      return
+    }
     if (selectedCommentId) {
       const commentId = selectedCommentId
       await mutate('Comment deleted', async () => {
@@ -2352,6 +2380,7 @@ function nodeSize(node: BlueprintNode) {
     ungroupSelected,
     toggleGroupSelected,
     addCommentAt,
+    commentAroundSelection,
     searchNodes,
     focusComment,
     commentCount,
