@@ -7,7 +7,7 @@ import BlueprintControl from './BlueprintControl.vue'
 import BlueprintConnectionComponent from './BlueprintConnection.vue'
 import BlueprintNodeComponent from './BlueprintNode.vue'
 import BlueprintSocket from './BlueprintSocket.vue'
-import { applyTimerFunctionMetadata, applyVariableNodePresentation, createFunctionCallNode, createFunctionEntryNode as createFunctionEntryNodeFromSpec, createFunctionReturnNode as createFunctionReturnNodeFromSpec, createLegacyNode, createNode, createSetTimerByFunctionNode, createVariableNode, findNodeDefinition, hasNodeDefinition, nodeDefinitions, nodeTitleWidth, resolveNodeLegacyClass, signaturePortTips } from './nodeRegistry'
+import { applyTimerFunctionMetadata, applyVariableNodePresentation, createFunctionCallNode, createFunctionEntryNode as createFunctionEntryNodeFromSpec, createFunctionReturnNode as createFunctionReturnNodeFromSpec, createLegacyNode, createNode, createSetTimerByFunctionNode, createVariableNode, findNodeDefinition, hasNodeDefinition, nodeTitleWidth, resolveNodeLegacyClass, signaturePortTips } from './nodeRegistry'
 import { normalizeSocketName } from './socketTheme'
 import { BlueprintNode, RefSelectControl, type Schemes } from './types'
 import { describeEntryBinding, entryBindingCandidateGroups, isEntryOutputConnection, type EntryBindingNode } from './implicitEntryLinks'
@@ -287,164 +287,6 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   function setInteractionClass(name: string, active: boolean) {
     container.classList.toggle(name, active)
     container.classList.toggle('is-interacting', container.classList.contains('is-panning') || container.classList.contains('is-dragging-node'))
-  }
-
-  // === 拖线到空白弹出兼容节点菜单（同虚幻：从端口拖线到画布空白松手，菜单只列类型兼容节点，选中即建即连） ===
-  type DropMenuSource = { nodeId: string; side: 'input' | 'output'; key: string; socketName: string }
-  let dropMenuSource: DropMenuSource | null = null
-  let dropMenuStart: { x: number; y: number } | null = null
-  let dropMenuMoved = false
-  let dropMenuConnected = false
-  let dropMenuEl: HTMLElement | null = null
-
-  function setupConnectionDropMenu() {
-    const onSocketPointerDown = (event: PointerEvent) => {
-      if (event.button !== 0) return
-      const socketEl = (event.target as HTMLElement).closest<HTMLElement>('.blueprint-socket')
-      const nodeId = socketEl?.dataset.nodeId
-      const portKey = socketEl?.dataset.portKey
-      // socket 渲染的 side 是 inputs/outputs（复数容器参数），归一化为单数方向。
-      const rawSide = socketEl?.dataset.side ?? ''
-      const side = rawSide === 'output' || rawSide === 'outputs' ? 'output' : rawSide === 'input' || rawSide === 'inputs' ? 'input' : ''
-      const socketName = socketEl?.dataset.socket
-      if (!socketEl || !nodeId || !portKey || !side || !socketName) {
-        dropMenuSource = null
-        return
-      }
-      dropMenuSource = { nodeId, side: side as 'input' | 'output', key: portKey, socketName }
-      dropMenuStart = { x: event.clientX, y: event.clientY }
-      dropMenuMoved = false
-      dropMenuConnected = false
-    }
-    const onMove = (event: PointerEvent) => {
-      if (!dropMenuSource || !dropMenuStart) return
-      if (Math.hypot(event.clientX - dropMenuStart.x, event.clientY - dropMenuStart.y) > 6) dropMenuMoved = true
-    }
-    const onUp = (event: PointerEvent) => {
-      const source = dropMenuSource
-      dropMenuSource = null
-      dropMenuStart = null
-      if (!source || !dropMenuMoved || dropMenuConnected) return
-      const target = event.target as HTMLElement
-      // 仅在画布空白处弹出；落在节点/端口/分组/输入框上交给原有交互。
-      if (target.closest('.blueprint-socket, .blueprint-node, .node-group, .node-comment, .node-drop-menu, input, textarea, select, button')) return
-      if (!container.contains(target)) return
-      openNodeDropMenu(source, event.clientX, event.clientY)
-    }
-    container.addEventListener('pointerdown', onSocketPointerDown, true)
-    // 用捕获阶段监听：连线插件会在冒泡阶段 stopPropagation，冒泡监听收不到拖拽过程中的 move/up。
-    window.addEventListener('pointermove', onMove, true)
-    window.addEventListener('pointerup', onUp, true)
-    editor.addPipe(async context => {
-      if (context.type === 'connectioncreated') dropMenuConnected = true
-      return context
-    })
-    return () => {
-      container.removeEventListener('pointerdown', onSocketPointerDown, true)
-      window.removeEventListener('pointermove', onMove, true)
-      window.removeEventListener('pointerup', onUp, true)
-    }
-  }
-
-  function compatibleDefinitionsFor(source: DropMenuSource) {
-    return nodeDefinitions.filter(definition => {
-      const ports = source.side === 'output' ? definition.inputPorts : definition.outputPorts
-      return (ports ?? []).some(port => port.type === source.socketName)
-    })
-  }
-
-  function closeNodeDropMenu() {
-    dropMenuEl?.remove()
-    dropMenuEl = null
-  }
-
-  function openNodeDropMenu(source: DropMenuSource, clientX: number, clientY: number) {
-    closeNodeDropMenu()
-    const definitions = compatibleDefinitionsFor(source)
-    const menu = document.createElement('div')
-    menu.className = 'node-drop-menu'
-    const search = document.createElement('input')
-    search.type = 'text'
-    search.placeholder = '搜索兼容节点...'
-    const list = document.createElement('div')
-    list.className = 'node-drop-menu-list'
-    const hint = document.createElement('div')
-    hint.className = 'node-drop-menu-hint'
-    hint.textContent = definitions.length ? `拖自 ${source.socketName} ${source.side === 'output' ? '输出' : '输入'}口` : '没有类型兼容的节点'
-    const renderList = () => {
-      const query = search.value.trim().toLowerCase()
-      list.innerHTML = ''
-      for (const definition of definitions) {
-        const haystack = `${definition.title} ${definition.id} ${definition.sourceName ?? ''}`.toLowerCase()
-        if (query && !haystack.includes(query)) continue
-        const item = document.createElement('button')
-        item.type = 'button'
-        item.className = 'node-drop-menu-item'
-        item.innerHTML = `<span class="node-drop-menu-icon">◇</span><span class="node-drop-menu-title"></span>`
-        item.querySelector<HTMLElement>('.node-drop-menu-title')!.textContent = definition.title
-        item.addEventListener('click', () => {
-          closeNodeDropMenu()
-          void placeDroppedNode(source, definition.id, clientX, clientY)
-        })
-        list.appendChild(item)
-      }
-      if (!list.childElementCount) {
-        const empty = document.createElement('div')
-        empty.className = 'node-drop-menu-hint'
-        empty.textContent = '无匹配'
-        list.appendChild(empty)
-      }
-    }
-    search.addEventListener('input', renderList)
-    search.addEventListener('keydown', event => {
-      if (event.key === 'Enter') {
-        const first = list.querySelector<HTMLElement>('.node-drop-menu-item')
-        first?.click()
-      } else if (event.key === 'Escape') {
-        closeNodeDropMenu()
-      }
-      event.stopPropagation()
-    })
-    renderList()
-    menu.append(hint, search, list)
-    const rect = container.getBoundingClientRect()
-    container.appendChild(menu)
-    const menuRect = menu.getBoundingClientRect()
-    menu.style.left = `${Math.min(Math.max(clientX - rect.left + 12, 8), Math.max(rect.width - menuRect.width - 8, 8))}px`
-    menu.style.top = `${Math.min(Math.max(clientY - rect.top + 12, 8), Math.max(rect.height - menuRect.height - 8, 8))}px`
-    dropMenuEl = menu
-    const dismiss = (event: PointerEvent) => {
-      if (!dropMenuEl) return
-      if (event.target instanceof Node && dropMenuEl.contains(event.target)) return
-      closeNodeDropMenu()
-      window.removeEventListener('pointerdown', dismiss, true)
-    }
-    window.addEventListener('pointerdown', dismiss, true)
-    search.focus()
-  }
-
-  async function placeDroppedNode(source: DropMenuSource, typeId: string, clientX: number, clientY: number) {
-    const sourceNode = (() => { try { return editor.getNode(source.nodeId) } catch { return undefined } })()
-    if (!sourceNode) return
-    await mutate(`Drop created ${typeId}`, async () => {
-      const node = createNode(typeId)
-      await editor.addNode(node)
-      await area.translate(node.id, graphPosition({ x: clientX, y: clientY }))
-      if (source.side === 'output') {
-        for (const [key, port] of Object.entries(node.inputs)) {
-          if (!port || port.socket.name !== source.socketName) continue
-          await editor.addConnection(createConnection(sourceNode, source.key, node, key))
-          break
-        }
-      } else {
-        for (const [key, port] of Object.entries(node.outputs)) {
-          if (!port || port.socket.name !== source.socketName) continue
-          await editor.addConnection(createConnection(node, key, sourceNode, source.key))
-          break
-        }
-      }
-      await selector.pick(node)
-    })
   }
 
   function setupCanvasPanFeedback() {
@@ -2138,7 +1980,6 @@ function nodeSize(node: BlueprintNode) {
   window.addEventListener('pointerdown', hideEntryBindingMenu)
   const destroyPanFeedback = setupCanvasPanFeedback()
   const destroyMultiSelectionDragPreserver = setupMultiSelectionDragPreserver()
-  const destroyConnectionDropMenu = setupConnectionDropMenu()
 
   async function setVariables(variables: GraphVariable[], variableGroups?: GraphVariableGroup[], refreshNodes = false) {
     const before = snapshot()

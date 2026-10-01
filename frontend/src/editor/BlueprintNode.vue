@@ -149,8 +149,7 @@ function portFilled(side: 'inputs' | 'outputs', key: string) {
 }
 
 function socketPayload(side: 'inputs' | 'outputs', key: string, socket: { name: string }) {
-  // nodeId/side/portKey 供拖线到空白弹菜单等画布手势识别端口来源。
-  return { name: socket.name, filled: portFilled(side, key), nodeId: props.data.id, side, portKey: key }
+  return { name: socket.name, filled: portFilled(side, key) }
 }
 
 function portClass(side: 'inputs' | 'outputs', key: string, socket: { name: string }) {

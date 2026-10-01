@@ -402,16 +402,6 @@ button { font: inherit; color: inherit; }
 .annotation-port-group > label { display: block; margin: 0; }
 .annotation-port-group > .annotation-ref-row { padding-top: 2px; }
 
-/* 拖线到空白弹出的兼容节点菜单（同虚幻拖线建节点） */
-.node-drop-menu { position: absolute; z-index: 30; width: 250px; display: grid; gap: 4px; padding: 7px; border: 1px solid #52636e; border-radius: 6px; background: #1d2326; box-shadow: 0 8px 20px #000a; }
-.node-drop-menu input { width: 100%; height: 24px; padding: 0 6px; border: 1px solid #444; background: #14181b; color: #e7edf0; outline: none; }
-.node-drop-menu input:focus { border-color: #53a5db; }
-.node-drop-menu-list { display: grid; max-height: 220px; overflow: auto; }
-.node-drop-menu-item { display: flex; align-items: center; gap: 7px; min-height: 26px; padding: 3px 7px; border: 0; background: transparent; color: #dce6eb; text-align: left; cursor: pointer; }
-.node-drop-menu-item:hover { background: #31566b; }
-.node-drop-menu-icon { color: #8fc1e3; }
-.node-drop-menu-hint { padding: 3px 7px; color: #7c8b96; font-size: 10px; }
-
 /* 画布注释便签（同虚幻 Comment：多行文本、拖动、右下角缩放、双击编辑） */
 .node-comment { position: absolute; z-index: 0; box-sizing: border-box; padding: 8px 10px 14px; border: 1px solid #d9c36a; border-radius: 4px; background: rgba(226, 205, 110, 0.16); backdrop-filter: blur(1px); pointer-events: auto; }
 .node-comment.selected { border-color: #f0d772; box-shadow: 0 0 0 1px #f0d772, 0 4px 12px #0008; background: rgba(226, 205, 110, 0.24); }
