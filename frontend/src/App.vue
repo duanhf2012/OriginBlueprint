@@ -26,7 +26,7 @@ interface FileContextMenuState { visible: boolean; x: number; y: number; path: s
 interface CanvasToastState { visible: boolean; message: string; x: number; y: number }
 interface BlueprintFunction { id: string; name: string; readonly?: boolean }
 interface FunctionLibraryItem { id: string; functionId: string; name: string; category: string; path: string; source: 'current' | 'workspace' }
-interface ModuleLibraryItem extends NodeDefinition { functionPlaceholder?: boolean; functionSource?: FunctionLibraryItem['source']; functionItem?: FunctionLibraryItem; path?: string }
+interface ModuleLibraryItem extends NodeDefinition { functionPlaceholder?: boolean; functionSource?: FunctionLibraryItem['source']; functionItem?: FunctionLibraryItem; macroPlaceholder?: boolean; path?: string }
 type UiScale = 'small' | 'normal' | 'large'
 type NodeScale = 'normal' | 'large'
 type ImageExportScale = 1 | 2 | 4
@@ -505,6 +505,27 @@ const variableScopeSections = computed(() => ([
   }
 })))
 const functionLibraryItems = computed(() => collectFunctionLibraryItems(workspaceTree.value))
+const macroModuleItems = computed<ModuleLibraryItem[]>(() => {
+  const items: ModuleLibraryItem[] = []
+  const visit = (entry: WorkspaceTreeNode) => {
+    if (!entry.isDir && /\.obpm$/i.test(entry.path)) {
+      const filename = entry.path.split(/[\/]/).pop() ?? entry.path
+      const parent = entry.path.split(/[\/]/).slice(0, -1).pop() ?? ''
+      items.push({
+        id: `macro:${entry.path}`,
+        title: filename.replace(/\.obpm$/i, ''),
+        category: `宏/${parent || '未分类'}`,
+        kind: 'macro',
+        macroPlaceholder: true,
+        path: entry.path,
+        create() { throw new Error('macro items are inserted, not created') }
+      })
+    }
+    for (const child of entry.children) visit(child)
+  }
+  for (const node of workspaceTree.value) visit(node)
+  return items
+})
 const callableFunctionItems = computed<FunctionLibraryItem[]>(() => [
   ...blueprintFunctions.value.map(item => ({ id: item.id, functionId: item.id, name: item.name, category: currentFunctionCategory(), path: activeTab.value?.path || activeTab.value?.title || '', source: 'current' as const })),
   ...functionLibraryItems.value
@@ -522,7 +543,10 @@ const functionModuleItems = computed<ModuleLibraryItem[]>(() => callableFunction
     throw new Error('Function call nodes are not implemented yet')
   }
 })))
-const filteredModuleItems = computed(() => nodeLibrary.value.filter(item => !isFunctionBlueprintTab.value || !item.ordinaryEntry))
+const filteredModuleItems = computed(() => [
+  ...nodeLibrary.value.filter(item => !isFunctionBlueprintTab.value || !item.ordinaryEntry),
+  ...macroModuleItems.value
+])
 const functionCategoryOptions = computed(() => {
   const values = new Set<string>()
   const add = (value: unknown) => {
@@ -3378,25 +3402,47 @@ async function workspaceOpen(item: WorkspaceTreeNode) {
   if (item.isDir) await toggleWorkspaceNode(item); else await openGraph(item.path)
 }
 
-// 宏是新功能，只接受原生 .obp 文档，不携带 legacy .vgf 迁移路径（旧图想当宏请先另存为 .obp）。
+// 宏用专属扩展名 .obpm 标识（格式与 .obp 完全一致，纯身份标签），便于模块库归类与文件识别。
 function isMacroSourcePath(path: string) {
-  return /\.obp$/i.test(path)
+  return /\.obpm$/i.test(path)
+}
+
+async function insertMacroByPath(path: string, position?: { x: number; y: number }) {
+  try {
+    const file = await platform.openGraph(path)
+    if (!file?.content) return
+    const raw: unknown = JSON.parse(file.content)
+    if (!isNativeGraphDocument(raw)) return
+    await editor?.insertGraph(raw as Parameters<NonNullable<typeof editor>['insertGraph']>[0], position ?? visibleCanvasInsertPosition())
+    status.value = `已插入宏：${path.split(/[\/]/).pop() ?? path}（复制语义，与源文件互不影响）`
+  } catch (error) {
+    status.value = `插入宏失败：${error instanceof Error ? error.message : String(error)}`
+  }
 }
 
 async function insertMacroFromContextMenu() {
   const path = fileContextMenu.value.path
   fileContextMenu.value.visible = false
   if (!path || !isMacroSourcePath(path)) return
-  try {
-    const file = await platform.openGraph(path)
-    if (!file?.content) return
-    const raw: unknown = JSON.parse(file.content)
-    if (!isNativeGraphDocument(raw)) return
-    await editor?.insertGraph(raw as Parameters<NonNullable<typeof editor>['insertGraph']>[0])
-    status.value = `已插入宏：${path.split(/[\/]/).pop() ?? path}（复制语义，与源文件互不影响）`
-  } catch (error) {
-    status.value = `插入宏失败：${error instanceof Error ? error.message : String(error)}`
-  }
+  await insertMacroByPath(path)
+}
+
+async function createMacroAtDirectory(directory: string) {
+  const rawName = window.prompt('宏名称', '新宏')
+  if (!rawName) return
+  const name = sanitizeFunctionFileName(rawName)
+  const path = joinWorkspacePath(directory, `${name}.obpm`)
+  const saved = await platform.saveGraph(path, serializeGraphDocument(path, blankDocument(name), 2))
+  if (!saved) return
+  await refreshWorkspaceAfterFileCreate(saved)
+  status.value = `已创建宏 ${name}`
+}
+
+async function createMacroInFileContext() {
+  const directory = fileContextMenu.value.path
+  fileContextMenu.value.visible = false
+  if (!directory || !fileContextMenu.value.isDir) return
+  await createMacroAtDirectory(directory)
 }
 
 function openFileContextMenu(event: MouseEvent, node: WorkspaceTreeNode | WorkspaceEntry | NodeReferenceResult) {
@@ -3657,6 +3703,10 @@ function isSelfFunctionReference(item: ModuleLibraryItem) {
 }
 
 async function addModuleItemAt(item: ModuleLibraryItem, position?: { x: number; y: number }) {
+  if (item.macroPlaceholder && item.path) {
+    await insertMacroByPath(item.path, position)
+    return
+  }
   if (item.functionPlaceholder) {
     if (isSelfFunctionReference(item)) {
       status.value = '函数不能引用自身'
@@ -4219,6 +4269,7 @@ function toggleModuleCategory(category: string) {
       <button v-if="fileContextMenu.isDir" @click="refreshFileContextDirectory">刷新目录</button>
       <button v-if="fileContextMenu.isDir" @click="createBlueprintInFileContext">新建蓝图</button>
       <button v-if="fileContextMenu.isDir" @click="createFunctionInFileContext">新建函数</button>
+      <button v-if="fileContextMenu.isDir" @click="createMacroInFileContext">新建宏</button>
       <button @click="revealFileContextInFolder">在资源管理器中定位</button>
     </div>
     <div v-if="showSettings" class="settings-backdrop" @pointerdown.self="showSettings = false">

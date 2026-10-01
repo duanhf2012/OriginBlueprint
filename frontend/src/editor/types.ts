@@ -3,7 +3,7 @@ import type { FunctionNodeMetadata, VariableScope } from './document'
 import type { EntryPortBinding } from './implicitEntryLinks'
 import type { SocketThemeName } from './socketTheme'
 
-export type NodeKind = 'event' | 'flow' | 'function' | 'variable'
+export type NodeKind = 'event' | 'flow' | 'function' | 'variable' | 'macro'
 export interface PortVisualState { connected: boolean; filled: boolean; entryBinding?: EntryPortBinding }
 export interface NodePortVisualStates {
   inputs: Record<string, PortVisualState>

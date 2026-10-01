@@ -158,6 +158,7 @@ func (a *App) beforeClose(ctx context.Context) bool {
 func graphFilters() []runtime.FileFilter {
 	return []runtime.FileFilter{
 		{DisplayName: "Origin Blueprint (*.obp)", Pattern: "*.obp"},
+		{DisplayName: "Origin Blueprint Macro (*.obpm)", Pattern: "*.obpm"},
 		{DisplayName: "Origin Blueprint Function (*.obpf)", Pattern: "*.obpf"},
 		{DisplayName: "Legacy Visual Graph (*.vgf)", Pattern: "*.vgf"},
 		{DisplayName: "JSON (*.json)", Pattern: "*.json"},
@@ -546,7 +547,7 @@ func (a *App) FindNodeReferences(root, typeID string) ([]NodeReferenceResult, er
 			return nil
 		}
 		ext := strings.ToLower(filepath.Ext(entry.Name()))
-		if ext != ".vgf" && ext != ".obp" && !(isFunctionReferenceQuery && ext == ".obpf") {
+		if ext != ".vgf" && ext != ".obp" && ext != ".obpm" && !(isFunctionReferenceQuery && ext == ".obpf") {
 			return nil
 		}
 		data, err := os.ReadFile(path)
