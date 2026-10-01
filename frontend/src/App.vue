@@ -3378,19 +3378,19 @@ async function workspaceOpen(item: WorkspaceTreeNode) {
   if (item.isDir) await toggleWorkspaceNode(item); else await openGraph(item.path)
 }
 
+// 宏是新功能，只接受原生 .obp 文档，不携带 legacy .vgf 迁移路径（旧图想当宏请先另存为 .obp）。
+function isMacroSourcePath(path: string) {
+  return /\.obp$/i.test(path)
+}
+
 async function insertMacroFromContextMenu() {
   const path = fileContextMenu.value.path
   fileContextMenu.value.visible = false
-  if (!path || fileContextMenu.value.isDir || fileContextMenu.value.isFunction) return
+  if (!path || !isMacroSourcePath(path)) return
   try {
     const file = await platform.openGraph(path)
     if (!file?.content) return
-    let raw: unknown = JSON.parse(file.content)
-    if (!isNativeGraphDocument(raw)) {
-      const migrated = await platform.migrateLegacyGraph(file.content)
-      if (!migrated) return
-      raw = JSON.parse(migrated)
-    }
+    const raw: unknown = JSON.parse(file.content)
     if (!isNativeGraphDocument(raw)) return
     await editor?.insertGraph(raw as Parameters<NonNullable<typeof editor>['insertGraph']>[0])
     status.value = `已插入宏：${path.split(/[\/]/).pop() ?? path}（复制语义，与源文件互不影响）`
@@ -4215,7 +4215,7 @@ function toggleModuleCategory(category: string) {
     </div>
     <div v-if="fileContextMenu.visible" class="file-context-menu" :style="{ left: `${fileContextMenu.x}px`, top: `${fileContextMenu.y}px` }" @pointerdown.stop>
       <button v-if="!fileContextMenu.isDir" @click="openFileContextGraph">{{ fileContextMenu.isFunction ? '打开函数' : '打开蓝图' }}</button>
-      <button v-if="!fileContextMenu.isDir && !fileContextMenu.isFunction" @click="insertMacroFromContextMenu">作为宏插入当前图</button>
+      <button v-if="!fileContextMenu.isDir && isMacroSourcePath(fileContextMenu.path)" @click="insertMacroFromContextMenu">作为宏插入当前图</button>
       <button v-if="fileContextMenu.isDir" @click="refreshFileContextDirectory">刷新目录</button>
       <button v-if="fileContextMenu.isDir" @click="createBlueprintInFileContext">新建蓝图</button>
       <button v-if="fileContextMenu.isDir" @click="createFunctionInFileContext">新建函数</button>
