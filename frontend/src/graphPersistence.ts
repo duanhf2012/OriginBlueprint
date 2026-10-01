@@ -43,8 +43,15 @@ export function documentRequiresNativePersistence(document: GraphDocument) {
     || (signature.outputs?.length ?? 0) > 0
 }
 
+function isMacroBlueprintPath(path: string) {
+  return /\.obpm$/i.test(path)
+}
+
 export function persistedGraphDocument(path: string, document: GraphDocument) {
   if (isFunctionBlueprintPath(path)) return { ...document }
+  // 宏显示名存于 graphName（与文件名分离，模块库/插入注释框用），与函数一样必须持久化；
+  // 普通蓝图的名字即文件名，继续剥离以保持文档精简。
+  if (isMacroBlueprintPath(path)) return { ...document }
 
   const { graphName: _graphName, ...persisted } = document
   return persisted

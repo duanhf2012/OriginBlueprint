@@ -284,7 +284,7 @@ export const zhCN: MenuLocaleText = {
   detail: {
     functionTitle: '函数名',
     functionTitlePlaceholder: '函数显示名',
-    functionTitleLockedHint: '函数名用于函数引用，不能在这里修改',
+    functionTitleLockedHint: '函数名仅用于显示；调用引用基于函数 ID，改名安全（保存后生效）',
     functionCategory: '类型',
     functionCategoryPlaceholder: '选择或输入函数类型',
     restoreFunctionEntry: '恢复入口节点',

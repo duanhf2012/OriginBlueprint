@@ -3032,3 +3032,55 @@ func TestGraphDocumentCommentsRoundTrip(t *testing.T) {
 		t.Fatalf("comments round-trip lost data: %+v", restored.Comments)
 	}
 }
+
+func TestGraphDocumentMacroInstancesRoundTrip(t *testing.T) {
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		MacroInstances: []GraphMacroInstance{
+			{Source: "vgf/macros/宏_受击.obpm", CommentID: "c1", NodeIDs: []string{"n1", "n2"}},
+		},
+	}
+	data, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "macroInstances") {
+		t.Fatalf("serialized document missing macroInstances: %s", data)
+	}
+	var restored GraphDocument
+	if err := json.Unmarshal(data, &restored); err != nil {
+		t.Fatal(err)
+	}
+	if len(restored.MacroInstances) != 1 || restored.MacroInstances[0].Source != "vgf/macros/宏_受击.obpm" || len(restored.MacroInstances[0].NodeIDs) != 2 {
+		t.Fatalf("macro instance round-trip lost data: %+v", restored.MacroInstances)
+	}
+}
+
+func TestGraphDocumentMacroRefsRoundTrip(t *testing.T) {
+	document := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		MacroID:       "m_a3f8",
+		MacroRefs: []GraphMacroRef{
+			{
+				MacroID: "m_a3f8", PathHint: "vgf/macros/宏_受击.obpm", CommentID: "frame1",
+				Frame:    GraphRect{X: 10, Y: 20, Width: 300, Height: 150},
+				Boundary: []GraphMacroBoundary{{ExternalNode: "ext", ExternalPort: "exec", MacroNodeIndex: 1, MacroPort: "exec", IntoMacro: true}},
+			},
+		},
+	}
+	data, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "macroRefs") || !strings.Contains(string(data), "macroId") {
+		t.Fatalf("serialized document missing macro ref fields: %s", data)
+	}
+	var restored GraphDocument
+	if err := json.Unmarshal(data, &restored); err != nil {
+		t.Fatal(err)
+	}
+	ref := restored.MacroRefs[0]
+	if restored.MacroID != "m_a3f8" || ref.MacroID != "m_a3f8" || ref.Boundary[0].MacroNodeIndex != 1 || ref.Frame.Width != 300 {
+		t.Fatalf("macro ref round-trip lost data: %+v", restored.MacroRefs)
+	}
+}

@@ -14,7 +14,7 @@ import { describeEntryBinding, entryBindingCandidateGroups, isEntryOutputConnect
 import { refreshNodePortStates } from './portVisualState'
 import { pathIntersectsRect, rectsIntersect, type Rect } from './selectionGeometry'
 import { execOutputReplacementIds } from './connectionPolicy'
-import { normalizeNodeInputDefault, type ConnectionSnapshot, type FunctionNodeMetadata, type FunctionSignature, type GraphDocument, type GraphSnapshot, type GraphVariable, type GraphVariableGroup, type GroupSnapshot, type CommentSnapshot, type LegacyGraphState, type NodeProperties, type NodeSnapshot, type RestoreLossReport } from './document'
+import { normalizeNodeInputDefault, type ConnectionSnapshot, type FunctionNodeMetadata, type FunctionSignature, type GraphDocument, type GraphSnapshot, type GraphVariable, type GraphVariableGroup, type GroupSnapshot, type CommentSnapshot, type MacroInstanceSnapshot, type LegacyGraphState, type NodeProperties, type NodeSnapshot, type RestoreLossReport } from './document'
 import { buildRestorePlan, normalizeDynamicOutputCount } from './restorePlan'
 import { pushBoundedHistory } from './history'
 import { functionEntryTypeId, functionReturnTypeId, isCopyableFunctionNode, isPasteableFunctionNode, planFunctionTerminalDeletion } from './functionTerminalPolicy'
@@ -137,7 +137,11 @@ export interface BlueprintEditorHandle {
   toggleGroupSelected(): Promise<void>
   addCommentAt(position?: { x: number; y: number }): Promise<void>
   commentAroundSelection(): Promise<void>
-  insertGraph(document: GraphSnapshot & { variables?: GraphVariable[] }, clientPosition?: Position, label?: string): Promise<void>
+  insertGraph(document: GraphSnapshot & { variables?: GraphVariable[] }, clientPosition?: Position, label?: string, source?: string): Promise<void>
+  selectedMacroInstance(): { source: string; commentId: string; nodeIds: string[] } | null
+  hasMacroInstance(source: string): boolean
+  updateMacroFrames(source: string, label: string): void
+  syncMacroInstance(source: string, document: GraphSnapshot & { variables?: GraphVariable[] }, label?: string): Promise<void>
   searchNodes(query: string): Array<{ nodeId: string; title: string; typeId: string; detail: string }>
   focusComment(id: string): Promise<void>
   commentCount(): number
@@ -230,6 +234,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   const groups: GroupSnapshot[] = []
   const groupElements = new Map<string, HTMLElement>()
   const comments: CommentSnapshot[] = []
+  const macroInstances: MacroInstanceSnapshot[] = []
   const commentElements = new Map<string, HTMLElement>()
   let selectedCommentId: string | null = null
   let editingCommentId: string | null = null
@@ -250,6 +255,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   let controlEditSnapshot: EditorHistorySnapshot | null = null
   let controlEditChanged = false
   let currentVariables: GraphVariable[] = []
+  let currentGraphName = ''
   let currentVariableGroups: GraphVariableGroup[] = []
   let currentLegacy: LegacyGraphState | undefined
   let callableFunctions: FunctionNodeMetadata[] = []
@@ -882,7 +888,8 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
         ...(visibleEntryConnectionIds.has(item.id) ? { entryConnectionVisible: true } : {})
       })),
       groups: groups.map(item => ({ ...item, nodeIds: [...item.nodeIds] })),
-      comments: comments.map(item => ({ ...item }))
+      comments: comments.map(item => ({ ...item })),
+      macroInstances: macroInstances.map(item => ({ ...item, nodeIds: [...item.nodeIds] }))
     }
   }
 
@@ -975,6 +982,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
       await editor.clear()
       groups.splice(0, groups.length, ...(data.groups ?? []).map(item => ({ ...item, nodeIds: [...item.nodeIds] })))
       comments.splice(0, comments.length, ...(data.comments ?? []).map(item => ({ ...item })))
+      macroInstances.splice(0, macroInstances.length, ...(data.macroInstances ?? []).map(item => ({ ...item, nodeIds: [...item.nodeIds] })))
       selectedCommentId = null
       editingCommentId = null
       const plan = buildRestorePlan(data, (item, typeId) => {
@@ -1026,6 +1034,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
         await editor.addConnection(connection)
       }
       await refreshPortStates(true)
+      pruneMacroInstances(false)
       renderGroups()
       updateMetrics()
       callbacks.onSelection(null)
@@ -1433,6 +1442,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
         if (selectedConnections.has(item.id) || ids.has(item.source) || ids.has(item.target)) await editor.removeConnection(item.id)
       }
       for (const node of deletableNodes) await editor.removeNode(node.id)
+      pruneMacroInstances(true)
       selectedConnectionIds.clear()
       const protectedSelection = selected.find(node => !deletableIds.has(node.id))
       callbacks.onSelection(protectedSelection ? selectedNodeInfo(protectedSelection) : null)
@@ -1478,10 +1488,30 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
 
   // 插入整张蓝图作为宏：复制语义——把源文件的节点/连线/变量复制进当前图（ID 全部重生成），
   // 之后两边各自演化互不影响。同名同类型变量复用目标图已有的，缺失的补建。
-  async function insertGraph(document: GraphSnapshot & { variables?: GraphVariable[] }, clientPosition?: Position, label?: string) {
+  async function insertGraph(document: GraphSnapshot & { variables?: GraphVariable[] }, clientPosition?: Position, label?: string, source?: string) {
     const sourceNodes = document.nodes ?? []
     if (!sourceNodes.length) return
+    // 同一来源的宏在当前图只保留一个实例：重复插入时定位到已有实例并提示走"从源宏更新"。
+    if (source) {
+      const existing = macroInstances.find(item => item.source === source)
+      if (existing) {
+        callbacks.onStatus('宏已存在于当前蓝图，重复插入已跳过（选中现有宏框可从详情面板更新它）')
+        await selectComment(existing.commentId)
+        await focusComment(existing.commentId)
+        return
+      }
+    }
+    const base = clientPosition ? graphPosition(clientPosition) : graphPosition()
     await mutate(`Inserted macro: ${sourceNodes.length} node(s)`, async () => {
+      await insertGraphBody(document, base, label, source)
+    })
+  }
+
+  // 插入体：base 为图坐标基准（调用方负责事务与坐标转换），供插入与实例同步复用。
+  async function insertGraphBody(document: GraphSnapshot & { variables?: GraphVariable[] }, base: Position, label?: string, source?: string) {
+    const sourceNodes = document.nodes ?? []
+    if (!sourceNodes.length) return
+    {
       const variableIdRemap = new Map<string, string>()
       const variableAdditions: GraphVariable[] = []
       for (const variable of document.variables ?? []) {
@@ -1498,7 +1528,6 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
         currentVariables.push(...variableAdditions.map(item => ({ ...item })))
         callbacks.onVariables(currentVariables.map(item => ({ ...item })))
       }
-      const base = graphPosition(clientPosition)
       // 落点归一化：源文件节点坐标是绝对值（可能远离原点），平移源包围盒左上角对齐落点，
       // 否则宏在画布远处编辑保存后，插入块会落在 base+绝对坐标 处偏离预期数千像素。
       const placed_ = sourceNodes.filter(item => typeof item.typeId === 'string' && item.typeId)
@@ -1548,9 +1577,101 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
         const placed = [...nodesById.values()].map(node => ({ position: area.nodeViews.get(node.id)?.position ?? { x: 0, y: 0 }, size: nodeSize(node) }))
         const minX = Math.min(...placed.map(item => item.position.x)), minY = Math.min(...placed.map(item => item.position.y))
         const maxX = Math.max(...placed.map(item => item.position.x + item.size.width)), maxY = Math.max(...placed.map(item => item.position.y + item.size.height))
-        comments.push({ id: crypto.randomUUID(), text: `宏：${label}`, x: minX - 24, y: minY - 34, width: maxX - minX + 48, height: maxY - minY + 62 })
+        const comment: CommentSnapshot = { id: crypto.randomUUID(), text: `宏：${label}`, x: minX - 24, y: minY - 34, width: maxX - minX + 48, height: maxY - minY + 62 }
+        comments.push(comment)
+        // 实例记录：nodeIds 顺序 = 源文档节点顺序（插入时过滤跳过的项不进清单），
+        // 供"从源宏更新"时做边界连线重接的索引映射。
+        if (source) macroInstances.push({ source, commentId: comment.id, nodeIds: [...nodesById.keys()] })
         renderComments()
       }
+    }
+  }
+
+  // === 宏实例手动同步：用源宏当前内容替换实例块，保留外部边界连线。 ===
+  // 实例记录维护：删除节点后，去掉已消失的节点 ID；全部消失则连同注释框一起清理，
+  // 避免幽灵记录（防重永久拦截、详情面板出现不存在实例）。
+  function pruneMacroInstances(removeFrames: boolean) {
+    for (let index = macroInstances.length - 1; index >= 0; index--) {
+      const instance = macroInstances[index]
+      instance.nodeIds = instance.nodeIds.filter(id => {
+        try { return Boolean(editor.getNode(id)) } catch { return false }
+      })
+      if (instance.nodeIds.length) continue
+      // 记录的节点 ID 全部失效（旧版本插入/手改文档等历史原因）时，按注释框几何自愈：
+      // 框还在就把完全位于框内的节点重新认领为实例成员，传播/更新/防重随之恢复；
+      // 框也没了才丢弃记录。会话内主动删除实例全部节点时连框一起清（removeFrames）。
+      const frame = comments.find(item => item.id === instance.commentId)
+      if (frame) {
+        const contained = editor.getNodes().filter(node => {
+          const position = area.nodeViews.get(node.id)?.position ?? { x: 0, y: 0 }
+          const size = nodeSize(node)
+          return position.x >= frame.x && position.y >= frame.y
+            && position.x + size.width <= frame.x + frame.width
+            && position.y + size.height <= frame.y + frame.height
+        }).map(node => node.id)
+        if (contained.length) {
+          instance.nodeIds = contained
+          continue
+        }
+      }
+      macroInstances.splice(index, 1)
+      if (!removeFrames) continue
+      const frameIndex = comments.findIndex(item => item.id === instance.commentId)
+      if (frameIndex >= 0) comments.splice(frameIndex, 1)
+    }
+    renderComments()
+  }
+
+  function selectedMacroInstance(): MacroInstanceSnapshot | null {
+    if (!selectedCommentId) return null
+    return macroInstances.find(item => item.commentId === selectedCommentId) ?? null
+  }
+
+  async function syncMacroInstance(instance: MacroInstanceSnapshot, document: GraphSnapshot & { variables?: GraphVariable[] }, label?: string) {
+    const oldIds = new Set(instance.nodeIds)
+    // 边界连线存档：外部端点 + 实例侧的源索引 + 端口 + 方向
+    type Boundary = { externalNode: string; externalPort: string; instanceIndex: number; instancePort: string; intoInstance: boolean }
+    const boundaries: Boundary[] = []
+    const indexById = new Map(instance.nodeIds.map((id, index) => [id, index]))
+    for (const connection of editor.getConnections()) {
+      const sourceInside = oldIds.has(connection.source)
+      const targetInside = oldIds.has(connection.target)
+      if (sourceInside === targetInside) continue
+      if (sourceInside) boundaries.push({ externalNode: connection.target, externalPort: String(connection.targetInput), instanceIndex: indexById.get(connection.source) ?? -1, instancePort: String(connection.sourceOutput), intoInstance: false })
+      else boundaries.push({ externalNode: connection.source, externalPort: String(connection.sourceOutput), instanceIndex: indexById.get(connection.target) ?? -1, instancePort: String(connection.targetInput), intoInstance: true })
+    }
+    const frame = comments.find(item => item.id === instance.commentId)
+    const anchor = frame ? { x: frame.x + 24, y: frame.y + 34 } : undefined
+    await mutate('Macro instance synced', async () => {
+      // 删除旧实例（连带其内部连线），保留注释框位置作为新块落点
+      for (const id of instance.nodeIds) {
+        try { if (editor.getNode(id)) await editor.removeNode(id) } catch { /* 已被手动删除则跳过 */ }
+      }
+      const index = macroInstances.indexOf(instance)
+      if (index >= 0) macroInstances.splice(index, 1)
+      const frameIndex = comments.findIndex(item => item.id === instance.commentId)
+      if (frameIndex >= 0) comments.splice(frameIndex, 1)
+      // 以文档坐标为基准重插：复用原实例的注释框位置作为新块落点
+      await insertGraphBody(document, anchor ?? graphPosition(), label, instance.source)
+      // 边界重接：新实例 nodeIds 与源顺序一致，按索引找回对应节点
+      const newInstance = macroInstances[macroInstances.length - 1]
+      if (newInstance) {
+        for (const boundary of boundaries) {
+          const newNodeId = newInstance.nodeIds[boundary.instanceIndex]
+          if (!newNodeId) continue
+          try {
+            const external = editor.getNode(boundary.externalNode)
+            const internal = editor.getNode(newNodeId)
+            if (!external || !internal) continue
+            const connection = boundary.intoInstance
+              ? createConnection(external, boundary.externalPort, internal, boundary.instancePort)
+              : createConnection(internal, boundary.instancePort, external, boundary.externalPort)
+            await editor.addConnection(connection)
+          } catch { /* 端口类型不匹配等，跳过该连线 */ }
+        }
+      }
+      await refreshPortStates(true)
+      renderComments()
     })
   }
 
@@ -1612,7 +1733,9 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     const data = snapshot()
     return {
       schemaVersion: 1,
-      graphName,
+      // 编辑器持有载入时的 graphName（宏显示名），调用方参数（通常是标签页标题=文件名）只做兜底，
+      // 防止显示名被文件名覆盖。
+      graphName: currentGraphName || graphName,
       ...data,
       variables: (variables ?? currentVariables).map(item => ({ ...item })),
       variableGroups: (variableGroups ?? currentVariableGroups).map(item => ({ ...item })),
@@ -1623,6 +1746,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
 
   async function loadDocument(document: GraphDocument) {
     undoStack.length = 0; redoStack.length = 0
+    currentGraphName = String(document.graphName ?? '').trim()
     controlEditSnapshot = null; controlEditChanged = false
     visibleEntryConnectionIds.clear()
     currentVariables = (document.variables ?? []).map(item => ({ ...item }))
@@ -1630,7 +1754,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     currentLegacy = cloneLegacyState(document.legacy)
     callbacks.onVariables(currentVariables.map(item => ({ ...item })))
     callbacks.onVariableGroups(currentVariableGroups.map(item => ({ ...item })))
-    const report = await restore({ nodes: document.nodes ?? [], connections: document.connections ?? [], groups: document.groups ?? [], comments: document.comments ?? [] })
+    const report = await restore({ nodes: document.nodes ?? [], connections: document.connections ?? [], groups: document.groups ?? [], comments: document.comments ?? [], macroInstances: document.macroInstances ?? [] })
     if (document.nodes?.length) await fitGraphAfterRender()
     else if (document.view) {
       await area.area.translate(document.view.x, document.view.y)
@@ -1650,7 +1774,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     undoStack.length = 0; redoStack.length = 0; controlEditSnapshot = null; controlEditChanged = false; groups.length = 0; selectedGroupId = null
     visibleEntryConnectionIds.clear()
     currentVariables = []; currentVariableGroups = [{ id: 'default', name: 'Default' }]; currentLegacy = undefined; insertionOffset = 0; callbacks.onVariables([]); callbacks.onVariableGroups(currentVariableGroups.map(item => ({ ...item }))); callbacks.onSelection(null)
-    restoring = true; await selector.unselectAll(); await editor.clear(); restoring = false; comments.length = 0; renderGroups(); renderComments(); updateMetrics()
+    restoring = true; await selector.unselectAll(); await editor.clear(); restoring = false; comments.length = 0; macroInstances.length = 0; currentGraphName = ''; renderGroups(); renderComments(); updateMetrics()
     await area.area.translate(0, 0); await area.area.zoom(1)
   callbacks.onStatus('New graph')
 }
@@ -2463,6 +2587,25 @@ function nodeSize(node: BlueprintNode) {
     addCommentAt,
     commentAroundSelection,
     insertGraph,
+    selectedMacroInstance,
+    hasMacroInstance: (source: string) => macroInstances.some(item => item.source === source),
+    updateMacroFrames(source: string, label: string) {
+      let touched = false
+      for (const instance of macroInstances) {
+        if (instance.source !== source) continue
+        const comment = comments.find(item => item.id === instance.commentId)
+        if (comment && comment.text !== `宏：${label}`) {
+          comment.text = `宏：${label}`
+          touched = true
+        }
+      }
+      if (touched) renderComments()
+    },
+    syncMacroInstance: (source, document, label) => {
+      const instance = macroInstances.find(item => item.source === source) ?? null
+      if (!instance) return Promise.resolve()
+      return syncMacroInstance(instance, document, label)
+    },
     searchNodes,
     focusComment,
     commentCount,

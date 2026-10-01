@@ -114,7 +114,7 @@ assert(style.includes('--module-category-function-font: 700 14.4px/16px'), 'smal
 assert(app.includes('module-item-icon'), 'module library items must show a small leading type icon')
 assert(app.includes("item.functionPlaceholder ? 'ƒ' : '◇'"), 'function and ordinary module items must use distinct leading character icons')
 assert(app.includes('v-model=\"functionTitle\"'), 'function blueprint details must show the function title')
-assert(app.includes('readonly @change=\"syncFunctionTitleToGraph\"'), 'function blueprint title must be readonly because external references may depend on it')
+assert(app.includes('@change="syncFunctionTitleToGraph"') && !app.includes('readonly @change="syncFunctionTitleToGraph"'), 'function title should be editable: call references resolve by functionId, not by name')
 assert(app.includes('menuText.detail.functionTitle'), 'function title label must use localized detail text')
 assert(app.includes('menuText.detail.functionTitlePlaceholder'), 'function title placeholder must use localized detail text')
 assert(app.includes('menuText.detail.functionTitleLockedHint'), 'function title readonly hint must use localized detail text')

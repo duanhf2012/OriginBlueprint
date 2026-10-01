@@ -148,11 +148,36 @@ export interface CommentSnapshot {
   height: number
 }
 
+export interface MacroRefBoundary {
+  externalNode: string
+  externalPort: string
+  macroNodeIndex: number
+  macroPort: string
+  intoMacro: boolean
+}
+
+export interface MacroRefSnapshot {
+  macroId: string
+  pathHint?: string
+  commentId?: string
+  frame?: { x: number; y: number; width: number; height: number }
+  boundary?: MacroRefBoundary[]
+}
+
+export interface MacroInstanceSnapshot {
+  source: string
+  commentId: string
+  nodeIds: string[]
+}
+
 export interface GraphSnapshot {
   nodes: NodeSnapshot[]
   connections: ConnectionSnapshot[]
   groups: GroupSnapshot[]
   comments: CommentSnapshot[]
+  macroInstances: MacroInstanceSnapshot[]
+  macroRefs?: MacroRefSnapshot[]
+  macroId?: string
 }
 
 export interface RestoreDroppedNode {

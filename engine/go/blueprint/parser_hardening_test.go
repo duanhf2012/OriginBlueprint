@@ -95,6 +95,11 @@ func TestParseGraphDocumentAllowsSignaturePortRef(t *testing.T) {
 			"outputs":[{"id":"out","name":"结果","type":"integer"}]
 		},
 		"comments":[{"id":"c1","text":"备注","x":1,"y":2,"width":100,"height":50}],
+		"macroInstances":[{"source":"macros/a.obpm","commentId":"c1","nodeIds":["n1","n2"]}],
+		"macroId":"m_a3f8",
+		"macroRefs":[{"macroId":"m_a3f8","pathHint":"macros/a.obpm","commentId":"c1",
+			"frame":{"x":1,"y":2,"width":100,"height":50},
+			"boundary":[{"externalNode":"n9","externalPort":"exec","macroNodeIndex":0,"macroPort":"exec","intoMacro":true}]}],
 		"nodes":[{
 			"id":"entry",
 			"typeId":"origin.function.entry",

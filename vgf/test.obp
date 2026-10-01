@@ -1,0 +1,130 @@
+{
+  "schemaVersion": 1,
+  "nodes": [
+    {
+      "id": "0abbc6027f57e43a",
+      "typeId": "origin.event.entry-array",
+      "position": {
+        "x": -99.32850544369319,
+        "y": 72.75162322042812
+      },
+      "values": {},
+      "properties": {
+        "label": "执行入口(数组)"
+      }
+    },
+    {
+      "id": "cc2b4f519eb02393",
+      "typeId": "origin.debug.output",
+      "position": {
+        "x": 250.17149455630675,
+        "y": 59.251623220428115
+      },
+      "values": {
+        "integer": 0,
+        "string": "",
+        "array": []
+      },
+      "properties": {
+        "label": "打印调试信息"
+      }
+    },
+    {
+      "id": "3a2a29dd1608a608",
+      "typeId": "origin.timer.create",
+      "position": {
+        "x": 810.5731612229733,
+        "y": 90.14495655376146
+      },
+      "values": {
+        "duration": 1000,
+        "looping": false,
+        "timerKey": "344"
+      },
+      "properties": {
+        "label": "创建定时器"
+      }
+    },
+    {
+      "id": "06331145ad76ae80",
+      "typeId": "origin.debug.output",
+      "position": {
+        "x": 1180.0314538662024,
+        "y": 209.6449571895443
+      },
+      "values": {
+        "integer": 0,
+        "string": "",
+        "array": []
+      },
+      "properties": {
+        "label": "打印调试信息"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "source": "0abbc6027f57e43a",
+      "sourceOutput": "exec",
+      "target": "cc2b4f519eb02393",
+      "targetInput": "exec"
+    },
+    {
+      "source": "0abbc6027f57e43a",
+      "sourceOutput": "objectId",
+      "target": "cc2b4f519eb02393",
+      "targetInput": "integer"
+    },
+    {
+      "source": "cc2b4f519eb02393",
+      "sourceOutput": "exec",
+      "target": "3a2a29dd1608a608",
+      "targetInput": "exec"
+    },
+    {
+      "source": "3a2a29dd1608a608",
+      "sourceOutput": "triggered",
+      "target": "06331145ad76ae80",
+      "targetInput": "exec"
+    }
+  ],
+  "groups": [],
+  "comments": [
+    {
+      "id": "261f9c20-8780-4c0c-bb4d-2353e61fe10a",
+      "text": "宏：宏_测试宏3434311",
+      "x": -123.32850544369319,
+      "y": 25.251623220428115,
+      "width": 1654.3599381345023,
+      "height": 369.3932859487992
+    }
+  ],
+  "macroInstances": [
+    {
+      "source": "E:\\Develop\\Origin开发\\OriginBlueprint\\vgf\\宏_测试宏.obpm",
+      "commentId": "261f9c20-8780-4c0c-bb4d-2353e61fe10a",
+      "nodeIds": [
+        "0abbc6027f57e43a",
+        "cc2b4f519eb02393",
+        "3a2a29dd1608a608",
+        "06331145ad76ae80"
+      ]
+    }
+  ],
+  "variables": [],
+  "variableGroups": [
+    {
+      "id": "default",
+      "name": "Default",
+      "collapsed": false
+    }
+  ],
+  "view": {
+    "x": 167.3551148604472,
+    "y": 256.3844580009753,
+    "zoom": 0.752730714096499
+  },
+  "legacy": {
+    "format": "vgf"
+  }
+}

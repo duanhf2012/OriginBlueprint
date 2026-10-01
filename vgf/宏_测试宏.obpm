@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "graphName": "宏_测试宏343431199",
+  "nodes": [
+    {
+      "id": "58a6b86f20590f28",
+      "typeId": "origin.event.entry-array",
+      "position": {
+        "x": 170.81999999999994,
+        "y": 229.95999999999998
+      },
+      "values": {},
+      "properties": {
+        "label": "执行入口(数组)"
+      }
+    },
+    {
+      "id": "a87208813d14b0ab",
+      "typeId": "origin.debug.output",
+      "position": {
+        "x": 520.3199999999999,
+        "y": 216.45999999999998
+      },
+      "values": {
+        "integer": 0,
+        "string": "",
+        "array": []
+      },
+      "properties": {
+        "label": "打印调试信息"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "source": "58a6b86f20590f28",
+      "sourceOutput": "exec",
+      "target": "a87208813d14b0ab",
+      "targetInput": "exec"
+    },
+    {
+      "source": "58a6b86f20590f28",
+      "sourceOutput": "objectId",
+      "target": "a87208813d14b0ab",
+      "targetInput": "integer"
+    }
+  ],
+  "groups": [],
+  "comments": [],
+  "macroInstances": [],
+  "variables": [],
+  "variableGroups": [
+    {
+      "id": "default",
+      "name": "Default",
+      "collapsed": false
+    }
+  ],
+  "view": {
+    "x": -267.80394913658574,
+    "y": -21.728801672823103,
+    "zoom": 0.5808000000000001
+  }
+}

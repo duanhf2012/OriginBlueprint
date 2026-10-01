@@ -23,6 +23,9 @@ type graphDocument struct {
 	Groups           json.RawMessage           `json:"groups,omitempty"`
 	// Comments 是编辑器写入的画布注释便签，引擎不消费；声明字段是为了严格 JSON 解析能接受。
 	Comments          json.RawMessage            `json:"comments,omitempty"`
+	MacroInstances    json.RawMessage            `json:"macroInstances,omitempty"`
+	MacroRefs         json.RawMessage            `json:"macroRefs,omitempty"`
+	MacroID           string                     `json:"macroId,omitempty"`
 	VariableGroups    json.RawMessage            `json:"variableGroups,omitempty"`
 	View              json.RawMessage            `json:"view,omitempty"`
 	Legacy            json.RawMessage            `json:"legacy,omitempty"`
