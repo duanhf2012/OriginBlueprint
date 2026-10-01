@@ -137,7 +137,7 @@ export interface BlueprintEditorHandle {
   toggleGroupSelected(): Promise<void>
   addCommentAt(position?: { x: number; y: number }): Promise<void>
   commentAroundSelection(): Promise<void>
-  insertGraph(document: GraphSnapshot & { variables?: GraphVariable[] }, clientPosition?: Position): Promise<void>
+  insertGraph(document: GraphSnapshot & { variables?: GraphVariable[] }, clientPosition?: Position, label?: string): Promise<void>
   searchNodes(query: string): Array<{ nodeId: string; title: string; typeId: string; detail: string }>
   focusComment(id: string): Promise<void>
   commentCount(): number
@@ -1478,7 +1478,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
 
   // 插入整张蓝图作为宏：复制语义——把源文件的节点/连线/变量复制进当前图（ID 全部重生成），
   // 之后两边各自演化互不影响。同名同类型变量复用目标图已有的，缺失的补建。
-  async function insertGraph(document: GraphSnapshot & { variables?: GraphVariable[] }, clientPosition?: Position) {
+  async function insertGraph(document: GraphSnapshot & { variables?: GraphVariable[] }, clientPosition?: Position, label?: string) {
     const sourceNodes = document.nodes ?? []
     if (!sourceNodes.length) return
     await mutate(`Inserted macro: ${sourceNodes.length} node(s)`, async () => {
@@ -1531,6 +1531,15 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
         if (source && target) await editor.addConnection(createConnection(source, connection.sourceOutput, target, connection.targetInput))
       }
       await refreshPortStates(true)
+      // 复制语义下宏以"铺开的整体块"呈现：自动包一圈带来源标签的注释框，
+      // 与函数的单节点形成明确视觉对比；拖动注释框即整体移动，节点仍可就地修改。
+      if (label && nodesById.size) {
+        const placed = [...nodesById.values()].map(node => ({ position: area.nodeViews.get(node.id)?.position ?? { x: 0, y: 0 }, size: nodeSize(node) }))
+        const minX = Math.min(...placed.map(item => item.position.x)), minY = Math.min(...placed.map(item => item.position.y))
+        const maxX = Math.max(...placed.map(item => item.position.x + item.size.width)), maxY = Math.max(...placed.map(item => item.position.y + item.size.height))
+        comments.push({ id: crypto.randomUUID(), text: `宏：${label}`, x: minX - 24, y: minY - 34, width: maxX - minX + 48, height: maxY - minY + 62 })
+        renderComments()
+      }
     })
   }
 

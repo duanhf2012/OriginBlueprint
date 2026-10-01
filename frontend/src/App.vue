@@ -3413,7 +3413,8 @@ async function insertMacroByPath(path: string, position?: { x: number; y: number
     if (!file?.content) return
     const raw: unknown = JSON.parse(file.content)
     if (!isNativeGraphDocument(raw)) return
-    await editor?.insertGraph(raw as Parameters<NonNullable<typeof editor>['insertGraph']>[0], position ?? visibleCanvasInsertPosition())
+    const macroName = (path.split(/[\/]/).pop() ?? path).replace(/\.obpm$/i, '')
+    await editor?.insertGraph(raw as Parameters<NonNullable<typeof editor>['insertGraph']>[0], position ?? visibleCanvasInsertPosition(), macroName)
     status.value = `已插入宏：${path.split(/[\/]/).pop() ?? path}（复制语义，与源文件互不影响）`
   } catch (error) {
     status.value = `插入宏失败：${error instanceof Error ? error.message : String(error)}`
