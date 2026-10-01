@@ -33,6 +33,26 @@ func analyzeCoreGraph(document GraphDocument, nodes map[string]GraphNode, ports 
 		}
 	}
 
+	// 入口重复兜底：编辑器在插入/粘贴时会把同身份入口合并到已有入口节点，
+	// 此处校验手改 JSON、旧文档等路径带入的重复入口（执行触发面歧义）。
+	// 报 error 强提示但不阻断保存（blocksSave 保留给致命结构问题）。
+	entryIDsByType := map[string][]string{}
+	for nodeID := range entries {
+		typeID := nodes[nodeID].TypeID
+		entryIDsByType[typeID] = append(entryIDsByType[typeID], nodeID)
+	}
+	for typeID, ids := range entryIDsByType {
+		if len(ids) > 1 {
+			sort.Strings(ids)
+			issues = append(issues, ValidationIssue{
+				Severity: "error",
+				Code:     "entry.duplicate",
+				Message:  fmt.Sprintf("入口重复：图中存在 %d 个相同入口（%s），请删除多余入口并将其逻辑连到保留的入口上", len(ids), typeID),
+				NodeIDs:  ids,
+			})
+		}
+	}
+
 	edges := coreGraphEdges{execAdj: map[string][]string{}, dataAdj: map[string][]string{}, dataReverse: map[string][]string{}}
 	execConnections := make([]coreExecConnection, 0, len(document.Connections))
 	type endpointGroup struct {

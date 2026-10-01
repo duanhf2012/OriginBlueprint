@@ -1499,7 +1499,14 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
         callbacks.onVariables(currentVariables.map(item => ({ ...item })))
       }
       const base = graphPosition(clientPosition)
+      // 落点归一化：源文件节点坐标是绝对值（可能远离原点），平移源包围盒左上角对齐落点，
+      // 否则宏在画布远处编辑保存后，插入块会落在 base+绝对坐标 处偏离预期数千像素。
+      const placed_ = sourceNodes.filter(item => typeof item.typeId === 'string' && item.typeId)
+      const srcMinX = Math.min(...placed_.map(item => item.position?.x ?? 0))
+      const srcMinY = Math.min(...placed_.map(item => item.position?.y ?? 0))
       const nodesById = new Map<string, BlueprintNode>()
+      // 宏入口与目标图已有入口同身份时，宏的下游逻辑接到已有入口节点（入口语义=成为目标图的触发面）。
+      const entryRemap = new Map<string, BlueprintNode>()
       await selector.unselectAll()
       for (const item of sourceNodes) {
         const typeId = typeof item.typeId === 'string' ? item.typeId : ''
@@ -1507,7 +1514,11 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
         if (!isPasteableFunctionNode({ id: '', typeId })) continue
         const node = createRestoredNode(item, typeId)
         if (!node) continue
-        if (node.entrySourceKey && (!canAddOrdinaryEntryNode() || isDuplicateEntryNode(node))) continue
+        if (node.entrySourceKey && (!canAddOrdinaryEntryNode() || isDuplicateEntryNode(node))) {
+          const existing = editor.getNodes().find(item => item.entrySourceKey === node.entrySourceKey || item.typeId === node.typeId)
+          if (existing) entryRemap.set(item.id, existing)
+          continue
+        }
         applyNodeProperties(node, item.properties)
         if (node.variableId) {
           const remapped = variableIdRemap.get(node.variableId)
@@ -1521,13 +1532,13 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
         setControlValues(node, item.values)
         syncDynamicBranchOutputs(node, dynamicBranchValueCount(node))
         await editor.addNode(node)
-        await area.translate(node.id, { x: base.x + item.position.x, y: base.y + item.position.y })
+        await area.translate(node.id, { x: base.x + (item.position.x - srcMinX), y: base.y + (item.position.y - srcMinY) })
         await selectable.select(node.id, true)
         nodesById.set(item.id, node)
       }
       for (const connection of document.connections ?? []) {
-        const source = nodesById.get(connection.source)
-        const target = nodesById.get(connection.target)
+        const source = nodesById.get(connection.source) ?? entryRemap.get(connection.source)
+        const target = nodesById.get(connection.target) ?? entryRemap.get(connection.target)
         if (source && target) await editor.addConnection(createConnection(source, connection.sourceOutput, target, connection.targetInput))
       }
       await refreshPortStates(true)
@@ -1548,6 +1559,8 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     await mutate(`Pasted ${clipboard.nodes.length} node(s)`, async () => {
       const base = graphPosition()
       const nodes = new Map<number, BlueprintNode>()
+      // 与宏插入同规则：重复入口的下游逻辑接到已有入口，而不是丢弃连线留孤儿。
+      const pasteEntryRemap = new Map<number, BlueprintNode>()
       await selector.unselectAll()
       for (const [index, item] of clipboard!.nodes.entries()) {
         const typeId = typeof item.typeId === 'string' ? item.typeId : ''
@@ -1570,8 +1583,8 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
         nodes.set(index, node)
       }
       for (const item of clipboard!.connections) {
-        const source = nodes.get(item.sourceIndex)
-        const target = nodes.get(item.targetIndex)
+        const source = (nodes.get(item.sourceIndex) ?? pasteEntryRemap.get(item.sourceIndex))
+        const target = (nodes.get(item.targetIndex) ?? pasteEntryRemap.get(item.targetIndex))
         if (source && target) await editor.addConnection(createConnection(source, item.sourceOutput, target, item.targetInput))
       }
     })

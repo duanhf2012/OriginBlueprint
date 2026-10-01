@@ -254,3 +254,21 @@ func TestCoreAnalyzerHandlesDeepGraphIteratively(t *testing.T) {
 		t.Fatalf("deep acyclic graph has cycles: %#v", cycles)
 	}
 }
+
+func TestCoreAnalyzerReportsDuplicateEntries(t *testing.T) {
+	document := analyzerDocument([]GraphNode{
+		{ID: "entry-a", TypeID: "origin.event.begin"},
+		{ID: "entry-b", TypeID: "origin.event.begin"},
+		{ID: "action", TypeID: "origin.action.print"},
+	}, []GraphConnection{
+		{Source: "entry-a", SourceOutput: "exec", Target: "action", TargetInput: "exec"},
+	})
+	issues := validateGraph(document)
+	duplicate := requireValidationIssue(t, issues, "entry.duplicate")
+	if duplicate.Severity != "error" || duplicate.BlocksSave {
+		t.Fatalf("duplicate entry issue should be a non-blocking error: %#v", duplicate)
+	}
+	if len(duplicate.NodeIDs) != 2 {
+		t.Fatalf("duplicate entry issue should list both nodes: %#v", duplicate)
+	}
+}

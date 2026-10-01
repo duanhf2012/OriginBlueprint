@@ -1,7 +1,7 @@
 # 蓝图宏（Macro）设计文档
 
-> 版本：1.0（对应实现提交 `0e92a4c` 起）
-> 状态：已实现并交付
+> 版本：1.1
+> 状态：已实现（含入口合并、校验兜底、来源注释框等后续增强；详见 5.2 改动清单）
 
 ## 1. 概述
 
@@ -51,13 +51,13 @@
 | 节点 | 全部复制，ID 重新生成；函数终端类节点按既有防重规则过滤 |
 | 连线 | 随节点重映射后重建 |
 | 变量 | **同名同类型 → 复用目标图已有定义**（连线自动指向）；目标图没有 → 按源定义补建（ID 冲突时生成新 ID） |
-| 入口节点 | 随宏插入；与目标图重复的入口按防重规则跳过 |
+| 入口节点 | 随宏插入；**宏的入口语义 = 成为目标图的触发面**（外部事件到来即执行，与目标图自身入口无因果链）；与目标图已有同身份入口重复时，宏入口节点不再重复创建，其下游逻辑**自动接到目标图已有入口**上（粘贴同规则）；宏可含多个入口，各自独立触发。**校验兜底**：手改文档等路径带入同类型重复入口时报 `entry.duplicate` error（指明节点、给出修法），不阻断保存——重复消解优先在产生源头（插入/粘贴合并）完成，而非事后报错锁保存 |
 
 变量的"同名复用"同时是**参数注入机制**：宏内刻意使用与目标图一致的全局变量名（如 `技能等级`），插入后自动接上目标图的变量。
 
 ### 3.3 零引擎改动
 
-插入产物是普通节点/连线/变量，校验、执行、序列化路径全部复用现有机制。引擎侧唯一改动是**容忍性**的：引用查找把 `.obpm` 与 `.vgf/.obp` 同级扫描（不留盲区），打开对话框增加筛选。
+插入产物是普通节点/连线/变量，校验、执行、序列化路径全部复用现有机制。服务端引擎（engine/go/blueprint）零改动；Go 侧仅：引用查找把 `.obpm` 与 `.vgf/.obp` 同级扫描（不留盲区）、打开对话框增加筛选、桌面校验器新增 `entry.duplicate` 兜底规则（见 3.2）。
 
 ## 4. 使用流程
 
@@ -65,7 +65,7 @@
 【创建】目录右键 → 新建宏（.obpm）→ 命名（建议 宏_<业务>_<行为>）
 【编辑】双击打开，从入口节点开始搭逻辑；顶部放注释便签写用途/输入/作者
 【复用】三选一：
-   ① 模块库「宏/<父目录>」分类 → 点击/双击 → 插入当前图中心
+   ① 模块库「宏/<父目录>」分类 → 双击 → 插入当前图中心（单击仅选中条目，与函数一致）
    ② 模块库拖拽宏条目 → 插入到画布指定位置
    ③ 文件浏览器右键 .obpm → 作为宏插入当前图
 【演化】插入后自由修改，与源文件再无关联
@@ -90,11 +90,13 @@ App.vue: insertMacroByPath(path, position?)
    ↓ platform.openGraph(path) 读文件（JSON）
    ↓ isNativeGraphDocument 校验（非原生文档拒绝）
    ↓
-createEditor.insertGraph(document, position)   ← 核心合并管线
+createEditor.insertGraph(document, position, label)   ← 核心合并管线
+   ├─ 落点归一化（源包围盒左上角对齐落点，宏源坐标不影响插入位置）
    ├─ 变量合并（remap 表 + 补建 + onVariables 同步）
    ├─ 节点复制（复用粘贴管线：createRestoredNode / applyNodeProperties /
    │          setControlValues / 入口防重 / variableId 重映射）
-   ├─ 连线重建（旧ID→新节点映射）
+   ├─ 连线重建（旧ID→新节点映射；重复入口重映射到目标图已有入口）
+   ├─ 来源注释框（「宏：文件名」自动包裹插入块，见第 6 章）
    └─ refreshPortStates + 单步 undo（mutate 事务）
 ```
 
@@ -102,15 +104,16 @@ createEditor.insertGraph(document, position)   ← 核心合并管线
 
 | 位置 | 内容 |
 |---|---|
-| `frontend/src/editor/createEditor.ts` | `insertGraph()` 合并管线；handle 接口 `insertGraph` |
-| `frontend/src/App.vue` | `isMacroSourcePath`（.obpm）、`insertMacroByPath`、`insertMacroFromContextMenu`、`createMacroAtDirectory`、`macroModuleItems`（工作区树收集 .obpm，分类=父目录名）、模块库并入 `filteredModuleItems`、`addModuleItemAt` 宏分支、目录右键「新建宏」 |
+| `frontend/src/editor/createEditor.ts` | `insertGraph()` 合并管线（落点归一化、变量合并、入口重映射、来源注释框）；`paste()` 入口重映射同规则；handle 接口 `insertGraph` |
+| `frontend/src/App.vue` | `isMacroSourcePath`（.obpm）、`insertMacroByPath`（非原生文档明确拒绝提示）、`insertMacroFromContextMenu`、`createMacroAtDirectory`（默认名 `宏_`）、`macroModuleItems`（工作区树收集 .obpm，分类=父目录名）、模块库并入 `filteredModuleItems`、`addModuleItemAt` 宏分支、模块库宏条目右键「插入到当前图/编辑宏」、目录右键「新建宏」 |
 | `frontend/src/editor/types.ts` | `NodeKind` 增加 `'macro'` |
 | `app.go` | `FindNodeReferences` 扫描 `.obpm`；`graphFilters()` 增加 `.obpm` 筛选 |
+| `core_graph_analyzer.go` | `entry.duplicate` 重复入口兜底校验（error 不锁保存，附测试） |
 
 ### 5.3 已知边界（v1）
 
-- 宏中的**注释便签与分组不随复制**（只复制节点/连线/变量）；源文件里的注释头仅作阅读说明；
-- 仅接受**原生 `.obpm`**；legacy `.vgf` 想做宏请先另存为 `.obp` 再改扩展名/复制内容；
+- 宏中的**注释便签与分组不随复制**（只复制节点/连线/变量）；插入时会**新自动生成**一个带来源标签的注释框（第 6 章），与"源文件里的注释头"是两回事，后者仅作阅读说明；
+- 仅接受**原生 `.obpm`**（内容非原生文档时状态栏明确拒绝）；legacy `.vgf` 想做宏：打开后**另存为 .obpm**（另存对话框已含该类型），无需手工改扩展名；
 - 宏不支持签名参数表——变量同名复用是当前唯一的"参数"机制。
 
 ## 6. 插入后的显示设计
@@ -166,4 +169,7 @@ UE 蓝图宏在图中显示为**单个节点**（展示宏的输入/输出引脚
   2. 编辑宏（入口+节点+私有变量）保存 → 目标图点击插入 → 节点/连线/变量齐备、状态栏提示复制语义；
   3. 目标图有同名同类型变量 → 插入后复用（不重复建）；无 → 自动补建并出现在变量面板；
   4. 插入后改源宏 → 目标图不受影响；插入物可一步撤销；
-  5. 引用查找能命中宏文件内的节点类型。
+  5. 目标图已有同身份入口再插入宏 → 宏入口不重复，其下游逻辑接到已有入口（粘贴同规则）；
+  6. 插入块被「宏：文件名」注释框包裹，拖框整体移动、删框留节点；
+  7. 手工构造重复入口的文档 → 校验报 `entry.duplicate`（error、不锁保存）；
+  8. 引用查找能命中宏文件内的节点类型。
