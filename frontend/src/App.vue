@@ -3428,7 +3428,7 @@ async function insertMacroFromContextMenu() {
 }
 
 async function createMacroAtDirectory(directory: string) {
-  const rawName = window.prompt('宏名称', '新宏')
+  const rawName = window.prompt('宏名称（建议 宏_业务_行为）', '宏_')
   if (!rawName) return
   const name = sanitizeFunctionFileName(rawName)
   const path = joinWorkspacePath(directory, `${name}.obpm`)
@@ -3807,6 +3807,18 @@ function openModuleNodeMenu(event: MouseEvent, node: ModuleLibraryItem) {
 
 function openModuleItemMenu(event: MouseEvent, item: ModuleLibraryItem) {
   moduleNodeMenu.value = { visible: true, x: event.clientX, y: event.clientY, node: item }
+}
+
+async function insertMacroFromModuleMenu() {
+  const item = moduleNodeMenu.value.node
+  closeModuleNodeMenu()
+  if (item?.path) await insertMacroByPath(item.path)
+}
+
+async function editMacroFromModuleMenu() {
+  const item = moduleNodeMenu.value.node
+  closeModuleNodeMenu()
+  if (item?.path) await openGraph(item.path)
 }
 
 function selectFunctionLibraryItem(item: ModuleLibraryItem) {
@@ -4255,9 +4267,13 @@ function toggleModuleCategory(category: string) {
     </section>
     <div v-if="moduleNodeMenu.visible" class="module-node-menu" :style="{ left: `${moduleNodeMenu.x}px`, top: `${moduleNodeMenu.y}px` }" @pointerdown.stop>
       <div class="module-node-menu-title">{{ moduleNodeMenu.node?.title }}</div>
-      <button v-if="moduleNodeMenu.node?.functionPlaceholder" @click="openFunctionModuleItem()">编辑函数</button>
-      <button v-if="moduleNodeMenu.node?.functionPlaceholder && moduleNodeMenu.node.functionSource === 'workspace'" @click="moduleNodeMenu.node && openFunctionAnnotationDialog(moduleNodeMenu.node)">编辑函数注解</button>
-      <button v-if="moduleNodeMenu.node?.functionPlaceholder" @click="findModuleFunctionReferences()">查找所有引用</button>
+      <template v-if="moduleNodeMenu.node?.macroPlaceholder">
+        <button @click="insertMacroFromModuleMenu()">插入到当前图</button>
+        <button @click="editMacroFromModuleMenu()">编辑宏</button>
+      </template>
+      <button v-else-if="moduleNodeMenu.node?.functionPlaceholder" @click="openFunctionModuleItem()">编辑函数</button>
+      <button v-if="!moduleNodeMenu.node?.macroPlaceholder && moduleNodeMenu.node?.functionPlaceholder && moduleNodeMenu.node.functionSource === 'workspace'" @click="moduleNodeMenu.node && openFunctionAnnotationDialog(moduleNodeMenu.node)">编辑函数注解</button>
+      <button v-if="!moduleNodeMenu.node?.macroPlaceholder && moduleNodeMenu.node?.functionPlaceholder" @click="findModuleFunctionReferences()">查找所有引用</button>
       <template v-else>
         <button @click="findModuleNodeReferences()">查找所有引用</button>
         <button @click="moduleNodeMenu.node && openNodeAnnotationDialog(moduleNodeMenu.node.id)">编辑节点注解</button>
