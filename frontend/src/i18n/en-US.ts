@@ -81,7 +81,7 @@ export const enUS: MenuLocaleText = {
     saveFailed: 'Save failed'
   },
   canvas: {
-    hint: 'Right drag: pan  Middle drag: pan  Ctrl: multi-select  Ctrl + right drag: cut connections  Connection: click + Delete'
+    hint: 'Right drag: pan  Middle drag: pan  Ctrl: multi-select  Ctrl + right drag: cut connections  Connection: click + Delete  C with nodes selected: comment around selection'
   },
   validation: {
     title: 'Test Results',
@@ -157,7 +157,7 @@ export const enUS: MenuLocaleText = {
     selectionTitle: 'Selection',
     selectionBody: 'Left-drag selects nodes, Ctrl adds to selection, Ctrl+A selects all, and Delete removes selected items.',
     groupTitle: 'Groups',
-    groupBody: 'Ctrl+G groups selected nodes. Select an existing group and press Ctrl+G again to ungroup.',
+    groupBody: 'Ctrl+G groups selected nodes. Select an existing group and press Ctrl+G again to ungroup.; press C with nodes selected to comment around them',
     validateTitle: 'Validation',
     validateBody: 'F5 checks graph structure and execution flow issues. Double-click a result to locate its node.',
     exportTitle: 'Export',

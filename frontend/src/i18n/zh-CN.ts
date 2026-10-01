@@ -253,7 +253,7 @@ export const zhCN: MenuLocaleText = {
     saveFailed: '保存失败'
   },
   canvas: {
-    hint: '右键拖拽：平移  中键拖拽：平移  Ctrl：多选  Ctrl + 右键拖拽：切断连线  连线：点击后按 Delete 删除'
+    hint: '右键拖拽：平移  中键拖拽：平移  Ctrl：多选  Ctrl + 右键拖拽：切断连线  连线：点击后按 Delete 删除  选中节点按 C：加注释框包住选区'
   },
   validation: {
     title: '检查结果',
@@ -329,7 +329,7 @@ export const zhCN: MenuLocaleText = {
     selectionTitle: '选择',
     selectionBody: '左键框选节点，Ctrl 多选，Ctrl+A 全选，Delete 删除选中内容。',
     groupTitle: '节点组',
-    groupBody: 'Ctrl+G 对选中节点创建节点组；选中已有节点组再按 Ctrl+G 可取消分组。',
+    groupBody: 'Ctrl+G 对选中节点创建节点组；选中已有节点组再按 Ctrl+G 可取消分组；选中节点按 C 加注释框包住选区。',
     validateTitle: '检查',
     validateBody: 'F5 检查蓝图结构和执行流问题，底部结果可双击定位节点。',
     exportTitle: '导出',
