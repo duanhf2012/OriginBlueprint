@@ -3378,6 +3378,27 @@ async function workspaceOpen(item: WorkspaceTreeNode) {
   if (item.isDir) await toggleWorkspaceNode(item); else await openGraph(item.path)
 }
 
+async function insertMacroFromContextMenu() {
+  const path = fileContextMenu.value.path
+  fileContextMenu.value.visible = false
+  if (!path || fileContextMenu.value.isDir || fileContextMenu.value.isFunction) return
+  try {
+    const file = await platform.openGraph(path)
+    if (!file?.content) return
+    let raw: unknown = JSON.parse(file.content)
+    if (!isNativeGraphDocument(raw)) {
+      const migrated = await platform.migrateLegacyGraph(file.content)
+      if (!migrated) return
+      raw = JSON.parse(migrated)
+    }
+    if (!isNativeGraphDocument(raw)) return
+    await editor?.insertGraph(raw as Parameters<NonNullable<typeof editor>['insertGraph']>[0])
+    status.value = `已插入宏：${path.split(/[\/]/).pop() ?? path}（复制语义，与源文件互不影响）`
+  } catch (error) {
+    status.value = `插入宏失败：${error instanceof Error ? error.message : String(error)}`
+  }
+}
+
 function openFileContextMenu(event: MouseEvent, node: WorkspaceTreeNode | WorkspaceEntry | NodeReferenceResult) {
   const isDir = 'isDir' in node ? node.isDir : false
   fileContextMenu.value = { visible: true, x: event.clientX, y: event.clientY, path: node.path, isDir, isFunction: isFunctionBlueprintPath(node.path) }
@@ -4194,6 +4215,7 @@ function toggleModuleCategory(category: string) {
     </div>
     <div v-if="fileContextMenu.visible" class="file-context-menu" :style="{ left: `${fileContextMenu.x}px`, top: `${fileContextMenu.y}px` }" @pointerdown.stop>
       <button v-if="!fileContextMenu.isDir" @click="openFileContextGraph">{{ fileContextMenu.isFunction ? '打开函数' : '打开蓝图' }}</button>
+      <button v-if="!fileContextMenu.isDir && !fileContextMenu.isFunction" @click="insertMacroFromContextMenu">作为宏插入当前图</button>
       <button v-if="fileContextMenu.isDir" @click="refreshFileContextDirectory">刷新目录</button>
       <button v-if="fileContextMenu.isDir" @click="createBlueprintInFileContext">新建蓝图</button>
       <button v-if="fileContextMenu.isDir" @click="createFunctionInFileContext">新建函数</button>

@@ -137,6 +137,7 @@ export interface BlueprintEditorHandle {
   toggleGroupSelected(): Promise<void>
   addCommentAt(position?: { x: number; y: number }): Promise<void>
   commentAroundSelection(): Promise<void>
+  insertGraph(document: GraphSnapshot & { variables?: GraphVariable[] }, clientPosition?: Position): Promise<void>
   searchNodes(query: string): Array<{ nodeId: string; title: string; typeId: string; detail: string }>
   focusComment(id: string): Promise<void>
   commentCount(): number
@@ -1475,6 +1476,64 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     await deleteSelected()
   }
 
+  // 插入整张蓝图作为宏：复制语义——把源文件的节点/连线/变量复制进当前图（ID 全部重生成），
+  // 之后两边各自演化互不影响。同名同类型变量复用目标图已有的，缺失的补建。
+  async function insertGraph(document: GraphSnapshot & { variables?: GraphVariable[] }, clientPosition?: Position) {
+    const sourceNodes = document.nodes ?? []
+    if (!sourceNodes.length) return
+    await mutate(`Inserted macro: ${sourceNodes.length} node(s)`, async () => {
+      const variableIdRemap = new Map<string, string>()
+      const variableAdditions: GraphVariable[] = []
+      for (const variable of document.variables ?? []) {
+        const existing = currentVariables.find(item => item.name === variable.name && item.type === variable.type)
+        if (existing) {
+          variableIdRemap.set(variable.id, existing.id)
+          continue
+        }
+        const freshId = variable.id && !currentVariables.some(item => item.id === variable.id) ? variable.id : crypto.randomUUID()
+        variableIdRemap.set(variable.id, freshId)
+        variableAdditions.push({ ...variable, id: freshId })
+      }
+      if (variableAdditions.length) {
+        currentVariables.push(...variableAdditions.map(item => ({ ...item })))
+        callbacks.onVariables(currentVariables.map(item => ({ ...item })))
+      }
+      const base = graphPosition(clientPosition)
+      const nodesById = new Map<string, BlueprintNode>()
+      await selector.unselectAll()
+      for (const item of sourceNodes) {
+        const typeId = typeof item.typeId === 'string' ? item.typeId : ''
+        if (!typeId) continue
+        if (!isPasteableFunctionNode({ id: '', typeId })) continue
+        const node = createRestoredNode(item, typeId)
+        if (!node) continue
+        if (node.entrySourceKey && (!canAddOrdinaryEntryNode() || isDuplicateEntryNode(node))) continue
+        applyNodeProperties(node, item.properties)
+        if (node.variableId) {
+          const remapped = variableIdRemap.get(node.variableId)
+          if (remapped) node.variableId = remapped
+        }
+        if (node.dynamicOutputs) setDynamicOutputCount(node, item.properties?.dynamicOutputCount ?? 3)
+        if (item.properties?.label && !typeId.startsWith('origin.variable.') && !item.properties?.legacyClass) {
+          node.label = item.properties.label
+          node.width = Math.max(node.width ?? 230, nodeTitleWidth(node.label))
+        }
+        setControlValues(node, item.values)
+        syncDynamicBranchOutputs(node, dynamicBranchValueCount(node))
+        await editor.addNode(node)
+        await area.translate(node.id, { x: base.x + item.position.x, y: base.y + item.position.y })
+        await selectable.select(node.id, true)
+        nodesById.set(item.id, node)
+      }
+      for (const connection of document.connections ?? []) {
+        const source = nodesById.get(connection.source)
+        const target = nodesById.get(connection.target)
+        if (source && target) await editor.addConnection(createConnection(source, connection.sourceOutput, target, connection.targetInput))
+      }
+      await refreshPortStates(true)
+    })
+  }
+
   async function paste() {
     if (!clipboard) return
     await mutate(`Pasted ${clipboard.nodes.length} node(s)`, async () => {
@@ -2381,6 +2440,7 @@ function nodeSize(node: BlueprintNode) {
     toggleGroupSelected,
     addCommentAt,
     commentAroundSelection,
+    insertGraph,
     searchNodes,
     focusComment,
     commentCount,
