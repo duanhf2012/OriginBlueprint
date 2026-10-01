@@ -75,7 +75,9 @@ export const enUS: MenuLocaleText = {
   },
   toolbar: {
     test: 'Test',
-    testTitle: 'Validate blueprint (F5)'
+    testTitle: 'Validate blueprint (F5)',
+    addComment: 'Add comment note (wraps selection when nodes are selected; shortcut C)',
+    resetView: 'Reset view: zoom to fit the whole graph (shortcut Home)',
   },
   status: {
     saveFailed: 'Save failed'
@@ -153,7 +155,7 @@ export const enUS: MenuLocaleText = {
     fileTitle: 'File',
     fileBody: 'Ctrl+N creates a graph, Ctrl+O opens one, Ctrl+S saves, and Ctrl+Shift+S saves as.',
     canvasTitle: 'Canvas',
-    canvasBody: 'Mouse wheel zooms, right or middle drag pans, and Home returns to the graph center.',
+    canvasBody: 'Mouse wheel zooms, right or middle drag pans, and Home resets the view (zoom to fit).',
     selectionTitle: 'Selection',
     selectionBody: 'Left-drag selects nodes, Ctrl adds to selection, Ctrl+A selects all, and Delete removes selected items.',
     groupTitle: 'Groups',

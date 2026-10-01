@@ -74,6 +74,8 @@ export interface MenuLocaleText {
   toolbar: {
     test: string
     testTitle: string
+    addComment: string
+    resetView: string
   }
   status: {
     saveFailed: string
@@ -247,7 +249,9 @@ export const zhCN: MenuLocaleText = {
   },
   toolbar: {
     test: '测试',
-    testTitle: '检查蓝图 (F5)'
+    testTitle: '检查蓝图 (F5)',
+    addComment: '添加注释便签（选中节点则包住选区，快捷键 C）',
+    resetView: '复位视图：缩放适配整张图（快捷键 Home）',
   },
   status: {
     saveFailed: '保存失败'
@@ -325,7 +329,7 @@ export const zhCN: MenuLocaleText = {
     fileTitle: '文件',
     fileBody: 'Ctrl+N 新建蓝图，Ctrl+O 打开，Ctrl+S 保存，Ctrl+Shift+S 另存为。',
     canvasTitle: '画布',
-    canvasBody: '鼠标滚轮缩放，右键或中键拖拽平移，Home 回到图中心。',
+    canvasBody: '鼠标滚轮缩放，右键或中键拖拽平移，Home 复位视图（缩放适配整图）。',
     selectionTitle: '选择',
     selectionBody: '左键框选节点，Ctrl 多选，Ctrl+A 全选，Delete 删除选中内容。',
     groupTitle: '节点组',
