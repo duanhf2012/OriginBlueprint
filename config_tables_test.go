@@ -551,3 +551,53 @@ func TestLoadConfigTablesAppliesSavedRangeFilter(t *testing.T) {
 		t.Fatalf("范围筛选应只保留 0-9：entries = %#v", tables[0].Entries)
 	}
 }
+
+func TestLoadConfigTablesSkipsBrokenDirectoryInsteadOfFailing(t *testing.T) {
+	t.Setenv("ORIGIN_BLUEPRINT_CONFIG_PATH", filepath.Join(t.TempDir(), "config.json"))
+	app := NewApp()
+	workspace := t.TempDir()
+	configs := filepath.Join(workspace, "configs")
+	if err := os.MkdirAll(configs, 0755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestCSV(t, filepath.Join(configs, "skills.csv"), []string{
+		"id,名称",
+		"100233,火球术",
+	})
+	// 一个坏目录（路径被普通文件占用，旧实现会让全部数据集加载失败）+ 一个正常目录。
+	blocked := filepath.Join(workspace, "blocked-dir")
+	if err := os.WriteFile(blocked, []byte("not a directory"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	tables, err := app.LoadConfigTables(workspace, ConfigTablesSettings{
+		Directories: []string{"configs", "blocked-dir"},
+		Datasets: []ConfigTableDataset{
+			{Key: "skills", Name: "技能表", File: "skills.csv"},
+			{Key: "missing", Name: "缺失表", File: "absent.csv"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("broken directory must not fail the whole load: %v", err)
+	}
+	if len(tables) != 2 {
+		t.Fatalf("tables = %#v", tables)
+	}
+	var skills, missing *ConfigTable
+	for i := range tables {
+		switch tables[i].Key {
+		case "skills":
+			skills = &tables[i]
+		case "missing":
+			missing = &tables[i]
+		}
+	}
+	if skills == nil || len(skills.Entries) != 1 || skills.Warning != "" {
+		t.Fatalf("skills table = %#v", skills)
+	}
+	if missing == nil || !missing.Missing {
+		t.Fatalf("missing table = %#v", missing)
+	}
+	if !strings.Contains(missing.Warning, "未找到来源文件") || !strings.Contains(missing.Warning, "来源目录不可用") {
+		t.Fatalf("missing table warning should keep file diagnosis and add skip diagnosis: %q", missing.Warning)
+	}
+}

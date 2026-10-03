@@ -40,6 +40,22 @@ describe('graph persistence', () => {
 	})
 
 
+	it('rejects saving macro sources and comment-bearing graphs as legacy .vgf', () => {
+		const macroSource = document('宏A')
+		macroSource.macroId = '65f54676-0000-0000-0000-000000000001'
+		expect(() => prepareGraphSave('宏A.obpm', 'copy.vgf', macroSource)).toThrow(/宏身份/)
+		expect(documentRequiresNativePersistence(macroSource)).toBe(true)
+
+		const commented = document('notes')
+		commented.comments = [{ id: 'c1', text: '战场备注', x: 1, y: 2, width: 100, height: 50 }]
+		expect(() => prepareGraphSave('a.obp', 'b.vgf', commented)).toThrow(/注释便签/)
+		expect(documentRequiresNativePersistence(commented)).toBe(true)
+		// 保存为 .obp 正常：注释随原生文档保留。
+		const native = prepareGraphSave('a.obp', 'b.obp', commented)
+		expect(native.exportLegacy).toBe(false)
+		expect(native.documentJSON).toContain('\"comments\"')
+	})
+
 	it('preserves full int64 values while keeping safe integers numeric', () => {
 		const parsed = parseGraphJSON('{"safe":9007199254740991,"max":9223372036854775807,"min":-9223372036854775808,"text":"9223372036854775807"}') as Record<string, unknown>
 		expect(parsed.safe).toBe(9007199254740991)

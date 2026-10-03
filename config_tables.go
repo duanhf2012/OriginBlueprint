@@ -459,6 +459,8 @@ func (data *configTableFileData) rowsFor(sheet string) (rows [][]string, resolve
 // 多个目录存在同名文件时，先配置的目录优先。
 type configFileIndex struct {
 	byBase map[string]string
+	// skippedDirs 记录加载失败的表元目录（不存在/不可读）：跳过而不是让全部数据集失败。
+	skippedDirs []string
 }
 
 func buildConfigFileIndex(workspaceRoot string, directories []string) (*configFileIndex, error) {
@@ -485,7 +487,8 @@ func buildConfigFileIndex(workspaceRoot string, directories []string) (*configFi
 		}
 		files, err := sortedConfigTableFiles(target)
 		if err != nil {
-			return nil, err
+			index.skippedDirs = append(index.skippedDirs, fmt.Sprintf("%s: %v", directory, err))
+			continue
 		}
 		for _, file := range files {
 			base := filepath.Base(file)
@@ -539,7 +542,12 @@ func (a *App) LoadConfigTables(workspaceRoot string, settings ConfigTablesSettin
 		if strings.TrimSpace(dataset.Key) == "" {
 			continue
 		}
-		result = append(result, loadConfigTableDataset(index, cache, settings.Defaults, dataset))
+		table := loadConfigTableDataset(index, cache, settings.Defaults, dataset)
+		// 有目录被跳过时给 missing 数据集追加根因提示：“未找到来源文件”可能只是目录没加载上。
+		if table.Missing && len(index.skippedDirs) > 0 {
+			table.Warning = strings.TrimSpace(strings.TrimSuffix(table.Warning, "；") + "；来源目录不可用（已跳过）：" + strings.Join(index.skippedDirs, "；"))
+		}
+		result = append(result, table)
 	}
 	return result, nil
 }

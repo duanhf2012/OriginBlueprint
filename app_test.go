@@ -3184,3 +3184,15 @@ func TestGraphDocumentMacroRefsRoundTrip(t *testing.T) {
 		t.Fatalf("macro ref round-trip lost data: %+v", restored.MacroRefs)
 	}
 }
+
+func TestGraphDocumentRequiresNativePersistenceMacroIDAndComments(t *testing.T) {
+	if !graphDocumentRequiresNativePersistence(GraphDocument{MacroID: "65f54676-69ec-4e80-8342-aa6804ad1fef"}) {
+		t.Fatal("macro source (macroId) must require native persistence")
+	}
+	if !graphDocumentRequiresNativePersistence(GraphDocument{Comments: []GraphComment{{ID: "c1", Text: "备注", X: 1, Y: 2, Width: 100, Height: 50}}}) {
+		t.Fatal("documents with comments must require native persistence")
+	}
+	if graphDocumentRequiresNativePersistence(GraphDocument{}) {
+		t.Fatal("plain documents must not require native persistence")
+	}
+}

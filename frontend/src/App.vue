@@ -416,7 +416,12 @@ async function saveNodeDefinitionAnnotations(typeId: string) {
     status.value = '编辑节点注解需要先打开工作区（文件 → 打开目录）'
     return false
   }
-  const document = nodeSchemaDocuments.value.find(item => item.key === definition.sourceKey)
+  // 写回前重新读盘：内存副本可能落后于外部编辑器/第二窗口的修改，直接整文件覆盖会丢更新。
+  let documents = nodeSchemaDocuments.value
+  try {
+    documents = (await platform.loadNodeSchemas(workspaceRoot.value)).documents ?? nodeSchemaDocuments.value
+  } catch { /* 读盘失败退回内存副本，由后续解析/写回错误兜底 */ }
+  const document = documents.find(item => item.key === definition.sourceKey)
   if (!document) {
     status.value = `未找到节点定义文档 ${definition.sourceKey}`
     return false
@@ -1199,9 +1204,19 @@ function closeFloatingMenus(event: PointerEvent) {
   if (!target.closest('.menu-root')) activeMenu.value = null
   if (!target.closest('.node-context-menu')) contextMenu.value.visible = false
   if (!target.closest('.file-context-menu')) fileContextMenu.value.visible = false
+  if (!target.closest('.module-node-menu')) moduleNodeMenu.value.visible = false
+}
+
+// 模态弹窗打开期间全局快捷键全部失效：焦点不在输入框时 Delete/Ctrl+S 等会穿透作用到背后画布。
+function anyModalDialogOpen() {
+  return !!(nodeAnnotationDialog.value?.visible || showAbout.value || showShortcuts.value || showSettings.value
+    || unsavedCloseDialog.value.visible || compatibilitySaveDialog.value.visible || recoveryDialog.value.visible
+    || updateState.value.visible
+    || configTableDirectoriesDialog.value || configTableImportDialog.value || configTableManageDialog.value)
 }
 
 function onKeyDown(event: KeyboardEvent) {
+  if (anyModalDialogOpen()) return
   const target = event.target as HTMLElement
   const ctrl = event.ctrlKey || event.metaKey
   const key = event.key.toLowerCase()
@@ -4622,7 +4637,7 @@ function toggleModuleCategory(category: string) {
       <button v-else-if="moduleNodeMenu.node?.functionPlaceholder" @click="openFunctionModuleItem()">编辑函数</button>
       <button v-if="!moduleNodeMenu.node?.macroPlaceholder && moduleNodeMenu.node?.functionPlaceholder && moduleNodeMenu.node.functionSource === 'workspace'" @click="moduleNodeMenu.node && openFunctionAnnotationDialog(moduleNodeMenu.node)">编辑函数注解</button>
       <button v-if="!moduleNodeMenu.node?.macroPlaceholder && moduleNodeMenu.node?.functionPlaceholder" @click="findModuleFunctionReferences()">查找所有引用</button>
-      <template v-else>
+      <template v-else-if="!moduleNodeMenu.node?.macroPlaceholder && !moduleNodeMenu.node?.functionPlaceholder">
         <button @click="findModuleNodeReferences()">查找所有引用</button>
         <button @click="moduleNodeMenu.node && openNodeAnnotationDialog(moduleNodeMenu.node.id)">编辑节点注解</button>
       </template>

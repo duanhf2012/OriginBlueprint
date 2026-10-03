@@ -43,6 +43,9 @@ export function documentRequiresNativePersistence(document: GraphDocument) {
     || (signature.outputs?.length ?? 0) > 0
     // 宏引用（macroRefs）是原生文档字段，legacy .vgf 导出无法承载，引用图必须存 .obp。
     || (document.macroRefs?.length ?? 0) > 0
+    // 宏身份与注释便签同样装不进 legacy 格式：降级会静默丢 macroId/丢便签。
+    || !!document.macroId
+    || (document.comments?.length ?? 0) > 0
 }
 
 function isMacroBlueprintPath(path: string) {
@@ -85,6 +88,12 @@ export function prepareGraphSave(sourcePath: string, targetPath: string, documen
   // 宏引用（macroRefs）无法用 legacy .vgf 表达：另存为 .vgf 会静默丢掉全部引用关系，必须拒绝。
   if (exportLegacy && (document.macroRefs?.length ?? 0) > 0) {
     throw new Error('引用了宏的蓝图必须保存为 .obp（legacy .vgf 无法保存宏引用）')
+  }
+  if (exportLegacy && document.macroId) {
+    throw new Error('宏源文件必须保存为 .obpm/.obp（legacy .vgf 会丢失宏身份 macroId，引用关系将断裂）')
+  }
+  if (exportLegacy && (document.comments?.length ?? 0) > 0) {
+    throw new Error('包含注释便签的蓝图必须保存为 .obp（legacy .vgf 无法保存注释便签）')
   }
   return {
     path: targetPath,

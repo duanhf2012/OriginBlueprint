@@ -1,3 +1,5 @@
+import { shallowRef } from 'vue'
+
 // 配置表运行时索引：由 App.vue 在工作区加载/刷新时填充，
 // 节点上的引用选择控件按数据集 key 查询 id→名称。文档里始终只保存原始 ID。
 export interface ConfigTableEntry {
@@ -19,18 +21,19 @@ export interface ConfigTable {
   entries: ConfigTableEntry[]
 }
 
-let tablesByKey = new Map<string, ConfigTable>()
+// shallowRef 让引用控件的 computed 依赖此索引：setConfigTables 替换后画布显示随之刷新。
+const tablesByKey = shallowRef(new Map<string, ConfigTable>())
 
 export function setConfigTables(tables: ConfigTable[]) {
-  tablesByKey = new Map(tables.filter(table => table.key).map(table => [table.key, table]))
+  tablesByKey.value = new Map(tables.filter(table => table.key).map(table => [table.key, table]))
 }
 
 export function configTablesSnapshot(): ConfigTable[] {
-  return Array.from(tablesByKey.values())
+  return Array.from(tablesByKey.value.values())
 }
 
 export function configTableByKey(key: string): ConfigTable | undefined {
-  return tablesByKey.get(String(key ?? '').trim())
+  return tablesByKey.value.get(String(key ?? '').trim())
 }
 
 // 数据集显示名：节点控件 tooltip、下拉列表用它展示；key 是稳定绑定标识。

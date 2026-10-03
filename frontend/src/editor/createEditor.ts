@@ -512,6 +512,8 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   }
 
   function beginCommentDrag(event: PointerEvent, comment: CommentSnapshot, resize: boolean) {
+    // 编辑态下文本框内的点击留给输入本身（定位光标/选择文字），不得劫持成拖拽。
+    if ((event.target as HTMLElement | null)?.closest('textarea, input')) return
     void selectComment(comment.id)
     event.stopPropagation(); event.preventDefault()
     const before = historySnapshot()
@@ -525,7 +527,9 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
         && position.y + size.height <= comment.y + comment.height
     })
     const nodeStarts = new Map(containedNodes.map(node => [node.id, { ...(area.nodeViews.get(node.id)?.position ?? { x: 0, y: 0 }) }]))
+    let moved = false
     const move = (next: PointerEvent) => {
+      moved = true
       const dx = (next.clientX - start.x) / area.area.transform.k
       const dy = (next.clientY - start.y) / area.area.transform.k
       if (resize) {
@@ -539,6 +543,8 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     }
     const up = () => {
       window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up)
+      // 未发生移动的单击不入撤销历史、不置脏：避免 Ctrl+Z 空转与误标脏。
+      if (!moved) return
       pushUndoHistory(before); redoStack.length = 0; callbacks.onDirty(); callbacks.onStatus(resize ? 'Comment resized' : 'Comment moved')
     }
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up)
@@ -994,12 +1000,16 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   }
 
   function beginGroupDrag(event: PointerEvent, group: GroupSnapshot, resize: boolean) {
+    // 标题重命名输入框内的点击留给输入本身，不得劫持成拖拽。
+    if ((event.target as HTMLElement | null)?.closest('textarea, input')) return
     void selectGroup(group.id)
     event.stopPropagation(); event.preventDefault()
     const before = historySnapshot()
     const start = { x: event.clientX, y: event.clientY, gx: group.x, gy: group.y, width: group.width, height: group.height }
     const nodeStarts = new Map(group.nodeIds.map(id => [id, { ...(area.nodeViews.get(id)?.position ?? { x: 0, y: 0 }) }]))
+    let moved = false
     const move = (next: PointerEvent) => {
+      moved = true
       const dx = (next.clientX - start.x) / area.area.transform.k
       const dy = (next.clientY - start.y) / area.area.transform.k
       if (resize) {
@@ -1013,6 +1023,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     }
     const up = () => {
       window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up)
+      if (!moved) return
       pushUndoHistory(before); redoStack.length = 0; callbacks.onDirty(); callbacks.onStatus(resize ? 'Group resized' : 'Group moved')
     }
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up)

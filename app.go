@@ -379,6 +379,10 @@ func graphDocumentRequiresNativePersistence(document GraphDocument) bool {
 	if len(document.MacroRefs) > 0 {
 		return true
 	}
+	// 宏身份（macroId）与注释便签同样是 legacy 装不下的内容：降级导出会静默丢身份/丢便签。
+	if strings.TrimSpace(document.MacroID) != "" || len(document.Comments) > 0 {
+		return true
+	}
 	for _, node := range document.Nodes {
 		if strings.HasPrefix(node.TypeID, "origin.function.") ||
 			strings.HasPrefix(node.TypeID, "origin.timer.") ||
