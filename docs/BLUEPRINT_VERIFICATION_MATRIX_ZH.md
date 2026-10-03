@@ -13,19 +13,19 @@
 
 | 蓝图文件 | Go 参考实现 | seed | 随机参数组 | 每组重复 | 对比执行数 | 结果 |
 | --- | --- | ---: | ---: | ---: | ---: | --- |
-| `01_legacy_all_nodes_showcase.vgf` | 有 | 2046332117 | 64 | 3 | 384 | 一致 |
-| `02_control_flow_maze.obp` | 有 | 2046332118 | 64 | 3 | 192 | 一致 |
-| `03_array_data_lab.obp` | 有 | 2046332119 | 64 | 3 | 192 | 一致 |
-| `04_deterministic_algorithm.obp` | 有 | 2046332120 | 64 | 3 | 192 | 一致 |
-| `05_function_orchestrator.obp` | 有 | 2046332121 | 64 | 3 | 192 | 一致 |
-| `06_async_delay_resume.obp` | 有 | 2046332122 | 64 | 3 | 192 | 一致 |
-| `07_async_rpc_resume_to.obp` | 有 | 2046332123 | 64 | 3 | 192 | 一致 |
-| `functions/10_score_kernel.obpf` | 有 | 2046332126 | 64 | 3 | 192 | 一致 |
-| `functions/11_array_fold_and_format.obpf` | 有 | 2046332127 | 64 | 3 | 192 | 一致 |
-| `functions/12_nested_control_function.obpf` | 有 | 2046332128 | 64 | 3 | 192 | 一致 |
-| `functions/13_local_state_isolation.obpf` | 有 | 2046332129 | 64 | 3 | 192 | 一致 |
-| `functions/14_async_delay_function.obpf` | 有 | 2046332130 | 64 | 3 | 192 | 一致 |
-| `functions/15_variable_types_lifecycle.obpf` | 有 | 2046332131 | 64 | 3 | 192 | 一致 |
+| `01_legacy_all_nodes_showcase.vgf` | 有 | 2026071401 | 64 | 3 | 384 | 一致 |
+| `02_control_flow_maze.obp` | 有 | 2026071402 | 64 | 3 | 192 | 一致 |
+| `03_array_data_lab.obp` | 有 | 2026071403 | 64 | 3 | 192 | 一致 |
+| `04_deterministic_algorithm.obp` | 有 | 2026071404 | 64 | 3 | 192 | 一致 |
+| `05_function_orchestrator.obp` | 有 | 2026071405 | 64 | 3 | 192 | 一致 |
+| `06_async_delay_resume.obp` | 有 | 2026071406 | 64 | 3 | 192 | 一致 |
+| `07_async_rpc_resume_to.obp` | 有 | 2026071407 | 64 | 3 | 192 | 一致 |
+| `functions/10_score_kernel.obpf` | 有 | 2026071410 | 64 | 3 | 192 | 一致 |
+| `functions/11_array_fold_and_format.obpf` | 有 | 2026071411 | 64 | 3 | 192 | 一致 |
+| `functions/12_nested_control_function.obpf` | 有 | 2026071412 | 64 | 3 | 192 | 一致 |
+| `functions/13_local_state_isolation.obpf` | 有 | 2026071413 | 64 | 3 | 192 | 一致 |
+| `functions/14_async_delay_function.obpf` | 有 | 2026071414 | 64 | 3 | 192 | 一致 |
+| `functions/15_variable_types_lifecycle.obpf` | 有 | 2026071415 | 64 | 3 | 192 | 一致 |
 
 说明：`01_legacy_all_nodes_showcase.vgf` 每组随机参数同时检查整数入口和数组入口，因此对比执行数是其他文件的两倍。异步 Delay 使用虚拟时钟，不依赖真实等待；异步 RPC 使用测试节点的 `Yield -> ResumeTo` 回包，均检查恢复后的最终返回值。
 
