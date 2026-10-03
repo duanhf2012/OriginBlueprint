@@ -104,6 +104,9 @@ export interface MenuLocaleText {
     currentBlueprintFunctions: string
     workspaceFunctionLibrary: string
     noFunctionLibrary: string
+    groupNodes: string
+    groupFunctions: string
+    groupMacros: string
   }
   detail: {
     functionTitle: string
@@ -111,6 +114,8 @@ export interface MenuLocaleText {
     functionTitleLockedHint: string
     functionCategory: string
     functionCategoryPlaceholder: string
+    macroCategory: string
+    macroCategoryPlaceholder: string
     restoreFunctionEntry: string
     restoreFunctionEntryHint: string
     addFunctionReturn: string
@@ -279,7 +284,10 @@ export const zhCN: MenuLocaleText = {
     functionCategory: '函数',
     currentBlueprintFunctions: '当前蓝图函数',
     workspaceFunctionLibrary: '工程函数库',
-    noFunctionLibrary: '未发现工程函数库资源'
+    noFunctionLibrary: '未发现工程函数库资源',
+    groupNodes: '结点',
+    groupFunctions: '函数',
+    groupMacros: '宏',
   },
   detail: {
     functionTitle: '函数名',
@@ -287,6 +295,8 @@ export const zhCN: MenuLocaleText = {
     functionTitleLockedHint: '函数名仅用于显示；调用引用基于函数 ID，改名安全（保存后生效）',
     functionCategory: '类型',
     functionCategoryPlaceholder: '选择或输入函数类型',
+    macroCategory: '宏分类',
+    macroCategoryPlaceholder: '选择或输入宏分类（未设置按文件目录归类）',
     restoreFunctionEntry: '恢复入口节点',
     restoreFunctionEntryHint: '函数入口缺失时恢复唯一入口节点',
     addFunctionReturn: '＋ 添加返回节点',

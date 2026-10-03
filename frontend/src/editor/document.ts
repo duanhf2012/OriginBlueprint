@@ -211,6 +211,9 @@ export interface GraphDocument extends GraphSnapshot {
   functionId?: string
   functionCategory?: string
   functionDescription?: string
+  macroId?: string
+  /** 模块库分类（编辑器元数据）；未设置时按文件所在父目录名归类。 */
+  macroCategory?: string
   variables: GraphVariable[]
   variableGroups: GraphVariableGroup[]
   functionSignature?: FunctionSignature

@@ -583,6 +583,50 @@ async function openMacroSourceFromRef() {
 // 宏名独立状态（同 functionTitle 模式）：保存/持久化时覆写文档 graphName，
 // 否则编辑器重建文档时 graphName 会被 tab.title（文件名）覆盖。
 const macroTitle = ref('')
+// 宏分类（同 functionCategory 模式）：存文档 macroCategory；未设置时模块库按文件父目录归类。
+const macroCategory = ref('')
+const macroCategoryByPath = ref<Record<string, string>>({})
+const macroCategoryDropdownOpen = ref(false)
+
+function macroCategoryFromTab(tab: GraphTab | null | undefined) {
+  if (!tab || !isMacroSourcePath(tab.path || tab.title)) return ''
+  return String(tab.document?.macroCategory ?? '').trim()
+}
+
+function inferredMacroCategoryFromPath(path: string) {
+  const parent = path.replace(/\\/g, '/').split('/').filter(Boolean).slice(0, -1).pop() ?? ''
+  return parent
+}
+
+// 模块库归类：显式分类优先，父目录兜底（目录即分类的既有约定），最后"未分类"。
+function macroCategoryForPath(path: string) {
+  const opened = tabs.value.find(tab => tab.path === path)
+  return String(opened?.document?.macroCategory ?? '').trim() || macroCategoryByPath.value[path] || inferredMacroCategoryFromPath(path) || '未分类'
+}
+
+function syncMacroCategoryToGraph() {
+  const tab = activeTab.value
+  if (!tab || !isMacroBlueprintTab.value) return
+  macroCategory.value = macroCategory.value.trim()
+  if (tab.document) tab.document.macroCategory = macroCategory.value
+  tab.dirty = true
+  if (tab.path) macroCategoryByPath.value = { ...macroCategoryByPath.value, [tab.path]: macroCategory.value }
+}
+
+const macroCategoryOptions = computed(() => {
+  const values = new Set<string>()
+  for (const item of macroModuleItems.value) values.add(item.category.replace(/^宏\//, ''))
+  for (const category of Object.values(macroCategoryByPath.value)) {
+    if (category.trim()) values.add(category.trim())
+  }
+  return Array.from(values).sort((a, b) => a.localeCompare(b))
+})
+
+function selectMacroCategory(category: string) {
+  macroCategory.value = category
+  macroCategoryDropdownOpen.value = false
+  syncMacroCategoryToGraph()
+}
 
 function macroTitleFromTab(tab: GraphTab | null | undefined) {
   if (!tab || !isMacroSourcePath(tab.path || tab.title)) return ''
@@ -606,20 +650,30 @@ function syncMacroTitleToGraph() {
 const loadingMacroTitles = new Set<string>()
 
 // 宏显示名与文件名分离（同函数）：优先文档 graphName，文件名兜底；未打开的文件懒加载标题。
+// 宏显示名与分类懒加载（同函数）：优先已打开文档，未打开的文件读盘一次。
 async function loadMacroTitles(items: Array<{ path?: string }>) {
   for (const item of items) {
-    if (!item.path || macroTitleByPath.value[item.path] || loadingMacroTitles.has(item.path)) continue
+    if (!item.path || (macroTitleByPath.value[item.path] !== undefined && item.path in macroCategoryByPath.value) || loadingMacroTitles.has(item.path)) continue
     loadingMacroTitles.add(item.path)
     try {
       const opened = tabs.value.find(tab => tab.path === item.path)
       let title = String(opened?.document?.graphName ?? '').trim()
-      if (!title) {
+      let category = String(opened?.document?.macroCategory ?? '').trim()
+      if (!title || !category) {
         const file = await platform.openGraph(item.path)
         if (file?.content) {
-          try { title = String((JSON.parse(file.content) as GraphDocument).graphName ?? '').trim() } catch { title = '' }
+          try {
+            const document = JSON.parse(file.content) as GraphDocument
+            if (!title) title = String(document.graphName ?? '').trim()
+            if (!category) category = String(document.macroCategory ?? '').trim()
+          } catch { /* 不可读时保持空，模块库用父目录兜底 */ }
         }
       }
-      if (title) macroTitleByPath.value = { ...macroTitleByPath.value, [item.path]: title }
+      if (title || category) {
+        macroTitleByPath.value = { ...macroTitleByPath.value, [item.path]: title || macroTitleByPath.value[item.path] || '' }
+      }
+      // 分类缓存空串也落键（区分"已读盘、无分类"与"未读盘"），归类时空值走父目录兜底。
+      macroCategoryByPath.value = { ...macroCategoryByPath.value, [item.path]: category }
     } finally {
       loadingMacroTitles.delete(item.path)
     }
@@ -630,15 +684,14 @@ const macroModuleItems = computed<ModuleLibraryItem[]>(() => {
   const items: ModuleLibraryItem[] = []
   const visit = (entry: WorkspaceTreeNode) => {
     if (!entry.isDir && /\.obpm$/i.test(entry.path)) {
-      // 工作区路径在 Windows 为反斜杠，文件名与父目录（分类）必须两种分隔符都切。
+      // 工作区路径在 Windows 为反斜杠，文件名与父目录（分类兜底）必须两种分隔符都切。
       const filename = entry.path.split(/[\\\/]/).pop() ?? entry.path
-      const parent = entry.path.split(/[\\\/]/).slice(0, -1).pop() ?? ''
       const opened = tabs.value.find(tab => tab.path === entry.path)
       const title = String(opened?.document?.graphName ?? '').trim() || macroTitleByPath.value[entry.path] || filename.replace(/\.obpm$/i, '')
       items.push({
         id: `macro:${entry.path}`,
         title,
-        category: `宏/${parent || '未分类'}`,
+        category: `宏/${macroCategoryForPath(entry.path)}`,
         kind: 'macro',
         macroPlaceholder: true,
         path: entry.path,
@@ -684,17 +737,27 @@ const functionCategoryOptions = computed(() => {
   return [defaultFunctionCategory(), ...Array.from(values).sort((a, b) => a.localeCompare(b))]
 })
 const moduleSearchTokens = computed(() => moduleSearch.value.trim().split(/\s+/).filter(Boolean))
-const categories = computed(() => {
-  const ordinary = new Map<string, ModuleLibraryItem[]>()
-  const functions = new Map<string, ModuleLibraryItem[]>()
+// 模块库按类型分三组（结点/函数/宏），各组独立色块便于快速定位；
+// 搜索过滤逻辑不变（moduleItemMatchesSearch 同时作用于三组）。
+interface ModuleLibraryGroup {
+  key: 'nodes' | 'functions' | 'macros'
+  title: string
+  categories: Array<[string, ModuleLibraryItem[]]>
+}
+const moduleGroups = computed<ModuleLibraryGroup[]>(() => {
   const tokens = moduleSearchTokens.value
-  for (const definition of filteredModuleItems.value.filter(item => moduleItemMatchesSearch(item, tokens))) {
-    const items = ordinary.get(definition.category) ?? []; items.push(definition); ordinary.set(definition.category, items)
+  const build = (items: ModuleLibraryItem[]) => {
+    const grouped = new Map<string, ModuleLibraryItem[]>()
+    for (const item of items.filter(entry => moduleItemMatchesSearch(entry, tokens))) {
+      const list = grouped.get(item.category) ?? []; list.push(item); grouped.set(item.category, list)
+    }
+    return [...grouped.entries()].sort(([left], [right]) => left.localeCompare(right))
   }
-  for (const definition of functionModuleItems.value.filter(item => moduleItemMatchesSearch(item, tokens))) {
-    const items = functions.get(definition.category) ?? []; items.push(definition); functions.set(definition.category, items)
-  }
-  return [...ordinary.entries(), ...functions.entries()].sort(([left], [right]) => functionCategoryOrder(left) - functionCategoryOrder(right))
+  return [
+    { key: 'nodes', title: menuText.value.module.groupNodes, categories: build(nodeLibrary.value.filter(item => !isFunctionBlueprintTab.value || !item.ordinaryEntry)) },
+    { key: 'functions', title: menuText.value.module.groupFunctions, categories: build(functionModuleItems.value) },
+    { key: 'macros', title: menuText.value.module.groupMacros, categories: build(macroModuleItems.value) }
+  ]
 })
 const filteredDefinitions = computed(() => {
   const search = contextMenu.value.search.trim().toLowerCase()
@@ -1185,7 +1248,7 @@ function persistActive() { if (editor && activeTab.value) activeTab.value.docume
 async function newGraph() {
   persistActive(); untitledCount++
   const tab: GraphTab = { id: crypto.randomUUID(), title: `Untitled-${untitledCount} Graph`, path: '', dirty: false, document: null }
-  tabs.value.push(tab); activeTabId.value = tab.id; selectedVariableId.value = null; functionSignature.value = emptyFunctionSignature(); functionTitle.value = ''; functionId.value = ''; functionCategory.value = ''; functionDescription.value = ''; await editor?.newDocument()
+  tabs.value.push(tab); activeTabId.value = tab.id; selectedVariableId.value = null; functionSignature.value = emptyFunctionSignature(); functionTitle.value = ''; functionId.value = ''; functionCategory.value = ''; functionDescription.value = ''; macroTitle.value = ''; macroCategory.value = ''; await editor?.newDocument()
 }
 
 async function switchTab(id: string) {
@@ -1203,6 +1266,7 @@ async function switchTab(id: string) {
   functionSignature.value = normalizeFunctionSignature(tab.document?.functionSignature)
   functionTitle.value = isFunctionBlueprintPath(tab.path || tab.title) ? functionTitleFromDocument(tab.document, tab.path || tab.title, tab.title) : ''
   macroTitle.value = macroTitleFromTab(tab)
+  macroCategory.value = macroCategoryFromTab(tab)
   functionId.value = isFunctionBlueprintPath(tab.path || tab.title) ? functionIdFromDocument(tab.document) : ''
   functionCategory.value = isFunctionBlueprintPath(tab.path || tab.title) ? functionCategoryFromDocument(tab.document, tab.path || tab.title) : ''
   functionDescription.value = isFunctionBlueprintPath(tab.path || tab.title) ? String(tab.document?.functionDescription ?? '') : ''
@@ -1222,6 +1286,7 @@ async function closeTab(id: string, event: MouseEvent) {
     functionSignature.value = normalizeFunctionSignature(tabs.value[0].document?.functionSignature)
     functionTitle.value = isFunctionBlueprintPath(tabs.value[0].path || tabs.value[0].title) ? functionTitleFromDocument(tabs.value[0].document, tabs.value[0].path || tabs.value[0].title, tabs.value[0].title) : ''
     macroTitle.value = macroTitleFromTab(tabs.value[0])
+    macroCategory.value = macroCategoryFromTab(tabs.value[0])
     functionId.value = isFunctionBlueprintPath(tabs.value[0].path || tabs.value[0].title) ? functionIdFromDocument(tabs.value[0].document) : ''
     functionCategory.value = isFunctionBlueprintPath(tabs.value[0].path || tabs.value[0].title) ? functionCategoryFromDocument(tabs.value[0].document, tabs.value[0].path || tabs.value[0].title) : ''
     functionDescription.value = isFunctionBlueprintPath(tabs.value[0].path || tabs.value[0].title) ? String(tabs.value[0].document?.functionDescription ?? '') : ''
@@ -1406,16 +1471,19 @@ function functionModuleCategory(category: string) {
   return `ƒ ${normalizeFunctionCategory(category)}`
 }
 
-function functionCategoryOrder(category: string) {
-  return category.startsWith('ƒ ') ? 1 : 0
-}
-
 function isFunctionModuleCategory(items: ModuleLibraryItem[]) {
   return items.some(item => item.functionPlaceholder)
 }
 
+function isMacroModuleCategory(items: ModuleLibraryItem[]) {
+  return items.some(item => item.macroPlaceholder)
+}
+
 function displayModuleCategoryName(category: string) {
-  return category.startsWith('ƒ ') ? category.slice(2) : category
+  // 函数/宏已按组分块，分类名去掉组前缀避免重复显示。
+  if (category.startsWith('ƒ ')) return category.slice(2)
+  if (category.startsWith('宏/')) return category.slice(2) || '未分类'
+  return category
 }
 
 function compactModuleSearchText(value: string) {
@@ -1517,6 +1585,9 @@ function documentWithFunctionSignature(document: GraphDocument, tab = activeTab.
     }
     const next: GraphDocument = { ...document, macroId }
     if (name) next.graphName = name
+    const category = macroCategory.value.trim()
+    if (category) next.macroCategory = category
+    else delete next.macroCategory
     return next
   }
   if (!isFunctionBlueprintPath(path)) return document
@@ -2138,6 +2209,7 @@ function normalizeDocument(value: any): GraphDocument {
     comments: Array.isArray(value.comments) ? value.comments : [],
     macroRefs: Array.isArray(value.macroRefs) ? value.macroRefs : [],
     macroId: String(value.macroId ?? '').trim() || undefined,
+    macroCategory: String(value.macroCategory ?? '').trim() || undefined,
     variables,
     variableGroups: groupNormalization.groups,
     functionSignature: normalizeFunctionSignature(value.functionSignature),
@@ -2354,6 +2426,8 @@ async function openGraph(path = '', highlightTypeId = '') {
   functionSignature.value = normalizeFunctionSignature(document.functionSignature)
   functionTitle.value = isFunctionBlueprintPath(file.path) ? functionTitleFromDocument(document, file.path, title) : ''
   macroTitle.value = isMacroSourcePath(file.path) ? String(document.graphName ?? '').trim() : ''
+  macroCategory.value = isMacroSourcePath(file.path) ? String(document.macroCategory ?? '').trim() : ''
+  if (isMacroSourcePath(file.path)) macroCategoryByPath.value = { ...macroCategoryByPath.value, [file.path]: String(document.macroCategory ?? '').trim() }
   if (isMacroSourcePath(file.path) && document.macroId) macroIdByPath.value = { ...macroIdByPath.value, [file.path]: String(document.macroId).trim() }
   if (macroTitle.value) tab.title = `${macroTitle.value}.obpm`
   functionId.value = isFunctionBlueprintPath(file.path) ? functionIdFromDocument(document) : ''
@@ -4437,9 +4511,18 @@ function toggleModuleCategory(category: string) {
           <div v-else-if="isMacroBlueprintTab && !selectedNode && !selectedVariable" class="node-detail macro-detail">
             <div class="detail-section-title">宏</div>
             <label>宏名<input v-model="macroTitle" placeholder="模块库中显示的名字（保存后生效）" @change="syncMacroTitleToGraph" /></label>
+            <label>{{ menuText.detail.macroCategory }}
+              <div class="function-category-combo" @focusin="macroCategoryDropdownOpen = true" @focusout="macroCategoryDropdownOpen = false">
+                <input v-model="macroCategory" :placeholder="menuText.detail.macroCategoryPlaceholder" @input="macroCategoryDropdownOpen = true" @change="syncMacroCategoryToGraph" />
+                <button type="button" title="选择宏分类" @click="macroCategoryDropdownOpen = !macroCategoryDropdownOpen">▾</button>
+                <div v-if="macroCategoryDropdownOpen" class="function-category-options">
+                  <button v-for="option in macroCategoryOptions" :key="option" type="button" class="function-category-option" :class="{ selected: macroCategory === option }" @pointerdown.prevent @click="selectMacroCategory(option)">{{ option }}</button>
+                </div>
+              </div>
+            </label>
             <label>宏 ID<input :value="activeTab?.document?.macroId || macroIdByPath[activeTab?.path ?? ''] || ''" disabled :title="activeTab?.document?.macroId" /></label>
             <label>宏文件<input :value="activeTab?.path" disabled /></label>
-            <small class="variable-scope-hint">宏名仅用于显示（模块库与引用图宏框标签），文件名可独立修改；宏 ID 是引用图的稳定锚点。其他蓝图引用此宏（不复制内容），保存后所有引用图自动更新。</small>
+            <small class="variable-scope-hint">宏名与分类仅用于模块库显示（分类未设置时按文件所在目录归类）；宏 ID 是引用图的稳定锚点。其他蓝图引用此宏（不复制内容），保存后所有引用图自动更新。</small>
           </div>
           <div v-else-if="selectedVariable" class="node-detail variable-detail"><div class="detail-section-title">变量属性</div><label>Variable ID<input :value="selectedVariable.id" disabled /></label><label>名称<input v-model="selectedVariable.name" @input="previewVariableName(selectedVariable)" /></label><label>作用域<select :value="variableScope(selectedVariable)" @change="changeVariableScope(selectedVariable, $event)"><option value="execution">局部（每次执行重置）</option><option value="instance" :disabled="isFunctionBlueprintTab">全局（同一蓝图实例共享）</option></select></label><small v-if="variableScope(selectedVariable) === 'instance'" class="variable-scope-hint">并发执行会共享当前值；单次读取和写入线程安全。</small><label>类型<select v-model="selectedVariable.type" @change="changeVariableType(selectedVariable)"><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="float">Float</option><option value="string">String</option><option value="array">Array</option><option value="timerhandle">Timer Handle</option></select></label><label>分组<select v-model="selectedVariable.groupId"><option v-for="group in variableGroupsForScope(variableGroups, variableScope(selectedVariable))" :key="group.id" :value="group.id">{{ group.name }}</option></select></label><label>说明<textarea v-model="selectedVariable.description" rows="4" placeholder="变量用途和约束"></textarea></label><label v-if="selectedVariable.type !== 'timerhandle'">默认值<input v-if="selectedVariable.type === 'boolean'" v-model="selectedVariable.defaultValue" type="checkbox" /><input v-else-if="selectedVariable.type === 'string'" v-model="selectedVariable.defaultValue" type="text" /><input v-else-if="selectedVariable.type === 'array'" :value="Array.isArray(selectedVariable.defaultValue) ? selectedVariable.defaultValue.join(', ') : ''" placeholder="1, 2, text" @change="setVariableArrayDefault(selectedVariable, $event)" /><input v-else-if="selectedVariable.type === 'integer'" :value="selectedVariable.defaultValue" type="text" inputmode="numeric" @input="setVariableIntegerDefault(selectedVariable, $event)" /><input v-else v-model.number="selectedVariable.defaultValue" type="number" step="any" /></label><button class="apply-properties" @click="updateVariable(selectedVariable)">应用变量属性</button><button class="delete-properties" @click="removeVariable(selectedVariable)">删除变量</button></div>
           <div v-else-if="selectedNode" class="node-detail"><label>Node ID<input :value="selectedNode.id" disabled /></label><label>Type<input :value="selectedNode.typeId" disabled /></label><label>Title<input :value="selectedNode.label" readonly /></label><label v-if="selectedNode.description">说明<textarea :value="selectedNode.description" rows="4" readonly></textarea></label></div>
@@ -4510,19 +4593,21 @@ function toggleModuleCategory(category: string) {
           <div class="panel-title"><span class="chevron">⌄</span> {{ menuText.module.title }}</div>
           <div class="search-box">⌕ <input v-model="moduleSearch" :placeholder="menuText.module.searchPlaceholder" /></div>
           <div class="module-list">
-            <section v-for="[category, items] in categories" :key="category" class="module-category-section" :class="{ open: isModuleCategoryExpanded(category), 'function-module-category': isFunctionModuleCategory(items) }">
+            <section v-for="group in moduleGroups" v-show="group.categories.length" :key="group.key" class="module-group" :class="`module-group-${group.key}`" :title="group.title">
+              <section v-for="[category, items] in group.categories" :key="category" class="module-category-section" :class="{ open: isModuleCategoryExpanded(category), 'function-module-category': isFunctionModuleCategory(items), 'macro-module-category': isMacroModuleCategory(items) }">
               <button class="module-category" :aria-expanded="isModuleCategoryExpanded(category)" @click="toggleModuleCategory(category)">
                 <span class="module-arrow">{{ isModuleCategoryExpanded(category) ? '⌄' : '›' }}</span>
-                <span class="module-category-icon" :class="isFunctionModuleCategory(items) ? 'function-icon' : 'node-icon'">{{ isFunctionModuleCategory(items) ? 'ƒ' : '' }}</span>
+                <span class="module-category-icon" :class="isFunctionModuleCategory(items) ? 'function-icon' : isMacroModuleCategory(items) ? 'macro-icon' : 'node-icon'">{{ isFunctionModuleCategory(items) ? 'ƒ' : isMacroModuleCategory(items) ? 'µ' : '' }}</span>
                 <span class="module-category-name" v-html="renderModuleSearchText(displayModuleCategoryName(category))"></span>
                 <small>{{ items.length }}</small>
               </button>
               <div v-if="isModuleCategoryExpanded(category)" class="module-items">
-                <button v-for="item in items" :key="item.id" class="module-item" :class="{ 'function-placeholder': item.functionPlaceholder }" :title="item.path || item.title" @click="selectFunctionLibraryItem(item)" @pointerdown.stop="beginModuleItemPointerDrag($event, item)" @contextmenu.stop.prevent="openModuleItemMenu($event, item)" @dblclick="addModuleItemAt(item)"><span class="module-item-icon">{{ item.functionPlaceholder ? 'ƒ' : '◇' }}</span><span class="module-item-title" v-html="renderModuleSearchText(item.title)"></span><small v-if="item.functionPlaceholder">{{ item.functionSource === 'workspace' ? menuText.module.workspaceFunctionLibrary : menuText.module.currentBlueprintFunctions }}</small></button>
+                <button v-for="item in items" :key="item.id" class="module-item" :class="{ 'function-placeholder': item.functionPlaceholder, 'macro-placeholder': item.macroPlaceholder }" :title="item.path || item.title" @click="selectFunctionLibraryItem(item)" @pointerdown.stop="beginModuleItemPointerDrag($event, item)" @contextmenu.stop.prevent="openModuleItemMenu($event, item)" @dblclick="addModuleItemAt(item)"><span class="module-item-icon">{{ item.functionPlaceholder ? 'ƒ' : item.macroPlaceholder ? 'µ' : '◇' }}</span><span class="module-item-title" v-html="renderModuleSearchText(item.title)"></span><small v-if="item.functionPlaceholder">{{ item.functionSource === 'workspace' ? menuText.module.workspaceFunctionLibrary : menuText.module.currentBlueprintFunctions }}</small></button>
               </div>
+              </section>
             </section>
             <div v-if="!functionLibraryItems.length" class="function-library-empty">{{ menuText.module.noFunctionLibrary }}</div>
-            <div v-if="!categories.length" class="empty-panel">{{ status || '没有匹配的模块' }}</div>
+            <div v-if="!moduleGroups.some(group => group.categories.length)" class="empty-panel">{{ status || '没有匹配的模块' }}</div>
           </div>
         </div>
       </aside>

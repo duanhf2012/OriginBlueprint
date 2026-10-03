@@ -32,7 +32,9 @@ type GraphDocument struct {
 	// 展开发生在编辑器载入与编译期内联。引擎不直接消费（编译前由加载层内联）。
 	MacroRefs []GraphMacroRef `json:"macroRefs,omitempty"`
 	// MacroID 是宏文件(.obpm)的稳定身份（UUID，创建时生成，永不变）；文件名/路径/显示名都可改。
-	MacroID           string                 `json:"macroId,omitempty"`
+	MacroID string `json:"macroId,omitempty"`
+	// MacroCategory 是模块库分类（编辑器元数据）；未设置时按文件所在父目录名归类。
+	MacroCategory     string                 `json:"macroCategory,omitempty"`
 	Variables         []GraphVariable        `json:"variables"`
 	VariableGroups    []GraphVariableGroup   `json:"variableGroups"`
 	FunctionSignature GraphFunctionSignature `json:"functionSignature,omitempty"`

@@ -25,6 +25,8 @@ type graphDocument struct {
 	Comments          json.RawMessage            `json:"comments,omitempty"`
 	MacroRefs         []graphDocumentMacroRef    `json:"macroRefs,omitempty"`
 	MacroID           string                     `json:"macroId,omitempty"`
+	// MacroCategory 是编辑器维护的模块库分类，引擎不消费；声明字段是为了严格解析能接受。
+	MacroCategory     string                     `json:"macroCategory,omitempty"`
 	VariableGroups    json.RawMessage            `json:"variableGroups,omitempty"`
 	View              json.RawMessage            `json:"view,omitempty"`
 	Legacy            json.RawMessage            `json:"legacy,omitempty"`

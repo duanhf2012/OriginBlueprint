@@ -105,7 +105,10 @@ export const enUS: MenuLocaleText = {
     functionCategory: 'Functions',
     currentBlueprintFunctions: 'Current Blueprint Functions',
     workspaceFunctionLibrary: 'Workspace Function Library',
-    noFunctionLibrary: 'No workspace function library resources found'
+    noFunctionLibrary: 'No workspace function library resources found',
+    groupNodes: 'Nodes',
+    groupFunctions: 'Functions',
+    groupMacros: 'Macros',
   },
   detail: {
     functionTitle: 'Function Title',
@@ -113,6 +116,8 @@ export const enUS: MenuLocaleText = {
     functionTitleLockedHint: 'Display-only name; call references use the function ID, renaming is safe (save to apply)',
     functionCategory: 'Type',
     functionCategoryPlaceholder: 'Select or enter a function type',
+    macroCategory: 'Macro Category',
+    macroCategoryPlaceholder: 'Select or enter a macro category (defaults to its folder)',
     restoreFunctionEntry: 'Restore Entry Node',
     restoreFunctionEntryHint: 'Restore the single entry node when it is missing',
     addFunctionReturn: '+ Add Return Node',

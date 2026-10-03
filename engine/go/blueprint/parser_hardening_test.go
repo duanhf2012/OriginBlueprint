@@ -99,7 +99,7 @@ func TestParseGraphDocumentAllowsSignaturePortRef(t *testing.T) {
 			"outputs":[{"id":"out","name":"结果","type":"integer"}]
 		},
 		"comments":[{"id":"c1","text":"备注","x":1,"y":2,"width":100,"height":50}],
-		"macroId":"m_a3f8",
+		"macroId":"m_a3f8","macroCategory":"战斗/Buff",
 		"macroRefs":[{"macroId":"m_a3f8",
 			"frame":{"x":1,"y":2,"width":100,"height":50},
 			"boundary":[{"externalNode":"n9","externalPort":"exec","macroNodeIndex":0,"macroPort":"exec","intoMacro":true}]}],
