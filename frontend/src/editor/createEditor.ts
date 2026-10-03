@@ -14,7 +14,8 @@ import { describeEntryBinding, entryBindingCandidateGroups, isEntryOutputConnect
 import { refreshNodePortStates } from './portVisualState'
 import { pathIntersectsRect, rectsIntersect, type Rect } from './selectionGeometry'
 import { execOutputReplacementIds } from './connectionPolicy'
-import { normalizeNodeInputDefault, type ConnectionSnapshot, type FunctionNodeMetadata, type FunctionSignature, type GraphDocument, type GraphSnapshot, type GraphVariable, type GraphVariableGroup, type GroupSnapshot, type CommentSnapshot, type MacroInstanceSnapshot, type LegacyGraphState, type NodeProperties, type NodeSnapshot, type RestoreLossReport } from './document'
+import { normalizeNodeInputDefault, type ConnectionSnapshot, type FunctionNodeMetadata, type FunctionSignature, type GraphDocument, type GraphSnapshot, type GraphVariable, type GraphVariableGroup, type GroupSnapshot, type CommentSnapshot, type MacroRefBoundary, type MacroRefSnapshot, type LegacyGraphState, type NodeProperties, type NodeSnapshot, type RestoreLossReport } from './document'
+import { splitSnapshotForPersistence, snapshotHasMacroRef, type MacroMirrorPayload, type MacroMirrorSite } from './macroRefs'
 import { buildRestorePlan, normalizeDynamicOutputCount } from './restorePlan'
 import { pushBoundedHistory } from './history'
 import { functionEntryTypeId, functionReturnTypeId, isCopyableFunctionNode, isPasteableFunctionNode, planFunctionTerminalDeletion } from './functionTerminalPolicy'
@@ -109,6 +110,10 @@ export interface AddNodeOptions {
   allowEntryNodes?: boolean
 }
 
+export interface InsertMacroRefPayload extends MacroMirrorPayload {
+  clientPosition?: Position
+}
+
 export interface BlueprintEditorHandle {
   destroy(): void
   resetView(): void
@@ -137,11 +142,12 @@ export interface BlueprintEditorHandle {
   toggleGroupSelected(): Promise<void>
   addCommentAt(position?: { x: number; y: number }): Promise<void>
   commentAroundSelection(): Promise<void>
-  insertGraph(document: GraphSnapshot & { variables?: GraphVariable[] }, clientPosition?: Position, label?: string, source?: string): Promise<void>
-  selectedMacroInstance(): { source: string; commentId: string; nodeIds: string[] } | null
-  hasMacroInstance(source: string): boolean
-  updateMacroFrames(source: string, label: string): void
-  syncMacroInstance(source: string, document: GraphSnapshot & { variables?: GraphVariable[] }, label?: string): Promise<void>
+  insertMacroRef(payload: InsertMacroRefPayload): Promise<boolean>
+  selectedMacroRef(): { macroId: string; label: string; pathHint: string; nodeCount: number; missing: boolean } | null
+  hasMacroRef(macroId: string): boolean
+  setMacroResolver(resolver: ((macroId: string) => Promise<MacroMirrorPayload | null>) | null): void
+  refreshMacroRef(macroId: string, payload: MacroMirrorPayload): Promise<boolean>
+  refreshMacroFrames(macroId: string, label: string): boolean
   searchNodes(query: string): Array<{ nodeId: string; title: string; typeId: string; detail: string }>
   focusComment(id: string): Promise<void>
   commentCount(): number
@@ -234,7 +240,24 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
   const groups: GroupSnapshot[] = []
   const groupElements = new Map<string, HTMLElement>()
   const comments: CommentSnapshot[] = []
-  const macroInstances: MacroInstanceSnapshot[] = []
+  // 宏引用（v2 引用模型）：引用图只存 macroId + 边界连线；宏内容以 .obpm 源为准，
+  // 在编辑器里展开为只读镜像节点画在宏框内（保存时由 splitSnapshotForPersistence 拆回）。
+  interface MacroRefState {
+    macroId: string
+    pathHint: string
+    commentId: string
+    label: string
+    frame: { x: number; y: number; width: number; height: number }
+    boundary: MacroRefBoundary[]
+    /** 宏源节点顺序 → 镜像节点 id（''=该位置无镜像）。 */
+    mirrorIds: string[]
+    missing: boolean
+  }
+  const macroRefs: MacroRefState[] = []
+  const macroMirrorByNodeId = new Map<string, { ref: MacroRefState; sourceIndex: number }>()
+  let macroResolver: ((macroId: string) => Promise<MacroMirrorPayload | null>) | null = null
+  // buildMacroMirrors 程序化重建宏内部连线期间置位：镜像↔镜像连线拦截只针对用户手拉。
+  let buildingMacroMirrors = false
   const commentElements = new Map<string, HTMLElement>()
   let selectedCommentId: string | null = null
   let editingCommentId: string | null = null
@@ -418,8 +441,10 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     for (const element of commentElements.values()) element.remove()
     commentElements.clear()
     for (const comment of comments) {
+      // 宏框单独打标：巨大元素上的 backdrop-filter 在平移重绘时会出现分块接缝，需关闭。
+      const isMacroFrame = macroRefs.some(ref => ref.commentId === comment.id)
       const element = document.createElement('div')
-      element.className = `node-comment${selectedCommentId === comment.id ? ' selected' : ''}`
+      element.className = `node-comment${isMacroFrame ? ' macro-frame' : ''}${selectedCommentId === comment.id ? ' selected' : ''}`
       element.style.width = `${comment.width}px`
       element.style.height = `${comment.height}px`
       element.style.transform = `translate(${comment.x}px, ${comment.y}px)`
@@ -458,6 +483,11 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
       }
       text.ondblclick = event => {
         event.stopPropagation()
+        // 宏框是引用的整体呈现：标题是宏名的实时显示，不可编辑（改宏名请编辑源宏）。
+        if (macroRefs.some(ref => ref.commentId === comment.id)) {
+          callbacks.onStatus('宏框标题来自宏名（实时显示），不可编辑；修改宏名请编辑源宏')
+          return
+        }
         editingCommentId = comment.id
         renderComments()
       }
@@ -757,9 +787,9 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     })
   }
 
-  function createRestoredNode(item: Pick<NodeSnapshot, 'typeId' | 'properties'>, typeId: string) {
+  function createRestoredNode(item: Pick<NodeSnapshot, 'typeId' | 'properties'>, typeId: string, variablesPool: GraphVariable[] = currentVariables) {
     const variableAccess = item.properties?.variableAccess ?? (typeId === 'origin.variable.set' ? 'set' : 'get')
-    const variable = currentVariables.find(entry => entry.id === item.properties?.variableId)
+    const variable = variablesPool.find(entry => entry.id === item.properties?.variableId)
     if (typeId.startsWith('origin.variable.')) {
       return createVariableNode(
         variable ?? { id: item.properties?.variableId ?? '', name: 'Missing Variable', type: 'string', defaultValue: '', groupId: 'default' },
@@ -876,7 +906,8 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
           legacyModule: node.legacyModule,
           legacyInputs: legacyInputsForSnapshot(node),
           legacyOutputs: legacyOutputsForSnapshot(node)
-        }
+        },
+        ...(node.mirrorMacro ? { mirrorMacro: true } : {})
       })),
       connections: editor.getConnections().map(item => ({
         source: item.source,
@@ -889,8 +920,22 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
       })),
       groups: groups.map(item => ({ ...item, nodeIds: [...item.nodeIds] })),
       comments: comments.map(item => ({ ...item })),
-      macroInstances: macroInstances.map(item => ({ ...item, nodeIds: [...item.nodeIds] }))
+      // 宏框注释与镜像一样是运行时对象：撤销快照原样保留，持久化时由拆分器剔除。
+      macroRefs: macroRefs.map(ref => ({
+        macroId: ref.macroId,
+        pathHint: ref.pathHint,
+        commentId: ref.commentId,
+        frame: liveMacroFrame(ref),
+        boundary: ref.boundary.map(item => ({ ...item })),
+        mirrorIds: [...ref.mirrorIds]
+      }))
     }
+  }
+
+  function liveMacroFrame(ref: MacroRefState) {
+    const comment = comments.find(item => item.id === ref.commentId)
+    if (comment) return { x: comment.x, y: comment.y, width: comment.width, height: comment.height }
+    return { ...ref.frame }
   }
 
   function renderGroups() {
@@ -982,7 +1027,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
       await editor.clear()
       groups.splice(0, groups.length, ...(data.groups ?? []).map(item => ({ ...item, nodeIds: [...item.nodeIds] })))
       comments.splice(0, comments.length, ...(data.comments ?? []).map(item => ({ ...item })))
-      macroInstances.splice(0, macroInstances.length, ...(data.macroInstances ?? []).map(item => ({ ...item, nodeIds: [...item.nodeIds] })))
+      restoreMacroRefStates(data.macroRefs ?? [])
       selectedCommentId = null
       editingCommentId = null
       const plan = buildRestorePlan(data, (item, typeId) => {
@@ -1005,6 +1050,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
         }
         setControlValues(node, item.values)
         syncDynamicBranchOutputs(node, dynamicBranchValueCount(node))
+        if (item.mirrorMacro) node.mirrorMacro = true
         return {
           snapshot: item,
           node,
@@ -1034,14 +1080,41 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
         await editor.addConnection(connection)
       }
       await refreshPortStates(true)
-      pruneMacroInstances(false)
       renderGroups()
+      // 注释便签/宏框是手绘 DOM（不在 Rete 里），restore 后必须重绘，
+      // 否则上一个图的宏框残留在画布、新文档的注释也不显示。
+      renderComments()
       updateMetrics()
       callbacks.onSelection(null)
       emitFunctionSignatureFromSnapshot(data)
       return plan.report
     } finally {
       restoring = false
+    }
+  }
+
+  // 依据快照/文档中的 macroRefs 重建编辑器引用状态。撤销快照带 mirrorIds（镜像原样还原）；
+  // 磁盘文档没有 mirrorIds（镜像待展开，展开点在 loadDocument/expandMacroRefs）。
+  function restoreMacroRefStates(items: MacroRefSnapshot[]) {
+    macroRefs.length = 0
+    macroMirrorByNodeId.clear()
+    for (const item of items) {
+      const macroId = String(item.macroId ?? '').trim()
+      if (!macroId) continue
+      const ref: MacroRefState = {
+        macroId,
+        pathHint: String(item.pathHint ?? ''),
+        commentId: String(item.commentId ?? ''),
+        label: '',
+        frame: item.frame ? { ...item.frame } : { x: 0, y: 0, width: 240, height: 160 },
+        boundary: (item.boundary ?? []).map(boundary => ({ ...boundary })),
+        mirrorIds: (item.mirrorIds ?? []).map(id => String(id ?? '')),
+        missing: false
+      }
+      macroRefs.push(ref)
+      for (const [sourceIndex, nodeId] of ref.mirrorIds.entries()) {
+        if (nodeId) macroMirrorByNodeId.set(nodeId, { ref, sourceIndex })
+      }
     }
   }
 
@@ -1202,6 +1275,12 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     if (context.type !== 'connectioncreate' || restoring) return context
     const types = connectionTypes(context.data)
 		const targetNode = editor.getNode(context.data.target)
+    // 宏镜像之间不允许用户新建连线：宏内部连线以源宏为准（保存时也会被拆分器丢弃）。
+    // buildingMacroMirrors 期间是程序化重建宏内部连线，必须放行。
+    if (!buildingMacroMirrors && macroMirrorByNodeId.has(context.data.source) && macroMirrorByNodeId.has(context.data.target)) {
+      callbacks.onStatus('宏内部连线请在源宏中修改（镜像为只读投影）')
+      return
+    }
 		if ((targetNode?.typeId === 'origin.timer.create' || targetNode?.typeId === 'origin.timer.clear-by-key') && String(context.data.targetInput) === 'timerKey') {
 			callbacks.onStatus('Connection rejected: Timer Key must be entered directly')
 			return
@@ -1407,6 +1486,15 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     }
     if (selectedCommentId) {
       const commentId = selectedCommentId
+      // 宏框被删除 = 移除整个宏引用（镜像节点 + 边界连线一起清）。
+      const macroRef = macroRefs.find(item => item.commentId === commentId)
+      if (macroRef) {
+        await mutate('Macro reference removed', async () => {
+          await removeMacroRef(macroRef)
+        })
+        callbacks.onStatus('已移除宏引用（引用图中的宏内容不落盘，重插可恢复）')
+        return
+      }
       await mutate('Comment deleted', async () => {
         const index = comments.findIndex(item => item.id === commentId)
         if (index >= 0) comments.splice(index, 1)
@@ -1418,9 +1506,16 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     const selected = selectedNodes()
     const selectedConnections = new Set(selectedConnectionIds)
     if (!selected.length && !selectedConnections.size) return
-    const deletionPlan = planFunctionTerminalDeletion(editor.getNodes(), selected)
+    // 宏镜像节点不可单独删除：选中镜像即视为移除其所属宏引用。
+    const macroRefsToRemove = new Set<MacroRefState>()
+    for (const node of selected) {
+      const site = macroMirrorByNodeId.get(node.id)
+      if (site) macroRefsToRemove.add(site.ref)
+    }
+    const deletableSelection = selected.filter(node => !macroMirrorByNodeId.has(node.id))
+    const deletionPlan = planFunctionTerminalDeletion(editor.getNodes(), deletableSelection)
     const deletableIds = new Set(deletionPlan.deletableIds)
-    const deletableNodes = selected.filter(node => deletableIds.has(node.id))
+    const deletableNodes = deletableSelection.filter(node => deletableIds.has(node.id))
     const protectedEntries = deletionPlan.protectedEntryIds.length
     const protectedReturns = deletionPlan.protectedReturnIds.length
     const english = callbacks.locale?.() === 'en-US'
@@ -1428,29 +1523,36 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
       protectedEntries ? (english ? 'a function must keep one entry node' : '函数必须保留一个入口节点') : '',
       protectedReturns ? (english ? 'a function must keep at least one return node' : '函数必须至少保留一个返回节点') : ''
     ].filter(Boolean)
-    if (!deletableNodes.length && !selectedConnections.size) {
+    if (!deletableNodes.length && !selectedConnections.size && !macroRefsToRemove.size) {
       callbacks.onStatus(protectionParts.join(english ? '; ' : '；'))
       return
     }
     const ids = new Set(deletableNodes.map(node => node.id))
     const hiddenLegacyConnections = hiddenLegacyEdgeIndexes(ids).length
-    const parts = [deletableNodes.length ? `${deletableNodes.length} node(s)` : '', selectedConnections.size ? `${selectedConnections.size} connection(s)` : '', hiddenLegacyConnections ? `${hiddenLegacyConnections} hidden legacy connection(s)` : ''].filter(Boolean)
+    const parts = [
+      macroRefsToRemove.size ? `${macroRefsToRemove.size} macro reference(s)` : '',
+      deletableNodes.length ? `${deletableNodes.length} node(s)` : '',
+      selectedConnections.size ? `${selectedConnections.size} connection(s)` : '',
+      hiddenLegacyConnections ? `${hiddenLegacyConnections} hidden legacy connection(s)` : ''
+    ].filter(Boolean)
     const status = [`Deleted ${parts.join(' and ')}`, ...protectionParts].join(english ? '; ' : '；')
     await mutate(status, async () => {
+      for (const ref of macroRefsToRemove) await removeMacroRef(ref)
       pruneHiddenLegacyEdges(ids)
       for (const item of editor.getConnections()) {
         if (selectedConnections.has(item.id) || ids.has(item.source) || ids.has(item.target)) await editor.removeConnection(item.id)
       }
       for (const node of deletableNodes) await editor.removeNode(node.id)
-      pruneMacroInstances(true)
       selectedConnectionIds.clear()
-      const protectedSelection = selected.find(node => !deletableIds.has(node.id))
+      const protectedSelection = selected.find(node => !deletableIds.has(node.id) && !macroMirrorByNodeId.has(node.id))
       callbacks.onSelection(protectedSelection ? selectedNodeInfo(protectedSelection) : null)
     })
   }
 
   function copy() {
-    const selected = selectedNodes().filter(isCopyableFunctionNode)
+    const mirrorSelected = selectedNodes().filter(node => node.mirrorMacro)
+    const selected = selectedNodes().filter(isCopyableFunctionNode).filter(node => !node.mirrorMacro)
+    if (mirrorSelected.length) callbacks.onStatus('宏镜像节点属于源宏，不能复制（请到源宏中编辑）')
     if (!selected.length && selectedNodes().some(node => node.typeId === functionEntryTypeId)) {
       callbacks.onStatus(callbacks.locale?.() === 'en-US' ? 'Function entry nodes cannot be copied' : '函数入口节点不能复制')
       return
@@ -1486,193 +1588,265 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     await deleteSelected()
   }
 
-  // 插入整张蓝图作为宏：复制语义——把源文件的节点/连线/变量复制进当前图（ID 全部重生成），
-  // 之后两边各自演化互不影响。同名同类型变量复用目标图已有的，缺失的补建。
-  async function insertGraph(document: GraphSnapshot & { variables?: GraphVariable[] }, clientPosition?: Position, label?: string, source?: string) {
-    const sourceNodes = document.nodes ?? []
-    if (!sourceNodes.length) return
-    // 同一来源的宏在当前图只保留一个实例：重复插入时定位到已有实例并提示走"从源宏更新"。
-    if (source) {
-      const existing = macroInstances.find(item => item.source === source)
-      if (existing) {
-        callbacks.onStatus('宏已存在于当前蓝图，重复插入已跳过（选中现有宏框可从详情面板更新它）')
-        await selectComment(existing.commentId)
-        await focusComment(existing.commentId)
-        return
+  // === 宏引用（v2）：引用语义——图里只落 macroId + 边界连线，内容以 .obpm 源为准。 ===
+  // 镜像节点是宏源的只读投影：可选中/拖动/连线（外部↔镜像连线持久化为 boundary），
+  // 不进 nodes、不进撤销外的任何持久化路径；改内容请编辑源宏，保存后所有引用图热更。
+
+  function macroFrameComment(ref: MacroRefState) {
+    return comments.find(item => item.id === ref.commentId)
+  }
+
+  function ensureMacroFrame(ref: MacroRefState, label: string): CommentSnapshot {
+    let comment = macroFrameComment(ref)
+    if (!comment) {
+      comment = {
+        id: crypto.randomUUID(),
+        text: `宏：${label}`,
+        x: ref.frame.x,
+        y: ref.frame.y,
+        width: Math.max(ref.frame.width, 240),
+        height: Math.max(ref.frame.height, 140)
       }
+      comments.push(comment)
+      ref.commentId = comment.id
     }
-    const base = clientPosition ? graphPosition(clientPosition) : graphPosition()
-    await mutate(`Inserted macro: ${sourceNodes.length} node(s)`, async () => {
-      await insertGraphBody(document, base, label, source)
+    return comment
+  }
+
+  // 按镜像包围盒收紧宏框（保留用户拖出的框左上角，尺寸随宏内容自适应）。
+  // 必须等渲染帧：节点刚 addNode 时 DOM 尚未布局，立刻测量会得到 0 尺寸把框算小。
+  async function fitMacroFrameToMirrors(ref: MacroRefState) {
+    const mirrors = ref.mirrorIds.flatMap(id => {
+      try { const node = editor.getNode(id); return node ? [node] : [] } catch { return [] }
     })
+    if (!mirrors.length) return
+    const comment = macroFrameComment(ref)
+    if (!comment) return
+    await nextFrame()
+    await nextFrame()
+    await nextFrame()
+    const placed = mirrors.map(node => {
+      const position = area.nodeViews.get(node.id)?.position ?? { x: 0, y: 0 }
+      const rect = area.nodeViews.get(node.id)?.element?.getBoundingClientRect()
+      const zoom = area.area.transform.k || 1
+      // DOM 未就绪（rect 为 0）时退回节点声明尺寸，避免把框算小。
+      const width = rect && rect.width > 10 ? rect.width / zoom : (node.width ?? 230)
+      const height = rect && rect.height > 10 ? rect.height / zoom : 90
+      return { position, size: { width, height } }
+    })
+    const minX = Math.min(...placed.map(item => item.position.x)), minY = Math.min(...placed.map(item => item.position.y))
+    const maxX = Math.max(...placed.map(item => item.position.x + item.size.width)), maxY = Math.max(...placed.map(item => item.position.y + item.size.height))
+    comment.x = minX - 24; comment.y = minY - 34
+    comment.width = maxX - minX + 48; comment.height = maxY - minY + 62
+    ref.frame = { x: comment.x, y: comment.y, width: comment.width, height: comment.height }
   }
 
-  // 插入体：base 为图坐标基准（调用方负责事务与坐标转换），供插入与实例同步复用。
-  async function insertGraphBody(document: GraphSnapshot & { variables?: GraphVariable[] }, base: Position, label?: string, source?: string) {
-    const sourceNodes = document.nodes ?? []
-    if (!sourceNodes.length) return
-    {
-      const variableIdRemap = new Map<string, string>()
-      const variableAdditions: GraphVariable[] = []
-      for (const variable of document.variables ?? []) {
-        const existing = currentVariables.find(item => item.name === variable.name && item.type === variable.type)
-        if (existing) {
-          variableIdRemap.set(variable.id, existing.id)
-          continue
-        }
-        const freshId = variable.id && !currentVariables.some(item => item.id === variable.id) ? variable.id : crypto.randomUUID()
-        variableIdRemap.set(variable.id, freshId)
-        variableAdditions.push({ ...variable, id: freshId })
-      }
-      if (variableAdditions.length) {
-        currentVariables.push(...variableAdditions.map(item => ({ ...item })))
-        callbacks.onVariables(currentVariables.map(item => ({ ...item })))
-      }
-      // 落点归一化：源文件节点坐标是绝对值（可能远离原点），平移源包围盒左上角对齐落点，
-      // 否则宏在画布远处编辑保存后，插入块会落在 base+绝对坐标 处偏离预期数千像素。
-      const placed_ = sourceNodes.filter(item => typeof item.typeId === 'string' && item.typeId)
-      const srcMinX = Math.min(...placed_.map(item => item.position?.x ?? 0))
-      const srcMinY = Math.min(...placed_.map(item => item.position?.y ?? 0))
-      const nodesById = new Map<string, BlueprintNode>()
-      // 宏入口与目标图已有入口同身份时，宏的下游逻辑接到已有入口节点（入口语义=成为目标图的触发面）。
-      const entryRemap = new Map<string, BlueprintNode>()
-      await selector.unselectAll()
-      for (const item of sourceNodes) {
-        const typeId = typeof item.typeId === 'string' ? item.typeId : ''
-        if (!typeId) continue
-        if (!isPasteableFunctionNode({ id: '', typeId })) continue
-        const node = createRestoredNode(item, typeId)
-        if (!node) continue
-        if (node.entrySourceKey && (!canAddOrdinaryEntryNode() || isDuplicateEntryNode(node))) {
-          const existing = editor.getNodes().find(item => item.entrySourceKey === node.entrySourceKey || item.typeId === node.typeId)
-          if (existing) entryRemap.set(item.id, existing)
-          continue
-        }
-        applyNodeProperties(node, item.properties)
-        if (node.variableId) {
-          const remapped = variableIdRemap.get(node.variableId)
-          if (remapped) node.variableId = remapped
-        }
-        if (node.dynamicOutputs) setDynamicOutputCount(node, item.properties?.dynamicOutputCount ?? 3)
-        if (item.properties?.label && !typeId.startsWith('origin.variable.') && !item.properties?.legacyClass) {
-          node.label = item.properties.label
-          node.width = Math.max(node.width ?? 230, nodeTitleWidth(node.label))
-        }
-        setControlValues(node, item.values)
-        syncDynamicBranchOutputs(node, dynamicBranchValueCount(node))
-        await editor.addNode(node)
-        await area.translate(node.id, { x: base.x + (item.position.x - srcMinX), y: base.y + (item.position.y - srcMinY) })
-        await selectable.select(node.id, true)
-        nodesById.set(item.id, node)
-      }
-      for (const connection of document.connections ?? []) {
-        const source = nodesById.get(connection.source) ?? entryRemap.get(connection.source)
-        const target = nodesById.get(connection.target) ?? entryRemap.get(connection.target)
-        if (source && target) await editor.addConnection(createConnection(source, connection.sourceOutput, target, connection.targetInput))
-      }
-      await refreshPortStates(true)
-      // 复制语义下宏以"铺开的整体块"呈现：自动包一圈带来源标签的注释框，
-      // 与函数的单节点形成明确视觉对比；拖动注释框即整体移动，节点仍可就地修改。
-      if (label && nodesById.size) {
-        const placed = [...nodesById.values()].map(node => ({ position: area.nodeViews.get(node.id)?.position ?? { x: 0, y: 0 }, size: nodeSize(node) }))
-        const minX = Math.min(...placed.map(item => item.position.x)), minY = Math.min(...placed.map(item => item.position.y))
-        const maxX = Math.max(...placed.map(item => item.position.x + item.size.width)), maxY = Math.max(...placed.map(item => item.position.y + item.size.height))
-        const comment: CommentSnapshot = { id: crypto.randomUUID(), text: `宏：${label}`, x: minX - 24, y: minY - 34, width: maxX - minX + 48, height: maxY - minY + 62 }
-        comments.push(comment)
-        // 实例记录：nodeIds 顺序 = 源文档节点顺序（插入时过滤跳过的项不进清单），
-        // 供"从源宏更新"时做边界连线重接的索引映射。
-        if (source) macroInstances.push({ source, commentId: comment.id, nodeIds: [...nodesById.keys()] })
-        renderComments()
-      }
+  // 构建宏镜像：按宏源节点顺序创建只读镜像 + 重建宏内连线 + 重接边界连线。
+  // anchor 为宏框内左上落点；跳过的节点在 mirrorIds 中记 ''（下标仍对齐宏源顺序）。
+  async function buildMacroMirrors(ref: MacroRefState, payload: MacroMirrorPayload, anchor: Position) {
+    buildingMacroMirrors = true
+    try {
+      await buildMacroMirrorsInner(ref, payload, anchor)
+    } finally {
+      buildingMacroMirrors = false
     }
   }
 
-  // === 宏实例手动同步：用源宏当前内容替换实例块，保留外部边界连线。 ===
-  // 实例记录维护：删除节点后，去掉已消失的节点 ID；全部消失则连同注释框一起清理，
-  // 避免幽灵记录（防重永久拦截、详情面板出现不存在实例）。
-  function pruneMacroInstances(removeFrames: boolean) {
-    for (let index = macroInstances.length - 1; index >= 0; index--) {
-      const instance = macroInstances[index]
-      instance.nodeIds = instance.nodeIds.filter(id => {
-        try { return Boolean(editor.getNode(id)) } catch { return false }
-      })
-      if (instance.nodeIds.length) continue
-      // 记录的节点 ID 全部失效（旧版本插入/手改文档等历史原因）时，按注释框几何自愈：
-      // 框还在就把完全位于框内的节点重新认领为实例成员，传播/更新/防重随之恢复；
-      // 框也没了才丢弃记录。会话内主动删除实例全部节点时连框一起清（removeFrames）。
-      const frame = comments.find(item => item.id === instance.commentId)
-      if (frame) {
-        const contained = editor.getNodes().filter(node => {
-          const position = area.nodeViews.get(node.id)?.position ?? { x: 0, y: 0 }
-          const size = nodeSize(node)
-          return position.x >= frame.x && position.y >= frame.y
-            && position.x + size.width <= frame.x + frame.width
-            && position.y + size.height <= frame.y + frame.height
-        }).map(node => node.id)
-        if (contained.length) {
-          instance.nodeIds = contained
-          continue
-        }
+  async function buildMacroMirrorsInner(ref: MacroRefState, payload: MacroMirrorPayload, anchor: Position) {
+    const sourceNodes = payload.snapshot.nodes ?? []
+    const variablesPool = payload.variables ?? []
+    const placed = sourceNodes.filter(item => typeof item.typeId === 'string' && item.typeId)
+    const srcMinX = Math.min(...placed.map(item => item.position?.x ?? 0))
+    const srcMinY = Math.min(...placed.map(item => item.position?.y ?? 0))
+    const mirrorBySourceIndex: Array<BlueprintNode | null> = []
+    const mirrorBySourceId = new Map<string, BlueprintNode>()
+    for (const [index, item] of sourceNodes.entries()) {
+      const typeId = typeof item.typeId === 'string' ? item.typeId : ''
+      if (!typeId || !isPasteableFunctionNode({ id: '', typeId })) { mirrorBySourceIndex[index] = null; continue }
+      const node = createRestoredNode(item, typeId, variablesPool)
+      if (!node) { mirrorBySourceIndex[index] = null; continue }
+      node.mirrorMacro = true
+      applyNodeProperties(node, item.properties)
+      if (node.dynamicOutputs) setDynamicOutputCount(node, item.properties?.dynamicOutputCount ?? 3)
+      if (item.properties?.label && !typeId.startsWith('origin.variable.') && !item.properties.legacyClass) {
+        node.label = item.properties.label
+        node.width = Math.max(node.width ?? 230, nodeTitleWidth(node.label))
       }
-      macroInstances.splice(index, 1)
-      if (!removeFrames) continue
-      const frameIndex = comments.findIndex(item => item.id === instance.commentId)
-      if (frameIndex >= 0) comments.splice(frameIndex, 1)
+      setControlValues(node, item.values)
+      syncDynamicBranchOutputs(node, dynamicBranchValueCount(node))
+      await editor.addNode(node)
+      await area.translate(node.id, { x: anchor.x + (item.position.x - srcMinX), y: anchor.y + (item.position.y - srcMinY) })
+      mirrorBySourceIndex[index] = node
+      mirrorBySourceId.set(item.id, node)
     }
+    ref.mirrorIds = mirrorBySourceIndex.map(node => node?.id ?? '')
+    for (const [sourceIndex, node] of mirrorBySourceIndex.entries()) {
+      if (node) macroMirrorByNodeId.set(node.id, { ref, sourceIndex })
+    }
+    for (const connection of payload.snapshot.connections ?? []) {
+      const source = mirrorBySourceId.get(connection.source)
+      const target = mirrorBySourceId.get(connection.target)
+      if (!source || !target) continue
+      try { await editor.addConnection(createConnection(source, connection.sourceOutput, target, connection.targetInput)) } catch { /* 端口类型变化后个别内部连线可能不再合法 */ }
+    }
+    for (const boundary of ref.boundary) {
+      const mirror = mirrorBySourceIndex[boundary.macroNodeIndex] ?? null
+      let external: BlueprintNode | null = null
+      try { external = boundary.externalNode ? editor.getNode(boundary.externalNode) ?? null : null } catch { external = null }
+      if (!mirror || !external) continue
+      try {
+        const connection = boundary.intoMacro
+          ? createConnection(external, boundary.externalPort, mirror, boundary.macroPort)
+          : createConnection(mirror, boundary.macroPort, external, boundary.externalPort)
+        await editor.addConnection(connection)
+      } catch { /* 宏端口变化后该边界连线不再合法，保留记录待用户重连 */ }
+    }
+  }
+
+  async function removeMacroMirrorNodes(ref: MacroRefState) {
+    for (const id of ref.mirrorIds) {
+      macroMirrorByNodeId.delete(id)
+      if (!id) continue
+      for (const item of [...editor.getConnections()]) {
+        if (item.source === id || item.target === id) await editor.removeConnection(item.id)
+      }
+      try { if (editor.getNode(id)) await editor.removeNode(id) } catch { /* 已被删除则跳过 */ }
+    }
+    ref.mirrorIds = []
+    // boundary 记录保留：热更重建（refreshMacroRef）要按它重接边界连线；
+    // 整引用删除（removeMacroRef）时记录随引用一起丢弃。
+  }
+
+  async function removeMacroRef(ref: MacroRefState) {
+    await removeMacroMirrorNodes(ref)
+    const index = macroRefs.indexOf(ref)
+    if (index >= 0) macroRefs.splice(index, 1)
+    const frameIndex = comments.findIndex(item => item.id === ref.commentId)
+    if (frameIndex >= 0) comments.splice(frameIndex, 1)
+    if (selectedCommentId === ref.commentId) selectedCommentId = null
     renderComments()
   }
 
-  function selectedMacroInstance(): MacroInstanceSnapshot | null {
-    if (!selectedCommentId) return null
-    return macroInstances.find(item => item.commentId === selectedCommentId) ?? null
+  // 插入宏引用：只登记 macroId + 建镜像 + 画宏框，不复制任何节点/连线/变量。
+  async function insertMacroRef(payload: InsertMacroRefPayload): Promise<boolean> {
+    const existing = macroRefs.find(item => item.macroId === payload.macroId)
+    if (existing) {
+      callbacks.onStatus('该宏已引用于当前蓝图，已定位到现有宏框（重复插入已跳过）')
+      await selectComment(existing.commentId)
+      await focusComment(existing.commentId)
+      return false
+    }
+    const base = payload.clientPosition ? graphPosition(payload.clientPosition) : graphPosition()
+    const ref: MacroRefState = {
+      macroId: payload.macroId,
+      pathHint: payload.pathHint ?? '',
+      commentId: '',
+      label: payload.label,
+      frame: { x: base.x, y: base.y, width: 240, height: 140 },
+      boundary: [],
+      mirrorIds: [],
+      missing: false
+    }
+    await mutate(`Macro referenced: ${payload.label}`, async () => {
+      macroRefs.push(ref)
+      await buildMacroMirrors(ref, payload, { x: base.x + 24, y: base.y + 34 })
+      ensureMacroFrame(ref, payload.label)
+      await fitMacroFrameToMirrors(ref)
+      renderComments()
+      await refreshPortStates(true)
+    })
+    if (ref.commentId) await selectComment(ref.commentId)
+    return true
   }
 
-  async function syncMacroInstance(instance: MacroInstanceSnapshot, document: GraphSnapshot & { variables?: GraphVariable[] }, label?: string) {
-    const oldIds = new Set(instance.nodeIds)
-    // 边界连线存档：外部端点 + 实例侧的源索引 + 端口 + 方向
-    type Boundary = { externalNode: string; externalPort: string; instanceIndex: number; instancePort: string; intoInstance: boolean }
-    const boundaries: Boundary[] = []
-    const indexById = new Map(instance.nodeIds.map((id, index) => [id, index]))
-    for (const connection of editor.getConnections()) {
-      const sourceInside = oldIds.has(connection.source)
-      const targetInside = oldIds.has(connection.target)
-      if (sourceInside === targetInside) continue
-      if (sourceInside) boundaries.push({ externalNode: connection.target, externalPort: String(connection.targetInput), instanceIndex: indexById.get(connection.source) ?? -1, instancePort: String(connection.sourceOutput), intoInstance: false })
-      else boundaries.push({ externalNode: connection.source, externalPort: String(connection.sourceOutput), instanceIndex: indexById.get(connection.target) ?? -1, instancePort: String(connection.targetInput), intoInstance: true })
+  // 宏热更：源宏保存后用最新内容重建镜像（宏框位置与边界连线保留）。
+  // 外部真值刷新，不进撤销历史；端口失效的边界记录跳过重连但保留在记录里待重连。
+  async function refreshMacroRef(macroId: string, payload: MacroMirrorPayload): Promise<boolean> {
+    let touched = false
+    for (const ref of [...macroRefs]) {
+      if (ref.macroId !== macroId) continue
+      touched = true
+      const frame = macroFrameComment(ref) ?? ensureMacroFrame(ref, payload.label)
+      const anchor = { x: frame.x + 24, y: frame.y + 34 }
+      restoring = true
+      try {
+        await removeMacroMirrorNodes(ref)
+        ref.label = payload.label
+        ref.missing = false
+        if (payload.pathHint) ref.pathHint = payload.pathHint
+        await buildMacroMirrors(ref, payload, anchor)
+        frame.text = `宏：${payload.label}`
+        await fitMacroFrameToMirrors(ref)
+        renderComments()
+        await refreshPortStates(true)
+      } finally {
+        restoring = false
+      }
     }
-    const frame = comments.find(item => item.id === instance.commentId)
-    const anchor = frame ? { x: frame.x + 24, y: frame.y + 34 } : undefined
-    await mutate('Macro instance synced', async () => {
-      // 删除旧实例（连带其内部连线），保留注释框位置作为新块落点
-      for (const id of instance.nodeIds) {
-        try { if (editor.getNode(id)) await editor.removeNode(id) } catch { /* 已被手动删除则跳过 */ }
+    if (touched) updateMetrics()
+    return touched
+  }
+
+  // 宏改名传播（仅刷框文本，内容不动）：宏未展开（找不到源）时也把框标成未找到提示。
+  function refreshMacroFrames(macroId: string, label: string): boolean {
+    let touched = false
+    for (const ref of macroRefs) {
+      if (ref.macroId !== macroId) continue
+      const frame = macroFrameComment(ref) ?? ensureMacroFrame(ref, label)
+      if (frame.text !== `宏：${label}`) {
+        frame.text = `宏：${label}`
+        touched = true
       }
-      const index = macroInstances.indexOf(instance)
-      if (index >= 0) macroInstances.splice(index, 1)
-      const frameIndex = comments.findIndex(item => item.id === instance.commentId)
-      if (frameIndex >= 0) comments.splice(frameIndex, 1)
-      // 以文档坐标为基准重插：复用原实例的注释框位置作为新块落点
-      await insertGraphBody(document, anchor ?? graphPosition(), label, instance.source)
-      // 边界重接：新实例 nodeIds 与源顺序一致，按索引找回对应节点
-      const newInstance = macroInstances[macroInstances.length - 1]
-      if (newInstance) {
-        for (const boundary of boundaries) {
-          const newNodeId = newInstance.nodeIds[boundary.instanceIndex]
-          if (!newNodeId) continue
-          try {
-            const external = editor.getNode(boundary.externalNode)
-            const internal = editor.getNode(newNodeId)
-            if (!external || !internal) continue
-            const connection = boundary.intoInstance
-              ? createConnection(external, boundary.externalPort, internal, boundary.instancePort)
-              : createConnection(internal, boundary.instancePort, external, boundary.externalPort)
-            await editor.addConnection(connection)
-          } catch { /* 端口类型不匹配等，跳过该连线 */ }
-        }
+      ref.label = label
+    }
+    if (touched) renderComments()
+    return touched
+  }
+
+  // 加载后展开：为没有镜像的宏引用按当前磁盘源展开（切标签页/撤销重做后的兜底）。
+  async function expandMacroRefsInternal(): Promise<void> {
+    if (!macroRefs.length) return
+    const missing: string[] = []
+    for (const ref of macroRefs) {
+      const hasMirrors = ref.mirrorIds.some(id => id)
+      let payload: MacroMirrorPayload | null = null
+      if (macroResolver) {
+        try { payload = await macroResolver(ref.macroId) } catch { payload = null }
       }
-      await refreshPortStates(true)
-      renderComments()
-    })
+      const frame = macroFrameComment(ref) ?? ensureMacroFrame(ref, payload?.label ?? '')
+      if (!payload) {
+        ref.missing = true
+        const hint = `宏：未找到（${ref.pathHint || ref.macroId}）`
+        if (frame.text !== hint) { frame.text = hint; renderComments() }
+        missing.push(ref.pathHint || ref.macroId)
+        continue
+      }
+      ref.missing = false
+      ref.label = payload.label
+      // pathHint 是运行时解析结果（详情面板显示/打开源宏用），不持久化。
+      if (payload.pathHint) ref.pathHint = payload.pathHint
+      if (frame.text !== `宏：${payload.label}`) { frame.text = `宏：${payload.label}`; renderComments() }
+      if (hasMirrors) continue
+      restoring = true
+      try {
+        await buildMacroMirrors(ref, payload, { x: frame.x + 24, y: frame.y + 34 })
+        // 宏内容自保存后可能已变化（加节点等）：展开后按镜像包围盒重算宏框。
+        await fitMacroFrameToMirrors(ref)
+        renderComments()
+      } finally {
+        restoring = false
+      }
+    }
+    if (macroRefs.some(ref => !ref.mirrorIds.some(id => id))) await refreshPortStates(true)
+    updateMetrics()
+    if (missing.length) callbacks.onStatus(`宏源未找到：${missing.join('、')}（引用已保留，请检查工作区宏文件）`)
+  }
+
+  function selectedMacroRef(): { macroId: string; label: string; pathHint: string; nodeCount: number; missing: boolean } | null {
+    if (!selectedCommentId) return null
+    const ref = macroRefs.find(item => item.commentId === selectedCommentId)
+    if (!ref) return null
+    return { macroId: ref.macroId, label: ref.label, pathHint: ref.pathHint, nodeCount: ref.mirrorIds.filter(id => id).length, missing: ref.missing }
   }
 
   async function paste() {
@@ -1731,12 +1905,19 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
 
   function getDocument(graphName = 'Untitled', variables?: GraphVariable[], variableGroups?: GraphVariableGroup[]): GraphDocument {
     const data = snapshot()
+    // 持久化拆分：宏镜像节点与跨宏连线退回 macroRefs（引用图不落宏内容）。
+    const persisted = splitSnapshotForPersistence(data)
     return {
       schemaVersion: 1,
       // 编辑器持有载入时的 graphName（宏显示名），调用方参数（通常是标签页标题=文件名）只做兜底，
       // 防止显示名被文件名覆盖。
       graphName: currentGraphName || graphName,
       ...data,
+      nodes: persisted.nodes,
+      connections: persisted.connections,
+      groups: persisted.groups,
+      comments: persisted.comments,
+      macroRefs: persisted.macroRefs,
       variables: (variables ?? currentVariables).map(item => ({ ...item })),
       variableGroups: (variableGroups ?? currentVariableGroups).map(item => ({ ...item })),
       view: { x: area.area.transform.x, y: area.area.transform.y, zoom: area.area.transform.k },
@@ -1754,7 +1935,9 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     currentLegacy = cloneLegacyState(document.legacy)
     callbacks.onVariables(currentVariables.map(item => ({ ...item })))
     callbacks.onVariableGroups(currentVariableGroups.map(item => ({ ...item })))
-    const report = await restore({ nodes: document.nodes ?? [], connections: document.connections ?? [], groups: document.groups ?? [], comments: document.comments ?? [], macroInstances: document.macroInstances ?? [] })
+    const report = await restore({ nodes: document.nodes ?? [], connections: document.connections ?? [], groups: document.groups ?? [], comments: document.comments ?? [], macroRefs: document.macroRefs ?? [] })
+    // 宏引用展开：镜像不在文档里，按当前磁盘源展开（切标签页即取最新宏，天然热更）。
+    await expandMacroRefsInternal()
     if (document.nodes?.length) await fitGraphAfterRender()
     else if (document.view) {
       await area.area.translate(document.view.x, document.view.y)
@@ -1774,7 +1957,7 @@ export async function createBlueprintEditor(container: HTMLElement, callbacks: C
     undoStack.length = 0; redoStack.length = 0; controlEditSnapshot = null; controlEditChanged = false; groups.length = 0; selectedGroupId = null
     visibleEntryConnectionIds.clear()
     currentVariables = []; currentVariableGroups = [{ id: 'default', name: 'Default' }]; currentLegacy = undefined; insertionOffset = 0; callbacks.onVariables([]); callbacks.onVariableGroups(currentVariableGroups.map(item => ({ ...item }))); callbacks.onSelection(null)
-    restoring = true; await selector.unselectAll(); await editor.clear(); restoring = false; comments.length = 0; macroInstances.length = 0; currentGraphName = ''; renderGroups(); renderComments(); updateMetrics()
+    restoring = true; await selector.unselectAll(); await editor.clear(); restoring = false; comments.length = 0; macroRefs.length = 0; macroMirrorByNodeId.clear(); currentGraphName = ''; renderGroups(); renderComments(); updateMetrics()
     await area.area.translate(0, 0); await area.area.zoom(1)
   callbacks.onStatus('New graph')
 }
@@ -1872,8 +2055,13 @@ function nodeSize(node: BlueprintNode) {
   async function selectAll() {
     await clearConnectionSelection()
     await clearGroupSelection()
-    for (const node of editor.getNodes()) await selectable.select(node.id, true)
-    callbacks.onStatus(`Selected ${editor.getNodes().length} node(s)`)
+    let count = 0
+    for (const node of editor.getNodes()) {
+      if (node.mirrorMacro) continue
+      await selectable.select(node.id, true)
+      count++
+    }
+    callbacks.onStatus(`Selected ${count} node(s)`)
   }
 
   async function deselectAll() {
@@ -2233,6 +2421,9 @@ function nodeSize(node: BlueprintNode) {
   }
 
   async function focusNode(id: string) {
+    // 宏镜像不可单独选中：定位请求（搜索结果等）落到所属宏框，保持"宏=整体"的交互。
+    const mirrorSite = macroMirrorByNodeId.get(id)
+    if (mirrorSite) return focusComment(mirrorSite.ref.commentId)
     const node = editor.getNode(id)
     if (!node) return
     await selector.unselectAll()
@@ -2319,6 +2510,24 @@ function nodeSize(node: BlueprintNode) {
     return highlightIssueNodes([id])
   }
 
+  // 宏镜像整体化交互：宏加入蓝图后不可拆分——镜像节点不允许单独选中/拖动/删除，
+  // 点击镜像即选中所属宏框（Delete=整体删除；拖宏框=整体移动）；仅端口保留连线交互（宏边界）。
+  function setupMacroMirrorInteraction() {
+    const down = (event: PointerEvent) => {
+      if (event.button !== 0) return
+      const target = event.target as HTMLElement
+      const mirror = target.closest('.blueprint-node.mirror-macro') as HTMLElement | null
+      if (!mirror) return
+      if (target.closest('.blueprint-socket')) return
+      event.stopPropagation()
+      const nodeId = nodeIdFromEventTarget(mirror)
+      const site = nodeId ? macroMirrorByNodeId.get(nodeId) : undefined
+      if (site) void selectComment(site.ref.commentId)
+    }
+    container.addEventListener('pointerdown', down, true)
+    return () => container.removeEventListener('pointerdown', down, true)
+  }
+
   function setupRubberBandSelection() {
     const rectangle = document.createElement('div')
     rectangle.className = 'selection-rectangle'
@@ -2354,6 +2563,8 @@ function nodeSize(node: BlueprintNode) {
       const selectedConnections = await selectConnections(connectionIds, event.ctrlKey)
       let selectedNodes = 0
       for (const node of editor.getNodes()) {
+        // 宏镜像不可被框选单独命中（宏只能整体选中：点击宏框）。
+        if (node.mirrorMacro) continue
         const bounds = area.nodeViews.get(node.id)?.element.getBoundingClientRect()
         if (bounds && rectsIntersect(bounds, selectionRect)) {
           await selectable.select(node.id, true)
@@ -2529,6 +2740,7 @@ function nodeSize(node: BlueprintNode) {
     return context
   })
   setupRubberBandSelection()
+  const destroyMacroMirrorInteraction = setupMacroMirrorInteraction()
   const destroyCuttingLine = setupCuttingLine()
 
   await refreshPortStates(true)
@@ -2556,6 +2768,7 @@ function nodeSize(node: BlueprintNode) {
       window.removeEventListener('pointercancel', stopNodeDragFeedback)
       destroyPanFeedback()
       destroyMultiSelectionDragPreserver()
+      destroyMacroMirrorInteraction()
       destroyCuttingLine()
       entryBindingMenu.remove()
       area.destroy()
@@ -2586,26 +2799,14 @@ function nodeSize(node: BlueprintNode) {
     toggleGroupSelected,
     addCommentAt,
     commentAroundSelection,
-    insertGraph,
-    selectedMacroInstance,
-    hasMacroInstance: (source: string) => macroInstances.some(item => item.source === source),
-    updateMacroFrames(source: string, label: string) {
-      let touched = false
-      for (const instance of macroInstances) {
-        if (instance.source !== source) continue
-        const comment = comments.find(item => item.id === instance.commentId)
-        if (comment && comment.text !== `宏：${label}`) {
-          comment.text = `宏：${label}`
-          touched = true
-        }
-      }
-      if (touched) renderComments()
+    insertMacroRef,
+    selectedMacroRef,
+    hasMacroRef: (macroId: string) => snapshotHasMacroRef(snapshot(), macroId),
+    setMacroResolver(resolver: ((macroId: string) => Promise<MacroMirrorPayload | null>) | null) {
+      macroResolver = resolver
     },
-    syncMacroInstance: (source, document, label) => {
-      const instance = macroInstances.find(item => item.source === source) ?? null
-      if (!instance) return Promise.resolve()
-      return syncMacroInstance(instance, document, label)
-    },
+    refreshMacroRef,
+    refreshMacroFrames,
     searchNodes,
     focusComment,
     commentCount,

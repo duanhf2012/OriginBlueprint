@@ -1,7 +1,6 @@
 package blueprint
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -104,15 +103,20 @@ func loadDefinitionDir(registry *Registry, dir string, factories []func() IExecN
 	})
 }
 
+// loadedGraphFile 是目录加载的中间产物：新版文档保留原始 graphDocument，
+// 待宏索引建立后统一展开宏引用并转换为 GraphConfig；legacy 文档直接给 config。
+type loadedGraphFile struct {
+	path       string
+	name       string
+	aliases    []string
+	config     GraphConfig
+	isFunction bool
+	document   *graphDocument
+	data       []byte
+}
+
 func loadGraphDir(registry *Registry, dir string) (map[string]*CompiledGraph, error) {
-	type graphFile struct {
-		path       string
-		name       string
-		aliases    []string
-		config     GraphConfig
-		isFunction bool
-	}
-	files := make([]graphFile, 0)
+	files := make([]loadedGraphFile, 0)
 	graphs := map[string]*CompiledGraph{}
 	err := filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
@@ -125,15 +129,64 @@ func loadGraphDir(registry *Registry, dir string) (map[string]*CompiledGraph, er
 		if err != nil {
 			return err
 		}
-		config, isFunction, graphName, aliases, err := parseGraphFile(data, dir, path)
+		file, err := parseGraphFile(data, dir, path)
 		if err != nil {
 			return wrapBlueprintStageError(BlueprintStageParse, path, err)
 		}
-		files = append(files, graphFile{path: path, name: graphName, aliases: aliases, config: config, isFunction: isFunction})
+		files = append(files, file)
 		return nil
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	// 宏索引：.obpm 文档按 macroId 提供解析来源；重复 macroId 属于用户错误，直接失败。
+	macroData := map[string][]byte{}
+	macroOwners := map[string]string{}
+	for _, file := range files {
+		if file.document == nil || file.macroID() == "" || !isMacroFile(file.path) {
+			continue
+		}
+		macroID := file.macroID()
+		if owner, exists := macroOwners[macroID]; exists {
+			return nil, fmt.Errorf("macro id %q from %s conflicts with %s", macroID, file.path, owner)
+		}
+		macroOwners[macroID] = file.path
+		macroData[macroID] = file.data
+	}
+	resolveMacro := func(macroID string) (*graphDocument, error) {
+		data, ok := macroData[strings.TrimSpace(macroID)]
+		if !ok {
+			return nil, fmt.Errorf("macro %s not found in graph directory", macroID)
+		}
+		var document graphDocument
+		if err := decodeGraphDocument(data, &document); err != nil {
+			return nil, err
+		}
+		return &document, nil
+	}
+
+	// 展开宏引用并统一转换为 GraphConfig（引用图和 .obpm 宏自身的嵌套引用都在此处理）。
+	for index := range files {
+		file := &files[index]
+		if file.document == nil {
+			continue
+		}
+		if len(file.document.MacroRefs) != 0 {
+			if err := expandMacroRefs(file.document, resolveMacro, nil); err != nil {
+				return nil, wrapBlueprintStageError(BlueprintStageParse, file.path, err)
+			}
+		}
+		config, isFunction, err := graphDocumentToConfig(*file.document)
+		if err != nil {
+			return nil, wrapBlueprintStageError(BlueprintStageParse, file.path, err)
+		}
+		if strings.EqualFold(filepath.Ext(file.path), ".obpf") {
+			isFunction = true
+		}
+		config.IsFunction = isFunction
+		file.config = config
+		file.isFunction = isFunction
 	}
 
 	// 先编译函数图，普通图编译时可以直接绑定函数调用目标。
@@ -231,47 +284,53 @@ func validateLoadedGraphContract(graph *CompiledGraph, function bool, allowEmpty
 
 func isGraphFile(path string) bool {
 	switch strings.ToLower(filepath.Ext(path)) {
-	case ".vgf", ".obp", ".obpf":
+	case ".vgf", ".obp", ".obpf", ".obpm":
 		return true
 	default:
 		return false
 	}
 }
 
-func parseGraphFile(data []byte, root string, path string) (GraphConfig, bool, string, []string, error) {
+func isMacroFile(path string) bool {
+	return strings.EqualFold(filepath.Ext(path), ".obpm")
+}
+
+// macroID 返回文档声明的宏身份；只有 .obpm 宏源文件会用它建立宏索引。
+func (f *loadedGraphFile) macroID() string {
+	if f.document == nil {
+		return ""
+	}
+	return strings.TrimSpace(f.document.MacroID)
+}
+
+func parseGraphFile(data []byte, root string, path string) (loadedGraphFile, error) {
 	present, _, err := probeGraphSchemaVersion(data)
 	if err != nil {
-		return GraphConfig{}, false, "", nil, err
+		return loadedGraphFile{}, err
 	}
-	var documentProbe struct {
-		GraphName         string                     `json:"graphName"`
-		FunctionID        string                     `json:"functionId,omitempty"`
-		FunctionSignature graphDocumentFuncSignature `json:"functionSignature,omitempty"`
-	}
-	if present {
-		if err := json.Unmarshal(data, &documentProbe); err != nil {
-			return GraphConfig{}, false, "", nil, err
-		}
-		var document graphDocument
-		if err := decodeGraphDocument(data, &document); err != nil {
-			return GraphConfig{}, false, "", nil, err
-		}
-		config, isFunction, err := graphDocumentToConfig(document)
-		name := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
-		if strings.ToLower(filepath.Ext(path)) == ".obpf" {
-			isFunction = true
-			if graphName := strings.TrimSpace(document.GraphName); graphName != "" {
-				name = graphName
-			}
-		}
-		config.IsFunction = isFunction
-		aliases := graphFunctionAliases(document, root, path)
-		return config, isFunction, name, aliases, err
-	}
-
-	config, err := ParseGraphConfigJSON(data)
 	name := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
-	return config, false, name, nil, err
+	if !present {
+		config, err := ParseGraphConfigJSON(data)
+		return loadedGraphFile{path: path, name: name, config: config}, err
+	}
+	var document graphDocument
+	if err := decodeGraphDocument(data, &document); err != nil {
+		return loadedGraphFile{}, err
+	}
+	// .obpf 强制按函数图命名/编译；.obpm 宏源文件按普通图独立编译（校验宏自身），
+	// 同时由 loadGraphDir 建立宏索引供引用图编译期内联。
+	if strings.EqualFold(filepath.Ext(path), ".obpf") {
+		if graphName := strings.TrimSpace(document.GraphName); graphName != "" {
+			name = graphName
+		}
+	}
+	return loadedGraphFile{
+		path:     path,
+		name:     name,
+		aliases:  graphFunctionAliases(document, root, path),
+		document: &document,
+		data:     data,
+	}, nil
 }
 
 func graphFunctionAliases(document graphDocument, root string, path string) []string {

@@ -46,6 +46,8 @@ export class BlueprintNode extends ClassicPreset.Node {
   onFunctionSelect?: (functionId: string) => void
   referenceHighlighted?: boolean
   issueHighlighted?: boolean
+  /** 宏镜像节点（宏引用展开的只读投影）：锁定内联控件、删除时按整宏引用处理。 */
+  mirrorMacro?: boolean
   entrySourceKey?: string
   entrySourceColor?: string
   legacyStyle?: boolean

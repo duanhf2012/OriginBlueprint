@@ -41,6 +41,8 @@ export function documentRequiresNativePersistence(document: GraphDocument) {
     || (document.variables ?? []).some(variable => variable.type === 'timerhandle' || variableScope(variable) === 'instance')
     || (signature.inputs?.length ?? 0) > 0
     || (signature.outputs?.length ?? 0) > 0
+    // 宏引用（macroRefs）是原生文档字段，legacy .vgf 导出无法承载，引用图必须存 .obp。
+    || (document.macroRefs?.length ?? 0) > 0
 }
 
 function isMacroBlueprintPath(path: string) {
@@ -80,6 +82,10 @@ export function prepareGraphSave(sourcePath: string, targetPath: string, documen
   if (!sourceIsFunction && targetIsFunction) throw new Error('Ordinary blueprints cannot be saved as .obpf files')
 
   const exportLegacy = targetPath.toLowerCase().endsWith('.vgf')
+  // 宏引用（macroRefs）无法用 legacy .vgf 表达：另存为 .vgf 会静默丢掉全部引用关系，必须拒绝。
+  if (exportLegacy && (document.macroRefs?.length ?? 0) > 0) {
+    throw new Error('引用了宏的蓝图必须保存为 .obp（legacy .vgf 无法保存宏引用）')
+  }
   return {
     path: targetPath,
     documentJSON: serializeGraphDocument(targetPath, document, exportLegacy ? undefined : 2),

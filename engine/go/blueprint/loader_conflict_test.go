@@ -30,15 +30,15 @@ func TestParseGraphFileUsesFilenameForOrdinaryDocuments(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			root := t.TempDir()
-			_, isFunction, graphName, _, err := parseGraphFile([]byte(test.data), root, filepath.Join(root, test.filename))
+			file, err := parseGraphFile([]byte(test.data), root, filepath.Join(root, test.filename))
 			if err != nil {
 				t.Fatalf("parseGraphFile failed: %v", err)
 			}
-			if isFunction {
+			if file.isFunction {
 				t.Fatal("ordinary graph was marked as a function")
 			}
-			if graphName != test.wantName {
-				t.Fatalf("graph name = %q, want %q", graphName, test.wantName)
+			if file.name != test.wantName {
+				t.Fatalf("graph name = %q, want %q", file.name, test.wantName)
 			}
 		})
 	}
@@ -67,15 +67,12 @@ func TestParseGraphFilePreservesFunctionGraphName(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			root := t.TempDir()
-			_, isFunction, graphName, _, err := parseGraphFile([]byte(test.data), root, filepath.Join(root, test.filename))
+			file, err := parseGraphFile([]byte(test.data), root, filepath.Join(root, test.filename))
 			if err != nil {
 				t.Fatalf("parseGraphFile failed: %v", err)
 			}
-			if !isFunction {
-				t.Fatal("function graph was not marked as a function")
-			}
-			if graphName != test.wantName {
-				t.Fatalf("graph name = %q, want %q", graphName, test.wantName)
+			if file.name != test.wantName {
+				t.Fatalf("graph name = %q, want %q", file.name, test.wantName)
 			}
 		})
 	}

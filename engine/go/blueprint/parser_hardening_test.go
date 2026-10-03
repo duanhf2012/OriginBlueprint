@@ -1,6 +1,7 @@
 package blueprint
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -86,6 +87,9 @@ func TestParseGraphDocumentAllowsKnownEditorMetadata(t *testing.T) {
 
 // 编辑器会给函数签名端口写入 ref（关联数据集 key）供画布引用选择控件使用；
 // 引擎不消费该字段，但严格 JSON 解析必须接受它，否则带数据集绑定的函数文档无法编译。
+// 宏引用字段（macroId/macroRefs）同样必须通过严格解析，
+// 但 macroRefs 只能由目录加载层（Init/HotReload → expandMacroRefs）展开，
+// 单文档入口 ParseGraphConfigJSON 对未展开的宏引用显式报错而不是静默丢逻辑。
 func TestParseGraphDocumentAllowsSignaturePortRef(t *testing.T) {
 	data := []byte(`{
 		"schemaVersion":1,
@@ -95,9 +99,8 @@ func TestParseGraphDocumentAllowsSignaturePortRef(t *testing.T) {
 			"outputs":[{"id":"out","name":"结果","type":"integer"}]
 		},
 		"comments":[{"id":"c1","text":"备注","x":1,"y":2,"width":100,"height":50}],
-		"macroInstances":[{"source":"macros/a.obpm","commentId":"c1","nodeIds":["n1","n2"]}],
 		"macroId":"m_a3f8",
-		"macroRefs":[{"macroId":"m_a3f8","pathHint":"macros/a.obpm","commentId":"c1",
+		"macroRefs":[{"macroId":"m_a3f8",
 			"frame":{"x":1,"y":2,"width":100,"height":50},
 			"boundary":[{"externalNode":"n9","externalPort":"exec","macroNodeIndex":0,"macroPort":"exec","intoMacro":true}]}],
 		"nodes":[{
@@ -121,7 +124,22 @@ func TestParseGraphDocumentAllowsSignaturePortRef(t *testing.T) {
 		"view":{"x":0,"y":0,"zoom":1}
 	}`)
 
-	if _, err := ParseGraphConfigJSON(data); err != nil {
+	var document graphDocument
+	if err := decodeGraphDocument(data, &document); err != nil {
+		t.Fatalf("decodeGraphDocument rejected editor metadata: %v", err)
+	}
+	if len(document.MacroRefs) != 1 || document.MacroRefs[0].MacroID != "m_a3f8" || len(document.MacroRefs[0].Boundary) != 1 {
+		t.Fatalf("macroRefs decoded = %#v", document.MacroRefs)
+	}
+	if _, err := ParseGraphConfigJSON(data); err == nil {
+		t.Fatal("ParseGraphConfigJSON accepted unexpanded macro refs; they must fail loudly instead of silently dropping macro logic")
+	}
+	document.MacroRefs = nil
+	withoutRefs, err := json.Marshal(document)
+	if err != nil {
+		t.Fatalf("re-encode document: %v", err)
+	}
+	if _, err := ParseGraphConfigJSON(withoutRefs); err != nil {
 		t.Fatalf("ParseGraphConfigJSON rejected signature port ref: %v", err)
 	}
 }

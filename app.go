@@ -375,6 +375,10 @@ func graphDocumentRequiresNativePersistence(document GraphDocument) bool {
 	if len(document.FunctionSignature.Inputs) > 0 || len(document.FunctionSignature.Outputs) > 0 {
 		return true
 	}
+	// 宏引用（macroRefs）是原生文档字段：legacy 导出无法承载，降级会静默丢掉全部引用关系。
+	if len(document.MacroRefs) > 0 {
+		return true
+	}
 	for _, node := range document.Nodes {
 		if strings.HasPrefix(node.TypeID, "origin.function.") ||
 			strings.HasPrefix(node.TypeID, "origin.timer.") ||

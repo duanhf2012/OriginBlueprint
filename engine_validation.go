@@ -256,7 +256,7 @@ func validationDocumentFallbackDefinitions(graphsDir string, knownFactoryNames [
 			return nil
 		}
 		extension := strings.ToLower(filepath.Ext(path))
-		if extension != ".obp" && extension != ".obpf" {
+		if extension != ".obp" && extension != ".obpf" && extension != ".obpm" {
 			return nil
 		}
 		data, err := os.ReadFile(path)
@@ -398,6 +398,9 @@ func prepareValidationGraphDocuments(graphsDir, workspaceRoot, sourcePath, conte
 			if err := copyValidationFunctionClosure(graphsDir, index, references); err != nil {
 				return "", err
 			}
+			if err := copyValidationMacroClosure(graphsDir, root, source, document); err != nil {
+				return "", err
+			}
 		}
 	}
 
@@ -408,7 +411,7 @@ func prepareValidationGraphDocuments(graphsDir, workspaceRoot, sourcePath, conte
 	if root != "" && source != "" {
 		if candidate, err := filepath.Rel(root, source); err == nil && candidate != "" && !strings.HasPrefix(candidate, "..") {
 			extension := strings.ToLower(filepath.Ext(candidate))
-			if extension == ".obp" || extension == ".obpf" || extension == ".vgf" {
+			if extension == ".obp" || extension == ".obpf" || extension == ".vgf" || extension == ".obpm" {
 				relative = candidate
 			}
 		}
@@ -514,6 +517,109 @@ func copyValidationFunctionClosure(graphsDir string, index map[string][]*validat
 			}
 			queue = append(queue, function.references...)
 		}
+	}
+	return nil
+}
+
+// copyValidationMacroClosure 把文档引用的宏源文件（按 macroId）拷入校验沙箱，
+// 供引擎在编译期内联展开；嵌套宏按引用闭包传递拷贝。
+// 当前文档自身声明的 macroId 视为已存在（稍后按原相对路径写入 graphs），交由引擎报告循环引用。
+func copyValidationMacroClosure(graphsDir, root, source string, document GraphDocument) error {
+	type macroEntry struct {
+		relative string
+		data     []byte
+		refs     []string
+	}
+	hasRefs := false
+	for _, ref := range document.MacroRefs {
+		if strings.TrimSpace(ref.MacroID) != "" {
+			hasRefs = true
+			break
+		}
+	}
+	if !hasRefs && strings.TrimSpace(document.MacroID) == "" {
+		return nil
+	}
+	index := map[string][]*macroEntry{}
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || !strings.EqualFold(filepath.Ext(path), ".obpm") {
+			return nil
+		}
+		absolute, err := filepath.Abs(path)
+		if err != nil || (source != "" && sameValidationPath(absolute, source)) {
+			return nil
+		}
+		relative, err := filepath.Rel(root, absolute)
+		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
+			return nil
+		}
+		data, err := os.ReadFile(absolute)
+		if err != nil {
+			return err
+		}
+		var macroDocument GraphDocument
+		if decodeJSONUseNumber(data, &macroDocument) != nil {
+			// 解析失败的宏文件不在此处报错；若被引用，引擎按沙箱路径给出更完整的解析诊断。
+			return nil
+		}
+		macroID := strings.TrimSpace(macroDocument.MacroID)
+		if macroID == "" {
+			return nil
+		}
+		record := &macroEntry{relative: relative, data: data}
+		for _, ref := range macroDocument.MacroRefs {
+			if id := strings.TrimSpace(ref.MacroID); id != "" {
+				record.refs = append(record.refs, id)
+			}
+		}
+		index[macroID] = append(index[macroID], record)
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	queue := make([]string, 0, len(document.MacroRefs))
+	for _, ref := range document.MacroRefs {
+		if id := strings.TrimSpace(ref.MacroID); id != "" {
+			queue = append(queue, id)
+		}
+	}
+	selected := map[string]bool{}
+	selfID := strings.TrimSpace(document.MacroID)
+	if selfID != "" {
+		selected[selfID] = true
+	}
+	for len(queue) != 0 {
+		macroID := queue[0]
+		queue = queue[1:]
+		if selected[macroID] {
+			continue
+		}
+		selected[macroID] = true
+		owners := index[macroID]
+		if len(owners) == 0 {
+			return fmt.Errorf("macro %s not found in workspace", macroID)
+		}
+		if len(owners) > 1 {
+			relatives := make([]string, 0, len(owners))
+			for _, owner := range owners {
+				relatives = append(relatives, owner.relative)
+			}
+			return fmt.Errorf("macro id %s defined in multiple workspace files: %s", macroID, strings.Join(relatives, ", "))
+		}
+		owner := owners[0]
+		target := filepath.Join(graphsDir, owner.relative)
+		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(target, owner.data, 0644); err != nil {
+			return err
+		}
+		queue = append(queue, owner.refs...)
 	}
 	return nil
 }

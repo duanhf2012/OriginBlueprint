@@ -45,7 +45,7 @@ assert(!blueprintControl.includes('<input v-else v-model="value" class="node-inp
 assert(createEditor.includes('addFunctionCallNode(spec'), 'editor handle must expose addFunctionCallNode')
 assert(createEditor.includes('addFunctionEntryNode(spec'), 'editor handle must expose addFunctionEntryNode')
 assert(createEditor.includes('addFunctionReturnNode(spec'), 'editor handle must expose addFunctionReturnNode')
-assert(createEditor.includes('planFunctionTerminalDeletion(editor.getNodes(), selected)'), 'editor deletion must enforce function terminal invariants')
+assert(createEditor.includes('planFunctionTerminalDeletion(editor.getNodes(), deletableSelection)'), 'editor deletion must enforce function terminal invariants (over non-mirror selection)')
 assert(createEditor.includes('isCopyableFunctionNode'), 'editor copy must exclude function entry nodes')
 assert(createEditor.includes('isPasteableFunctionNode'), 'editor paste must exclude function entry nodes')
 assert(terminalPolicy.includes("functionEntryTypeId = 'origin.function.entry'"), 'function terminal policy must identify entry nodes by stable type id')

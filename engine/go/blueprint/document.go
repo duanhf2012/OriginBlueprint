@@ -23,8 +23,7 @@ type graphDocument struct {
 	Groups           json.RawMessage           `json:"groups,omitempty"`
 	// Comments 是编辑器写入的画布注释便签，引擎不消费；声明字段是为了严格 JSON 解析能接受。
 	Comments          json.RawMessage            `json:"comments,omitempty"`
-	MacroInstances    json.RawMessage            `json:"macroInstances,omitempty"`
-	MacroRefs         json.RawMessage            `json:"macroRefs,omitempty"`
+	MacroRefs         []graphDocumentMacroRef    `json:"macroRefs,omitempty"`
 	MacroID           string                     `json:"macroId,omitempty"`
 	VariableGroups    json.RawMessage            `json:"variableGroups,omitempty"`
 	View              json.RawMessage            `json:"view,omitempty"`
@@ -217,6 +216,11 @@ func dynamicSwitchOutputs(maxBranches int) map[string]int {
 func graphDocumentToConfig(document graphDocument) (GraphConfig, bool, error) {
 	if err := validateDocumentFunctionSignature(document.FunctionSignature); err != nil {
 		return GraphConfig{}, false, err
+	}
+	// 宏引用必须在目录加载层（loadGraphDir → expandMacroRefs）先行展开；
+	// 直接把带宏引用的文档送进转换会得到缺失宏逻辑的图，宁可失败也不静默丢弃。
+	if len(document.MacroRefs) != 0 {
+		return GraphConfig{}, false, fmt.Errorf("macro refs must be expanded before conversion (use Init/HotReload directory loading)")
 	}
 	variables := make([]VariableConfig, 0, len(document.Variables))
 	variableByID := make(map[string]graphDocumentVariable, len(document.Variables))

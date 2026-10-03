@@ -1007,6 +1007,105 @@ func hasIssue(issues []ValidationIssue, code string, nodeID string) bool {
 	return false
 }
 
+// macroValidationWorkspace 构造带宏引用的校验工作区：macros/宏_加成.obpm + main.obp（引用它）。
+func macroValidationWorkspace(t *testing.T, withMacro bool) (string, string) {
+	t.Helper()
+	workspace := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(workspace, "macros"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if withMacro {
+		macro := GraphDocument{
+			SchemaVersion: GraphSchemaVersion,
+			GraphName:     "宏_加成",
+			MacroID:       "m-desk-1",
+			Nodes: []GraphNode{
+				{ID: "entry", TypeID: "origin.event.entry-array"},
+				{ID: "add", TypeID: "origin.math.add-integer", Values: map[string]any{"a": 31, "b": 1}},
+				{ID: "debug", TypeID: "origin.debug.output"},
+			},
+			Connections: []GraphConnection{
+				{Source: "entry", SourceOutput: "exec", Target: "debug", TargetInput: "exec"},
+				{Source: "add", SourceOutput: "result", Target: "debug", TargetInput: "integer"},
+			},
+			Groups:         []GraphGroup{},
+			Variables:      []GraphVariable{},
+			VariableGroups: []GraphVariableGroup{{ID: "default", Name: "Default"}},
+			View:           GraphView{Zoom: 1},
+		}
+		data, err := json.Marshal(macro)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(workspace, "macros", "宏_加成.obpm"), data, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	host := GraphDocument{
+		SchemaVersion: GraphSchemaVersion,
+		GraphName:     "macro-host",
+		Nodes: []GraphNode{
+			{ID: "ext", TypeID: "origin.event.entry-two-integers"},
+		},
+		Connections: []GraphConnection{},
+		Groups:      []GraphGroup{},
+		Variables:   []GraphVariable{},
+		MacroRefs: []GraphMacroRef{{
+			MacroID:  "m-desk-1",
+			Frame:    GraphRect{X: 0, Y: 0, Width: 400, Height: 300},
+			Boundary: []GraphMacroBoundary{{
+				ExternalNode:   "ext",
+				ExternalPort:   "exec",
+				MacroNodeIndex: 2,
+				MacroPort:      "exec",
+				IntoMacro:      true,
+			}},
+		}},
+		VariableGroups: []GraphVariableGroup{{ID: "default", Name: "Default"}},
+		View:           GraphView{Zoom: 1},
+	}
+	data, err := json.Marshal(host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data), filepath.Join(workspace, "main.obp")
+}
+
+// TestValidateGraphForWorkspaceInlinesMacroRefs 引用宏的图在校验时由引擎编译期内联：
+// 宏源文件按 macroId 拷入沙箱，编译必须成功（不能再因引用本身报错）。
+func TestValidateGraphForWorkspaceInlinesMacroRefs(t *testing.T) {
+	content, source := macroValidationWorkspace(t, true)
+	workspace := filepath.Dir(source)
+	issues, err := NewApp().ValidateGraphForWorkspace(content, workspace, source)
+	if err != nil {
+		t.Fatalf("ValidateGraphForWorkspace returned transport error: %v", err)
+	}
+	for _, issue := range issues {
+		if strings.HasPrefix(issue.Code, "engine.") {
+			t.Fatalf("issues = %#v, want no engine issues for macro reference graph", issues)
+		}
+	}
+}
+
+// TestValidateGraphForWorkspaceReportsMissingMacro 引用的宏在工作区不存在时报错并指明 macroId。
+func TestValidateGraphForWorkspaceReportsMissingMacro(t *testing.T) {
+	content, source := macroValidationWorkspace(t, false)
+	workspace := filepath.Dir(source)
+	issues, err := NewApp().ValidateGraphForWorkspace(content, workspace, source)
+	if err != nil {
+		t.Fatalf("ValidateGraphForWorkspace returned transport error: %v", err)
+	}
+	found := false
+	for _, issue := range issues {
+		if strings.HasPrefix(issue.Code, "engine.") && strings.Contains(issue.Message, "m-desk-1") && strings.Contains(issue.Message, "not found") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("issues = %#v, want engine issue for missing macro m-desk-1", issues)
+	}
+}
+
 func requireValidationIssue(t *testing.T, issues []ValidationIssue, code string) ValidationIssue {
 	t.Helper()
 	for _, issue := range issues {
@@ -3033,26 +3132,27 @@ func TestGraphDocumentCommentsRoundTrip(t *testing.T) {
 	}
 }
 
-func TestGraphDocumentMacroInstancesRoundTrip(t *testing.T) {
+// 宏引用图必须保持原生格式保存：legacy 降级会静默丢掉全部 macroRefs（.obp 亦不可降级，
+// 因为 exportsLegacyGraph 把 .obp 视作 legacy 导出目标）。
+func TestGraphContentForPathKeepsMacroRefsNative(t *testing.T) {
 	document := GraphDocument{
 		SchemaVersion: GraphSchemaVersion,
-		MacroInstances: []GraphMacroInstance{
-			{Source: "vgf/macros/宏_受击.obpm", CommentID: "c1", NodeIDs: []string{"n1", "n2"}},
-		},
+		GraphName:     "macro-host",
+		MacroRefs:     []GraphMacroRef{{MacroID: "m1"}},
 	}
 	data, err := json.Marshal(document)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), "macroInstances") {
-		t.Fatalf("serialized document missing macroInstances: %s", data)
+	content, err := graphContentForPath("test.obp", string(data))
+	if err != nil {
+		t.Fatalf("save macro-ref graph as .obp failed: %v", err)
 	}
-	var restored GraphDocument
-	if err := json.Unmarshal(data, &restored); err != nil {
-		t.Fatal(err)
+	if !strings.Contains(string(content), `"macroRefs"`) || !strings.Contains(string(content), `"schemaVersion"`) {
+		t.Fatalf("macro-ref graph saved to .obp must stay native, got: %s", content)
 	}
-	if len(restored.MacroInstances) != 1 || restored.MacroInstances[0].Source != "vgf/macros/宏_受击.obpm" || len(restored.MacroInstances[0].NodeIDs) != 2 {
-		t.Fatalf("macro instance round-trip lost data: %+v", restored.MacroInstances)
+	if _, err := graphContentForPath("test.vgf", string(data)); err == nil {
+		t.Fatal("macro-ref graph saved to .vgf must be rejected, not silently downgraded")
 	}
 }
 
@@ -3062,7 +3162,7 @@ func TestGraphDocumentMacroRefsRoundTrip(t *testing.T) {
 		MacroID:       "m_a3f8",
 		MacroRefs: []GraphMacroRef{
 			{
-				MacroID: "m_a3f8", PathHint: "vgf/macros/宏_受击.obpm", CommentID: "frame1",
+				MacroID: "m_a3f8",
 				Frame:    GraphRect{X: 10, Y: 20, Width: 300, Height: 150},
 				Boundary: []GraphMacroBoundary{{ExternalNode: "ext", ExternalPort: "exec", MacroNodeIndex: 1, MacroPort: "exec", IntoMacro: true}},
 			},

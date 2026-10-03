@@ -2,8 +2,9 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { toPng } from 'html-to-image'
 import { createBlueprintEditor, type BlueprintEditorHandle, type EditorMetrics, type FunctionSignature, type FunctionSignaturePort, type GraphDocument, type GraphVariable, type GraphVariableGroup, type SelectedNodeInfo, type ValidationIssue, type VariableType } from './editor/createEditor'
+import type { MacroMirrorPayload } from './editor/macroRefs'
+import { workspaceRelativeHint } from './editor/macroRefs'
 import { variableScope, type FunctionNodeMetadata, type NodeSnapshot, type RestoreLossReport, type VariableScope } from './editor/document'
-import { syncMacroInstanceInDocument } from './editor/macroSync'
 import { applyVariableGroupDrop, matchingVariableGroupId, moveVariablesToDefaultGroup, normalizeVariableGroups, planVariableGroupDrop, variableGroupNameExists, variableGroupRemovalMessage, variableGroupsForScope, variableGroupScope, variableGroupUsage, type VariableGroupDropPlan } from './editor/variableGroups'
 import { getNodeDefinitions, registerNodeSchemas, type NodeDefinition } from './editor/nodeRegistry'
 import { configTableStatusLine, filterConfigEntries, setConfigTables, type ConfigTable, type ConfigTableEntry } from './editor/configTables'
@@ -507,30 +508,76 @@ const variableScopeSections = computed(() => ([
 })))
 const functionLibraryItems = computed(() => collectFunctionLibraryItems(workspaceTree.value))
 const macroTitleByPath = ref<Record<string, string>>({})
+const macroIdByPath = ref<Record<string, string>>({})
 const isMacroBlueprintTab = computed(() => isMacroSourcePath(activeTab.value?.path ?? ''))
-const selectedMacroInstanceInfo = computed(() => editor?.selectedMacroInstance() ?? null)
+// 选中信息走 onSelection 回调刷新（编辑器选区不是 Vue 响应式源，computed 不会自动失效）。
+const macroRefSelectionTick = ref(0)
+const selectedMacroRefInfo = computed(() => {
+  void macroRefSelectionTick.value
+  return editor?.selectedMacroRef() ?? null
+})
 
-async function syncSelectedMacroInstance() {
-  const instance = selectedMacroInstanceInfo.value
-  if (!instance) return
-  if (!window.confirm(`用源宏当前内容替换此实例？
-实例内的本地修改会被覆盖，外部连线自动重接。
-来源：${instance.source}`)) return
-  try {
-    const file = await platform.openGraph(instance.source)
-    if (!file?.content) return
-    const raw: unknown = JSON.parse(file.content)
-    if (!isNativeGraphDocument(raw)) {
-      status.value = `源宏不可读或非原生文档：${instance.source}`
-      return
-    }
-    const document = raw as GraphDocument
-    const label = String(document.graphName ?? '').trim() || (instance.source.split(/[\/]/).pop() ?? instance.source).replace(/\.obpm$/i, '')
-    await editor?.syncMacroInstance(instance.source, document, label)
-    status.value = `宏实例已从源更新：${label}`
-  } catch (error) {
-    status.value = `更新宏实例失败：${error instanceof Error ? error.message : String(error)}`
+// === 宏源解析（v2 引用模型）：按 macroId 在工作区 .obpm 中定位宏，读出的载荷供镜像展开/热更。 ===
+const macroPayloadCache = new Map<string, MacroMirrorPayload | null>()
+
+function workspaceMacroPaths(): string[] {
+  const paths: string[] = []
+  const visit = (entry: WorkspaceTreeNode) => {
+    if (!entry.isDir && /\.obpm$/i.test(entry.path)) paths.push(entry.path)
+    for (const child of entry.children) visit(child)
   }
+  for (const node of workspaceTree.value) visit(node)
+  return paths
+}
+
+async function macroPayloadByPath(path: string): Promise<MacroMirrorPayload | null> {
+  if (macroPayloadCache.has(path)) return macroPayloadCache.get(path) ?? null
+  let payload: MacroMirrorPayload | null = null
+  try {
+    const file = await platform.openGraph(path)
+    if (file?.content) {
+      const raw: unknown = JSON.parse(file.content)
+      if (isNativeGraphDocument(raw)) {
+        const document = raw as GraphDocument
+        const label = String(document.graphName ?? '').trim() || (path.split(/[\\/]/).pop() ?? path).replace(/\.obpm$/i, '')
+        payload = {
+          macroId: String(document.macroId ?? '').trim(),
+          label,
+          pathHint: path,
+          snapshot: { nodes: document.nodes ?? [], connections: document.connections ?? [] },
+          variables: (document.variables ?? []).map(item => ({ ...item }))
+        }
+      }
+    }
+  } catch { payload = null }
+  macroPayloadCache.set(path, payload)
+  return payload
+}
+
+async function resolveMacroById(macroId: string): Promise<MacroMirrorPayload | null> {
+  const id = String(macroId ?? '').trim()
+  if (!id) return null
+  for (const path of workspaceMacroPaths()) {
+    const payload = await macroPayloadByPath(path)
+    if (payload?.macroId === id) return payload
+  }
+  return null
+}
+
+// 详情面板（宏引用）：打开源宏文件。pathHint 是本次会话按宏 ID 解析出的实时路径；
+// 刷新是自动的（宏保存/切标签页即热更），无手动按钮。
+async function openMacroSourceFromRef() {
+  const info = selectedMacroRefInfo.value
+  if (!info) return
+  if (!info.pathHint) {
+    status.value = '该引用本次未解析到来源文件（仅按宏 ID 解析），请在工作区找到对应 .obpm 打开'
+    return
+  }
+  if (info.missing) {
+    status.value = `宏 ${info.macroId} 在工作区未找到（记录的提示路径：${info.pathHint}），请检查宏文件是否在工作区内`
+    return
+  }
+  await openGraph(info.pathHint)
 }
 
 // 宏名独立状态（同 functionTitle 模式）：保存/持久化时覆写文档 graphName，
@@ -551,8 +598,9 @@ function syncMacroTitleToGraph() {
   if (tab.path && name) {
     tab.title = `${name}.obpm`
     macroTitleByPath.value = { ...macroTitleByPath.value, [tab.path]: name }
-    // 改名即时传播到引用蓝图（不必等保存）：打开的标签页更新文档，切换过去即见新名。
-    void propagateMacroRename(tab.path, name)
+    // 引用模型：改名即时刷新活动图中的宏框；其他引用图保存/打开时自动取最新宏名，无需改写磁盘。
+    const macroId = tab.document?.macroId || macroIdByPath.value[tab.path] || ''
+    if (macroId) editor?.refreshMacroFrames(macroId, name)
   }
 }
 const loadingMacroTitles = new Set<string>()
@@ -709,10 +757,13 @@ onMounted(async () => {
     onSelection(value) {
       selectedNode.value = value ? { ...value, values: { ...value.values } } : null
       if (value) selectedVariableId.value = null
+      macroRefSelectionTick.value++
     },
     canAddEntryNodes() { return !isFunctionBlueprintTab.value },
     locale() { return currentLocale.value }
   })
+  // 宏引用解析器：编辑器加载文档时按 macroId 展开宏镜像（切标签页即取磁盘最新宏）。
+  editor.setMacroResolver(resolveMacroById)
   await editor.newDocument()
   if (nodeLoadStatus) status.value = nodeLoadStatus
   recentFiles.value = await platform.recentFiles()
@@ -1236,7 +1287,7 @@ function onTabDragEnd() {
 }
 
 function blankDocument(name: string): GraphDocument {
-  return { schemaVersion: 1, graphName: name, nodes: [], connections: [], groups: [], comments: [], macroInstances: [], variables: [], variableGroups: [{ id: 'default', name: 'Default' }], view: { x: 0, y: 0, zoom: 1 } }
+  return { schemaVersion: 1, graphName: name, nodes: [], connections: [], groups: [], comments: [], macroRefs: [], variables: [], variableGroups: [{ id: 'default', name: 'Default' }], view: { x: 0, y: 0, zoom: 1 } }
 }
 
 function newFunctionId() {
@@ -1458,7 +1509,15 @@ function documentWithFunctionSignature(document: GraphDocument, tab = activeTab.
   const path = tab.path || tab.title
   if (isMacroSourcePath(path)) {
     const name = macroTitle.value.trim()
-    return name ? { ...document, graphName: name } : document
+    // 宏身份（macroId）是引用图的稳定锚点：保存时缺失则补发一次并记住，之后保持稳定。
+    let macroId = String(document.macroId ?? '').trim() || macroIdByPath.value[path] || ''
+    if (!macroId) {
+      macroId = crypto.randomUUID()
+      macroIdByPath.value = { ...macroIdByPath.value, [path]: macroId }
+    }
+    const next: GraphDocument = { ...document, macroId }
+    if (name) next.graphName = name
+    return next
   }
   if (!isFunctionBlueprintPath(path)) return document
   return applyFunctionPersistenceMetadata(path, document, {
@@ -1484,6 +1543,7 @@ function documentRequiresNativePersistence(document: GraphDocument) {
     || hasNativeTimeNodes
     || hasTimerHandleVariables
     || hasInstanceVariables
+    || (document.macroRefs?.length ?? 0) > 0
     || graphDocumentRequiresNativePersistence(document)
 }
 
@@ -2076,7 +2136,8 @@ function normalizeDocument(value: any): GraphDocument {
     connections: Array.isArray(value.connections) ? value.connections : [],
     groups: Array.isArray(value.groups) ? value.groups : [],
     comments: Array.isArray(value.comments) ? value.comments : [],
-    macroInstances: Array.isArray(value.macroInstances) ? value.macroInstances : [],
+    macroRefs: Array.isArray(value.macroRefs) ? value.macroRefs : [],
+    macroId: String(value.macroId ?? '').trim() || undefined,
     variables,
     variableGroups: groupNormalization.groups,
     functionSignature: normalizeFunctionSignature(value.functionSignature),
@@ -2293,6 +2354,7 @@ async function openGraph(path = '', highlightTypeId = '') {
   functionSignature.value = normalizeFunctionSignature(document.functionSignature)
   functionTitle.value = isFunctionBlueprintPath(file.path) ? functionTitleFromDocument(document, file.path, title) : ''
   macroTitle.value = isMacroSourcePath(file.path) ? String(document.graphName ?? '').trim() : ''
+  if (isMacroSourcePath(file.path) && document.macroId) macroIdByPath.value = { ...macroIdByPath.value, [file.path]: String(document.macroId).trim() }
   if (macroTitle.value) tab.title = `${macroTitle.value}.obpm`
   functionId.value = isFunctionBlueprintPath(file.path) ? functionIdFromDocument(document) : ''
   functionCategory.value = isFunctionBlueprintPath(file.path) ? functionCategoryFromDocument(document, file.path) : ''
@@ -2513,8 +2575,8 @@ async function saveGraphUnchecked(saveAs: boolean) {
     await syncOpenFunctionReferences(activeFunctionMetadata('call'))
   }
   recentFiles.value = await platform.recentFiles(); status.value = forceOriginal ? `Saved ${tab.title}; backup created at ${path}.bak` : `Saved ${tab.title}`
-  // 宏文件保存时把显示名传播到引用它的蓝图（打开的实时改，磁盘的写回）
-  if (/\.obpm$/i.test(path) && tab.document?.graphName) void propagateMacroRename(path, String(tab.document.graphName).trim())
+  // 宏保存后热更传播：活动引用图立即刷新镜像与宏名；磁盘引用图按引用取最新（无需改写）。
+  if (/\.obpm$/i.test(path)) void propagateMacroUpdate(path)
 }
 
 async function saveAll() {
@@ -3517,22 +3579,42 @@ function isMacroSourcePath(path: string) {
   return /\.obpm$/i.test(path)
 }
 
+// 插入宏引用（v2 引用语义）：图里只落 macroId + 边界连线，节点/连线/变量一律不复制；
+// 宏内容以 .obpm 源文件为准，编辑器展开只读镜像，编译期由引擎内联。
 async function insertMacroByPath(path: string, position?: { x: number; y: number }) {
   try {
-    const file = await platform.openGraph(path)
-    if (!file?.content) return
-    const raw: unknown = JSON.parse(file.content)
-    if (!isNativeGraphDocument(raw)) {
+    // 宏不能引用它自身（会构成循环引用，引擎编译会报 cyclic）；编辑宏请直接改当前文件。
+    if (activeTab.value && (activeTab.value.path === path || activeTab.value.title === (path.split(/[\\/]/).pop() ?? path))) {
+      status.value = '不能将宏引用到它自身：当前正在编辑该宏文件'
+      return
+    }
+    const payload = await macroPayloadByPath(path)
+    if (!payload) {
       status.value = `宏必须是原生蓝图文档：${path}`
       return
     }
-    const document = raw as GraphDocument
-    const macroName = String(document.graphName ?? '').trim() || (path.split(/[\\\/]/).pop() ?? path).replace(/\.obpm$/i, '')
-    if (macroName !== document.graphName) document.graphName = macroName
-    await editor?.insertGraph(document, position ?? visibleCanvasInsertPosition(), macroName, path)
-    status.value = `已插入宏：${path.split(/[\/]/).pop() ?? path}（复制语义，与源文件互不影响）`
+    // 宏身份在创建/保存时分配；缺 macroId 的宏（手改文档等）不可被引用。
+    const macroId = payload.macroId
+    if (!macroId) {
+      status.value = `宏缺少宏 ID（macroId）：请打开 ${path.split(/[\\/]/).pop() ?? path} 保存一次后再引用`
+      return
+    }
+    if (activeTab.value?.document?.macroId && activeTab.value.document.macroId === macroId) {
+      status.value = '不能将宏引用到它自身：当前正在编辑该宏文件'
+      return
+    }
+    const inserted = await editor?.insertMacroRef({
+      macroId,
+      // pathHint 仅运行时（详情面板显示/打开源宏），不持久化——引用只落宏 ID。
+      pathHint: path,
+      label: payload.label,
+      snapshot: payload.snapshot,
+      variables: payload.variables,
+      clientPosition: position ?? visibleCanvasInsertPosition()
+    })
+    if (inserted) status.value = `已引用宏：${payload.label}（引用语义，修改宏后所有引用蓝图自动更新）`
   } catch (error) {
-    status.value = `插入宏失败：${error instanceof Error ? error.message : String(error)}`
+    status.value = `引用宏失败：${error instanceof Error ? error.message : String(error)}`
   }
 }
 
@@ -3548,7 +3630,11 @@ async function createMacroAtDirectory(directory: string) {
   if (!rawName) return
   const name = sanitizeFunctionFileName(rawName)
   const path = joinWorkspacePath(directory, `${name}.obpm`)
-  const saved = await platform.saveGraph(path, serializeGraphDocument(path, blankDocument(name), 2))
+  const document = blankDocument(name)
+  // 创建即分配宏身份（macroId）：引用图的稳定锚点，改名/移动文件都不受影响。
+  document.macroId = crypto.randomUUID()
+  macroIdByPath.value = { ...macroIdByPath.value, [path]: document.macroId }
+  const saved = await platform.saveGraph(path, serializeGraphDocument(path, document, 2))
   if (!saved) return
   await refreshWorkspaceAfterFileCreate(saved)
   status.value = `已创建宏 ${name}`
@@ -3925,104 +4011,28 @@ function openModuleItemMenu(event: MouseEvent, item: ModuleLibraryItem) {
   moduleNodeMenu.value = { visible: true, x: event.clientX, y: event.clientY, node: item }
 }
 
-// 宏内容自动传播：保存宏后，把最新内容同步到所有引用蓝图（活动标签页走编辑器；其余标签页与磁盘文件走文档级变换）。
-async function propagateMacroContent(path: string) {
-  const file = await platform.openGraph(path)
-  if (!file?.content) return
-  const macro = JSON.parse(file.content) as GraphDocument
-  if (!isNativeGraphDocument(macro)) return
-  const label = String(macro.graphName ?? '').trim() || (path.split(/[\/]/).pop() ?? path).replace(/\.obpm$/i, '')
-  let activeUpdated = false
-  for (const tab of tabs.value) {
-    if (tab.path === path || !tab.document?.macroInstances?.some(item => item.source === path)) continue
-    if (tab.id === activeTabId.value && editor) {
-      await editor.syncMacroInstance(path, macro, label)
-      tab.dirty = true
-      activeUpdated = true
-    } else if (syncMacroInstanceInDocument(tab.document, path, macro, label)) {
-      tab.dirty = true
-    }
+// 宏更新传播（v2 引用模型）：宏保存/改名后，引用图不落宏内容，磁盘引用文件天然是最新的，
+// 无需读改写；只需刷新活动标签页的宏镜像（热更），其余标签页切换时由加载展开自动取最新。
+async function propagateMacroUpdate(path: string) {
+  macroPayloadCache.delete(path)
+  const payload = await macroPayloadByPath(path)
+  if (!payload?.macroId) return
+  macroTitleByPath.value = { ...macroTitleByPath.value, [path]: payload.label }
+  const opened = tabs.value.find(tab => tab.path === path)
+  if (opened?.document) { opened.document.graphName = payload.label; opened.title = `${payload.label}.obpm` }
+  if (opened?.id === activeTabId.value) macroTitle.value = payload.label
+  let refreshed = 0
+  if (editor && activeTab.value?.document?.macroRefs?.some(ref => ref.macroId === payload.macroId)) {
+    refreshed = await editor.refreshMacroRef(payload.macroId, payload) ? 1 : 0
   }
-  const openPaths = new Set(tabs.value.map(tab => tab.path))
-  const candidates: string[] = []
-  const visit = (entry: WorkspaceTreeNode) => {
-    if (!entry.isDir && /\.obp$/i.test(entry.path) && !openPaths.has(entry.path)) candidates.push(entry.path)
-    for (const child of entry.children) visit(child)
-  }
-  for (const node of workspaceTree.value) visit(node)
-  let diskUpdated = 0
-  for (const candidate of candidates) {
-    try {
-      const target = await platform.openGraph(candidate)
-      if (!target?.content) continue
-      const document = JSON.parse(target.content) as GraphDocument
-      if (!isNativeGraphDocument(document) || !document.macroInstances?.some(item => item.source === path)) continue
-      if (!syncMacroInstanceInDocument(document, path, macro, label)) continue
-      await platform.saveGraph(candidate, serializeGraphDocument(candidate, document, 2))
-      diskUpdated++
-    } catch { /* 单文件失败不影响其余 */ }
-  }
-  const count = diskUpdated + (activeUpdated ? 1 : 0)
-  status.value = count > 0 ? `宏已自动同步到 ${count} 张蓝图（内容与显示名）` : status.value
-}
-
-// 宏改名传播：更新所有引用蓝图中实例注释框的标签（打开的标签页实时改；磁盘文件读改写回）。
-async function propagateMacroRename(path: string, name: string) {
-  let openTabs = 0
-  for (const tab of tabs.value) {
-    const document = tab.document
-    if (!document?.macroInstances?.length) continue
-    let touched = false
-    for (const instance of document.macroInstances) {
-      if (instance.source !== path) continue
-      const comment = (document.comments ?? []).find(item => item.id === instance.commentId)
-      if (comment && comment.text !== `宏：${name}`) {
-        comment.text = `宏：${name}`
-        touched = true
-      }
-    }
-    if (!touched) continue
-    tab.dirty = true
-    openTabs++
-    if (tab.id === activeTabId.value) editor?.updateMacroFrames(path, name)
-  }
-  // 未打开的 .obp：扫描工作区，含该宏实例的读改写回（仅改注释框文本）
-  let diskFiles = 0
-  const openPaths = new Set(tabs.value.map(tab => tab.path))
-  const candidates: string[] = []
-  const visit = (entry: WorkspaceTreeNode) => {
-    if (!entry.isDir && /\.obp$/i.test(entry.path) && !openPaths.has(entry.path)) candidates.push(entry.path)
-    for (const child of entry.children) visit(child)
-  }
-  for (const node of workspaceTree.value) visit(node)
-  for (const candidate of candidates) {
-    try {
-      const file = await platform.openGraph(candidate)
-      if (!file?.content) continue
-      const document = JSON.parse(file.content) as GraphDocument
-      if (!isNativeGraphDocument(document) || !document.macroInstances?.length) continue
-      let touched = false
-      for (const instance of document.macroInstances) {
-        if (instance.source !== path) continue
-        const comment = (document.comments ?? []).find(item => item.id === instance.commentId)
-        if (comment && comment.text !== `宏：${name}`) {
-          comment.text = `宏：${name}`
-          touched = true
-        }
-      }
-      if (!touched) continue
-      await platform.saveGraph(candidate, serializeGraphDocument(candidate, document, 2))
-      diskFiles++
-    } catch { /* 单个文件失败不影响其余传播 */ }
-  }
-  if (openTabs + diskFiles > 0) status.value = `宏名已同步到 ${openTabs + diskFiles} 张蓝图${diskFiles ? '（未打开的已写回磁盘）' : ''}`
+  if (refreshed) status.value = `宏已热更到当前蓝图：${payload.label}（其他引用图打开时自动生效）`
 }
 
 async function renameMacroFromModuleMenu() {
   const item = moduleNodeMenu.value.node
   closeModuleNodeMenu()
   if (!item?.path) return
-  const filename = item.path.split(/[\/]/).pop() ?? item.path
+  const filename = item.path.split(/[\\\/]/).pop() ?? item.path
   const name = window.prompt('重命名宏（显示名，不影响文件名）', item.title || filename.replace(/\.obpm$/i, ''))?.trim()
   if (!name || name === item.title) return
   try {
@@ -4033,12 +4043,8 @@ async function renameMacroFromModuleMenu() {
     document.graphName = name
     const saved = await platform.saveGraph(item.path, serializeGraphDocument(item.path, document, 2))
     if (!saved) return
-    macroTitleByPath.value = { ...macroTitleByPath.value, [item.path]: name }
-    const opened = tabs.value.find(tab => tab.path === item.path)
-    if (opened?.document) { opened.document.graphName = name; opened.title = `${name}.obpm` }
-    if (opened?.id === activeTabId.value) macroTitle.value = name
-    status.value = `宏已重命名为 ${name}`
-    void propagateMacroRename(item.path, name)
+    await propagateMacroUpdate(item.path)
+    status.value = `宏已重命名为 ${name}（引用图打开时自动显示新名）`
   } catch (error) {
     status.value = `重命名宏失败：${error instanceof Error ? error.message : String(error)}`
   }
@@ -4414,17 +4420,26 @@ function toggleModuleCategory(category: string) {
               <button class="add-signature-port" @click="addFunctionSignaturePort('outputs')"><span aria-hidden="true">＋</span>{{ menuText.detail.addOutputParameter }}</button>
             </section>
           </div>
-          <div v-else-if="selectedMacroInstanceInfo && !selectedNode && !selectedVariable" class="node-detail macro-instance-detail">
-            <div class="detail-section-title">宏实例</div>
-            <label>来源宏<input :value="selectedMacroInstanceInfo.source.split(/[\/]/).pop() ?? selectedMacroInstanceInfo.source" disabled :title="selectedMacroInstanceInfo.source" /></label>
-            <small class="variable-scope-hint">这是从源宏复制的实例（{{ selectedMacroInstanceInfo.nodeIds.length }} 个节点）。源宏修改后可在此一键更新，实例外部的连线会自动重接；实例内的本地修改会被源宏内容覆盖。</small>
-            <button class="apply-properties" @click="syncSelectedMacroInstance">从源宏更新此实例</button>
+          <div v-else-if="selectedMacroRefInfo && !selectedNode && !selectedVariable" class="node-detail macro-instance-detail">
+            <div class="detail-section-title">宏引用</div>
+            <template v-if="!selectedMacroRefInfo.missing">
+              <label>宏名<input :value="selectedMacroRefInfo.label" disabled /></label>
+              <label>宏 ID<input :value="selectedMacroRefInfo.macroId" disabled :title="selectedMacroRefInfo.macroId" /></label>
+              <label>源宏文件（实时解析）<input :value="workspaceRelativeHint(selectedMacroRefInfo.pathHint, workspaceRoot) || selectedMacroRefInfo.pathHint || '（本次未解析到）'" disabled :title="selectedMacroRefInfo.pathHint" /></label>
+              <small class="variable-scope-hint">这是对源宏的引用（{{ selectedMacroRefInfo.nodeCount }} 个镜像节点）：引用只保存宏 ID 与外框/边界，宏名和文件路径都实时从宏源解析——改名/移动文件不影响引用。源宏保存后此图立即热更，未打开的图切换标签页时自动取最新。宏在图中不可修改、不可拆分，仅支持整体移动（拖动宏框）与整体删除（选中宏框按 Delete）。</small>
+            </template>
+            <template v-else>
+              <label>宏 ID<input :value="selectedMacroRefInfo.macroId" disabled :title="selectedMacroRefInfo.macroId" /></label>
+              <small class="variable-scope-hint" style="color:#f0a95c">⚠ 引用失效：工作区里找不到这个 macroId 对应的宏文件（可能已删除、移动到工作区外，或 macroId 不匹配）。画布上显示「宏：未找到」框，编译/校验会报错。可删除此宏框移除引用，或把宏文件恢复到工作区后重新打开本图。</small>
+            </template>
+            <button class="apply-properties" @click="openMacroSourceFromRef">打开源宏</button>
           </div>
           <div v-else-if="isMacroBlueprintTab && !selectedNode && !selectedVariable" class="node-detail macro-detail">
             <div class="detail-section-title">宏</div>
             <label>宏名<input v-model="macroTitle" placeholder="模块库中显示的名字（保存后生效）" @change="syncMacroTitleToGraph" /></label>
+            <label>宏 ID<input :value="activeTab?.document?.macroId || macroIdByPath[activeTab?.path ?? ''] || ''" disabled :title="activeTab?.document?.macroId" /></label>
             <label>宏文件<input :value="activeTab?.path" disabled /></label>
-            <small class="variable-scope-hint">宏名仅用于显示（模块库与插入注释框标签）；插入到其他蓝图的是完整复制，之后互不影响。</small>
+            <small class="variable-scope-hint">宏名仅用于显示（模块库与引用图宏框标签），文件名可独立修改；宏 ID 是引用图的稳定锚点。其他蓝图引用此宏（不复制内容），保存后所有引用图自动更新。</small>
           </div>
           <div v-else-if="selectedVariable" class="node-detail variable-detail"><div class="detail-section-title">变量属性</div><label>Variable ID<input :value="selectedVariable.id" disabled /></label><label>名称<input v-model="selectedVariable.name" @input="previewVariableName(selectedVariable)" /></label><label>作用域<select :value="variableScope(selectedVariable)" @change="changeVariableScope(selectedVariable, $event)"><option value="execution">局部（每次执行重置）</option><option value="instance" :disabled="isFunctionBlueprintTab">全局（同一蓝图实例共享）</option></select></label><small v-if="variableScope(selectedVariable) === 'instance'" class="variable-scope-hint">并发执行会共享当前值；单次读取和写入线程安全。</small><label>类型<select v-model="selectedVariable.type" @change="changeVariableType(selectedVariable)"><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="float">Float</option><option value="string">String</option><option value="array">Array</option><option value="timerhandle">Timer Handle</option></select></label><label>分组<select v-model="selectedVariable.groupId"><option v-for="group in variableGroupsForScope(variableGroups, variableScope(selectedVariable))" :key="group.id" :value="group.id">{{ group.name }}</option></select></label><label>说明<textarea v-model="selectedVariable.description" rows="4" placeholder="变量用途和约束"></textarea></label><label v-if="selectedVariable.type !== 'timerhandle'">默认值<input v-if="selectedVariable.type === 'boolean'" v-model="selectedVariable.defaultValue" type="checkbox" /><input v-else-if="selectedVariable.type === 'string'" v-model="selectedVariable.defaultValue" type="text" /><input v-else-if="selectedVariable.type === 'array'" :value="Array.isArray(selectedVariable.defaultValue) ? selectedVariable.defaultValue.join(', ') : ''" placeholder="1, 2, text" @change="setVariableArrayDefault(selectedVariable, $event)" /><input v-else-if="selectedVariable.type === 'integer'" :value="selectedVariable.defaultValue" type="text" inputmode="numeric" @input="setVariableIntegerDefault(selectedVariable, $event)" /><input v-else v-model.number="selectedVariable.defaultValue" type="number" step="any" /></label><button class="apply-properties" @click="updateVariable(selectedVariable)">应用变量属性</button><button class="delete-properties" @click="removeVariable(selectedVariable)">删除变量</button></div>
           <div v-else-if="selectedNode" class="node-detail"><label>Node ID<input :value="selectedNode.id" disabled /></label><label>Type<input :value="selectedNode.typeId" disabled /></label><label>Title<input :value="selectedNode.label" readonly /></label><label v-if="selectedNode.description">说明<textarea :value="selectedNode.description" rows="4" readonly></textarea></label></div>

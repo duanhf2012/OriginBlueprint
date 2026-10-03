@@ -27,7 +27,7 @@ func TestSchemaVersionValidationIsSharedByJSONAndFileParsers(t *testing.T) {
 			}
 			data := []byte(`{` + test.version + `"graphName":"Version Test","nodes":[],` + edges + `,"variables":[]}`)
 			_, jsonErr := ParseGraphConfigJSON(data)
-			_, _, _, _, fileErr := parseGraphFile(data, t.TempDir(), filepath.Join(t.TempDir(), "test.obp"))
+			_, fileErr := parseGraphFile(data, t.TempDir(), filepath.Join(t.TempDir(), "test.obp"))
 			if (jsonErr != nil) != test.wantErr {
 				t.Fatalf("ParseGraphConfigJSON error = %v, wantErr %v", jsonErr, test.wantErr)
 			}

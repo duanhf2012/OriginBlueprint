@@ -28,9 +28,7 @@ type GraphDocument struct {
 	Groups        []GraphGroup      `json:"groups"`
 	// Comments 是画布注释便签，纯编辑器元数据，校验与运行时不消费。
 	Comments []GraphComment `json:"comments,omitempty"`
-	// MacroInstances 是 v1 复制模型的实例记录（已废弃，保留只为读取迁移）；引擎不消费。
-	MacroInstances []GraphMacroInstance `json:"macroInstances,omitempty"`
-	// MacroRefs 是 v2 引用模型的宏引用：只存身份与边界，不复制宏内容；
+	// MacroRefs 是宏引用模型的引用记录：只存身份与边界，不复制宏内容；
 	// 展开发生在编辑器载入与编译期内联。引擎不直接消费（编译前由加载层内联）。
 	MacroRefs []GraphMacroRef `json:"macroRefs,omitempty"`
 	// MacroID 是宏文件(.obpm)的稳定身份（UUID，创建时生成，永不变）；文件名/路径/显示名都可改。
@@ -43,11 +41,10 @@ type GraphDocument struct {
 }
 
 type GraphMacroRef struct {
-	MacroID   string    `json:"macroId"`
-	PathHint  string    `json:"pathHint,omitempty"`
-	CommentID string    `json:"commentId,omitempty"`
-	Frame     GraphRect `json:"frame"`
+	MacroID string    `json:"macroId"`
+	Frame   GraphRect `json:"frame"`
 	// Boundary 描述外部节点与宏内端口(按宏内节点角色)的连线，展开时接上。
+	// 引用图只持久化宏 ID + 外框几何 + 边界；宏名/路径等一切可从宏源推导的信息不落盘。
 	Boundary []GraphMacroBoundary `json:"boundary,omitempty"`
 }
 
@@ -65,12 +62,6 @@ type GraphRect struct {
 	Y      float64 `json:"y"`
 	Width  float64 `json:"width"`
 	Height float64 `json:"height"`
-}
-
-type GraphMacroInstance struct {
-	Source    string   `json:"source"`
-	CommentID string   `json:"commentId"`
-	NodeIDs   []string `json:"nodeIds"`
 }
 
 type GraphComment struct {

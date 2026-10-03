@@ -28,6 +28,18 @@ function document(name: string): GraphDocument {
 }
 
 describe('graph persistence', () => {
+
+	it('rejects saving macro-referencing graphs as legacy .vgf and marks them native-only', () => {
+		const doc = document('macro-host')
+		doc.macroRefs = [{ macroId: 'm1', pathHint: 'macros/a.obpm' }]
+		expect(() => prepareGraphSave('a.obp', 'b.vgf', doc)).toThrow(/宏引用/)
+		expect(documentRequiresNativePersistence(doc)).toBe(true)
+		const native = prepareGraphSave('a.obp', 'b.obp', doc)
+		expect(native.exportLegacy).toBe(false)
+		expect(native.documentJSON).toContain('"macroRefs"')
+	})
+
+
 	it('preserves full int64 values while keeping safe integers numeric', () => {
 		const parsed = parseGraphJSON('{"safe":9007199254740991,"max":9223372036854775807,"min":-9223372036854775808,"text":"9223372036854775807"}') as Record<string, unknown>
 		expect(parsed.safe).toBe(9007199254740991)

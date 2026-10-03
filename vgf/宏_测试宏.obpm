@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "graphName": "宏_测试宏343431199",
+  "graphName": "宏_测试宏4444",
   "nodes": [
     {
       "id": "58a6b86f20590f28",
@@ -29,6 +29,38 @@
       "properties": {
         "label": "打印调试信息"
       }
+    },
+    {
+      "id": "f7bac242fcc4bf6d",
+      "typeId": "origin.timer.create",
+      "position": {
+        "x": 919.378642852741,
+        "y": 246.80122134780356
+      },
+      "values": {
+        "duration": 1000,
+        "looping": false,
+        "timerKey": "sfdf"
+      },
+      "properties": {
+        "label": "创建定时器"
+      }
+    },
+    {
+      "id": "6c7ebe631935d46e",
+      "typeId": "origin.debug.output",
+      "position": {
+        "x": 1301.059505227106,
+        "y": 322.3363634702077
+      },
+      "values": {
+        "integer": 0,
+        "string": "",
+        "array": []
+      },
+      "properties": {
+        "label": "打印调试信息"
+      }
     }
   ],
   "connections": [
@@ -43,11 +75,23 @@
       "sourceOutput": "objectId",
       "target": "a87208813d14b0ab",
       "targetInput": "integer"
+    },
+    {
+      "source": "a87208813d14b0ab",
+      "sourceOutput": "exec",
+      "target": "f7bac242fcc4bf6d",
+      "targetInput": "exec"
+    },
+    {
+      "source": "f7bac242fcc4bf6d",
+      "sourceOutput": "triggered",
+      "target": "6c7ebe631935d46e",
+      "targetInput": "exec"
     }
   ],
   "groups": [],
   "comments": [],
-  "macroInstances": [],
+  "macroRefs": [],
   "variables": [],
   "variableGroups": [
     {
@@ -57,8 +101,9 @@
     }
   ],
   "view": {
-    "x": -267.80394913658574,
-    "y": -21.728801672823103,
-    "zoom": 0.5808000000000001
-  }
+    "x": -254.28174757285558,
+    "y": 87.4354168885547,
+    "zoom": 0.48
+  },
+  "macroId": "65f54676-69ec-4e80-8342-aa6804ad1fef"
 }

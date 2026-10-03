@@ -275,10 +275,11 @@ function handleTimerFunctionKeydown(event: KeyboardEvent) {
 </script>
 
 <template>
-  <article class="blueprint-node" :class="[`kind-${data.kind ?? 'function'}`, { selected: data.selected, compact: data.compact, legacy: Boolean(data.legacyStyle), 'variable-instance': data.variableScope === 'instance', 'has-entry-binding': hasEntryBinding, 'reference-highlighted': data.referenceHighlighted, 'issue-highlighted': data.issueHighlighted, 'missing-reference': data.functionReferenceMissing }]" :style="nodeStyle">
+  <article class="blueprint-node" :class="[`kind-${data.kind ?? 'function'}`, { selected: data.selected, compact: data.compact, legacy: Boolean(data.legacyStyle), 'variable-instance': data.variableScope === 'instance', 'has-entry-binding': hasEntryBinding, 'reference-highlighted': data.referenceHighlighted, 'issue-highlighted': data.issueHighlighted, 'missing-reference': data.functionReferenceMissing, 'mirror-macro': Boolean(data.mirrorMacro) }]" :style="nodeStyle">
     <header class="blueprint-title" @pointerenter="openHoverTooltip($event, data.label, data.subtitle)" @pointermove="moveHoverTooltip" @pointerleave="cancelHoverTooltip" @pointerdown="cancelHoverTooltip">
       <span class="node-icon">&#9670;</span>
       <span class="title-text">{{ data.label }}</span>
+      <span v-if="data.mirrorMacro" class="macro-mirror-badge" title="宏镜像：只读投影，修改请编辑源宏">宏</span>
       <span v-if="data.variableId" class="variable-scope-badge">{{ data.variableScope === 'instance' ? '全局' : '局部' }}</span>
       <span v-if="data.dynamicOutputs" class="dynamic-actions"><button @pointerdown.stop.prevent="changeOutputs(-1, $event)">-</button><button @pointerdown.stop.prevent="changeOutputs(1, $event)">+</button></span>
     </header>
@@ -383,6 +384,12 @@ function handleTimerFunctionKeydown(event: KeyboardEvent) {
 .bp-hover-tooltip-title { margin-bottom: 3px; color: #8fc1e3; font: 600 12px/1.4 Arial, sans-serif; }
 .bp-hover-tooltip-text { color: #d3dae1; font: 12px/1.5 Consolas, monospace; }
 .blueprint-node { --accent: #4474bf; position: relative; overflow: visible; border: 1px solid color-mix(in srgb, var(--accent) 64%, transparent); border-radius: 4px; background: linear-gradient(145deg, #ffffff14, transparent 42%), linear-gradient(100deg, #191919ee, #101010eb); box-shadow: 0 5px 13px #0009, inset 0 1px #ffffff18; color: #ddd; cursor: default; user-select: none; }
+
+/* 宏镜像：只读投影——半透明底 + 锁定内联控件（连线端口仍可交互）。宏只能整体移动/删除。 */
+.blueprint-node.mirror-macro { border-style: dashed; background: linear-gradient(145deg, #2a211014, transparent 42%), linear-gradient(100deg, #191919ee, #101010eb); cursor: default; }
+.macro-mirror-badge { margin-left: auto; padding: 1px 6px; border: 1px solid #b8860b88; border-radius: 8px; background: #3a2d0d; color: #ffd970; font: 9px "Segoe UI", sans-serif; }
+.blueprint-node.mirror-macro :is(input, textarea, select, button, .ref-select-control, .array-add) { pointer-events: none; opacity: 0.65; }
+.blueprint-node.mirror-macro .dynamic-actions { display: none; }
 .function-selector { display: grid; grid-template-columns: auto minmax(120px, 1fr); align-items: center; gap: 8px; min-height: 30px; padding: 4px 12px; border-bottom: 1px solid #ffffff14; color: #d8d8d8; font-size: var(--node-control-font-size, 12px); }
 .function-selector-combo { position: relative; min-width: 0; }
 .function-selector-combo input { box-sizing: border-box; width: 100%; height: 23px; border: 1px solid #5f6f7b; border-radius: 2px; background: #20262a; color: #e7edf0; outline: none; }

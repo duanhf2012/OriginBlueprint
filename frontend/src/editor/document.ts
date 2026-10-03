@@ -117,6 +117,8 @@ export interface NodeSnapshot {
   position: { x: number; y: number }
   values: Record<string, unknown>
   properties?: NodeProperties
+  /** 宏镜像节点标记（编辑器内部，不持久化）：节点是宏引用展开的只读投影。 */
+  mirrorMacro?: boolean
 }
 
 export interface ConnectionSnapshot {
@@ -158,16 +160,12 @@ export interface MacroRefBoundary {
 
 export interface MacroRefSnapshot {
   macroId: string
-  pathHint?: string
-  commentId?: string
   frame?: { x: number; y: number; width: number; height: number }
   boundary?: MacroRefBoundary[]
-}
-
-export interface MacroInstanceSnapshot {
-  source: string
-  commentId: string
-  nodeIds: string[]
+  /** 以下为编辑器运行时字段（撤销快照/展开状态），持久化时剔除。 */
+  commentId?: string
+  pathHint?: string
+  mirrorIds?: string[]
 }
 
 export interface GraphSnapshot {
@@ -175,7 +173,6 @@ export interface GraphSnapshot {
   connections: ConnectionSnapshot[]
   groups: GroupSnapshot[]
   comments: CommentSnapshot[]
-  macroInstances: MacroInstanceSnapshot[]
   macroRefs?: MacroRefSnapshot[]
   macroId?: string
 }
